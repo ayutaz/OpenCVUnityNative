@@ -38,8 +38,30 @@
     判定にすら届かず無条件で見過ごされていた（レビューで実証済み）。
     -Include を外し -Force を付けてツリー全体を対象にし、各ファイルを
     inert（header/cmake/notice）・binary artifact（allowlist に懸ける）・
-    neither（無条件で拒否）の 3 区分に分類する。詳細は下の
-    Test-IsInert / $BinaryArtifactExtensions の定義を見よ。
+    neither（無条件で拒否）の 3 区分に分類する。
+
+    ここには不変条件が 1 つある: **ツリーの下のどのファイルも、何かに
+    積極的に認識されない限り「問題無し」の判定に到達してはならない。**
+    最初の実装はこれを 2 通りの形で破っていた。
+      - inert 判定を「拡張子だけ」または「場所だけ」の OR で決めていたため、
+        include/ や etc/ の下にあるというだけで binary（.dll 等）が
+        まるごと免除された（etc/ittnotify.dll がまさにこの検証の
+        存在理由をすり抜けた）。
+      - .cmake を「その拡張子である」というだけで inert にしていたため、
+        staticlib 配下の evil.cmake のような未知の名前も通ってしまった。
+    対策: binary artifact かどうかは拡張子だけで判定し、これを最初に行う
+    （場所は binary を免除しない）。inert は拡張子と場所の両方が期待どおり
+    のときだけ、かつ .cmake のような少数しか実在しない種類は拡張子や
+    場所ではなく名前そのもので認識する（third-party ライブラリと同じ規律）。
+    詳細は下の Test-IsInert / $InertCMakePackageFiles / $BinaryArtifactExtensions
+    の定義を見よ。
+
+    reparse point（ディレクトリ junction / symlink）も同じ不変条件を破る:
+    Get-ChildItem -Recurse はその先へ降りないため、向こう側のファイルは
+    列挙にすら現れず、「見つかりさえすれば allowlist に懸けられる」という
+    前提そのものが崩れる。追いかけようとすると循環や実装依存の挙動を
+    招くので、reparse point の存在自体を拒否する。OpenCV の install は
+    これを作らないので、存在自体が異常である。
 
     検証に通ったら、見つかった module 名を 1 行 1 件で stdout に出す。
     build-manifest.json はこれを「実際にビルドされた集合」として記録する。
@@ -125,29 +147,29 @@ function Get-RejectionReason([string]$fileName) {
 
 # --- ファイルの発見自体を allowlist にする ---
 #
-# 名前の allowlist（$PermittedOpenCvModules / $PermittedThirdPartyLibs）だけでは
-# 足りない。ittnotify.lib のときと同じ形の欠陥が一段上、「そもそも見るファイルを
-# どう選ぶか」にも存在した: 旧実装は Get-ChildItem に
-# -Include '*.lib','*.dll','*.a','*.so' を渡しており、これ自体が拡張子の
-# denylist だった。列挙されなかった拡張子（.exe、.dylib 等）は allow/deny の
-# 判定にすら届かず、無条件で見過ごされる。加えて Get-ChildItem は既定で
-# 隠しファイルを列挙しないため、隠し属性を付けるだけでも同じことが起きる。
-#
-# 対策は列挙そのものを allowlist にすることである: -Include を外し -Force を
-# 付けて「ツリーの下の全ファイル」を対象にし、各ファイルを 3 つの区分に
-# 分類する。
-#   1. inert       — headers（include/ 配下）、.cmake、notice/text（etc/ 配下）、
-#                    そしてこの検証自身が生成する build-manifest.json や
-#                    OpenCV 本体の root LICENSE。実際にビルドしたツリー
-#                    （third_party/opencv/64a038c63634）を見て確定した集合で、
-#                    見なかった。
-#   2. binary artifact — リンクされるか実行され得るもの（.lib/.a/.so/.dylib/.dll/.exe）。
-#                    既存の名前 allowlist に懸ける。
-#   3. neither      — 上記のどちらでもない未知の種類のファイル。無条件で拒否する。
-$InertTopLevelDirs = @('include', 'etc')
-$InertExtensions = @('.cmake')
-$InertRootFiles = @('LICENSE', 'build-manifest.json')
+# 不変条件: ツリーの下のどのファイルも、何かに積極的に認識されない限り
+# 「問題無し」の判定に到達してはならない。判定の順序がこれを守る鍵になる。
+#   1. binary artifact かどうかは拡張子だけで決める（最初に行う）。
+#      場所は一切関係無い — include/ や etc/ の下にあっても binary は
+#      binary であり、置き場所によって allowlist を免除しない。
+#   2. binary でなければ、拡張子と場所の両方が期待どおりのときだけ inert
+#      （headers は include/ 配下の .h/.hpp、notice/text は etc/ 配下）。
+#      .cmake のように実在するのがごく少数の決まった名前しか無い種類は、
+#      拡張子や場所ではなく third-party ライブラリと同じ規律で名前そのもの
+#      を allowlist にする — 「.cmake だから」「staticlib 配下だから」という
+#      緩い条件では evil.cmake のような未知の名前も通ってしまう。
+#   3. どちらでもなければ無条件で拒否する。
 $BinaryArtifactExtensions = @('.lib', '.a', '.so', '.dylib', '.dll', '.exe')
+
+# 実際にビルドしたツリー（third_party/opencv/64a038c63634）にある
+# .cmake package file はこの 4 つの名前だけ。root にも x64/vc17/staticlib/
+# にも同じ名前で現れるが、場所では判定しない — 名前で認識する。
+$InertCMakePackageFiles = @(
+    'OpenCVConfig.cmake', 'OpenCVConfig-version.cmake',
+    'OpenCVModules.cmake', 'OpenCVModules-release.cmake'
+)
+# root 直下にある、この検証自身が書く manifest と OpenCV 本体の LICENSE。
+$InertRootFiles = @('LICENSE', 'build-manifest.json')
 
 $rootFull = (Resolve-Path -LiteralPath $Root).ProviderPath.TrimEnd('\', '/')
 
@@ -160,10 +182,35 @@ function Get-TopLevelDir([System.IO.FileInfo]$file) {
 
 function Test-IsInert([System.IO.FileInfo]$file) {
     $topDir = (Get-TopLevelDir $file).ToLowerInvariant()
-    if ($topDir -in $InertTopLevelDirs) { return $true }
-    if ($file.Extension.ToLowerInvariant() -in $InertExtensions) { return $true }
+    $ext = $file.Extension.ToLowerInvariant()
+
+    # header: include/ 配下の .h / .hpp。拡張子と場所の両方が条件。
+    if ($topDir -eq 'include' -and $ext -in @('.h', '.hpp')) { return $true }
+
+    # notice/text: etc/ 配下の、実際にビルドしたツリーで見つかったのと
+    # 同じ種類のファイル（拡張子無しの LICENSE/README 系も含む）。
+    if ($topDir -eq 'etc' -and $ext -in @('.txt', '.md', '.ijg', '')) { return $true }
+
+    # cmake package file: 場所ではなく名前そのもので認識する。
+    if ($file.Name -in $InertCMakePackageFiles) { return $true }
+
     if ($topDir -eq '' -and $file.Name -in $InertRootFiles) { return $true }
+
     return $false
+}
+
+# reparse point（ディレクトリ junction / symlink）はそもそも辿らない —
+# Get-ChildItem -Recurse はその先へ降りないため、向こう側のファイルは
+# 列挙にすら現れない。「見つかりさえすれば allowlist に懸けられる」という
+# 前提が、reparse point の向こうでは成立しない。追いかけて解決しようと
+# すると循環や実装依存の挙動を招くので、存在自体を拒否する。OpenCV の
+# install はこれを作らないので、存在自体が異常である。
+$reparsePoints = @(Get-ChildItem -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint })
+if ($reparsePoints.Count -gt 0) {
+    $names = ($reparsePoints | ForEach-Object { $_.FullName.Substring($rootFull.Length).TrimStart('\', '/') }) -join ', '
+    [Console]::Error.WriteLine("reparse point（ディレクトリ junction / symlink）がツリーに含まれています: $names`nOpenCV の install はこれを作りません。向こう側は列挙できないため、追いかけずに拒否します。")
+    exit 1
 }
 
 # -Include を付けない: 対象拡張子を先に決め打ちすると、まさに今回のバグ
@@ -183,39 +230,41 @@ if ($files.Count -eq 0) {
 $found = @()
 $violations = @()
 foreach ($file in $files) {
-    # 0. inert（headers / cmake / notice / 本検証自身が書く manifest）は無視する。
-    if (Test-IsInert $file) { continue }
-
     $lower = $file.Name.ToLowerInvariant()
     $ext = $file.Extension.ToLowerInvariant()
 
-    # 3. binary artifact（リンクされる・実行され得る）以外の未知の種類は
-    #    無条件で拒否する。inert の想定漏れとバイナリの想定漏れを
-    #    同じ「わからないものは拒否」に倒す。
-    if ($ext -notin $BinaryArtifactExtensions) {
-        $violations += "  $($file.Name) — 未知の種類のファイルです（拡張子 '$ext'）。inert（header/cmake/notice）か binary artifact のどちらに区分するかを決めたうえで tools/verify-opencv-artifact.ps1 を更新してください"
-        continue
-    }
-
-    # 1. 受け入れると決めた OpenCV module か（opencv_<name><version>.(lib|a) の形で、
-    #    かつ name が $PermittedOpenCvModules に入っているもの）。
-    if ($file.Name -match '^opencv_(?<name>[a-z0-9_]+?)\d*\.(lib|a)$') {
-        $moduleName = $Matches['name']
-        if ($moduleName -in $PermittedOpenCvModules) {
-            $found += $moduleName
+    # 1. binary artifact かどうかを最初に、拡張子だけで決める。場所は
+    #    binary を免除しない — これが include/evil.dll と etc/ittnotify.dll
+    #    を構造的に閉じる部分である。
+    if ($ext -in $BinaryArtifactExtensions) {
+        # 受け入れると決めた OpenCV module か（opencv_<name><version>.(lib|a)
+        # の形で、かつ name が $PermittedOpenCvModules に入っているもの）。
+        if ($file.Name -match '^opencv_(?<name>[a-z0-9_]+?)\d*\.(lib|a)$') {
+            $moduleName = $Matches['name']
+            if ($moduleName -in $PermittedOpenCvModules) {
+                $found += $moduleName
+                continue
+            }
+            $violations += "  $($file.Name) — OpenCV module '$moduleName' は許可リストに無い ($(Get-RejectionReason $file.Name))"
             continue
         }
-        $violations += "  $($file.Name) — OpenCV module '$moduleName' は許可リストに無い ($(Get-RejectionReason $file.Name))"
+
+        # 明示的に受け入れた third-party ライブラリか。
+        if ($lower -in ($PermittedThirdPartyLibs | ForEach-Object { $_.ToLowerInvariant() })) {
+            continue
+        }
+
+        # どちらでもなければ拒否。
+        $violations += "  $($file.Name) — $(Get-RejectionReason $file.Name)"
         continue
     }
 
-    # 2. 明示的に受け入れた third-party ライブラリか。
-    if ($lower -in ($PermittedThirdPartyLibs | ForEach-Object { $_.ToLowerInvariant() })) {
-        continue
-    }
+    # 2. binary でなければ、拡張子と場所の両方が期待どおりのときだけ inert。
+    if (Test-IsInert $file) { continue }
 
-    # どちらでもなければ拒否。
-    $violations += "  $($file.Name) — $(Get-RejectionReason $file.Name)"
+    # 3. inert でも binary artifact でもない、未知の種類のファイルは
+    #    無条件で拒否する。
+    $violations += "  $($file.Name) — 未知の種類のファイルです（拡張子 '$ext'）。inert（header/cmake/notice）か binary artifact のどちらに区分するかを決めたうえで tools/verify-opencv-artifact.ps1 を更新してください"
 }
 
 if ($violations.Count -gt 0) {

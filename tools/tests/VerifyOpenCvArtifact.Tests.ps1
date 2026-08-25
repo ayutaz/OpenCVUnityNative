@@ -132,6 +132,57 @@ Set-Content -Path $hiddenPath -Value 'stub'
 & pwsh -NoProfile -File $verify -Root $hiddenRoot 2>&1 | Out-Null
 Assert-That ($LASTEXITCODE -ne 0) 'a hidden unrecognised .lib is rejected'
 
+# レビュー第 3 ラウンド: 「見つかりさえすれば、名前 allowlist に懸けられる」
+# だけでは足りなかった。inert 判定を拡張子だけ（$InertExtensions の .cmake）
+# または場所だけ（$InertTopLevelDirs の include/etc）のどちらか一方で
+# 決めていたため、"場所だけ" ルールが binary をまるごと免除していた。
+# etc/ittnotify.dll がまさにこの検証の存在理由そのものをすり抜けた。
+
+# .cmake が staticlib 配下ならどこでも inert、というのは緩すぎる。
+# 実際のツリーにある .cmake は OpenCVConfig.cmake 等の決まった名前だけで、
+# 「拡張子が .cmake だから」というだけで無条件に許してはならない。
+$evilCmake = New-Tree $allowed
+Set-Content -Path (Join-Path $evilCmake 'x64/vc17/staticlib/evil.cmake') -Value 'stub'
+& pwsh -NoProfile -File $verify -Root $evilCmake 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an unrecognised .cmake file under staticlib is rejected'
+
+# include/ 配下だからといって無条件に inert にすると、binary が
+# 紛れ込んでも場所だけで免除されてしまう。
+$evilInclude = New-Tree $allowed
+New-Item -ItemType Directory -Force -Path (Join-Path $evilInclude 'include') | Out-Null
+Set-Content -Path (Join-Path $evilInclude 'include/evil.dll') -Value 'stub'
+& pwsh -NoProfile -File $verify -Root $evilInclude 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'a binary under include/ is rejected regardless of location'
+
+# etc/ 配下も同様。しかもこれは本検証の存在理由そのもの
+# （ittnotify）が、置き場所を変えるだけですり抜けるという最悪の形。
+$evilEtc = New-Tree $allowed
+New-Item -ItemType Directory -Force -Path (Join-Path $evilEtc 'etc') | Out-Null
+Set-Content -Path (Join-Path $evilEtc 'etc/ittnotify.dll') -Value 'stub'
+& pwsh -NoProfile -File $verify -Root $evilEtc 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'ittnotify.dll under etc/ is rejected (location must never exempt a binary)'
+
+# ディレクトリ junction。Get-ChildItem -Recurse は reparse point の先へ
+# 降りていかないため、その向こうにあるファイル（payload.dll）は
+# 列挙にすら現れない。追いかけるのではなく、reparse point の存在自体を
+# 拒否する。OpenCV の install はこれを作らないので、存在自体が異常である。
+$junctionRoot = New-Tree $allowed
+$junctionTarget = Join-Path $temp "junction-target-$(Get-Random)"
+New-Item -ItemType Directory -Force -Path $junctionTarget | Out-Null
+Set-Content -Path (Join-Path $junctionTarget 'payload.dll') -Value 'stub'
+New-Item -ItemType Junction -Path (Join-Path $junctionRoot 'x64/vc17/staticlib/linked') -Target $junctionTarget | Out-Null
+& pwsh -NoProfile -File $verify -Root $junctionRoot 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'a reparse point (directory junction) under the tree is rejected'
+
+# レビューで「既に落ちる」と確認済みの 2 件。回帰しないよう固定する。
+$suspicious = New-Tree ($allowed + 'suspicious')
+& pwsh -NoProfile -File $verify -Root $suspicious 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an unrecognised extensionless file is rejected'
+
+$upperCaseLib = New-Tree ($allowed + 'unwanted.LIB')
+& pwsh -NoProfile -File $verify -Root $upperCaseLib 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an unrecognised library with an uppercase extension (unwanted.LIB) is rejected'
+
 # 検出結果の出力
 $listing = & pwsh -NoProfile -File $verify -Root $ok
 Assert-That ($listing -contains 'core') 'reports the modules it found'
