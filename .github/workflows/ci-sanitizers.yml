@@ -1,0 +1,38 @@
+name: ci-sanitizers
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-sanitizers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asan-windows:
+    name: Windows x64 AddressSanitizer (L2)
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache CMake FetchContent (googletest)
+        uses: actions/cache@v4
+        with:
+          path: build/windows-x64-asan/_deps
+          key: fetchcontent-asan-windows-${{ hashFiles('native/tests/CMakeLists.txt') }}
+
+      - name: Run native tests under AddressSanitizer
+        shell: pwsh
+        run: ./tools/dev.ps1 test-asan
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-asan-windows
+          path: artifacts/test-results/
+          if-no-files-found: warn

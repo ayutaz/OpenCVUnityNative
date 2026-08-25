@@ -2,7 +2,7 @@
 
 OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible native UPM package.
 
-> **Status: planning.** No implementation exists yet. Everything below describes intent, not shipped functionality.
+> **Status: early development (M0).** The automated test harness (native GoogleTest lane, AddressSanitizer lane, and managed P/Invoke contract lane) exists and passes locally and in CI. No OpenCV integration exists yet — the C ABI is still a skeleton.
 
 ## What this is
 
@@ -22,10 +22,43 @@ Reimplementing OpenCV algorithms. Hand-wrapping the entire OpenCV API up front. 
 
 Windows, macOS and Linux first, then Android and iOS, then Web/Wasm. Unity 6000.x only.
 
+## Requirements
+
+- Visual Studio 2022 with the C++ desktop workload
+- CMake 3.25+
+- .NET 8 SDK or newer
+- PowerShell 7+
+
+## Development
+
+All local development goes through `tools/dev.ps1`:
+
+```powershell
+# Both fast lanes (L1 native GoogleTest + L3 managed P/Invoke contract tests)
+./tools/dev.ps1 test
+
+# Individual lanes
+./tools/dev.ps1 build
+./tools/dev.ps1 test-native
+./tools/dev.ps1 test-managed
+
+# AddressSanitizer lane (L2)
+./tools/dev.ps1 test-asan
+
+# Remove build output
+./tools/dev.ps1 clean
+```
+
+CI calls the same `tools/dev.ps1` script — there are no CI-only procedures. A local green run is an approximation kept for speed; CI decides mergeability.
+
 ## License
 
 Apache License 2.0. Note that the project's own source being Apache-2.0 does not by itself determine the terms of third-party code linked into a distributed binary — dependencies are constrained by an allowlist and documented per build profile.
 
 ## Documentation
 
-Design and research documents (in Japanese) live under `docs/` and land on `main` as the work is merged.
+Design and research documents (in Japanese) live under `docs/`:
+
+- [Roadmap](docs/roadmap.md)
+- [Unity/OpenCV integration research and plan](docs/unity-opencv-integration-research-and-plan.md)
+- [Native backend language TDD evaluation](docs/native-backend-language-tdd-evaluation.md)
