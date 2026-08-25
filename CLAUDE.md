@@ -168,6 +168,28 @@ M1 以降で確定が必要な残りの事項（計画書 §12 のうち未決�
 
 ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになった。`bindings/`（M5）と `tests/UnityProject/`（M2）はまだ無い。
 
+## 変更を main へ入れるまで
+
+**人間のレビューは挟まない。したがって PR を出す前の AI レビューが唯一のゲートである。**
+この順序を守ること。
+
+1. **main で直接作業しない。** ブランチを切る。
+2. 実装する（TDD。マイルストーン作業なら該当する計画に従う）。
+3. **ローカルで全レーンを回す** — `tools/dev.ps1 test`、メモリを触ったなら `test-asan` も。
+4. **AI レビューをここで行う。** PR を出した後ではない。差分全体を、タスク単位ではなく
+   ブランチ単位で見る。指摘が出たら修正し、修正差分をスコープを絞って再レビューする。
+   マイルストーンの完了なら `milestone-complete` skill の手順を踏む。
+5. push して PR を作る。PR 本文には、何を成立させたか・実測値・**意図的に見送ったもの**を書く。
+   穴があるなら隠さず書く。読むのは将来の自分と外部の利用者である。
+6. **CI が全パスしたらマージする。** 落ちたら直す。ローカルが緑で CI が赤なら CI が正しい。
+
+マージ方式は **squash のみ**（リポジトリ設定で merge commit と rebase は無効）。main には
+1 コミットしか残らないので、squash の本文にそのブランチの要約を書く。個々のコミットは
+PR ページに残る。
+
+この流れの帰結として、**PR は「レビューしてもらう場」ではなく「CI に判定させる場」**である。
+レビューで見つかるはずだったものは、PR を出した時点で全部潰れていなければならない。
+
 ## このリポジトリの skill と hook
 
 `.claude/` にプロジェクト固有の skill と hook がある。いずれもコミット済みで、
