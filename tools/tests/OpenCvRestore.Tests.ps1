@@ -88,6 +88,39 @@ catch { $manifestOkA = $false }
 Assert-That $manifestOkA 're-downloaded manifest (case A) parses and has the correct configHash'
 
 # ============================================================
+# ケース A2: レビュー第 3 ラウンドで見つかった 4 つの危険な形。
+# ConvertFrom-Json 自体は例外を投げず（zero-byte / whitespace-only /
+# `[]` は $null を、`42` は Int64 を返して）成功するため、
+# パース部分だけを try/catch していた版ではここを素通りし、
+# 直後の `.PSObject.Properties.Name` アクセスが StrictMode 下で
+# 例外を投げて Invoke-Restore の try/finally の外側で restore 全体を
+# 落とし、後始末も走らず壊れた manifest がそのまま残った。
+# ============================================================
+$dangerousShapes = [ordered]@{
+    'zero-byte file'      = ''
+    'empty JSON array []' = '[]'
+    'bare number 42'      = '42'
+    'whitespace only'     = '   '
+}
+foreach ($shapeName in $dangerousShapes.Keys) {
+    Write-Host "== case A2 ($shapeName): must self-heal, not crash ==" -ForegroundColor Cyan
+    # Set-Content ではなく File API を使う: -NoNewline を付けても
+    # Set-Content は空文字列に対して厳密に 0 バイトのファイルを作らない
+    # ことがあり、再現したい形（本当に空／本当に空白のみ）と
+    # ずれてしまう。
+    [System.IO.File]::WriteAllText($manifestPath, $dangerousShapes[$shapeName])
+    $resultShape = Invoke-RestoreProcess
+    Assert-That ($resultShape.ExitCode -eq 0) "case A2 ($shapeName): restore exits 0 (self-heals rather than crashing)"
+    $manifestOkShape = $false
+    try {
+        $manifestShape = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $manifestOkShape = ($manifestShape.configHash -eq $configHash)
+    }
+    catch { $manifestOkShape = $false }
+    Assert-That $manifestOkShape "case A2 ($shapeName): re-downloaded manifest parses and has the correct configHash"
+}
+
+# ============================================================
 # ケース B: マニフェストの configHash は正しいが、実体のファイルが
 # 足りない（download が途中で中断された木を模す）。
 # 「マニフェストが正しい」だけでは足りず、allowlist 検証

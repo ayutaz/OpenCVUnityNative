@@ -114,22 +114,30 @@ function Test-OpenCvTreeValid([string]$ManifestPath) {
     # マニフェストがパースできて期待する configHash と一致し、かつ
     # allowlist 検証（Invoke-Verify、実ファイルを見る）まで通って初めて
     # 有効とみなす。
+    #
+    # 判定は「無効な形をこれとこれとして潰す」のではなく「有効だと
+    # 積極的に立証できなければ無効」にする。前者は書いた本人が思いついた
+    # 形しか塞げない。実際、パース部分だけを try/catch していた版は
+    # zero-byte・`[]`・`42`・空白のみの 4 形で、ConvertFrom-Json 自体は
+    # 例外を投げず（$null や scalar を返して）成功し、その直後の
+    # `.PSObject.Properties.Name` アクセスが StrictMode 下で例外を投げて
+    # 素通りした（Invoke-Restore の try/finally より外側なので後始末も
+    # 走らない）。検証全体を 1 つの try/catch に入れることで、
+    # 「どの行で失敗するか」を将来また誰かが見落としても構造的に
+    # 無効側に倒れる。
     try {
         $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-    }
-    catch {
-        return $false
-    }
-    if (-not (($manifest.PSObject.Properties.Name -contains 'configHash') -and ($manifest.configHash -eq $ConfigHash))) {
-        return $false
-    }
-    try {
+        if ($null -eq $manifest) { return $false }
+        if ($manifest -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+        if (-not (($manifest.PSObject.Properties.Name -contains 'configHash') -and ($manifest.configHash -eq $ConfigHash))) {
+            return $false
+        }
         Invoke-Verify | Out-Null
+        return $true
     }
     catch {
         return $false
     }
-    return $true
 }
 
 function Invoke-Restore {
@@ -187,7 +195,26 @@ function Invoke-Restore {
             Write-RestoreFailure "artifact の configHash は '$($manifest.configHash)' で、期待する '$ConfigHash' と異なります。"
         }
 
-        Invoke-Verify | Out-Null
+        # ここでの失敗（新しく取得した artifact が allowlist を通らない）は
+        # 通常起き得ない — CI 自身が publish 前に同じ検証を通している
+        # はずだから。それでも起きたら、生の throw を素通りさせず
+        # Write-RestoreFailure を通す。$succeeded が立たないまま
+        # 下の finally に落ちるので、後始末（$OpenCvRoot の削除）は
+        # 変わらず起こる。
+        try {
+            Invoke-Verify | Out-Null
+        }
+        catch {
+            Write-RestoreFailure (@(
+                "artifact '$ArtifactName' は取得できましたが、allowlist 検証に失敗しました。"
+                ''
+                $_.Exception.Message
+                ''
+                'CI が公開した artifact 自体が壊れているか、想定外の依存を含んでいる可能性があります。'
+                'build ワークフローのログを確認するか、再実行してください:'
+                '  gh workflow run build-opencv.yml'
+            ) -join "`n")
+        }
         $succeeded = $true
     }
     finally {
