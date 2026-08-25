@@ -1,0 +1,10 @@
+build/
+third_party/
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
+.vscode/
+TestResults/
+artifacts/
+.superpowers/
