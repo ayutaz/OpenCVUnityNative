@@ -1,5 +1,6 @@
 using System;
 using CvUnity;
+using CvUnity.Interop;
 using Xunit;
 
 namespace CvUnity.Tests.Managed
@@ -17,7 +18,7 @@ namespace CvUnity.Tests.Managed
         {
             var status = CvNative.DebugThrow(0);
 
-            Assert.Equal((int)CvStatus.UnknownError, status);
+            Assert.Equal(CvStatus.UnknownError, status);
             Assert.Equal(CvStatus.UnknownError, CvNative.GetLastErrorStatus());
             Assert.Contains("ocvu_debug_throw", CvNative.GetLastErrorMessage());
         }
@@ -27,7 +28,7 @@ namespace CvUnity.Tests.Managed
         {
             var status = CvNative.DebugThrow(1);
 
-            Assert.Equal((int)CvStatus.OutOfMemory, status);
+            Assert.Equal(CvStatus.OutOfMemory, status);
         }
 
         [Fact]
@@ -35,7 +36,7 @@ namespace CvUnity.Tests.Managed
         {
             var status = CvNative.DebugThrow(2);
 
-            Assert.Equal((int)CvStatus.UnknownError, status);
+            Assert.Equal(CvStatus.UnknownError, status);
             Assert.NotEmpty(CvNative.GetLastErrorMessage());
         }
 
@@ -46,7 +47,7 @@ namespace CvUnity.Tests.Managed
 
             var status = CvNative.DebugThrow(3);
 
-            Assert.Equal((int)CvStatus.Ok, status);
+            Assert.Equal(CvStatus.Ok, status);
             Assert.Equal(CvStatus.Ok, CvNative.GetLastErrorStatus());
             Assert.Equal(string.Empty, CvNative.GetLastErrorMessage());
         }
@@ -66,7 +67,50 @@ namespace CvUnity.Tests.Managed
         [Fact]
         public void ThrowIfFailed_DoesNothingOnOk()
         {
-            CvNative.ThrowIfFailed((int)CvStatus.Ok);
+            CvNative.ThrowIfFailed(CvStatus.Ok);
+        }
+
+        [Fact]
+        public void SizeQuery_ReturnsBufferTooSmallRatherThanInvalidArgument()
+        {
+            CvNative.DebugThrow(0);
+
+            int required;
+            var status = (CvStatus)NativeMethods.ocvu_get_last_error_message(
+                null, 0, out required);
+
+            Assert.Equal(CvStatus.BufferTooSmall, status);
+            Assert.True(required > 1, "required must include the message plus its NUL");
+        }
+
+        [Fact]
+        public void UndersizedBuffer_ReturnsBufferTooSmallAndStillReportsRequiredSize()
+        {
+            CvNative.DebugThrow(0);
+
+            int required;
+            NativeMethods.ocvu_get_last_error_message(null, 0, out required);
+
+            var tooSmall = new byte[required - 1];
+            int reported;
+            var status = (CvStatus)NativeMethods.ocvu_get_last_error_message(
+                tooSmall, tooSmall.Length, out reported);
+
+            Assert.Equal(CvStatus.BufferTooSmall, status);
+            Assert.Equal(required, reported);
+        }
+
+        [Fact]
+        public void BufferTooSmall_IsNotAFailure()
+        {
+            // サイズ問い合わせは正規の使い方なので、一律の例外変換に巻き込まれてはならない。
+            // ここが失敗すると、文字列を返すすべての API が 2 回呼びのたびに例外を投げる。
+            Assert.False(CvNative.IsFailure(CvStatus.BufferTooSmall));
+            Assert.False(CvNative.IsFailure(CvStatus.Ok));
+            Assert.True(CvNative.IsFailure(CvStatus.InvalidArgument));
+            Assert.True(CvNative.IsFailure(CvStatus.NullPointer));
+
+            CvNative.ThrowIfFailed(CvStatus.BufferTooSmall);
         }
 
         [Fact]

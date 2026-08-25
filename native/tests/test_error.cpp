@@ -13,7 +13,7 @@ namespace {
 std::string ReadLastErrorMessage() {
     int32_t required = 0;
     const ocvu_status query = ocvu_get_last_error_message(nullptr, 0, &required);
-    EXPECT_EQ(query, OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(query, OCVU_STATUS_BUFFER_TOO_SMALL);
     if (required <= 1) {
         return std::string();
     }
@@ -58,7 +58,7 @@ TEST(LastError, ReportsRequiredSizeIncludingNulTerminator) {
     ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT, "abcd");
     int32_t required = 0;
     EXPECT_EQ(ocvu_get_last_error_message(nullptr, 0, &required),
-              OCVU_STATUS_INVALID_ARGUMENT);
+              OCVU_STATUS_BUFFER_TOO_SMALL);
     EXPECT_EQ(required, 5);
 }
 
@@ -67,7 +67,7 @@ TEST(LastError, RejectsTooSmallBuffer) {
     char small[2] = {0};
     int32_t required = 0;
     EXPECT_EQ(ocvu_get_last_error_message(small, 2, &required),
-              OCVU_STATUS_INVALID_ARGUMENT);
+              OCVU_STATUS_BUFFER_TOO_SMALL);
     EXPECT_EQ(required, 5);
 }
 
@@ -117,7 +117,7 @@ TEST(LastError, StoresAMessageThatExactlyFillsTheBuffer) {
 
     int32_t required = 0;
     EXPECT_EQ(ocvu_get_last_error_message(nullptr, 0, &required),
-              OCVU_STATUS_INVALID_ARGUMENT);
+              OCVU_STATUS_BUFFER_TOO_SMALL);
     EXPECT_EQ(required, static_cast<int32_t>(ocvu::kLastErrorMessageCapacity));
     EXPECT_EQ(ReadLastErrorMessage(), message);
 }
@@ -138,7 +138,7 @@ TEST(LastError, TruncatesAVeryLongMessageAndKeepsTheContractExact) {
     // out_required_size は「実際に取得できるバイト数 + NUL」でなければならない。
     int32_t required = 0;
     EXPECT_EQ(ocvu_get_last_error_message(nullptr, 0, &required),
-              OCVU_STATUS_INVALID_ARGUMENT);
+              OCVU_STATUS_BUFFER_TOO_SMALL);
     EXPECT_EQ(required, static_cast<int32_t>(ocvu::kLastErrorMessageCapacity));
 
     // required ちょうどのバッファで成功し、NUL 終端されていること。
@@ -154,7 +154,7 @@ TEST(LastError, TruncatesAVeryLongMessageAndKeepsTheContractExact) {
     // required より 1 バイト小さいバッファは拒否されること。
     std::vector<char> small(static_cast<size_t>(required) - 1, '\0');
     EXPECT_EQ(ocvu_get_last_error_message(small.data(), required - 1, &reported),
-              OCVU_STATUS_INVALID_ARGUMENT);
+              OCVU_STATUS_BUFFER_TOO_SMALL);
     EXPECT_EQ(reported, required);
 }
 

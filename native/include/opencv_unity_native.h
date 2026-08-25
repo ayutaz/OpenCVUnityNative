@@ -31,14 +31,22 @@ typedef int32_t ocvu_status;
  * ocvu_get_status_count / ocvu_get_status_value が公開する表が同時に増える。
  * C# 側（CvUnity.CvStatus）へは自動では伝播しないので必ず手で追随すること。
  * 追随し忘れは L3 の StatusCodeSyncTests が赤にする。
+ *
+ * すべての非 OK が「失敗」ではない。OCVU_STATUS_BUFFER_TOO_SMALL は
+ * サイズ問い合わせの正常な結果であって、呼び出し側の誤りではない。
+ * 出力バッファを取る関数は、buffer に NULL を渡して必要サイズだけを聞く
+ * 使い方を正規の経路として認めており、そのとき返るのがこの status である。
+ * status を一律に例外へ変換する wrapper は、これを失敗として扱ってはならない
+ * （C# 側の対応は CvNative.IsFailure）。M5 の generator もこの区別を読む前提で書くこと。
  */
-#define OCVU_STATUS_LIST(X)            \
-    X(OCVU_STATUS_OK,               0) \
-    X(OCVU_STATUS_INVALID_ARGUMENT, 1) \
-    X(OCVU_STATUS_NULL_POINTER,     2) \
-    X(OCVU_STATUS_OUT_OF_MEMORY,    3) \
-    X(OCVU_STATUS_OPENCV_ERROR,     4) \
-    X(OCVU_STATUS_UNKNOWN_ERROR,    5)
+#define OCVU_STATUS_LIST(X)               \
+    X(OCVU_STATUS_OK,                  0) \
+    X(OCVU_STATUS_INVALID_ARGUMENT,    1) \
+    X(OCVU_STATUS_NULL_POINTER,        2) \
+    X(OCVU_STATUS_OUT_OF_MEMORY,       3) \
+    X(OCVU_STATUS_OPENCV_ERROR,        4) \
+    X(OCVU_STATUS_UNKNOWN_ERROR,       5) \
+    X(OCVU_STATUS_BUFFER_TOO_SMALL,    6)
 
 #define OCVU_STATUS_ENUMERATOR_(name, value) name = value,
 enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
@@ -59,8 +67,11 @@ OCVU_API ocvu_status ocvu_get_last_error_status(void);
  *
  * out_required_size は必須で、NUL を含む必要バイト数が常に書かれる。
  * buffer が NULL、または buffer_size が必要量未満の場合は
- * OCVU_STATUS_INVALID_ARGUMENT を返す（サイズ問い合わせとして使える）。
+ * OCVU_STATUS_BUFFER_TOO_SMALL を返す。これは失敗ではなく、
+ * 必要サイズを問い合わせる正規の使い方の結果である（buffer に NULL を
+ * 渡してサイズだけ聞き、その大きさで確保して呼び直す）。
  * out_required_size が NULL の場合は OCVU_STATUS_NULL_POINTER を返す。
+ * こちらは呼び出し側の誤りである。
  *
  * 保持できるメッセージ長には上限があり、超過分は UTF-8 の文字境界で
  * 切り詰められる（native/src/ocvu_error.h を参照）。切り詰めが起きても

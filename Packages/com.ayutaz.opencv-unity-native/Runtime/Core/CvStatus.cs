@@ -13,5 +13,13 @@ namespace CvUnity
         OutOfMemory = 3,
         OpenCvError = 4,
         UnknownError = 5,
+
+        /// <summary>
+        /// 出力バッファが必要量に満たない。**失敗ではなく、必要サイズを
+        /// 問い合わせる正規の使い方の結果である。** buffer に null を渡して
+        /// サイズだけを聞き、返った大きさで確保して呼び直す。
+        /// status を一律に例外へ変換する経路で、これを失敗として扱わないこと。
+        /// </summary>
+        BufferTooSmall = 6,
     }
 }
