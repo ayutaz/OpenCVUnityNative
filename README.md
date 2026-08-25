@@ -43,7 +43,7 @@ This downloads the prebuilt OpenCV 5.0.0 artifact CI publishes for the current c
 All local development after that goes through `tools/dev.ps1`:
 
 ```powershell
-# Both fast lanes (L1 native GoogleTest + L3 managed P/Invoke contract tests)
+# The fast tools tests plus both native lanes (L1 GoogleTest + L3 managed P/Invoke)
 ./tools/dev.ps1 test
 
 # Individual lanes

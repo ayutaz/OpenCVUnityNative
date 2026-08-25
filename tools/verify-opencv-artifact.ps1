@@ -68,7 +68,11 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][string]$Root
+    [Parameter(Mandatory)][string]$Root,
+
+    # 同梱ライセンスの一覧と突き合わせる公開用の通知文書。既定はリポジトリ
+    # 直下。artifact ツリーの外にあるので、$Root とは別に受け取る。
+    [string]$NoticesPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'THIRD_PARTY_NOTICES.md')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -213,21 +217,40 @@ function Get-TopLevelDir([System.IO.FileInfo]$file) {
     return ''
 }
 
+function Get-RelativePath([System.IO.FileInfo]$file) {
+    return $file.FullName.Substring($rootFull.Length).TrimStart('\', '/') -replace '\\', '/'
+}
+
 function Test-IsInert([System.IO.FileInfo]$file) {
-    $topDir = (Get-TopLevelDir $file).ToLowerInvariant()
+    $relative = (Get-RelativePath $file).ToLowerInvariant()
     $ext = $file.Extension.ToLowerInvariant()
 
-    # header: include/ 配下の .h / .hpp。拡張子と場所の両方が条件。
-    if ($topDir -eq 'include' -and $ext -in @('.h', '.hpp')) { return $true }
+    # header: include/opencv2/ 配下の .h / .hpp のみ。
+    #
+    # 以前は「top-level が include」かつ「拡張子が .h/.hpp」だけを見ていた。
+    # それは C1 で etc/ について批判したのと同じ形（場所と拡張子で通し、
+    # 由来を何も見ない）で、include/ にそのまま残っていた（再レビュー F9）。
+    # OpenCV の install が置く header は必ず include/opencv2/ の下であり
+    # （実測: このツリーの include/ 直下は opencv2 のみ）、そこに限定すれば
+    # 「OpenCV が置いたものである」ことを積極的に認識したことになる。
+    # include/ 直下や include/<別名>/ に来たものは分類されず reject される。
+    if ($relative -like 'include/opencv2/*' -and $ext -in @('.h', '.hpp')) { return $true }
 
     # notice/text: etc/licenses/ 配下の、名前そのものを allowlist にした
     # ファイルだけ。拡張子や場所だけでは判定しない — $InertLicenseFiles を見よ。
-    if ($topDir -eq 'etc' -and $file.Name -in $InertLicenseFiles) { return $true }
+    #
+    # 場所の条件も etc/licenses/ に限定する。以前は top-level が etc であれば
+    # よく、etc/foo/bar/zlib-LICENSE も通った。名前 allowlist が主たる門に
+    # なった後も、コメントは「etc/licenses/ 配下の」と書いているのに実装は
+    # そう読んでいなかった（再レビュー F8）。
+    if ($relative -like 'etc/licenses/*' -and $file.Name -in $InertLicenseFiles) { return $true }
 
     # cmake package file: 場所ではなく名前そのもので認識する。
     if ($file.Name -in $InertCMakePackageFiles) { return $true }
 
-    if ($topDir -eq '' -and $file.Name -in $InertRootFiles) { return $true }
+    # root 直下（相対パスに '/' を含まない）だけ。サブディレクトリに同名の
+    # ファイルが現れても通さない。
+    if ($relative -notmatch '/' -and $file.Name -in $InertRootFiles) { return $true }
 
     return $false
 }
@@ -326,6 +349,39 @@ if ($missing.Count -gt 0) {
                 "見つかったもの: $($found -join ', ')"
                 'BUILD_LIST の指定か、モジュール名を確認してください。'
                 'OpenCV 5 では features2d -> features、calib3d -> calib/geometry に再編されています。'
+            ) -join "`n"))
+    exit 1
+}
+
+# $InertLicenseFiles に載っている名前が、公開用の通知文書にも現れることを確かめる。
+#
+# ここが無いと次の抜け方が残る（再レビュー F5）。OpenCV が新しい third-party の
+# license ファイルを etc/licenses/ に置く -> このスクリプトが unclassified で
+# 落ちる -> 直す人が $InertLicenseFiles に名前を足す -> 緑に戻る。
+# THIRD_PARTY_NOTICES.md を更新しなくても、何も赤くならない。
+#
+# 「両方を更新せよ」という指示は $InertLicenseFiles の隣のコメントにあったが、
+# 指示は検査ではない。C1 が Critical だったのは、配布物に入っているものが
+# 利用者向けの表示に出ていなかったからで、その経路をここで閉じる。
+if (-not (Test-Path -LiteralPath $NoticesPath)) {
+    [Console]::Error.WriteLine((@(
+                "通知文書が見つかりません: $NoticesPath"
+                'ライセンス一覧と突き合わせられないため、検証を成功にはできません。'
+                '別の場所にあるなら -NoticesPath で指定してください。'
+            ) -join "`n"))
+    exit 1
+}
+
+$noticesText = Get-Content -LiteralPath $NoticesPath -Raw
+$undocumented = @($InertLicenseFiles | Where-Object { $noticesText -notlike "*$_*" })
+if ($undocumented.Count -gt 0) {
+    [Console]::Error.WriteLine((@(
+                "同梱される license ファイルが THIRD_PARTY_NOTICES.md に記載されていません:"
+                ($undocumented | ForEach-Object { "  $_" })
+                ''
+                'これらは artifact に含まれて配布されます。$InertLicenseFiles に名前を'
+                '足すだけでは足りません — 利用者が読む文書にも載せてください。'
+                "対象文書: $NoticesPath"
             ) -join "`n"))
     exit 1
 }

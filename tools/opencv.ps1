@@ -94,8 +94,13 @@ function Invoke-Build {
     # summary は cv::getBuildInformation() が実行時に返す文字列と同じ内容
     # なので、まだビルドしていない opencv_unity_native.dll を経由しなくても
     # ここで一度に取れる。
-    $configureOutputLines = & cmake @cmakeArgs 2>&1
-    $configureOutputLines | ForEach-Object { Write-Host $_ }
+    # 出力を溜めてから出すと、configure が固まったとき CI ログが job timeout
+    # （150 分）まで無言になる。パイプの途中で書き出しつつ後段へも流す
+    # （再レビュー F10）。summary の抽出はこの変数から行う。
+    $configureOutputLines = & cmake @cmakeArgs 2>&1 | ForEach-Object {
+        Write-Host $_   # その場で流す
+        $_              # 変数にも残す（summary の抽出に使う）
+    }
     if ($LASTEXITCODE -ne 0) { throw "configure OpenCV failed with exit code $LASTEXITCODE" }
 
     Invoke-Checked {

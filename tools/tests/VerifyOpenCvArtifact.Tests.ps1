@@ -223,6 +223,35 @@ Assert-That ($listing -contains 'imgproc') 'reports imgproc'
 
 Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue
 
+# --- 一覧と通知文書の突き合わせ（再レビュー F5）---
+#
+# 名前 allowlist だけだと 1 段先が空いていた: 新しい license ファイルが現れる
+# -> verify が落ちる -> $InertLicenseFiles に名前を足す -> 緑に戻る。
+# THIRD_PARTY_NOTICES.md を更新しなくても何も赤くならない。配布物に入って
+# いるものが利用者向けの表示に出ない、というのが C1 の中身だったので、
+# その経路を検査で閉じたことをここで固定する。
+$noticesStub = Join-Path ([System.IO.Path]::GetTempPath()) ("notices-" + [guid]::NewGuid().ToString('n') + ".md")
+
+# 上の $withLicenses は既に後片付けされている場合があるので、この節は
+# 自前でツリーを作る。テスト同士が状態を共有しないほうが読みやすい。
+$noticesTree = New-TreeWithLicenses $allowed $knownLicenseFiles
+
+# 実在する 13 件をすべて載せた文書なら通る。
+Set-Content -Path $noticesStub -Value ($knownLicenseFiles -join "`n")
+& pwsh -NoProfile -File $verify -Root $noticesTree -NoticesPath $noticesStub | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'a notices document listing every bundled license passes'
+
+# 1 件でも欠けると落ち、欠けている名前がメッセージに出る。
+Set-Content -Path $noticesStub -Value (($knownLicenseFiles | Select-Object -Skip 1) -join "`n")
+$missingOutput = & pwsh -NoProfile -File $verify -Root $noticesTree -NoticesPath $noticesStub 2>&1 | Out-String
+Assert-That ($LASTEXITCODE -ne 0) 'a notices document missing a bundled license is rejected'
+Assert-That ($missingOutput -match [regex]::Escape($knownLicenseFiles[0])) 'the rejection names the undocumented license file'
+
+# 文書そのものが無い場合も、黙って通してはならない。
+Remove-Item -LiteralPath $noticesStub -Force
+& pwsh -NoProfile -File $verify -Root $noticesTree -NoticesPath $noticesStub 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'a missing notices document fails rather than being skipped'
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

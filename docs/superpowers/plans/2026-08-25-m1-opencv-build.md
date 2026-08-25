@@ -1,5 +1,11 @@
 # M1: OpenCV 5.0.0 の再現可能ビルドとキャッシュ Implementation Plan
 
+> **実装後の注記。** 本文中の「30〜60 分」は実装前の見積もりであり、実測ではない。
+> CI の実測は **4 分 09 秒**（build step、run 32849957498）。ローカルビルドの所要は
+> 未計測のまま。以下の見積もりは当時の判断材料として残してあるので、数字を引く
+> ときは実測値（`CLAUDE.md` と `docs/roadmap.md`）を見ること。
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** allowlist 構成の OpenCV 5.0.0 を CI がビルドして artifact として公開し、ローカルは download だけで使える状態にする。想定外の依存がバイナリに入ったら CI が落ちる。
