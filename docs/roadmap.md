@@ -157,8 +157,8 @@ API の広さを追わず、**ownership / stride / pixel format / エラー / IL
 
 **完了条件**
 
-- `ocvu_mat_*`（create / wrap / clone / query / release）と `cvtColor` / `resize` / `GaussianBlur` が C ABI にある
-- 所有権契約が L3 で明示的にテストされている — borrowed と owned の区別、二重解放、解放後アクセス、Unity 側 buffer を wrap した際の lifetime
+- `ocvu_mat_*`（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `cvtColor` / `resize` / `GaussianBlur` が C ABI にある
+- 所有権契約が L3 で明示的にテストされている — handle は常に native 所有であること、二重解放、解放後アクセス、buffer 引数の長さ・stride・NULL の検証
 - Texture2D / NativeArray からの入力と結果反映が動く
 - ABI version / OpenCV version / build features を実行時に問い合わせられる
 - vertical slice 全体が ASan レーンで clean
@@ -168,6 +168,28 @@ API の広さを追わず、**ownership / stride / pixel format / エラー / IL
 
 **非ゴール**
 Windows 以外のプラットフォーム。API の拡張。generator。
+
+**完了条件を変更した経緯（2026-08-26、M2 着手前）**
+
+当初の完了条件は `ocvu_mat_wrap`（Unity 側の buffer を handle にする関数）を挙げ、
+「Unity 側 buffer を wrap した際の lifetime」を L3 で検証することを求めていた。
+
+M2 着手前に所有権の規約を決めた結果、**その関数を作らない**ことにした
+（`docs/abi-ownership-and-versioning.md` §1）。Unity は自分の都合でメモリを捨てられ、
+借用 handle がそれより長く生きると、即座には落ちず後から無関係な場所が壊れる。Windows の
+AddressSanitizer は Unity のアロケータを見られないので、CI でも検出できない。規約で禁じても
+機械的な強制が無い以上、**借用 handle を作らなければその誤りは表現できなくなる**方を選んだ。
+
+したがって完了条件を次のように置き換えた。
+
+| 旧 | 新 |
+| --- | --- |
+| `wrap` が C ABI にある | `copy_from_buffer` / `copy_to_buffer` が C ABI にある |
+| wrap した際の lifetime を検証 | 借用 handle が存在しないこと、buffer 引数（長さ・stride・NULL）の検証 |
+| borrowed と owned の区別 | 同左。ただし区別されるのは handle（常に owned）と buffer 引数（借用は呼び出し内で完結） |
+
+**これは緩和ではない。** 検証すべき危険が消えたのではなく、危険な状態を作れなくしたので、
+検証の対象が「その状態が作られていないこと」に変わった。
 
 ---
 

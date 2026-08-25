@@ -112,7 +112,7 @@ Unity application
 - **C ABI が唯一の native contract**。`cv::Mat*` や STL 型を境界の外へ出さない。`ocvu_mat_handle` のような opaque handle と固定サイズ型（`int32_t`、`uint64_t`、明示 struct）のみを公開する。
 - **例外を ABI の外へ伝播させない**。OpenCV / C++ 例外は status code + thread-local last-error に変換する。FFI 境界を越える unwind は未定義動作になり得る。公開 ABI 関数は原則 `OCVU_TRY_BEGIN` / `OCVU_TRY_END` で本体を囲む。**ただし `ocvu_get_last_error_status` と `ocvu_get_last_error_message` は囲んではならない**: `OCVU_TRY_BEGIN` は `clear_last_error()` を呼ぶため、エラーを報告するために存在する関数が、報告すべきエラーを読む直前に自分で消してしまう。同様に `ocvu_get_abi_version` と `ocvu_get_status_count` は `ocvu_status` を返さないので囲めない。囲まない関数は「throw し得ない実装であること」が条件であり、この一覧は `native/src/ocvu_error.h` のマクロ定義の隣にも書いてある。
 - **エラー報告経路自体が throw してはならない**。`ocvu::set_last_error` は `OCVU_TRY_END` の `catch (std::bad_alloc&)` の内側からも呼ばれる。よってアロケートせず、固定長 thread-local バッファへの bounded copy だけを行う（`noexcept` で契約を固定している）。上限を超えたメッセージは UTF-8 の文字境界で切り詰められ、`out_required_size` は常に「実際に取得できるバイト数 + NUL」を返す。
-- **ownership を仕様に明記する**。create / retain / release、borrowed / owned、pointer・stride・buffer length・alignment・lifetime をすべて binding specification 側に書く。`Mat` 所有メモリと Unity 所有 NativeArray メモリの lifetime contract は未決定事項の一つ。
+- **`ocvu_mat_handle` は常に native が所有する。Unity 所有のメモリを指す handle を返さない**（`docs/abi-ownership-and-versioning.md` §1 で確定）。Unity 側の buffer はその場でポインタ・長さ・stride を受け取って読み書きするだけで、handle にはならない。借用は 1 回の ABI 呼び出しの内側で完結する。理由は、借用 handle が buffer より長く生きたときの壊れ方が「即座には落ちず、後から無関係な場所が壊れる」形で、Windows の ASan は Unity のアロケータを見られないため CI でも検出できないからである。規約で禁じるのではなく、**表現できなくする**。buffer 引数の長さと stride は必ず検証し、`rows * stride` が渡された長さを超えるなら何も書かずに `OCVU_STATUS_INVALID_ARGUMENT` を返す（呼ぶ側を信用しない）。
 - **C ABI と C# 宣言は手書き header の無制限解析から生成しない**。レビュー可能な binding specification（`bindings/spec/`）を正本とし、そこから C ABI 宣言 / C# P/Invoke / API 対応表 / conformance test を生成する。
 - **IL2CPP / AOT を前提とする**。P/Invoke 宣言が stripping で消えないことを検証する。iOS は静的リンク + `DllImport("__Internal")`。
 - **毎フレームの細かな境界呼び出しを避ける**。必要に応じて処理をまとめた粒度の粗い API も用意する。
@@ -193,7 +193,16 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 2. 実装計画があればそれに従う（M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`。いずれも実施済み）。M2 の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
-M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分。Windows の compiler / runtime linkage は M1 Task 8 で決定済みなので上の「確定事項」表を見ること）: OpenCV 5.0.0 の固定期間と 5.x update policy、`Mat` と NativeArray の lifetime contract、C ABI の versioning / backward compatibility policy、初期 `core` / `imgproc` API の具体的 allowlist、ライセンス表示と SBOM の公開フロー。
+M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、ライセンス表示と SBOM の公開フロー、各 platform で必須とする Editor / Mono / IL2CPP / device test matrix。
+
+決定済みで、計画書 §12 の記述より新しいもの（**計画書より下の表と参照先を優先すること**）:
+
+| 事項 | 決定 | 決定場所 |
+| --- | --- | --- |
+| Windows の compiler / runtime linkage | 実行時ライブラリは共有する形。組み込む開発者が同梱物を選べる状態を保つ | M1 Task 8。上の「確定事項」表 |
+| `Mat` と Unity メモリの lifetime contract | **借用 handle を作らない。** handle は常に native 所有、Unity の buffer は呼び出し内で完結する借用 | `docs/abi-ownership-and-versioning.md` §1 |
+| C ABI の versioning / 後方互換 | 単一整数の `OCVU_ABI_VERSION`、C# 側は**完全一致**で検査。bump する変更としない変更を明記 | 同 §2 |
+| 初期 `core` / `imgproc` API の allowlist | Mat の create / release / clone / get_info / copy_from_buffer / copy_to_buffer と cvtColor / resize / GaussianBlur の 9 本 | 同 §3 |
 
 ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになった。`bindings/`（M5）と `tests/UnityProject/`（M2）はまだ無い。
 
