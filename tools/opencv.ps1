@@ -87,6 +87,54 @@ function Invoke-Build {
     Write-BuildManifest -Modules $modules
 }
 
+function Invoke-Restore {
+    if (Test-Path -LiteralPath (Join-Path $OpenCvRoot 'build-manifest.json')) {
+        Write-Host "OpenCV $($Config.Tag) ($ConfigHash) is already present." -ForegroundColor Green
+        return
+    }
+
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        throw @(
+            'gh CLI が見つかりません。restore は GitHub Actions の artifact を取得します。'
+            'https://cli.github.com/ を入れて `gh auth login` するか、'
+            'ローカルで再現する場合は `./tools/opencv.ps1 build` を使ってください（30-60 分）。'
+        ) -join "`n"
+    }
+
+    New-Item -ItemType Directory -Force -Path $OpenCvRoot | Out-Null
+
+    Write-Host "==> download artifact '$ArtifactName'" -ForegroundColor Cyan
+    & gh run download --name $ArtifactName --dir $OpenCvRoot 2>&1 | Write-Host
+
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $OpenCvRoot 'build-manifest.json'))) {
+        Remove-Item -Recurse -Force $OpenCvRoot -ErrorAction SilentlyContinue
+        throw @(
+            "artifact '$ArtifactName' を取得できませんでした。"
+            ''
+            '考えられる原因:'
+            '  1. この構成でまだ一度もビルドしていない'
+            '  2. artifact が失効した（GitHub Actions の保持上限は 90 日）'
+            '  3. gh が認証されていない（`gh auth status` で確認）'
+            ''
+            '1 と 2 のどちらでも、対処は build ワークフローの再実行です:'
+            '  gh workflow run build-opencv.yml'
+            ''
+            'ローカルで再現する場合は `./tools/opencv.ps1 build`（30-60 分）。'
+        ) -join "`n"
+    }
+
+    # download した物が本当に期待の構成か確認する。
+    # artifact 名が一致していても中身が壊れている可能性はある。
+    $manifest = Get-Content -LiteralPath (Join-Path $OpenCvRoot 'build-manifest.json') -Raw | ConvertFrom-Json
+    if ($manifest.configHash -ne $ConfigHash) {
+        Remove-Item -Recurse -Force $OpenCvRoot -ErrorAction SilentlyContinue
+        throw "artifact の configHash は '$($manifest.configHash)' で、期待する '$ConfigHash' と異なります。"
+    }
+
+    Invoke-Verify | Out-Null
+    Write-Host "restored OpenCV $($Config.Tag) ($ConfigHash)" -ForegroundColor Green
+}
+
 function Invoke-Verify {
     $verify = Join-Path $PSScriptRoot 'verify-opencv-artifact.ps1'
     Write-Host '==> verify dependency allowlist' -ForegroundColor Cyan
@@ -127,5 +175,5 @@ switch ($Command) {
         Remove-Item -Recurse -Force $OpenCvRoot -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force $WorkRoot -ErrorAction SilentlyContinue
     }
-    'restore' { throw "restore は Task 5 で実装する。いまは './tools/opencv.ps1 build' を使うこと。" }
+    'restore' { Invoke-Restore }
 }
