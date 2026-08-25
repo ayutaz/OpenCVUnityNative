@@ -22,12 +22,38 @@
 /* C# 側は CallingConvention.Cdecl を使う */
 #define OCVU_ABI_VERSION 1
 
+typedef int32_t ocvu_status;
+
+#define OCVU_STATUS_OK                0
+#define OCVU_STATUS_INVALID_ARGUMENT  1
+#define OCVU_STATUS_NULL_POINTER      2
+#define OCVU_STATUS_OUT_OF_MEMORY     3
+#define OCVU_STATUS_OPENCV_ERROR      4
+#define OCVU_STATUS_UNKNOWN_ERROR     5
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* 現在の C ABI バージョンを返す。失敗しない。 */
 OCVU_API int32_t ocvu_get_abi_version(void);
+
+/* 直近のエラー status を返す。呼び出しスレッドごとに独立している。 */
+OCVU_API ocvu_status ocvu_get_last_error_status(void);
+
+/*
+ * 直近のエラーメッセージを UTF-8・NUL 終端で buffer に書く。
+ *
+ * out_required_size は必須で、NUL を含む必要バイト数が常に書かれる。
+ * buffer が NULL、または buffer_size が必要量未満の場合は
+ * OCVU_STATUS_INVALID_ARGUMENT を返す（サイズ問い合わせとして使える）。
+ * out_required_size が NULL の場合は OCVU_STATUS_NULL_POINTER を返す。
+ *
+ * この関数自身は last-error を変更しない。
+ */
+OCVU_API ocvu_status ocvu_get_last_error_message(char* buffer,
+                                                 int32_t buffer_size,
+                                                 int32_t* out_required_size);
 
 #ifdef __cplusplus
 }

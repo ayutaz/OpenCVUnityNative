@@ -7,6 +7,7 @@
 # よってテストは STATIC 側へリンクする。
 set(OCVU_SOURCES
     src/ocvu_version.cpp
+    src/ocvu_error.cpp
 )
 
 add_library(opencv_unity_native SHARED ${OCVU_SOURCES})

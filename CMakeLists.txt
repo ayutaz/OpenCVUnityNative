@@ -21,6 +21,10 @@ if(OCVU_ENABLE_ASAN)
     endif()
 endif()
 
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 add_subdirectory(native)
 
 if(OCVU_BUILD_TESTS)

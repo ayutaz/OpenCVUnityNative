@@ -12,6 +12,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(ocvu_tests
     test_main.cpp
     test_version.cpp
+    test_error.cpp
 )
 
 # SHARED ではなく STATIC 側にリンクする（native/CMakeLists.txt の注記を参照）
