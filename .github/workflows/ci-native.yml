@@ -62,6 +62,17 @@ jobs:
         shell: pwsh
         run: ./tools/dev.ps1 test
 
+      # ローカルループから外した重いツールテスト。ここが唯一の実行場所なので、
+      # 落とすと構成ハッシュと allowlist 検証の回帰テストが誰にも見られなくなる。
+      # VerifyOpenCvArtifact はケースごとに pwsh を起動するため単体で 1 分規模、
+      # OpenCvRestore は実際に artifact を download する（tools/dev.ps1 の
+      # $ToolsTestScriptsSlow の注記を参照）。
+      - name: Run the slow tools tests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/dev.ps1 test-tools-slow
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

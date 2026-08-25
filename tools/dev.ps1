@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-tools', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-tools', 'test-tools-slow', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
@@ -52,24 +52,54 @@ function Reset-Results {
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
 }
 
-# tools/*.ps1（OpenCV の構成・ハッシュ・allowlist 検証）の素の assert
-# テスト。native のビルドも OpenCV artifact の実体も要らないので、
-# 一番安く・一番先に落とせる。OpenCV artifact を実際に download する
-# OpenCvRestore.Tests.ps1 はここに含めない — 秒単位のローカルループを
-# 守るため、あちらは CI 側の担当（レビュー H2）。
-$ToolsTestScripts = @(
+# tools/*.ps1（OpenCV の構成・ハッシュ・allowlist 検証）の素の assert テスト。
+#
+# 2 段に分かれている。分岐の基準は「重要度」ではなく実測の所要時間である。
+# ローカルループは秒単位を死守するという M0 の不変条件が、どちらに置くかを決める。
+#
+#   Fast（local + CI）  : 各 3 秒。ハッシュ導出と構成の読み取りだけで、
+#                         OpenCV の実体も subprocess の大量生成も要らない。
+#   Slow（CI のみ）      : VerifyOpenCvArtifact は 22 のケースごとに
+#                         pwsh -NoProfile を起動する設計で、この環境では
+#                         起動が 1 回 1〜1.5 秒かかるため単体で 69 秒（実測）。
+#                         OpenCvRestore は実際に artifact を download する。
+#
+# 実測（このマシン、増分ビルド時）:
+#   test（fast のみ）      約 26 秒
+#   fast 3 本を全部入れると 117 秒 — ローカルループとして成立しない
+#
+# Slow を CI 専用にしても検証は失われない。CLAUDE.md が定めるとおり
+# merge 可否を決めるのは CI であり、Slow は必須チェックの中で必ず走る
+# （ci-native.yml の "Run the slow tools tests"）。レビュー H2 は
+# 「どのレーンからも走らない」ことを問題にしており、CI で走れば満たされる。
+$ToolsTestScriptsFast = @(
     'OpenCvConfig.Tests.ps1'
     'ConfigInvalidation.Tests.ps1'
-    'VerifyOpenCvArtifact.Tests.ps1'
 )
 
-function Test-Tools {
-    foreach ($script in $ToolsTestScripts) {
+$ToolsTestScriptsSlow = @(
+    'VerifyOpenCvArtifact.Tests.ps1'
+    'OpenCvRestore.Tests.ps1'
+)
+
+function Invoke-ToolsTestList {
+    param([string[]] $Scripts)
+
+    foreach ($script in $Scripts) {
         $path = Join-Path $PSScriptRoot "tests/$script"
         Invoke-Checked {
             & pwsh -NoProfile -File $path
         } "run $script (tools)"
     }
+}
+
+function Test-Tools {
+    Invoke-ToolsTestList -Scripts $ToolsTestScriptsFast
+}
+
+# CI 専用。ローカルで叩いても動くが数分かかる。
+function Test-ToolsSlow {
+    Invoke-ToolsTestList -Scripts $ToolsTestScriptsSlow
 }
 
 function Build-Native {
@@ -146,6 +176,7 @@ switch ($Command) {
     'test-asan'    { Reset-Results; Test-Asan }
     'test-managed' { Reset-Results; Test-Managed }
     'test-tools'   { Test-Tools }
+    'test-tools-slow' { Test-ToolsSlow }
     'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
