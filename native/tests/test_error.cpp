@@ -44,7 +44,12 @@ TEST(LastError, SetLastErrorReturnsTheStatusItStored) {
 
 TEST(LastError, RequiresOutRequiredSize) {
     ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT, "boom");
+    // Null check takes priority over buffer validity
     EXPECT_EQ(ocvu_get_last_error_message(nullptr, 0, nullptr),
+              OCVU_STATUS_NULL_POINTER);
+    // Null check also applies with valid buffer
+    char buffer[100] = {0};
+    EXPECT_EQ(ocvu_get_last_error_message(buffer, 100, nullptr),
               OCVU_STATUS_NULL_POINTER);
 }
 
