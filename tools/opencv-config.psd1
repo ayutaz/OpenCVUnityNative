@@ -39,8 +39,26 @@
         # iOS（M4）は静的リンクが必須なので、最初からその形にしておく。
         '-DBUILD_SHARED_LIBS=OFF'
 
-        # Unity のネイティブプラグインは動的 CRT が標準。
-        # MSVC の ASan もこちらを前提にしており、M0 の L2 レーンを維持できる。
+        # 実行時に必要な共通ライブラリは、プラグインに埋め込まず利用者側と
+        # 共有する形にする。ライブラリを組み込む開発者が自分のビルドで
+        # 何を同梱するかを選べる状態を保つのが目的で、こちらで抱え込まない。
+        # MSVC の ASan もこの形を前提にしており、M0 の L2 レーンを維持できる。
+        #
+        # 次の 2 行はどちらも必要である。CMAKE_MSVC_RUNTIME_LIBRARY だけでは
+        # 効かない: OpenCV の cmake/OpenCVCRTLinkage.cmake が
+        # BUILD_SHARED_LIBS=OFF のとき BUILD_WITH_STATIC_CRT（MSVC 既定 ON）を
+        # 見て、こちらの指定を上書きするためである。
+        #
+        # 実測（M1 Task 7）: BUILD_WITH_STATIC_CRT を指定しなかった
+        # b671241615d9 の opencv_core500.lib を直接調べたところ、
+        #   DEFAULTLIB:"LIBCMT"  114 件  <- 埋め込む形になっていた
+        #   MSVCRT                 0 件  <- 共有する形ならこちらが出る
+        # つまり下の MultiThreadedDLL は黙って無視されていた。
+        #
+        # 構成ハッシュはここに書いた指定を固定するが、ビルドがそれを
+        # 守ったかまでは見ない。変更したら成果物側を必ず確認すること:
+        #   grep -a -o 'DEFAULTLIB:"[A-Za-z0-9._]*"' <lib> | sort | uniq -c
+        '-DBUILD_WITH_STATIC_CRT=OFF'
         '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL'
 
         # --- videoio 系を完全に排除する ---
