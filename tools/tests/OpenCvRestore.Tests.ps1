@@ -164,17 +164,29 @@ finally {
 # artifact のケースとは別の分岐だが、同じ描画規律を課す）。
 # ============================================================
 Write-Host '== case D: the "gh missing" failure must not render as a crash either ==' -ForegroundColor Cyan
-# gh は 1 箇所にあるとは限らない。開発機では "C:\Program Files\GitHub CLI" だけ
-# だが、GitHub Actions の runner では tool cache 等にも入っている。-All を付けずに
-# 1 件だけ取り、そのディレクトリを PATH から引くと、CI では gh が残ったまま
-# restore が走り、「artifact が無い」という別の分岐のメッセージが出る。exit 1 も
-# "Line |" が無いことも満たしてしまうので、remedy の assertion だけが落ちた（実測）。
+# gh を PATH から外す方法を 2 度間違えたので、その経緯を残す。
 #
-# 著者の環境の形（gh は 1 箇所）を仮定していたのが原因なので、仮定をやめて
-# 「gh が本当に引けなくなったこと」を進む前に確認する。
-$ghPaths = @(Get-Command gh -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
-$ghDirs = @($ghPaths | ForEach-Object { Split-Path -Parent $_ } | Sort-Object -Unique)
-if ($ghDirs.Count -eq 0) {
+#   1 回目: Get-Command gh（-All 無し）で 1 件だけ取り、そのディレクトリを
+#           PATH から引いた。開発機では gh が 1 箇所なので通る。runner では
+#           複数箇所にあり gh が残ったまま restore が走って、「artifact が
+#           無い」という別の分岐が検査されていた。exit 1 も "Line |" 無しも
+#           満たすので、remedy の assertion だけが落ちた。
+#   2 回目: -All で全部集めて -notin で引いた。これも runner で落ちた。
+#           PATH の要素と Split-Path の戻り値は、末尾の \ の有無・大文字小文字・
+#           相対表記などで文字列としては一致しないことがある。
+#
+# どちらも「著者の環境ではこう見える」形に依存していた。文字列比較をやめて、
+# 各ディレクトリに gh の実体があるかどうかで決める。PATH の書式に依存しない。
+function Test-DirectoryHasGh([string]$dir) {
+    if (-not $dir) { return $false }
+    foreach ($name in @('gh.exe', 'gh.cmd', 'gh.bat', 'gh')) {
+        if (Test-Path -LiteralPath (Join-Path $dir $name) -PathType Leaf) { return $true }
+    }
+    return $false
+}
+
+$ghDirs = @(($env:PATH -split ';') | Where-Object { Test-DirectoryHasGh $_ })
+if ($ghDirs.Count -eq 0 -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host '  SKIP  case D: gh is not resolvable on this machine, cannot test its absence meaningfully' -ForegroundColor Yellow
 }
 else {
@@ -183,12 +195,17 @@ else {
     try {
         (Get-Content -LiteralPath $configPath) -replace "'-DWITH_TIFF=OFF'", "'-DWITH_TIFF=OFF'`n        '-DOCVU_PROBE_D=1'" |
             Set-Content -LiteralPath $configPath
-        $env:PATH = ($originalPath -split ';' | Where-Object { $_ -and ($_ -notin $ghDirs) }) -join ';'
+        $env:PATH = ($originalPath -split ';' | Where-Object { $_ -and -not (Test-DirectoryHasGh $_) }) -join ';'
 
         # 前提が成立したことを確かめてから本題に入る。ここが崩れたまま先に進むと、
         # 別の失敗経路を「gh が無い場合」として検査してしまう。
-        $ghStillThere = @(Get-Command gh -All -ErrorAction SilentlyContinue).Count
-        Assert-That ($ghStillThere -eq 0) 'case D: gh is actually unreachable before the case runs'
+        #
+        # 確認は子プロセスで行う。restore を走らせるのは Start-Process が起こす
+        # 別の pwsh であり、この検査が意味を持つのはその子から見て gh が引けない
+        # ことである。親プロセスの Get-Command はコマンド解決をキャッシュし得るので、
+        # 親で見えないことは子で見えないことを保証しない。
+        $ghProbe = & pwsh -NoProfile -Command '@(Get-Command gh -All -ErrorAction SilentlyContinue).Count'
+        Assert-That ("$ghProbe".Trim() -eq '0') "case D: gh is actually unreachable from the child process (saw '$ghProbe')"
 
         $resultD = Invoke-RestoreProcess
         Assert-That ($resultD.ExitCode -eq 1) 'case D: restore exits 1 when gh is not on PATH'
