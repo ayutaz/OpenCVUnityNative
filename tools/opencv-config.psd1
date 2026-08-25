@@ -56,6 +56,12 @@
         # IPP は Intel のバイナリ配布物で独自のライセンス条項を持つ。
         # 性能のための再検討は M7 の担当。
         '-DWITH_IPP=OFF'
+        # ITT (Intel VTune 計装) は既定で ON になる。ittnotify は
+        # BSD-3-Clause / GPL-2.0-only のデュアルライセンスで配布され、
+        # BSD 側を選ぶこと自体は問題ないが、この project に何ら価値を
+        # 与えないものを「気づかず有効」のままにしない（計画書 §8.2）。
+        '-DWITH_ITT=OFF'
+        '-DBUILD_ITT=OFF'
         '-DWITH_PROTOBUF=OFF'
         '-DWITH_EIGEN=OFF'
         '-DWITH_OPENCL=OFF'

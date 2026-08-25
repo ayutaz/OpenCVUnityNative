@@ -51,6 +51,10 @@ All local development goes through `tools/dev.ps1`:
 
 CI calls the same `tools/dev.ps1` script — there are no CI-only procedures. A local green run is an approximation kept for speed; CI decides mergeability.
 
+OpenCV is not built locally. `tools/opencv.ps1 restore` fetches a prebuilt
+artifact produced by CI; `tools/opencv.ps1 build` reproduces that build
+locally and takes 30-60 minutes, so use it only to verify what CI produced.
+
 ## License
 
 Apache License 2.0. Note that the project's own source being Apache-2.0 does not by itself determine the terms of third-party code linked into a distributed binary — dependencies are constrained by an allowlist and documented per build profile.

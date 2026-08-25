@@ -21,13 +21,12 @@ function New-Tree([string[]]$libs) {
     return $root
 }
 
+# 実際にビルドしたツリー（third_party/opencv/<hash>/x64/vc17/staticlib、
+# ITT を無効化した構成）にあった集合そのもの。想像で足さない。
 $allowed = @(
     'opencv_core500.lib', 'opencv_imgproc500.lib', 'opencv_imgcodecs500.lib',
     'opencv_objdetect500.lib', 'opencv_features500.lib', 'opencv_flann500.lib',
-    'zlib.lib', 'libpng.lib', 'libjpeg-turbo.lib',
-    # 'ipp' を単純な部分文字列として禁止すると "cl-ipp-er" に一致して
-    # 誤検出する。clipper は features モジュールが引き込み得る実在のライブラリ名。
-    'clipper.lib'
+    'zlib.lib', 'libpng.lib', 'libjpeg-turbo.lib', 'libclapack.lib'
 )
 
 # 正常系
@@ -67,10 +66,42 @@ $ippIw = New-Tree ($allowed + 'ipp_iw.lib')
 & pwsh -NoProfile -File $verify -Root $ippIw 2>&1 | Out-Null
 Assert-That ($LASTEXITCODE -ne 0) 'the IPP Integration Wrappers library (ipp_iw.lib) is rejected'
 
+# clipper は features モジュールが引き込み得る実在のライブラリ名で、
+# 'ipp' を単純な部分文字列として禁止すると "cl-ipp-er" に一致して誤検出する
+# （'ipp*' の前方一致で回避している）。allowlist 化後は clipper.lib も
+# 単に「許可リストに無い」という理由で拒否されるべきで、IPP と誤って
+# 名指しされてはならない。
+$clipper = New-Tree ($allowed + 'clipper.lib')
+$clipperOutput = & pwsh -NoProfile -File $verify -Root $clipper 2>&1 | Out-String
+Assert-That ($LASTEXITCODE -ne 0) 'clipper.lib is rejected (not on the permitted third-party list)'
+# ファイル名の "clipper.lib" 自体が部分文字列として "ipp" を含むので、単純な
+# 文字列一致では確認できない。IPP 向けの拒否理由文言（Get-RejectionReason の
+# 'ipp*' ルール由来）が誤って付いていないことを、その理由文言自体で確認する。
+Assert-That ($clipperOutput -notmatch 'Intel の独自条項') 'clipper.lib is not misidentified as an IPP library'
+
 # OpenEXR は openexr という文字列を含まない IlmImf という名前でも配布される。
 $ilmImf = New-Tree ($allowed + 'IlmImf-3_1.lib')
 & pwsh -NoProfile -File $verify -Root $ilmImf 2>&1 | Out-Null
 Assert-That ($LASTEXITCODE -ne 0) 'OpenEXR under its IlmImf name is rejected'
+
+# allowlist は「見覚えのないものは拒否する」形でなければならない。
+# denylist（既知の悪いものだけを拒否する）は著者が想像した名前しか拒否できない。
+# 実際に ittnotify.lib（Intel VTune 計装、BSD-3-Clause / GPL-2.0-only の
+# デュアルライセンス）が denylist をすり抜けて allowlist OK と判定された
+# ことがある。同じ失敗をどんな未知の名前についても再発させないため、
+# 「許可リストに無いものは無条件で拒否」を検証する。
+$unrecognised = New-Tree ($allowed + 'unexpected-thirdparty.lib')
+$unrecognisedOutput = & pwsh -NoProfile -File $verify -Root $unrecognised 2>&1 | Out-String
+Assert-That ($LASTEXITCODE -ne 0) 'a library with no entry in the allowlist is rejected'
+Assert-That ($unrecognisedOutput -match 'unexpected-thirdparty\.lib') 'the rejection message names the unrecognised file'
+
+# ittnotify.lib はどの forbidden pattern にも一致しないため、denylist 実装
+# ではここを通過してしまっていた（allowlist OK と誤判定）。allowlist 化後は
+# 「許可リストに無い」という理由だけで拒否されるべきで、この項目のために
+# 新しい pattern を追加する必要があってはならない。
+$itt = New-Tree ($allowed + 'ittnotify.lib')
+& pwsh -NoProfile -File $verify -Root $itt 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'ittnotify.lib (Intel ITT, GPL-2.0-only の一方を持つデュアルライセンス) is rejected'
 
 # 検出結果の出力
 $listing = & pwsh -NoProfile -File $verify -Root $ok
