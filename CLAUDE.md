@@ -168,6 +168,36 @@ M1 以降で確定が必要な残りの事項（計画書 §12 のうち未決�
 
 ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになった。`bindings/`（M5）と `tests/UnityProject/`（M2）はまだ無い。
 
+## このリポジトリの skill と hook
+
+`.claude/` にプロジェクト固有の skill と hook がある。いずれもコミット済みで、
+全員・全エージェントに効く。
+
+**skill**（手順。CLAUDE.md が「事実」を持ち、skill が「手順」を持つ）
+
+| skill | いつ使うか |
+| --- | --- |
+| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約 |
+| `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定 |
+
+**hook**（`.claude/settings.json`）
+
+| hook | 契機 | 動作 |
+| --- | --- | --- |
+| `block-bulk-git-add.sh` | PreToolUse (Bash/PowerShell) | `git add -A` / `git add .` を**拒否**。連結コマンド内も見る |
+| `check-unityengine-leak.sh` | PostToolUse (Write/Edit) | `Runtime/Interop` と `Runtime/Core` への `UnityEngine` 混入を指摘 |
+| `check-exception-barrier.sh` | PostToolUse (Write/Edit) | `ocvu_status` を返す `extern "C"` 関数の `OCVU_TRY_BEGIN` 囲い忘れを指摘 |
+
+hook は PowerShell ではなく **sh** で書いてある。この環境では pwsh の起動に
+約 3.3 秒、python に約 2.4 秒かかるのに対し sh は約 0.19 秒で、hook は毎回の
+ツール呼び出しで走るため起動コストがそのまま開発ループの速度になる。副次的に
+macOS / Linux でもそのまま動くので M3 で書き直さなくてよい。`jq` が無い環境では
+黙って素通しする（hook が理由でツールが使えなくなる方が有害なため）。
+
+**hook にマイルストーン固有の不変条件を入れないこと。** 例えば「OpenCV に依存
+しない」は M0 限定で M1 で失効する。期限のある条件を hook に埋めると、まさに
+M0 で `CLAUDE.md` が陥ったのと同じ陳腐化を起こす。
+
 ## Unity 起動
 
 Unity プロジェクトを開く必要が生じたら、`uloop-launch` skill を使うと Editor バージョンを合わせて起動できる。
