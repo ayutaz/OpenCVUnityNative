@@ -106,6 +106,24 @@ OCVU_API ocvu_status ocvu_get_status_value(int32_t index, int32_t* out_value);
  */
 OCVU_API ocvu_status ocvu_debug_throw(int32_t kind);
 
+/*
+ * リンクされている OpenCV のバージョン文字列（例 "5.0.0"）を UTF-8 で書く。
+ * バッファ規約は ocvu_get_last_error_message と同一。buffer が NULL または
+ * 小さすぎる場合は OCVU_STATUS_BUFFER_TOO_SMALL を返し、これは失敗ではない。
+ */
+OCVU_API ocvu_status ocvu_get_opencv_version(char* buffer,
+                                             int32_t buffer_size,
+                                             int32_t* out_required_size);
+
+/*
+ * cv::getBuildInformation() の内容を UTF-8 で書く。
+ * どの依存が有効なリンクになっているかを実行時に確認するために使う。
+ * バッファ規約は ocvu_get_opencv_version と同一。
+ */
+OCVU_API ocvu_status ocvu_get_build_information(char* buffer,
+                                                int32_t buffer_size,
+                                                int32_t* out_required_size);
+
 #ifdef __cplusplus
 }
 #endif

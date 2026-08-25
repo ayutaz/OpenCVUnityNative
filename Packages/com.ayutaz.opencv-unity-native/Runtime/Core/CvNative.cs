@@ -73,6 +73,39 @@ namespace CvUnity
             return ToStatus(NativeMethods.ocvu_debug_throw(kind));
         }
 
+        /// <summary>リンクされている OpenCV のバージョン文字列。</summary>
+        public static string OpenCvVersion => ReadString(
+            NativeMethods.ocvu_get_opencv_version);
+
+        /// <summary>リンクされている OpenCV のビルド構成。</summary>
+        public static string GetBuildInformation() => ReadString(
+            NativeMethods.ocvu_get_build_information);
+
+        private delegate int StringApi(byte[] buffer, int bufferSize, out int requiredSize);
+
+        /// <summary>
+        /// 文字列を返す ABI の 2 回呼びイディオム。1 回目の BufferTooSmall は
+        /// 失敗ではなくサイズ問い合わせの正常な結果である。
+        /// </summary>
+        private static string ReadString(StringApi api)
+        {
+            int required;
+            api(null, 0, out required);
+            if (required <= 1)
+            {
+                return string.Empty;
+            }
+
+            var buffer = new byte[required];
+            var status = ToStatus(api(buffer, buffer.Length, out required));
+            if (status != CvStatus.Ok)
+            {
+                return string.Empty;
+            }
+
+            return Encoding.UTF8.GetString(buffer, 0, required - 1);
+        }
+
         /// <summary>
         /// ネイティブが返した生の値を <see cref="CvStatus"/> にする。
         /// C# の enum は未定義の数値でもキャストが通ってしまい、名前の無い値が

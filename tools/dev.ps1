@@ -32,7 +32,18 @@ function Reset-Results {
 }
 
 function Build-Native {
-    Invoke-Checked { cmake --preset $Preset } 'configure native'
+    Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
+    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+    if (-not (Test-Path -LiteralPath (Join-Path $opencvRoot 'build-manifest.json'))) {
+        throw @(
+            "OpenCV が '$opencvRoot' にありません。"
+            "先に './tools/opencv.ps1 restore' を実行してください。"
+        ) -join "`n"
+    }
+
+    Invoke-Checked {
+        cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot"
+    } 'configure native'
     Invoke-Checked { cmake --build --preset $Preset } 'build native'
 }
 
@@ -45,7 +56,18 @@ function Test-Native {
 }
 
 function Test-Asan {
-    Invoke-Checked { cmake --preset $AsanPreset } 'configure native (asan)'
+    Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
+    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+    if (-not (Test-Path -LiteralPath (Join-Path $opencvRoot 'build-manifest.json'))) {
+        throw @(
+            "OpenCV が '$opencvRoot' にありません。"
+            "先に './tools/opencv.ps1 restore' を実行してください。"
+        ) -join "`n"
+    }
+
+    Invoke-Checked {
+        cmake --preset $AsanPreset "-DOCVU_OPENCV_ROOT=$opencvRoot"
+    } 'configure native (asan)'
     Invoke-Checked { cmake --build --preset $AsanPreset } 'build native (asan)'
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
     Invoke-Checked {

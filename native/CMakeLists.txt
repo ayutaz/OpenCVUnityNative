@@ -10,6 +10,7 @@ set(OCVU_SOURCES
     src/ocvu_error.cpp
     src/ocvu_status.cpp
     src/ocvu_debug.cpp
+    src/ocvu_opencv_info.cpp
 )
 
 add_library(opencv_unity_native SHARED ${OCVU_SOURCES})
@@ -31,3 +32,8 @@ target_include_directories(ocvu_static
 # PUBLIC にすることで、リンクするテスト側のヘッダ展開でも
 # __declspec(dllimport) が付かなくなる。
 target_compile_definitions(ocvu_static PUBLIC OCVU_STATIC)
+
+if(OCVU_WITH_OPENCV)
+    target_link_libraries(opencv_unity_native PRIVATE ${OpenCV_LIBS})
+    target_link_libraries(ocvu_static PUBLIC ${OpenCV_LIBS})
+endif()
