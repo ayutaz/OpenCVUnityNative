@@ -33,14 +33,19 @@ function Get-OpenCvConfigHash {
     param([Parameter(Mandatory)] $Config)
 
     # 正規形にしてから hash を取る。引数の並び順が変わっただけで
-    # ハッシュが変わると、意味の無い再ビルドが発生する。
+    # ハッシュが変わると、意味の無い再ビルドが発生する（order-insensitive）。
+    #
+    # 配列は区切り文字で join せず、ソート後に ConvertTo-Json -Compress で
+    # エンコードする。単純な join だと要素境界に区切り文字自体を含む値が
+    # 来たときに衝突し得る（["-DAAA=1","-DBBB=2"] と ["-DAAA=1 -DBBB=2"] が
+    # 同じ文字列になる）。JSON 配列はエスケープと要素境界を保つので単射になる。
     $canonical = @(
         "tag=$($Config.Tag)"
-        "modules=$(($Config.Modules | Sort-Object) -join ',')"
+        "modules=$(ConvertTo-Json -Compress -AsArray -InputObject @(@($Config.Modules) | Sort-Object))"
         "generator=$($Config.Toolchain.Generator)"
         "arch=$($Config.Toolchain.Architecture)"
         "buildtype=$($Config.Toolchain.BuildType)"
-        "cmake=$(($Config.CMakeArgs | Sort-Object) -join ' ')"
+        "cmake=$(ConvertTo-Json -Compress -AsArray -InputObject @(@($Config.CMakeArgs) | Sort-Object))"
     ) -join "`n"
 
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($canonical)

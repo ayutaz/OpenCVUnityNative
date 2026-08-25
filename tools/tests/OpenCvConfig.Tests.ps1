@@ -45,6 +45,31 @@ Assert-That ((Get-OpenCvConfigHash -Config $mutatedTag) -ne $hash1) 'changing th
 
 Assert-That ((Get-OpenCvArtifactName -Config $config) -eq "opencv-5.0.0-windows-x64-$hash1") 'artifact name embeds the hash'
 
+# 並び順を変えても同じハッシュになること（order-insensitive）。
+# Sort-Object を将来のリファクタで取りこぼしても検知できるよう、
+# 一度きりの ad hoc 確認ではなくテストスイートに残す。
+$shuffled = Get-OpenCvConfig
+$shuffled.CMakeArgs = @($shuffled.CMakeArgs[-1]) + @($shuffled.CMakeArgs[0..($shuffled.CMakeArgs.Count - 2)])
+$shuffled.Modules = @($shuffled.Modules[-1]) + @($shuffled.Modules[0..($shuffled.Modules.Count - 2)])
+Assert-That ((Get-OpenCvConfigHash -Config $shuffled) -eq $hash1) 'reordering CMakeArgs and Modules does not change the hash'
+
+# 正規化が単射であること。区切り文字で join するだけの正規化は、
+# 要素境界に区切り文字自体を含む値が来ると衝突し得る
+# （["-DAAA=1","-DBBB=2"] と ["-DAAA=1 -DBBB=2"] が同じ文字列になる）。
+# 今の固定構成には空白・カンマを含む flag/module は無いが、
+# Task 3 / 7 で CMakeArgs が増える前提なので、ここで塞いでおく。
+$collisionA = Get-OpenCvConfig
+$collisionA.CMakeArgs = @('-DAAA=1', '-DBBB=2')
+$collisionB = Get-OpenCvConfig
+$collisionB.CMakeArgs = @('-DAAA=1 -DBBB=2')
+Assert-That ((Get-OpenCvConfigHash -Config $collisionA) -ne (Get-OpenCvConfigHash -Config $collisionB)) 'CMakeArgs elements do not collide across element boundaries'
+
+$moduleCollisionA = Get-OpenCvConfig
+$moduleCollisionA.Modules = @('core', 'imgproc')
+$moduleCollisionB = Get-OpenCvConfig
+$moduleCollisionB.Modules = @('core,imgproc')
+Assert-That ((Get-OpenCvConfigHash -Config $moduleCollisionA) -ne (Get-OpenCvConfigHash -Config $moduleCollisionB)) 'Modules elements do not collide across element boundaries'
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
