@@ -162,6 +162,39 @@ Set-Content -Path (Join-Path $evilEtc 'etc/ittnotify.dll') -Value 'stub'
 & pwsh -NoProfile -File $verify -Root $evilEtc 2>&1 | Out-Null
 Assert-That ($LASTEXITCODE -ne 0) 'ittnotify.dll under etc/ is rejected (location must never exempt a binary)'
 
+# レビュー C1: etc/licenses/ の inert 判定が「場所と拡張子」だけだったため、
+# 名前を一切見ておらず、OpenCV が新しい third-party の license ファイルを
+# 追加しても検出できなかった。実測: 合成ツリーに etc/licenses/ffmpeg-LICENSE
+# を置いたところ、旧実装は検出せず exit 0 で通過した。$InertLicenseFiles に
+# よる名前 allowlist 化がこれを塞ぐことを確認する。
+$knownLicenseFiles = @(
+    'SoftFloat-COPYING.txt', 'annoylib-LICENSE', 'clapack-lapack_LICENSE',
+    'dlpack-LICENSE', 'flatbuffers-LICENSE.txt', 'fonts-Rubik_OFL.txt',
+    'libjpeg-turbo-LICENSE.md', 'libjpeg-turbo-README.ijg', 'libjpeg-turbo-README.md',
+    'libpng-LICENSE', 'libpng-README', 'mscr-chi_table_LICENSE.txt', 'zlib-LICENSE'
+)
+function New-TreeWithLicenses([string[]]$libs, [string[]]$licenseFiles) {
+    $root = New-Tree $libs
+    $licenseDir = Join-Path $root 'etc/licenses'
+    New-Item -ItemType Directory -Force -Path $licenseDir | Out-Null
+    foreach ($f in $licenseFiles) { Set-Content -Path (Join-Path $licenseDir $f) -Value 'stub' }
+    return $root
+}
+
+# 実物と同じ 13 個の license ファイルを持つツリーは通る。名前 allowlist が
+# 実在するファイルまで拒否してしまわないことの担保。
+$withLicenses = New-TreeWithLicenses $allowed $knownLicenseFiles
+& pwsh -NoProfile -File $verify -Root $withLicenses | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'a tree with exactly the known etc/licenses/ files passes'
+
+# 未知の license ファイルが 1 つ紛れ込むと拒否される。C1 で実証されたのは
+# 拡張子無しの ffmpeg-LICENSE のケース: 場所と拡張子だけの判定では、
+# 空文字列の拡張子も許容範囲に入っており、名前を見ないので通ってしまっていた。
+$unknownLicense = New-TreeWithLicenses $allowed ($knownLicenseFiles + 'ffmpeg-LICENSE')
+$unknownLicenseOutput = & pwsh -NoProfile -File $verify -Root $unknownLicense 2>&1 | Out-String
+Assert-That ($LASTEXITCODE -ne 0) 'an unrecognised file under etc/licenses/ (e.g. ffmpeg-LICENSE) is rejected'
+Assert-That ($unknownLicenseOutput -match 'ffmpeg-LICENSE') 'the rejection message names the unrecognised license file'
+
 # ディレクトリ junction。Get-ChildItem -Recurse は reparse point の先へ
 # 降りていかないため、その向こうにあるファイル（payload.dll）は
 # 列挙にすら現れない。追いかけるのではなく、reparse point の存在自体を

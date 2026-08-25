@@ -4,8 +4,10 @@
 
     既定は restore（CI が作った artifact を download する）で、build は
     ローカルで再現を検証するための遅い経路である。M1 の目的の 1 つが
-    「開発ループから 30〜60 分のビルドを追い出す」ことなので、
-    日常的に build を叩く運用にはしないこと。
+    「開発ループから OpenCV のビルドコストを追い出す」ことなので、
+    日常的に build を叩く運用にはしないこと。CI 実測（clone〜verify まで
+    通しで）は 4 分 09 秒（`windows-2022` runner、run 32849957498）。
+    ローカルでの実測はまだ無い。
 #>
 [CmdletBinding()]
 param(
@@ -85,13 +87,24 @@ function Invoke-Build {
         "-DBUILD_LIST=$($Config.Modules -join ',')"
     ) + $Config.CMakeArgs
 
-    Invoke-Checked { cmake @cmakeArgs } 'configure OpenCV'
+    # configure の stdout をそのまま画面にも出しつつ変数にも残す。OpenCV の
+    # トップレベル CMakeLists.txt はここで「General configuration for
+    # OpenCV」summary を出力し、bundle された third-party（ZLib/libjpeg-turbo/
+    # libpng 等）の実バージョンが載るのはこの summary だけである。この
+    # summary は cv::getBuildInformation() が実行時に返す文字列と同じ内容
+    # なので、まだビルドしていない opencv_unity_native.dll を経由しなくても
+    # ここで一度に取れる。
+    $configureOutputLines = & cmake @cmakeArgs 2>&1
+    $configureOutputLines | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { throw "configure OpenCV failed with exit code $LASTEXITCODE" }
+
     Invoke-Checked {
         cmake --build $buildRoot --config $Config.Toolchain.BuildType --target INSTALL
     } 'build and install OpenCV'
 
     $modules = Invoke-Verify
-    Write-BuildManifest -Modules $modules
+    $dependencyVersions = Get-OpenCvDependencyVersions -BuildInformation ($configureOutputLines -join "`n")
+    Write-BuildManifest -Modules $modules -DependencyVersions $dependencyVersions
 }
 
 function Write-RestoreFailure([string]$Message) {
@@ -159,7 +172,7 @@ function Invoke-Restore {
         Write-RestoreFailure (@(
             'gh CLI が見つかりません。restore は GitHub Actions の artifact を取得します。'
             'https://cli.github.com/ を入れて `gh auth login` するか、'
-            'ローカルで再現する場合は `./tools/opencv.ps1 build` を使ってください（30-60 分）。'
+            'ローカルで再現する場合は `./tools/opencv.ps1 build` を使ってください（CI 実測 4 分 09 秒。ローカルは未計測）。'
         ) -join "`n")
     }
 
@@ -184,7 +197,7 @@ function Invoke-Restore {
                 '1 と 2 のどちらでも、対処は build ワークフローの再実行です:'
                 '  gh workflow run build-opencv.yml'
                 ''
-                'ローカルで再現する場合は `./tools/opencv.ps1 build`（30-60 分）。'
+                'ローカルで再現する場合は `./tools/opencv.ps1 build`（CI 実測 4 分 09 秒。ローカルは未計測）。'
             ) -join "`n")
         }
 
@@ -234,23 +247,29 @@ function Invoke-Verify {
     return $modules
 }
 
-function Write-BuildManifest([string[]]$Modules) {
+function Write-BuildManifest([string[]]$Modules, [System.Collections.Specialized.OrderedDictionary]$DependencyVersions) {
     $compiler = (cmake --system-information 2>$null |
         Select-String -Pattern '^CMAKE_CXX_COMPILER_VERSION ' |
         Select-Object -First 1) -replace '^CMAKE_CXX_COMPILER_VERSION\s+', ''
 
     $manifest = [ordered]@{
-        schema           = 1
-        opencvTag        = $Config.Tag
-        configHash       = $ConfigHash
-        artifactName     = $ArtifactName
-        platform         = 'windows-x64'
-        generator        = $Config.Toolchain.Generator
-        buildType        = $Config.Toolchain.BuildType
-        cxxCompiler      = ($compiler -replace '"', '').Trim()
-        requestedModules = @($Config.Modules)
-        builtModules     = @($modules)
-        cmakeArgs        = @($Config.CMakeArgs)
+        schema              = 1
+        opencvTag           = $Config.Tag
+        configHash          = $ConfigHash
+        artifactName        = $ArtifactName
+        platform            = 'windows-x64'
+        generator           = $Config.Toolchain.Generator
+        buildType           = $Config.Toolchain.BuildType
+        cxxCompiler         = ($compiler -replace '"', '').Trim()
+        requestedModules    = @($Config.Modules)
+        builtModules        = @($modules)
+        cmakeArgs           = @($Config.CMakeArgs)
+        # bundle された third-party の実バージョン。roadmap M1 の完了条件
+        # 「build-manifest.json に依存 version を含む」を満たす。
+        # Get-OpenCvDependencyVersions を参照 — "Media I/O:" section の
+        # バージョン付きエントリのみで、libclapack のようにバージョンが
+        # 報告されないものはここに現れない（捏造しない）。
+        dependencyVersions  = $DependencyVersions
     }
 
     $path = Join-Path $OpenCvRoot 'build-manifest.json'

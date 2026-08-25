@@ -70,6 +70,67 @@ $moduleCollisionB = Get-OpenCvConfig
 $moduleCollisionB.Modules = @('core,imgproc')
 Assert-That ((Get-OpenCvConfigHash -Config $moduleCollisionA) -ne (Get-OpenCvConfigHash -Config $moduleCollisionB)) 'Modules elements do not collide across element boundaries'
 
+
+# Get-OpenCvDependencyVersions: cv::getBuildInformation() の configure
+# summary から bundle された third-party のバージョンだけを拾う
+# （M1 完了条件「build-manifest.json に依存 version を含む」の入力）。
+# サンプルは実際に restore した artifact（third_party/opencv/<hash>）に
+# 対して ocvu_get_build_information() を呼んで得た本物のテキストを
+# 切り詰めたもの。
+$sampleBuildInformation = @'
+
+General configuration for OpenCV 5.0.0 =====================================
+  Version control:               5.0.0
+
+  C/C++:
+    Built as dynamic libs?:      NO
+    C++ Compiler:                C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe  (ver 19.44.35228.0)
+    3rdparty dependencies:       libclapack libjpeg-turbo libpng zlib
+
+  Media I/O:
+    ZLib:                        build (ver 1.3.2)
+    JPEG:                        build-libjpeg-turbo (ver 3.1.2-70)
+      SIMD Support Request:      YES
+      SIMD Support:              NO
+    AVIF:                        NO
+    PNG:                         build (ver 1.6.57)
+      SIMD Support Request:      YES
+    GIF:                         YES
+
+  Other third-party libraries:
+    Lapack:                      YES (Built-In libclapack)
+    Custom HAL:                  NO
+    Flatbuffers:                 builtin/3rdparty (25.9.23)
+
+  Install to:                    D:/a/OpenCVUnityNative/OpenCVUnityNative/third_party/opencv/6ba270f342e3
+-----------------------------------------------------------------
+'@
+
+$depVersions = Get-OpenCvDependencyVersions -BuildInformation $sampleBuildInformation
+Assert-That ($depVersions['ZLib'] -eq '1.3.2') 'ZLib version is extracted from Media I/O'
+Assert-That ($depVersions['JPEG'] -eq '3.1.2-70') 'JPEG (libjpeg-turbo) version is extracted, hyphen and all'
+Assert-That ($depVersions['PNG'] -eq '1.6.57') 'PNG version is extracted'
+Assert-That (-not $depVersions.Contains('SIMD Support Request')) 'a 6-space-indented sub-item is not mistaken for a dependency'
+Assert-That (-not $depVersions.Contains('GIF')) 'a versionless entry (no "(ver X)") is not included'
+
+# C++ Compiler も "(ver X.Y.Z)" という同じ書式を使うが、これは
+# ツールチェーン自身のバージョンであって bundle された third-party
+# ではないので、Media I/O: 以外の section を対象にしない設計が
+# これを拾わないことを確認する。
+Assert-That (-not $depVersions.Contains('C++ Compiler')) 'the C++ compiler version (same "(ver X)" format, different section) is not mistaken for a dependency'
+
+# Flatbuffers は「Other third-party libraries:」に本物の "(ver 相当)" の
+# 括弧付きバージョンで現れるが、dnn/gapi 用の検出結果であり、この構成の
+# 実際のビルドには linked されていない（THIRD_PARTY_NOTICES.md の
+# symbol-table 検証で確認済み）。Media I/O: だけを対象にする設計が
+# これを拾わないことを確認する — 拾ってしまうと THIRD_PARTY_NOTICES.md の
+# 「present but not linked」という判断と build-manifest.json が食い違う。
+Assert-That (-not $depVersions.Contains('Flatbuffers')) 'Flatbuffers (present but not linked into this configuration) is not included'
+
+# libclapack はどの section にもバージョン文字列が出ない
+# ("YES (Built-In libclapack)" のみ)。無いものを捏造しないことを確認する。
+Assert-That (-not $depVersions.Contains('Lapack')) 'libclapack has no reported version and is not fabricated'
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

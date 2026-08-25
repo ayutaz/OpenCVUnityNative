@@ -18,7 +18,10 @@ jobs:
   windows:
     name: OpenCV 5.0.0 Windows x64
     runs-on: windows-2022
-    # ローカル実測は 30-60 分。cold runner と CI の変動を見込んで倍を取る。
+    # CI 実測（clone〜verify まで通しで）は 4 分 09 秒（run 32849957498）。
+    # ローカルでの実測はまだ無い。cold runner やネットワークの変動、
+    # 将来の module 追加を見込んで大きめに取っている — 実測の何倍、という
+    # 根拠のある数字ではなく、安全側に振った目安であることに注意。
     timeout-minutes: 150
 
     steps:

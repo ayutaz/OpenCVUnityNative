@@ -15,20 +15,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | コマンド | 内容 | 実測 |
 | --- | --- | --- |
 | `./tools/dev.ps1 build` | native の configure + build | — |
-| `./tools/dev.ps1 test` | **既定**。L1 + L3 | 約 20 秒（増分）/ 約 65 秒（cold） |
+| `./tools/dev.ps1 test` | **既定**。tools のテスト 3 本 + L1 + L3 | 約 65 秒（増分） |
+| `./tools/dev.ps1 test-tools` | `tools/tests/*.ps1` の前 3 本（OpenCV 構成・ハッシュ無効化・allowlist） | 約 48 秒 |
 | `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 14 秒 |
 | `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke） | 約 12 秒 |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 20 秒（増分）/ 約 55 秒（cold） |
 | `./tools/dev.ps1 clean` | `build/` を削除 | — |
 
-実測はいずれも増分ビルド時のもので、うち約 5 秒はハング検出テストの待ち時間。`test` は fail-fast で、L1 が落ちた時点で L3 は走らない。結果は `artifacts/test-results/*.xml` に出る（各コマンドの開始時に空にされる）。
+実測はいずれも増分ビルド時のもので、うち約 5 秒はハング検出テストの待ち時間。`test` は fail-fast で、tools のテストか L1 が落ちた時点でそれ以降は走らない。結果は `artifacts/test-results/*.xml` に出る（各コマンドの開始時に空にされる）。
+
+**`test` の約 65 秒のうち約 48 秒は `test-tools`、実質はほぼ `VerifyOpenCvArtifact.Tests.ps1` 1 本である。** 同ファイルは allowlist の 1 ケースごとに `pwsh -NoProfile -File` で新しい PowerShell プロセスを起こす作りで、この環境でのプロセス起動コストは 1 回あたり約 1〜1.5 秒、ケース数は 20 件超（実測: 単体で 44〜48 秒）。「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、この実測はすでに緊張関係にある。テスト自体の内容（規律）は変えず、実行方式（プロセスを跨がずに済ませる）を見直すのが妥当な対処だが、M1 の時点ではまだ着手していない。
 
 `tools/dev.ps1` は OpenCV を自動では取得しない。`native` の configure/build より先に `./tools/opencv.ps1 restore` を実行しておくこと（未実行だと明示的なエラーで止まる）。
 
 | コマンド | 内容 |
 | --- | --- |
 | `./tools/opencv.ps1 restore` | **既定**。CI が公開した artifact を `gh run download` で取得する（`gh` CLI と認証が必要）。ローカルでビルドしない |
-| `./tools/opencv.ps1 build` | ローカル再現用の遅い経路（30〜60 分）。CI の結果を検証するときだけ使う |
+| `./tools/opencv.ps1 build` | ローカル再現用の遅い経路。CI 実測は clone〜verify まで通しで 4 分 09 秒（`windows-2022` runner、run 32849957498）。ローカルでの実測はまだ無い。CI の結果を検証するときだけ使う |
 | `./tools/opencv.ps1 verify` | 展開済みツリーに対して依存 allowlist を再検証する |
 | `./tools/opencv.ps1 status` | 現在の構成ハッシュと展開状態を表示する |
 | `./tools/opencv.ps1 clean` | `third_party/opencv/<hash>/` を削除する |

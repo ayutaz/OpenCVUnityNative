@@ -168,6 +168,39 @@ $InertCMakePackageFiles = @(
     'OpenCVConfig.cmake', 'OpenCVConfig-version.cmake',
     'OpenCVModules.cmake', 'OpenCVModules-release.cmake'
 )
+
+# etc/licenses/ 配下は「拡張子と場所」ではなく、実際にビルドしたツリー
+# （third_party/opencv/6ba270f342e3/etc/licenses）にある 13 個のファイル名
+# そのものを allowlist にする。.cmake package file と同じ規律。
+#
+# 以前はここを $topDir -eq 'etc' -and $ext -in @('.txt', '.md', '.ijg', '')
+# という「場所と拡張子だけ」の判定にしていたため、OpenCV のビルドが新しい
+# third-party の license ファイルを etc/licenses/ に追加しても（例:
+# etc/licenses/ffmpeg-LICENSE のような想定外の名前でも）拡張子と場所さえ
+# 一致すれば無条件で inert 判定に落ち、CI も THIRD_PARTY_NOTICES.md も
+# 何も言わなかった（レビューで実証済み: 合成ツリーに置いた
+# etc/licenses/ffmpeg-LICENSE が検出されずに素通りした）。license
+# ファイルが増えるという「唯一の機械可読なシグナル」を、まさにそれを
+# 見るべき場所で握りつぶしていた。
+#
+# 新しい third-party が bundle されるようになったら、このリストと
+# THIRD_PARTY_NOTICES.md の両方を更新する（どちらか一方だけでは不十分 —
+# THIRD_PARTY_NOTICES.md 冒頭の「このリストの更新手順」を参照）。
+$InertLicenseFiles = @(
+    'SoftFloat-COPYING.txt'
+    'annoylib-LICENSE'
+    'clapack-lapack_LICENSE'
+    'dlpack-LICENSE'
+    'flatbuffers-LICENSE.txt'
+    'fonts-Rubik_OFL.txt'
+    'libjpeg-turbo-LICENSE.md'
+    'libjpeg-turbo-README.ijg'
+    'libjpeg-turbo-README.md'
+    'libpng-LICENSE'
+    'libpng-README'
+    'mscr-chi_table_LICENSE.txt'
+    'zlib-LICENSE'
+)
 # root 直下にある、この検証自身が書く manifest と OpenCV 本体の LICENSE。
 $InertRootFiles = @('LICENSE', 'build-manifest.json')
 
@@ -187,9 +220,9 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # header: include/ 配下の .h / .hpp。拡張子と場所の両方が条件。
     if ($topDir -eq 'include' -and $ext -in @('.h', '.hpp')) { return $true }
 
-    # notice/text: etc/ 配下の、実際にビルドしたツリーで見つかったのと
-    # 同じ種類のファイル（拡張子無しの LICENSE/README 系も含む）。
-    if ($topDir -eq 'etc' -and $ext -in @('.txt', '.md', '.ijg', '')) { return $true }
+    # notice/text: etc/licenses/ 配下の、名前そのものを allowlist にした
+    # ファイルだけ。拡張子や場所だけでは判定しない — $InertLicenseFiles を見よ。
+    if ($topDir -eq 'etc' -and $file.Name -in $InertLicenseFiles) { return $true }
 
     # cmake package file: 場所ではなく名前そのもので認識する。
     if ($file.Name -in $InertCMakePackageFiles) { return $true }

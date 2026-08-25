@@ -4,27 +4,56 @@ This file documents the third-party components bundled inside the OpenCV
 5.0.0 build that this package links against — **not** this repository's own
 source, which is Apache-2.0 (see [LICENSE](LICENSE)).
 
-- OpenCV version: **5.0.0**
-- Build configuration hash: **6ba270f342e3** (`tools/opencv-config.psd1`,
-  see `tools/OpenCvConfig.psm1` for how the hash is derived)
-- Source of the texts below: the actual files under
-  `third_party/opencv/6ba270f342e3/etc/licenses/` in the restored artifact
-  (`./tools/opencv.ps1 restore`), not summarized from memory.
-- Confirmed present in the binary: `third_party/opencv/6ba270f342e3/x64/vc17/staticlib/`
-  contains `zlib.lib`, `libpng.lib`, `libjpeg-turbo.lib`, `libclapack.lib`
-  alongside the `opencv_*.lib` module libraries. `tools/verify-opencv-artifact.ps1`
-  enforces that no other third-party library sneaks into this list (see its
-  `$PermittedThirdPartyLibs` allowlist).
+## Scope of this document
 
-If the config hash above changes (a new OpenCV build), re-derive this file
-from the new artifact's `etc/licenses/` directory — do not assume the set of
-bundled libraries or their license text is unchanged.
+- OpenCV version: **5.0.0**
+- Build configuration hash: **b20b4dacd9a9** (`tools/opencv-config.psd1`,
+  see `tools/OpenCvConfig.psm1` for how the hash is derived)
+- Modules built for this configuration (`tools/opencv-config.psd1`):
+  `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, plus `flann` and
+  `geometry`, pulled in transitively (`tools/verify-opencv-artifact.ps1`
+  `$AcceptedTransitiveModules`).
+- **Universe considered**: every file under
+  `third_party/opencv/b20b4dacd9a9/etc/licenses/` in the restored artifact
+  (`./tools/opencv.ps1 restore`) — **13 files** as of this hash. This is the
+  set OpenCV's own install step attributes as third-party, and it is now the
+  allowlist `tools/verify-opencv-artifact.ps1`'s `$InertLicenseFiles`
+  enforces: a new file appearing there that isn't in that list fails the
+  build, so the set can't silently grow without this document being revisited.
+- **What "not listed" means**: a component from that universe is *not*
+  reproduced below only if this document says so explicitly, in the
+  "present but not linked" section near the end. Anything else missing from
+  both sections is an omission, not a considered exclusion — file an issue.
+- **How each of the 13 files was classified** (reproduce below vs. not
+  linked): a plain-text search (`grep -a -o`) for a symbol-mangling
+  substring specific to that component's own C++ namespace or function
+  names — not a generic word — across every `.lib` under
+  `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`. A generic word is
+  not enough: `cv::getBuildInformation()`'s own summary text is compiled
+  into `opencv_core500.lib` as a string literal and contains lines like
+  `Flatbuffers: builtin/3rdparty (25.9.23)`, so grepping for the bare word
+  "flatbuffer" finds that summary text even when no FlatBuffers *code* is
+  linked into any module built here. The commands below use identifiers
+  that only exist if the component's own code was compiled in (C++ name
+  mangling embeds namespaces and function names as literal ASCII, so this
+  needs no special tooling — despite these `.lib` files using MSVC's
+  "bigobj" object format, plain byte-level `grep` still finds them).
+
+If the config hash above changes (a new OpenCV build, or `Modules` in
+`tools/opencv-config.psd1` changes), re-run the searches below against the
+new artifact and re-derive both this file and the allowlist in
+`tools/verify-opencv-artifact.ps1` — do not assume the set of bundled
+libraries, what's linked into them, or their license text is unchanged.
 
 ---
 
 ## zlib
 
-License: zlib License (`third_party/opencv/6ba270f342e3/etc/licenses/zlib-LICENSE`)
+License: zlib License (`third_party/opencv/b20b4dacd9a9/etc/licenses/zlib-LICENSE`)
+
+Linked into: `zlib.lib` (its own static library alongside the `opencv_*.lib`
+module libraries — the one component here that doesn't need a symbol-table
+search, since it ships as a separately named file).
 
 ```
 Copyright notice:
@@ -57,7 +86,12 @@ Copyright notice:
 
 License: PNG Reference Library License version 2, with the version 1 terms
 carried forward for pre-1.6.36 contributions
-(`third_party/opencv/6ba270f342e3/etc/licenses/libpng-LICENSE`)
+(`third_party/opencv/b20b4dacd9a9/etc/licenses/libpng-LICENSE`)
+
+Linked into: `libpng.lib` (its own static library). The artifact also
+carries `etc/licenses/libpng-README`, libpng's own project README — it is
+not license text (it points back to the same `LICENSE` file) and is not
+reproduced here.
 
 ```
 COPYRIGHT NOTICE, DISCLAIMER, and LICENSE
@@ -202,7 +236,14 @@ be appreciated.
 
 License: dual — the IJG License (for the libjpeg API) and the Modified
 (3-clause) BSD License (for the TurboJPEG API and build system)
-(`third_party/opencv/6ba270f342e3/etc/licenses/libjpeg-turbo-LICENSE.md`)
+(`third_party/opencv/b20b4dacd9a9/etc/licenses/libjpeg-turbo-LICENSE.md`)
+
+Linked into: `libjpeg-turbo.lib` (its own static library). The artifact also
+carries `etc/licenses/libjpeg-turbo-README.md`, the upstream project
+README — not license text itself (it points to `LICENSE.md`, reproduced
+below) and not reproduced separately. `libjpeg-turbo-README.ijg` **is**
+license text (the IJG License in full) and is reproduced further down in
+this section.
 
 ```
 libjpeg-turbo Licenses
@@ -316,7 +357,7 @@ POSSIBILITY OF SUCH DAMAGE.
 ```
 
 IJG License (reproduced from
-`third_party/opencv/6ba270f342e3/etc/licenses/libjpeg-turbo-README.ijg`,
+`third_party/opencv/b20b4dacd9a9/etc/licenses/libjpeg-turbo-README.ijg`,
 LEGAL ISSUES section — the full README is retained verbatim per the
 condition above, minus the sections not relevant to licensing):
 
@@ -381,7 +422,10 @@ assumed by the product vendor.
 ## libclapack (CLAPACK)
 
 License: BSD-3-Clause (University of Tennessee et al.)
-(`third_party/opencv/6ba270f342e3/etc/licenses/clapack-lapack_LICENSE`)
+(`third_party/opencv/b20b4dacd9a9/etc/licenses/clapack-lapack_LICENSE`)
+
+Linked into: `libclapack.lib` (its own static library, used by `core`'s
+linear-algebra routines).
 
 ```
 Copyright (c) 1992-2017 The University of Tennessee and The University
@@ -436,9 +480,302 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
+## Berkeley SoftFloat
+
+License: BSD-3-Clause (The Regents of the University of California)
+(`third_party/opencv/b20b4dacd9a9/etc/licenses/SoftFloat-COPYING.txt`)
+
+Linked into: compiled directly into `opencv_core500.lib`,
+`opencv_geometry500.lib`, and `opencv_imgproc500.lib` — not a separate
+`.lib`, which is why it wasn't in the old "confirmed by `.lib` filename"
+check. OpenCV vendors SoftFloat's algorithms as `cv::softfloat` /
+`cv::softdouble` (`modules/core/src/softfloat.cpp`) for reproducible,
+platform-independent IEEE 754 arithmetic.
+
+Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+
+```
+grep -a -o "softfloat@cv@@\|softdouble@cv@@" opencv_core500.lib opencv_geometry500.lib opencv_imgproc500.lib
+```
+
+```
+Copyright notice for Berkeley SoftFloat Release 3c:
+
+John R. Hauser
+2017 February 10
+
+The following applies to the whole of SoftFloat Release 3c as well as to
+each source file individually.
+
+Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017 The Regents of the
+University of California.  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+ 1. Redistributions of source code must retain the above copyright notice,
+    this list of conditions, and the following disclaimer.
+
+ 2. Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions, and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+
+ 3. Neither the name of the University nor the names of its contributors
+    may be used to endorse or promote products derived from this software
+    without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS", AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE
+DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+---
+
+## MSCR chi_table (Per-Erik Forssen)
+
+License: custom BSD-style terms
+(`third_party/opencv/b20b4dacd9a9/etc/licenses/mscr-chi_table_LICENSE.txt`)
+
+Linked into: `opencv_features500.lib`. This is a chi-squared lookup table
+from Per-Erik Forssen's Maximally Stable Colour Regions (MSCR) paper, used
+by OpenCV's MSER implementation (`modules/features/src/mser.cpp`). The
+table itself is optimized away as inline constant data by the compiler (no
+symbol named `chi_table` survives), so it can't be confirmed by name
+directly; the surrounding MSCR machinery that only exists to use that table
+does survive as named symbols, which is what's searched for below.
+
+Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+
+```
+grep -a -o "MSCRNode\|MSCREdge\|preprocessMSER" opencv_features500.lib
+```
+
+```
+                          License Agreement
+                          For chi_table.h
+
+Copyright (C) 2007 Per-Erik Forssen, all rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistribution's of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+
+  * Redistribution's in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+  * The name of the copyright holders may not be used to endorse or promote products
+    derived from this software without specific prior written permission.
+
+This software is provided by the copyright holders and contributors "as is" and
+any express or implied warranties, including, but not limited to, the implied
+warranties of merchantability and fitness for a particular purpose are disclaimed.
+In no event shall the Intel Corporation or contributors be liable for any direct,
+indirect, incidental, special, exemplary, or consequential damages
+(including, but not limited to, procurement of substitute goods or services;
+loss of use, data, or profits; or business interruption) however caused
+and on any theory of liability, whether in contract, strict liability,
+or tort (including negligence or otherwise) arising in any way out of
+the use of this software, even if advised of the possibility of such damage.
+```
+
+---
+
+## annoylib
+
+License: Apache License 2.0 (Spotify AB)
+(`third_party/opencv/b20b4dacd9a9/etc/licenses/annoylib-LICENSE`)
+
+Linked into: `opencv_features500.lib`, under OpenCV's own `cvannoy`
+namespace (`ANNIndexImpl` and related types) — an approximate nearest
+neighbor index used by the descriptor matching machinery in `features`.
+
+Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+
+```
+grep -a -o "cvannoy\|ANNIndexImpl" opencv_features500.lib
+```
+
+```
+Copyright (c) 2013 Spotify AB
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations under
+the License.
+```
+
+---
+
+## Rubik font
+
+License: SIL Open Font License, Version 1.1 (The Rubik Project Authors)
+(`third_party/opencv/b20b4dacd9a9/etc/licenses/fonts-Rubik_OFL.txt`)
+
+Linked into: `opencv_imgproc500.lib`, as OpenCV's "Built-in Unicode font"
+(`cv::getBuildInformation()` reports `Built-in Unicode font: YES` for this
+configuration) — the font used by drawing functions (e.g. `cv::putText`)
+that render non-Latin text without a system font. This is a **different
+license family from the rest of this document**: unlike the BSD/zlib/
+Apache-style permissive licenses above, the SIL OFL requires that this
+notice (or the license text) accompany any redistribution that bundles the
+font, and forbids selling the font by itself.
+
+Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+
+```
+grep -a -o "Rubik[A-Za-z0-9_.-]*" opencv_imgproc500.lib
+```
+
+which finds the embedded font file names `Rubik.ttf` and `Rubik-Italic.ttf`
+directly.
+
+```
+Copyright 2015 The Rubik Project Authors (https://github.com/googlefonts/rubik),
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+http://scripts.sil.org/OFL
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+```
+
+---
+
+## Present in `etc/licenses/` but not linked into this build
+
+Two of the 13 files are license texts for components that OpenCV's build
+system attributes generally, but a symbol-table search of every `.lib`
+under `x64/vc17/staticlib/` for identifiers specific to each found nothing.
+Both belong to OpenCV modules (`dnn`, `gapi`) that are **not** in this
+configuration's `Modules` list (`tools/opencv-config.psd1`), so their code
+was never compiled into anything this package ships. Their license text is
+listed here for completeness — so the 13-file inventory is fully
+accounted for — but is not reproduced, because nothing of theirs ships.
+
+- **dlpack** (Apache License 2.0) —
+  `third_party/opencv/b20b4dacd9a9/etc/licenses/dlpack-LICENSE`. Searched
+  for `DLManagedTensor`, `DLPackVersioned`, `dlpack` (case-insensitive)
+  across every `.lib`; zero matches.
+- **flatbuffers** (Apache License 2.0) —
+  `third_party/opencv/b20b4dacd9a9/etc/licenses/flatbuffers-LICENSE.txt`.
+  Searched for `flatbuffers::`, `FlatBufferBuilder`, `flatbuffers_`; zero
+  matches. (`opencv_core500.lib` does contain the bare word "Flatbuffers"
+  once, but only inside the embedded `cv::getBuildInformation()` summary
+  string — see the note in "Scope of this document" above about why that
+  doesn't count as linked code.)
+
+If a future `Modules` list adds `dnn` or `gapi`, re-run these searches —
+they will very likely start matching, and these two need to move up into
+the reproduced sections above.
+
+---
+
 ## OpenCV itself
 
 OpenCV 5.0.0 is Apache License 2.0. See
-`third_party/opencv/6ba270f342e3/LICENSE` in the restored artifact for the
+`third_party/opencv/b20b4dacd9a9/LICENSE` in the restored artifact for the
 full text; it is not reproduced here since it is the same license as this
 repository's own code.

@@ -32,6 +32,51 @@ $reordered = Get-OpenCvConfig
 $reordered.CMakeArgs = @($reordered.CMakeArgs | Sort-Object -Descending)
 Assert-That ((Get-OpenCvConfigHash -Config $reordered) -eq $baseHash) 'reordering flags does not change the hash'
 
+# レビュー H3: Get-OpenCvConfigHash は以前 Tag / Modules /
+# Toolchain.Generator / Toolchain.Architecture / Toolchain.BuildType /
+# CMakeArgs の 6 つを名指しで拾う列挙式で、Toolchain に新しいキー
+# （例: Toolset）を足してもハッシュが変わらなかった（実測で確認済み:
+# 修正前は 6ba270f342e3 のまま）。まずはこの具体的な再現から。
+$toolchainToolset = Get-OpenCvConfig
+$toolchainToolset.Toolchain['Toolset'] = 'v142'
+Assert-That ((Get-OpenCvConfigHash -Config $toolchainToolset) -ne $baseHash) 'adding Toolchain.Toolset changes the hash (H3 regression)'
+
+# 上の 1 件だけを直すと、「著者が名前を思いついたキーだけ拾う」という
+# 同じ形の欠陥を一段狭い範囲で繰り返すことになる（H3 のレビューコメント
+# そのもの）。個別のキー名を決め打ちしたテストは、次に増えるキーの名前を
+# 予測できない。そこで、あらかじめ存在し得ない名前（GUID）をキーに使い、
+# 「どんな名前の新しいキーであっても」ハッシュが反応することを確認する —
+# これは特定のキー名を検査しているのではなく、正規化が構造全体を
+# 網羅的に辿っていること自体を検査している。
+$unforeseenKey = "unforeseen-$([guid]::NewGuid().ToString('N'))"
+
+# トップレベルに増えた、予測不能な名前のキー。
+$topLevelAddition = Get-OpenCvConfig
+$topLevelAddition | Add-Member -NotePropertyName $unforeseenKey -NotePropertyValue 'x'
+Assert-That ((Get-OpenCvConfigHash -Config $topLevelAddition) -ne $baseHash) "adding an unforeseen top-level key ($unforeseenKey) changes the hash"
+
+# ネストした Hashtable（Toolchain）に増えた、予測不能な名前のキー。
+$nestedAddition = Get-OpenCvConfig
+$nestedAddition.Toolchain[$unforeseenKey] = 'y'
+Assert-That ((Get-OpenCvConfigHash -Config $nestedAddition) -ne $baseHash) "adding an unforeseen nested key (Toolchain.$unforeseenKey) changes the hash"
+
+# さらに一段深い、新しく増えたネスト構造（Hashtable の中の Hashtable）も
+# 拾われること。再帰が最初の階層だけで止まっていないことの確認。
+$deeplyNestedAddition = Get-OpenCvConfig
+$deeplyNestedAddition | Add-Member -NotePropertyName $unforeseenKey -NotePropertyValue @{ Inner = 'z' }
+Assert-That ((Get-OpenCvConfigHash -Config $deeplyNestedAddition) -ne $baseHash) 'adding a new nested structure (not just a scalar) changes the hash'
+
+# 対称性: キーを削って構成が縮んだ場合も、それは別の構成なのでハッシュは
+# 変わるべきである（消し忘れ・移行漏れが古い artifact の再利用として
+# 現れないようにする）。
+$removed = [pscustomobject]@{
+    Tag       = $base.Tag
+    Modules   = $base.Modules
+    Toolchain = $base.Toolchain
+    # CMakeArgs を欠落させる。
+}
+Assert-That ((Get-OpenCvConfigHash -Config $removed) -ne $baseHash) 'removing a key changes the hash'
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
