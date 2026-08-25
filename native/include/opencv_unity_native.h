@@ -24,12 +24,25 @@
 
 typedef int32_t ocvu_status;
 
-#define OCVU_STATUS_OK                0
-#define OCVU_STATUS_INVALID_ARGUMENT  1
-#define OCVU_STATUS_NULL_POINTER      2
-#define OCVU_STATUS_OUT_OF_MEMORY     3
-#define OCVU_STATUS_OPENCV_ERROR      4
-#define OCVU_STATUS_UNKNOWN_ERROR     5
+/*
+ * status code の唯一の定義元。
+ *
+ * 追加するときはこのリストに 1 行足すだけでよい。下の定数と、
+ * ocvu_get_status_count / ocvu_get_status_value が公開する表が同時に増える。
+ * C# 側（CvUnity.CvStatus）へは自動では伝播しないので必ず手で追随すること。
+ * 追随し忘れは L3 の StatusCodeSyncTests が赤にする。
+ */
+#define OCVU_STATUS_LIST(X)            \
+    X(OCVU_STATUS_OK,               0) \
+    X(OCVU_STATUS_INVALID_ARGUMENT, 1) \
+    X(OCVU_STATUS_NULL_POINTER,     2) \
+    X(OCVU_STATUS_OUT_OF_MEMORY,    3) \
+    X(OCVU_STATUS_OPENCV_ERROR,     4) \
+    X(OCVU_STATUS_UNKNOWN_ERROR,    5)
+
+#define OCVU_STATUS_ENUMERATOR_(name, value) name = value,
+enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
+#undef OCVU_STATUS_ENUMERATOR_
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,11 +62,30 @@ OCVU_API ocvu_status ocvu_get_last_error_status(void);
  * OCVU_STATUS_INVALID_ARGUMENT を返す（サイズ問い合わせとして使える）。
  * out_required_size が NULL の場合は OCVU_STATUS_NULL_POINTER を返す。
  *
+ * 保持できるメッセージ長には上限があり、超過分は UTF-8 の文字境界で
+ * 切り詰められる（native/src/ocvu_error.h を参照）。切り詰めが起きても
+ * out_required_size は「実際に取得できるバイト数 + NUL」を返すので、
+ * 上の契約はそのまま成立する。
+ *
  * この関数自身は last-error を変更しない。
  */
 OCVU_API ocvu_status ocvu_get_last_error_message(char* buffer,
                                                  int32_t buffer_size,
                                                  int32_t* out_required_size);
+
+/*
+ * ネイティブ側が定義している status code の個数を返す。失敗しない。
+ * C# の CvStatus との同期を L3 で検証するために公開している。
+ */
+OCVU_API int32_t ocvu_get_status_count(void);
+
+/*
+ * index 番目の status code の数値を out_value に書く。
+ * 並び順は OCVU_STATUS_LIST の記述順。
+ * index が範囲外なら OCVU_STATUS_INVALID_ARGUMENT、
+ * out_value が NULL なら OCVU_STATUS_NULL_POINTER を返す。
+ */
+OCVU_API ocvu_status ocvu_get_status_value(int32_t index, int32_t* out_value);
 
 /*
  * conformance test 用に、内部で意図的に例外を投げる。

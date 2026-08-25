@@ -45,6 +45,11 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    // NOTE: この "leak" モードは現在どこからも呼ばれていない。CMake も
+    // tools/dev.ps1 も CI も登録していない。MSVC の ASan には
+    // LeakSanitizer が無く、リーク検出は M3 の Linux レーンに送ったため。
+    // 「動いているリーク検出」と読まないこと。M3 で Linux 用の
+    // expect-failure テストを足すときの土台として残してある。
     if (std::strcmp(mode, "leak") == 0) {
         int* p = new int[64];
         p[0] = 1;

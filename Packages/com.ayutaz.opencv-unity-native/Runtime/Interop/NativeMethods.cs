@@ -21,6 +21,12 @@ namespace CvUnity.Interop
             byte[] buffer, int bufferSize, out int requiredSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_get_status_count();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_get_status_value(int index, out int value);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_debug_throw(int kind);
     }
 }

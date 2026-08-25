@@ -14,6 +14,7 @@ add_executable(ocvu_tests
     ocvu_test_platform.cpp
     test_version.cpp
     test_error.cpp
+    test_status.cpp
     test_exception_barrier.cpp
 )
 
@@ -30,8 +31,10 @@ if(OCVU_ENABLE_ASAN AND MSVC)
 endif()
 
 add_test(NAME ocvu_tests COMMAND ocvu_tests)
+# このレーンの実測は 0.1 秒未満。ハングしたときのローカルループの損失を
+# 抑えるため、実測の ~400 倍の余裕を残しつつ 30 秒で打ち切る。
 set_tests_properties(ocvu_tests PROPERTIES
-    TIMEOUT 120
+    TIMEOUT 30
     ENVIRONMENT_MODIFICATION "${OCVU_TEST_ENV_MODIFICATION}")
 
 add_executable(ocvu_probe
@@ -41,8 +44,15 @@ add_executable(ocvu_probe
 
 # name: テスト名 / mode: プローブのモード
 # inner_timeout_s: プローブ自体に許す秒数
-# expect_regex: 出力に期待する正規表現 (不要なら "")
+# expect_regex: 出力に期待する正規表現。必須で、空文字列は許されない。
+#   「非 0 で終わった」だけを条件にすると、プローブが目的の挙動に到達しないまま
+#   落ちてもテストが緑になり、このレーンが証明するはずの性質が黙って消える。
+#   プローブは各挙動の直前に stderr へマーカーを出すので、それを指定する。
 function(ocvu_add_expect_failure_test name mode inner_timeout_s expect_regex)
+    if(expect_regex STREQUAL "")
+        message(FATAL_ERROR
+            "ocvu_add_expect_failure_test(${name}): expect_regex must not be empty")
+    endif()
     add_test(NAME ${name}
         COMMAND ${CMAKE_COMMAND}
             -DOCVU_COMMAND=$<TARGET_FILE:ocvu_probe>
@@ -63,11 +73,15 @@ set_tests_properties(harness.probe_ok PROPERTIES
     TIMEOUT 30
     ENVIRONMENT_MODIFICATION "${OCVU_TEST_ENV_MODIFICATION}")
 
-# ネイティブクラッシュが赤になり、ダイアログでハングしないこと
-ocvu_add_expect_failure_test(harness.segfault_is_detected segfault 30 "")
+# ネイティブクラッシュが赤になり、ダイアログでハングしないこと。
+# regex はプローブが実際に null 参照の直前まで到達したことの裏取り。
+ocvu_add_expect_failure_test(harness.segfault_is_detected segfault 30
+    "probe: dereferencing null")
 
-# 無限ループが有限時間で赤になること
-ocvu_add_expect_failure_test(harness.hang_is_detected hang 5 "")
+# 無限ループが有限時間で赤になること。
+# regex はプローブが実際に無限ループへ入ったことの裏取り。
+ocvu_add_expect_failure_test(harness.hang_is_detected hang 5
+    "probe: sleeping forever")
 
 if(OCVU_ENABLE_ASAN)
     # ASan ビルドでのみ意味を持つ。通常ビルドでは UAF が検出されず、

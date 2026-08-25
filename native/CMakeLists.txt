@@ -8,6 +8,7 @@
 set(OCVU_SOURCES
     src/ocvu_version.cpp
     src/ocvu_error.cpp
+    src/ocvu_status.cpp
     src/ocvu_debug.cpp
 )
 
