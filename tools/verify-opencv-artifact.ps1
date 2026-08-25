@@ -31,6 +31,16 @@
     言うためだけの第二層として残す。一致しなければ「unrecognised」という
     汎用メッセージになる。
 
+    名前の allowlist だけでは足りなかった。ittnotify.lib と同じ形の欠陥が
+    一段上、「そもそも見るファイルをどう選ぶか」にもあった。旧実装は
+    Get-ChildItem に -Include '*.lib','*.dll','*.a','*.so' を渡しており、
+    これ自体が拡張子の denylist で、.exe や .dylib、隠し属性のファイルは
+    判定にすら届かず無条件で見過ごされていた（レビューで実証済み）。
+    -Include を外し -Force を付けてツリー全体を対象にし、各ファイルを
+    inert（header/cmake/notice）・binary artifact（allowlist に懸ける）・
+    neither（無条件で拒否）の 3 区分に分類する。詳細は下の
+    Test-IsInert / $BinaryArtifactExtensions の定義を見よ。
+
     検証に通ったら、見つかった module 名を 1 行 1 件で stdout に出す。
     build-manifest.json はこれを「実際にビルドされた集合」として記録する。
 #>
@@ -113,20 +123,79 @@ function Get-RejectionReason([string]$fileName) {
     return 'allowlist に無い未知のライブラリです。ライセンスを確認したうえで、意図的に tools/verify-opencv-artifact.ps1 の許可リストへ追加してください'
 }
 
+# --- ファイルの発見自体を allowlist にする ---
+#
+# 名前の allowlist（$PermittedOpenCvModules / $PermittedThirdPartyLibs）だけでは
+# 足りない。ittnotify.lib のときと同じ形の欠陥が一段上、「そもそも見るファイルを
+# どう選ぶか」にも存在した: 旧実装は Get-ChildItem に
+# -Include '*.lib','*.dll','*.a','*.so' を渡しており、これ自体が拡張子の
+# denylist だった。列挙されなかった拡張子（.exe、.dylib 等）は allow/deny の
+# 判定にすら届かず、無条件で見過ごされる。加えて Get-ChildItem は既定で
+# 隠しファイルを列挙しないため、隠し属性を付けるだけでも同じことが起きる。
+#
+# 対策は列挙そのものを allowlist にすることである: -Include を外し -Force を
+# 付けて「ツリーの下の全ファイル」を対象にし、各ファイルを 3 つの区分に
+# 分類する。
+#   1. inert       — headers（include/ 配下）、.cmake、notice/text（etc/ 配下）、
+#                    そしてこの検証自身が生成する build-manifest.json や
+#                    OpenCV 本体の root LICENSE。実際にビルドしたツリー
+#                    （third_party/opencv/64a038c63634）を見て確定した集合で、
+#                    見なかった。
+#   2. binary artifact — リンクされるか実行され得るもの（.lib/.a/.so/.dylib/.dll/.exe）。
+#                    既存の名前 allowlist に懸ける。
+#   3. neither      — 上記のどちらでもない未知の種類のファイル。無条件で拒否する。
+$InertTopLevelDirs = @('include', 'etc')
+$InertExtensions = @('.cmake')
+$InertRootFiles = @('LICENSE', 'build-manifest.json')
+$BinaryArtifactExtensions = @('.lib', '.a', '.so', '.dylib', '.dll', '.exe')
+
+$rootFull = (Resolve-Path -LiteralPath $Root).ProviderPath.TrimEnd('\', '/')
+
+function Get-TopLevelDir([System.IO.FileInfo]$file) {
+    $relative = $file.FullName.Substring($rootFull.Length).TrimStart('\', '/')
+    $segments = $relative -split '[\\/]'
+    if ($segments.Count -gt 1) { return $segments[0] }
+    return ''
+}
+
+function Test-IsInert([System.IO.FileInfo]$file) {
+    $topDir = (Get-TopLevelDir $file).ToLowerInvariant()
+    if ($topDir -in $InertTopLevelDirs) { return $true }
+    if ($file.Extension.ToLowerInvariant() -in $InertExtensions) { return $true }
+    if ($topDir -eq '' -and $file.Name -in $InertRootFiles) { return $true }
+    return $false
+}
+
+# -Include を付けない: 対象拡張子を先に決め打ちすると、まさに今回のバグ
+# （想像しなかった拡張子が判定に届かない）を再発させる。-Force で隠し・
+# システムファイルも対象にする。
+#
 # @() で配列化する: 一致するファイルがちょうど 1 件のとき Get-ChildItem は
 # スカラーの FileInfo を返す。ラップしないと直後の $files.Count が
 # StrictMode 下で PropertyNotFoundException を投げ、それでも非ゼロ終了に
 # なるため「missing module の意図した拒否」と区別のつかない失敗になる。
-$files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Include '*.lib', '*.dll', '*.a', '*.so' -ErrorAction SilentlyContinue)
+$files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction SilentlyContinue)
 if ($files.Count -eq 0) {
-    [Console]::Error.WriteLine("No libraries found under '$Root'. Was the build produced?")
+    [Console]::Error.WriteLine("No files found under '$Root'. Was the build produced?")
     exit 1
 }
 
 $found = @()
 $violations = @()
 foreach ($file in $files) {
+    # 0. inert（headers / cmake / notice / 本検証自身が書く manifest）は無視する。
+    if (Test-IsInert $file) { continue }
+
     $lower = $file.Name.ToLowerInvariant()
+    $ext = $file.Extension.ToLowerInvariant()
+
+    # 3. binary artifact（リンクされる・実行され得る）以外の未知の種類は
+    #    無条件で拒否する。inert の想定漏れとバイナリの想定漏れを
+    #    同じ「わからないものは拒否」に倒す。
+    if ($ext -notin $BinaryArtifactExtensions) {
+        $violations += "  $($file.Name) — 未知の種類のファイルです（拡張子 '$ext'）。inert（header/cmake/notice）か binary artifact のどちらに区分するかを決めたうえで tools/verify-opencv-artifact.ps1 を更新してください"
+        continue
+    }
 
     # 1. 受け入れると決めた OpenCV module か（opencv_<name><version>.(lib|a) の形で、
     #    かつ name が $PermittedOpenCvModules に入っているもの）。
@@ -145,7 +214,7 @@ foreach ($file in $files) {
         continue
     }
 
-    # 3. どちらでもなければ拒否。
+    # どちらでもなければ拒否。
     $violations += "  $($file.Name) — $(Get-RejectionReason $file.Name)"
 }
 

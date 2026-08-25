@@ -83,8 +83,8 @@ function Invoke-Build {
         cmake --build $buildRoot --config $Config.Toolchain.BuildType --target INSTALL
     } 'build and install OpenCV'
 
-    Invoke-Verify
-    Write-BuildManifest
+    $modules = Invoke-Verify
+    Write-BuildManifest -Modules $modules
 }
 
 function Invoke-Verify {
@@ -95,8 +95,7 @@ function Invoke-Verify {
     return $modules
 }
 
-function Write-BuildManifest {
-    $modules = Invoke-Verify
+function Write-BuildManifest([string[]]$Modules) {
     $compiler = (cmake --system-information 2>$null |
         Select-String -Pattern '^CMAKE_CXX_COMPILER_VERSION ' |
         Select-Object -First 1) -replace '^CMAKE_CXX_COMPILER_VERSION\s+', ''

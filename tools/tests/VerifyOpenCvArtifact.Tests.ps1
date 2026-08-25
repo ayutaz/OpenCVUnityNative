@@ -103,6 +103,35 @@ $itt = New-Tree ($allowed + 'ittnotify.lib')
 & pwsh -NoProfile -File $verify -Root $itt 2>&1 | Out-Null
 Assert-That ($LASTEXITCODE -ne 0) 'ittnotify.lib (Intel ITT, GPL-2.0-only の一方を持つデュアルライセンス) is rejected'
 
+# レビューで見つかった 3 つの迂回経路。ファイル名レベルの allowlist 化
+# （ittnotify.lib の一件）だけでは足りず、その一段上、ファイルの
+# 「発見のされ方」自体が denylist（-Include の拡張子一覧、既定の隠し
+# ファイル除外）になっていた。想像しなかった拡張子・属性を持つファイルは
+# 判定にすら届かず、実質的に無条件で通っていた。
+
+# 未知の実行可能ファイル（.exe）。旧実装の -Include '*.lib','*.dll','*.a','*.so'
+# に .exe は無く、存在自体が判定に渡らなかった。
+$unexpectedExe = New-Tree $allowed
+Set-Content -Path (Join-Path $unexpectedExe 'x64/vc17/staticlib/protoc.exe') -Value 'stub'
+& pwsh -NoProfile -File $verify -Root $unexpectedExe 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an unexpected .exe is rejected'
+
+# 未知の共有ライブラリ（.dylib）。M3/M4 で macOS / iOS が対象になれば
+# 現実に登場し得る拡張子で、これも旧 -Include には無かった。
+$unexpectedDylib = New-Tree $allowed
+Set-Content -Path (Join-Path $unexpectedDylib 'x64/vc17/staticlib/libunwanted.dylib') -Value 'stub'
+& pwsh -NoProfile -File $verify -Root $unexpectedDylib 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an unexpected .dylib is rejected'
+
+# 隠し属性付きの未知の .lib。旧実装の Get-ChildItem に -Force が無く、
+# 既定では隠しファイルを列挙しないため、拡張子が合っていても見えなかった。
+$hiddenRoot = New-Tree $allowed
+$hiddenPath = Join-Path $hiddenRoot 'x64/vc17/staticlib/hidden-bad.lib'
+Set-Content -Path $hiddenPath -Value 'stub'
+(Get-Item -LiteralPath $hiddenPath -Force).Attributes = (Get-Item -LiteralPath $hiddenPath -Force).Attributes -bor [System.IO.FileAttributes]::Hidden
+& pwsh -NoProfile -File $verify -Root $hiddenRoot 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'a hidden unrecognised .lib is rejected'
+
 # 検出結果の出力
 $listing = & pwsh -NoProfile -File $verify -Root $ok
 Assert-That ($listing -contains 'core') 'reports the modules it found'
