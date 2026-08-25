@@ -4,44 +4,64 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## リポジトリの現状
 
-**M0（自動 TDD ハーネス）は完了している。** ビルドシステム、C ABI の骨格、テストレーン 3 本（L1 / L2 / L3）がすべて存在し、ローカルでも CI でも green になる。
+**M0（自動 TDD ハーネス）と M1（OpenCV 5.0.0 の再現可能ビルド）は完了している。** ビルドシステム、C ABI の骨格、テストレーン 3 本（L1 / L2 / L3）に加え、CI がビルドし artifact 配布する allowlist 構成の OpenCV 5.0.0 が全レーンにリンクされた状態で、ローカルでも CI でも green になる。
 
-**ただし OpenCV との統合はまだ何も無い。C ABI は骨格のままである。** 現在の公開 ABI は `ocvu_get_abi_version`、last-error の取得、status 表の照会、conformance 用の `ocvu_debug_throw` だけで、OpenCV への依存はリポジトリのどこにも存在しない。M0 が固定したのは反復速度の土台であって機能ではない。
+現在の公開 ABI は `ocvu_get_abi_version`、last-error の取得、status 表の照会、conformance 用の `ocvu_debug_throw` に加え、`ocvu_get_opencv_version` / `ocvu_get_build_information`（`native/src/ocvu_opencv_info.cpp`）がある。OpenCV 呼び出し自体（`Mat` の生成・`imgproc` API 等）はまだ無い — それは M2 の作業。
 
 ### 開発コマンド
 
-ローカル開発はすべて `tools/dev.ps1` を通す。これが唯一の入口であり、CI も同じコマンドを呼ぶ（CI 専用の手順は無い）。PowerShell 7 以上が必要。
+ローカル開発はすべて `tools/dev.ps1` を通す。これが唯一の入口であり、CI も同じコマンドを呼ぶ（CI 専用の手順は無い）。PowerShell 7 以上が必要。OpenCV の取得は別の入口 `tools/opencv.ps1` が持つ（下記）。
 
 | コマンド | 内容 | 実測 |
 | --- | --- | --- |
 | `./tools/dev.ps1 build` | native の configure + build | — |
-| `./tools/dev.ps1 test` | **既定**。L1 + L3 | 約 20 秒 |
+| `./tools/dev.ps1 test` | **既定**。L1 + L3 | 約 20 秒（増分）/ 約 65 秒（cold） |
 | `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 14 秒 |
 | `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke） | 約 12 秒 |
-| `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 20 秒（cold build 時はさらに掛かる） |
+| `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 20 秒（増分）/ 約 55 秒（cold） |
 | `./tools/dev.ps1 clean` | `build/` を削除 | — |
 
 実測はいずれも増分ビルド時のもので、うち約 5 秒はハング検出テストの待ち時間。`test` は fail-fast で、L1 が落ちた時点で L3 は走らない。結果は `artifacts/test-results/*.xml` に出る（各コマンドの開始時に空にされる）。
 
-ビルド構成は `CMakePresets.json` の `windows-x64-debug` と `windows-x64-asan` の 2 つ。開発環境の要件は `README.md` の Requirements にある（Visual Studio 2022 の C++ ワークロード / CMake 3.25+ / .NET 8 SDK / PowerShell 7+）。
+`tools/dev.ps1` は OpenCV を自動では取得しない。`native` の configure/build より先に `./tools/opencv.ps1 restore` を実行しておくこと（未実行だと明示的なエラーで止まる）。
+
+| コマンド | 内容 |
+| --- | --- |
+| `./tools/opencv.ps1 restore` | **既定**。CI が公開した artifact を `gh run download` で取得する（`gh` CLI と認証が必要）。ローカルでビルドしない |
+| `./tools/opencv.ps1 build` | ローカル再現用の遅い経路（30〜60 分）。CI の結果を検証するときだけ使う |
+| `./tools/opencv.ps1 verify` | 展開済みツリーに対して依存 allowlist を再検証する |
+| `./tools/opencv.ps1 status` | 現在の構成ハッシュと展開状態を表示する |
+| `./tools/opencv.ps1 clean` | `third_party/opencv/<hash>/` を削除する |
+
+ビルド構成は `CMakePresets.json` の `windows-x64-debug` と `windows-x64-asan` の 2 つ。OpenCV のビルド構成は `tools/opencv-config.psd1` の 1 箇所に集約され、そこから算出される構成ハッシュが artifact 名と展開先ディレクトリ名（`third_party/opencv/<hash>/`）に埋め込まれる。開発環境の要件は `README.md` の Requirements にある（Visual Studio 2022 の C++ ワークロード / CMake 3.25+ / .NET 8 SDK / PowerShell 7+ / `gh` CLI）。
+
+**非 ASCII を出力する PowerShell スクリプトは必ず `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()` を先頭で設定する。** 指定しないと Windows の既定 ANSI コードページ（日本語環境は cp932、CI の en-US runner は cp1252）で書き出され、エラーメッセージの日本語部分が文字化けするか非可逆に失われる。M1 中に 3 つの別スクリプトで同じ欠落が独立に起きており、隣接するファイル（`tools/opencv.ps1` や `tools/verify-opencv-artifact.ps1`）に同じ対応が既にあっても、それを読むだけでは発見できないことが実証済みである。新しい PowerShell スクリプトを書くときは必ずこれを先頭に置くこと。
 
 ### ファイル配置
 
 | 場所 | 内容 |
 | --- | --- |
 | `native/include/opencv_unity_native.h` | 公開 C ABI ヘッダ。`OCVU_STATUS_LIST` が status code の唯一の定義元 |
-| `native/src/` | C ABI 実装（version / last-error / status 表 / debug throw） |
+| `native/src/` | C ABI 実装（version / last-error / status 表 / debug throw / OpenCV version・build information） |
 | `native/tests/` | L1 の GoogleTest と、意図的にクラッシュ・ハングする `ocvu_probe` |
 | `cmake/run_expect_failure.cmake` | 「失敗するはずのコマンド」を走らせる CTest ドライバ |
+| `cmake/FindOpenCvUnityDeps.cmake` | `third_party/opencv/<hash>/` を探して OpenCV を取り込む |
+| `tools/opencv-config.psd1` | OpenCV ビルド構成の唯一の定義元（tag、module allowlist、CMake flags） |
+| `tools/OpenCvConfig.psm1` | 構成の読み込みと構成ハッシュの算出（`opencv.ps1` と CI の両方が使う） |
+| `tools/opencv.ps1` | OpenCV の `restore` / `build` / `verify` / `status` / `clean` の入口 |
+| `tools/verify-opencv-artifact.ps1` | ビルド済み OpenCV ツリーに対する依存 allowlist の検証（denylist ではない） |
+| `third_party/opencv/<hash>/` | 展開先（gitignore 済み）。`build-manifest.json` に実測の構成が入る |
+| `THIRD_PARTY_NOTICES.md` | OpenCV が bundle する third-party（zlib / libpng / libjpeg-turbo / libclapack）のライセンス全文 |
 | `Packages/com.ayutaz.opencv-unity-native/` | UPM パッケージ本体（`Runtime/Core`、`Runtime/Interop`） |
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
 | `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0） |
-| `.github/workflows/` | `ci-native.yml`（L1 + L3）、`ci-sanitizers.yml`（L2） |
+| `.github/workflows/` | `ci-native.yml`（L1 + L3）、`ci-sanitizers.yml`（L2）、`build-opencv.yml`（OpenCV のビルドと artifact 公開） |
 
 正本となる設計文書:
 
 - `docs/roadmap.md` — **確定事項と M0〜M7 のマイルストーン定義。まずここを読む。**
 - `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md` — M0 の実装計画（タスク単位、TDD 手順つき）
+- `docs/superpowers/plans/2026-08-25-m1-opencv-build.md` — M1 の実装計画（タスク単位、TDD 手順つき）
 - `docs/unity-opencv-integration-research-and-plan.md` — 競合調査、アーキテクチャ、ライセンス方針、命名方針（519 行）
 - `docs/native-backend-language-tdd-evaluation.md` — C++ / Rust の評価とテストハーネス設計
 - `docs/README.md` — 文書一覧とステータス
@@ -56,6 +76,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | C# ターゲット | netstandard2.1 / C# 9 |
 | OpenCV 入手 | allowlist 構成で CI がビルドし artifact 配布。**ローカルではビルドしない** |
 | CI/CD | public OSS のため GitHub Actions を全面活用。重い検証はすべて CI |
+| Windows の compiler / runtime linkage | **共有（/MD、`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`）。embedded（/MT）にしない。** このパッケージを組み込む開発者が、自分のゲームに何を同梱するかを自分で決められる状態を保つのが理由で、パッケージ側が選択肢を奪わない（M1 Task 8）。OpenCV 自身は `BUILD_WITH_STATIC_CRT=OFF` を明示しないと `cmake/OpenCVCRTLinkage.cmake` がこの指定を黙って /MT へ上書きする（M1 Task 7 で発見） |
 
 この文書の記述は「確認済み事実 / プロジェクト自己申告 / 提案」に区別されている（同文書 §2）。設計を語る際はこの区別を維持し、**提案を実装済みの事実として扱わない**こと。
 
@@ -141,15 +162,15 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: M0 完了、次は M1）
+## マイルストーン（現在地: M1 完了、次は M2）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
 | M | 目的 |
 | --- | --- |
 | **M0** | **自動 TDD ハーネスの成立（OpenCV 非依存）。** 反復速度の土台を他の何よりも先に固定する — **完了** |
-| **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 次はここ** |
-| M2 | Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 |
+| **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
+| **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 次はここ** |
 | M3 | Desktop 3 platform と配布の再現性。Linux レーンでリーク検出（MSVC ASan は LSan 非対応） |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
 | M5 | binding specification と generator |
@@ -161,10 +182,10 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 ## 実装に着手するとき
 
 1. `docs/roadmap.md` で対象マイルストーンの目的・ゴール・完了条件・**非ゴール**を確認する
-2. 実装計画があればそれに従う（M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`。実施済み）。M1 の計画はまだ無いので、`superpowers:writing-plans` で先に書く
+2. 実装計画があればそれに従う（M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`。いずれも実施済み）。M2 の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
-M1 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、Windows の compiler / runtime linkage、`Mat` と NativeArray の lifetime contract、C ABI の versioning / backward compatibility policy、初期 `core` / `imgproc` API の具体的 allowlist、ライセンス表示と SBOM の公開フロー。
+M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分。Windows の compiler / runtime linkage は M1 Task 8 で決定済みなので上の「確定事項」表を見ること）: OpenCV 5.0.0 の固定期間と 5.x update policy、`Mat` と NativeArray の lifetime contract、C ABI の versioning / backward compatibility policy、初期 `core` / `imgproc` API の具体的 allowlist、ライセンス表示と SBOM の公開フロー。
 
 ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになった。`bindings/`（M5）と `tests/UnityProject/`（M2）はまだ無い。
 

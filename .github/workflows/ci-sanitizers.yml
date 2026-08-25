@@ -25,6 +25,30 @@ jobs:
           path: build/windows-x64-asan/_deps
           key: fetchcontent-asan-windows-${{ hashFiles('native/tests/CMakeLists.txt') }}
 
+      # third_party/opencv/<hash> をハッシュ単位でキャッシュする。ヒットすれば
+      # restore は gh からの download をスキップし、既存の木を検証するだけで
+      # 済む（tools/opencv.ps1 の Invoke-Restore を参照）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v4
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
+      # ローカルと同一のコマンドを呼ぶ。CI 専用の手順は作らない。
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
       - name: Run native tests under AddressSanitizer
         shell: pwsh
         run: ./tools/dev.ps1 test-asan

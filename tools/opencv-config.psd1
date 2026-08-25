@@ -33,6 +33,14 @@
         # 3rdparty/mlas/CMakeLists.txt のコメントがこの no-op 挙動を
         # 前提にしている）。PATH に何が乗っているかで結果が変わる状態を
         # やめ、構成ファイル側で決着させる。
+        #
+        # このピンの効力範囲はアセンブラだけである。同じ「PATH に何が
+        # 乗っているかで結果が変わる」問題は他の言語・ツールにも起こり得るが、
+        # それぞれ別の場所で個別に決着させている: generator は上の Toolchain
+        # ブロック（'Visual Studio 17 2022'、CMAKE_ASM_COMPILER のような
+        # 動的検出を経由しない）、WITH_CUDA は下の「その他の optional 依存」
+        # ブロックで明示的に OFF。ここに 1 か所へまとめて書かないのは、
+        # 効力範囲を広げて読ませないためである。
         '-DCMAKE_ASM_COMPILER=NOTFOUND'
 
         # 配布は opencv_unity_native.dll 1 個で完結させる。
