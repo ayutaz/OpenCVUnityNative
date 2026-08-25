@@ -17,6 +17,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# CI のログは UTF-8。指定しないと Windows の PowerShell は既定の ANSI
+# コードページ（日本語環境なら cp932、CI の en-US runner なら cp1252）で
+# 書き出し、restore の失敗メッセージが文字化けするか、cp1252 環境では
+# 日本語部分が可逆でない形で失われる。tools/verify-opencv-artifact.ps1 と
+# 同じ対応。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
 

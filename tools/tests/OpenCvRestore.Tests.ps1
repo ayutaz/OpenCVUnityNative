@@ -24,6 +24,23 @@ function Assert-That([bool]$condition, [string]$what) {
     else { Write-Host "  FAIL  $what" -ForegroundColor Red; $script:failures += $what }
 }
 
+# 1 バイトでも不正な UTF-8 シーケンスがあれば例外を投げる strict decoder。
+# Get-Content -Raw の既定エンコーディング推定に頼ると、ASCII だけの
+# 行（"gh workflow run build-opencv.yml" 等）はどんな codepage で読んでも
+# 同じ文字列になってしまい、日本語部分だけが cp932/cp1252 で文字化けする
+# 種類のバグを取りこぼす。生バイトを直接 strict decode して確認する。
+$StrictUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
+function Test-StrictUtf8Bytes([string]$Path) {
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        $StrictUtf8.GetString($bytes) | Out-Null
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 # stdout / stderr を別ファイルに分けて捕まえる。PowerShell の既定の
 # ConciseView は未捕捉の throw を "Exception:" 見出しと "Line |" ブロック、
 # ソース位置を指す "~~~" つきで描画する。これは書き込み先を見ないと
@@ -38,9 +55,10 @@ function Invoke-RestoreProcess {
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile
         return [pscustomobject]@{
-            ExitCode = $proc.ExitCode
-            StdOut   = (Get-Content -LiteralPath $stdoutFile -Raw -ErrorAction SilentlyContinue)
-            StdErr   = (Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue)
+            ExitCode        = $proc.ExitCode
+            StdOut          = (Get-Content -LiteralPath $stdoutFile -Raw -ErrorAction SilentlyContinue)
+            StdErr          = (Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinue)
+            StdErrIsStrictUtf8 = (Test-StrictUtf8Bytes $stderrFile)
         }
     }
     finally {
@@ -98,6 +116,7 @@ try {
     Assert-That ($resultC.StdErr -notmatch 'Line \|') 'case C: the failure message has no "Line |" banner'
     Assert-That ($resultC.StdErr -notmatch '~~~') 'case C: the failure message has no source-position tildes'
     Assert-That ($resultC.StdErr -match 'gh workflow run build-opencv\.yml') 'case C: the failure message names the concrete remedy'
+    Assert-That $resultC.StdErrIsStrictUtf8 'case C: stderr bytes are valid UTF-8 (not the console codepage)'
 }
 finally {
     Set-Content -LiteralPath $configPath -Value $backupC -NoNewline
@@ -128,6 +147,7 @@ else {
         Assert-That ($resultD.ExitCode -eq 1) 'case D: restore exits 1 when gh is not on PATH'
         Assert-That ($resultD.StdErr -notmatch 'Line \|') 'case D: the gh-missing message has no "Line |" banner'
         Assert-That ($resultD.StdErr -match 'gh auth login') 'case D: the gh-missing message names the remedy'
+        Assert-That $resultD.StdErrIsStrictUtf8 'case D: stderr bytes are valid UTF-8 (not the console codepage)'
     }
     finally {
         $env:PATH = $originalPath
