@@ -43,10 +43,32 @@ Set-Content -Path (Join-Path $ffmpegRoot 'x64/vc17/staticlib/opencv_videoio_ffmp
 & pwsh -NoProfile -File $verify -Root $ffmpegRoot 2>&1 | Out-Null
 Assert-That ($LASTEXITCODE -ne 0) 'a bundled FFmpeg plug-in is rejected'
 
-# 期待した module が足りない
+# 期待した module が足りない。
+# 終了コードだけでなくメッセージ内容も見る: $files が Get-ChildItem の
+# 戻り値そのもの（単一ファイルだとスカラーになる）だと StrictMode 下で
+# $files.Count が PropertyNotFoundException を投げ、それでも非ゼロ終了に
+# なるため「意図した拒否」と「クラッシュ」を終了コードだけでは区別できない。
 $missing = New-Tree @('opencv_core500.lib')
-& pwsh -NoProfile -File $verify -Root $missing 2>&1 | Out-Null
+$missingOutput = & pwsh -NoProfile -File $verify -Root $missing 2>&1 | Out-String
 Assert-That ($LASTEXITCODE -ne 0) 'a tree missing a required module is rejected'
+Assert-That ($missingOutput -match 'imgproc') 'the rejection message names a missing module'
+Assert-That ($missingOutput -notmatch 'PropertyNotFoundException') 'the rejection is not a StrictMode crash on a single-file tree'
+
+# 外部 IPP（WITH_IPP=ON + IPPROOT）は ippicv / ippiw ではなく
+# ippcoremt.lib / ippsmt.lib / ippvmmt.lib 等のファイル名で配布される。
+$externalIpp = New-Tree ($allowed + @('ippcoremt.lib', 'ippsmt.lib', 'ippvmmt.lib'))
+& pwsh -NoProfile -File $verify -Root $externalIpp 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'external IPP runtime libraries (ippcoremt.lib etc.) are rejected'
+
+# IPP Integration Wrappers はアンダースコア入りの ipp_iw.lib という名前。
+$ippIw = New-Tree ($allowed + 'ipp_iw.lib')
+& pwsh -NoProfile -File $verify -Root $ippIw 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'the IPP Integration Wrappers library (ipp_iw.lib) is rejected'
+
+# OpenEXR は openexr という文字列を含まない IlmImf という名前でも配布される。
+$ilmImf = New-Tree ($allowed + 'IlmImf-3_1.lib')
+& pwsh -NoProfile -File $verify -Root $ilmImf 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'OpenEXR under its IlmImf name is rejected'
 
 # 検出結果の出力
 $listing = & pwsh -NoProfile -File $verify -Root $ok

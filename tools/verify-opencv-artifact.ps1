@@ -20,6 +20,10 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# CI のログは UTF-8。指定しないと Windows の PowerShell は既定の ANSI
+# コードページで書き出し、失敗の理由が読めなくなる。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
 $config = Get-OpenCvConfig
 
@@ -33,18 +37,30 @@ $forbiddenPatterns = @(
     @{ Pattern = 'videoio';   Why = 'videoio は allowlist 外（FFmpeg / GStreamer を引き込む）' }
     @{ Pattern = 'ffmpeg';    Why = 'FFmpeg は配布ライセンスが Apache-2.0 と別条件' }
     @{ Pattern = 'gstreamer'; Why = 'GStreamer は allowlist 外' }
-    @{ Pattern = 'ippicv';    Why = 'IPP は Intel の独自条項。有効化は M7 で検討する' }
-    @{ Pattern = 'ippiw';     Why = 'IPP は Intel の独自条項。有効化は M7 で検討する' }
+    # IPP のライブラリ名は ippicv.lib / ippiw.lib だけではない。外部 IPP
+    # （WITH_IPP=ON + IPPROOT）は ippcoremt.lib / ippsmt.lib / ippimt.lib /
+    # ippccmt.lib / ippcvmt.lib / ippvmmt.lib を、Integration Wrappers は
+    # ipp_iw.lib を生成する（OpenCVFindIPP.cmake / OpenCVFindIPPIW.cmake）。
+    # 個別に列挙すると漏れるので、ipp で始まる名前をまとめて禁止する。
+    # OpenCV 自身の module 名は opencv_ で始まり ipp を名乗らないので衝突しない。
+    @{ Pattern = 'ipp';       Why = 'IPP は Intel の独自条項。有効化は M7 で検討する' }
     @{ Pattern = 'protobuf';  Why = 'protobuf は dnn 用で allowlist 外' }
     @{ Pattern = 'libtiff';   Why = 'TIFF は allowlist 外' }
     @{ Pattern = 'libwebp';   Why = 'WebP は allowlist 外' }
     @{ Pattern = 'openexr';   Why = 'OpenEXR は allowlist 外' }
+    # OpenCV 5 は OpenEXR を vendor しなくなったが、環境に prebuilt が
+    # あると IlmImf という別名でリンクされ得る（openexr という文字列を含まない）。
+    @{ Pattern = 'ilmimf';    Why = 'OpenEXR は allowlist 外（IlmImf という別名でも配布される）' }
     @{ Pattern = 'openjp';    Why = 'JPEG2000 は allowlist 外' }
     @{ Pattern = 'jasper';    Why = 'Jasper は allowlist 外' }
 )
 
-$files = Get-ChildItem -LiteralPath $Root -Recurse -File -Include '*.lib', '*.dll', '*.a', '*.so' -ErrorAction SilentlyContinue
-if ($null -eq $files -or $files.Count -eq 0) {
+# @() で配列化する: 一致するファイルがちょうど 1 件のとき Get-ChildItem は
+# スカラーの FileInfo を返す。ラップしないと直後の $files.Count が
+# StrictMode 下で PropertyNotFoundException を投げ、それでも非ゼロ終了に
+# なるため「missing module の意図した拒否」と区別のつかない失敗になる。
+$files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Include '*.lib', '*.dll', '*.a', '*.so' -ErrorAction SilentlyContinue)
+if ($files.Count -eq 0) {
     Write-Error "No libraries found under '$Root'. Was the build produced?"
     exit 1
 }
