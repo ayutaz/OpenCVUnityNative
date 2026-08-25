@@ -34,9 +34,19 @@ function Test-Native {
     } 'run native tests (L1)'
 }
 
+function Test-Asan {
+    Invoke-Checked { cmake --preset $AsanPreset } 'configure native (asan)'
+    Invoke-Checked { cmake --build --preset $AsanPreset } 'build native (asan)'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    Invoke-Checked {
+        ctest --preset $AsanPreset --output-junit (Join-Path $ResultsDir 'native-asan.xml')
+    } 'run native tests under ASan (L2)'
+}
+
 switch ($Command) {
     'build'       { Build-Native }
     'test-native' { Test-Native }
+    'test-asan'   { Test-Asan }
     'test'        { Test-Native }
     'clean'       { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
     default       { throw "Command '$Command' is not implemented yet." }
