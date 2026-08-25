@@ -173,7 +173,20 @@ function Get-OpenCvDependencyVersions {
     $versions = [ordered]@{}
     $inTargetSection = $false
 
-    foreach ($line in ($BuildInformation -split "`r?`n")) {
+    foreach ($rawLine in ($BuildInformation -split "`r?`n")) {
+        # この関数には形式の違う 2 つの入力が来る。
+        #
+        #   1. cmake configure の stdout（tools/opencv.ps1 の本番経路）。
+        #      OpenCV の summary は message(STATUS ...) で出るので、cmake が
+        #      各行の先頭に "-- " を付ける。
+        #   2. cv::getBuildInformation() の戻り値（実行時・テスト）。前置は無い。
+        #
+        # 内容は同じだが行頭が違う。前置を剥がさずに '^\s{2}' で section header を
+        # 拾う実装は 2 を通して 1 を素通しし、本番だけが常に 0 件を返していた
+        # （'-' は \s ではない）。テストが 2 だけを使っていたため緑のままだった。
+        # 呼び出し側にどちらか一方を強いるのではなく、ここで正規化する。
+        $line = $rawLine -replace '^--\s?', ''
+
         if ($line -match '^\s{2}(?<header>[A-Za-z][A-Za-z0-9/ -]*?):\s*$') {
             $inTargetSection = $targetSections -contains $Matches['header'].Trim()
             continue

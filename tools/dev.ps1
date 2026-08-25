@@ -65,8 +65,14 @@ function Reset-Results {
 #                         OpenCvRestore は実際に artifact を download する。
 #
 # 実測（このマシン、増分ビルド時）:
-#   test（fast のみ）      約 26 秒
-#   fast 3 本を全部入れると 117 秒 — ローカルループとして成立しない
+#   test（この分割後）                     65 秒
+#   test（Slow も含めていたとき）          117 秒
+#   test-tools（Fast 2 本）                18 秒
+#
+# 65 秒の大半はこの一覧ではなく、OpenCV をリンクしたこと自体である
+# （test-native 単体 28 秒、うち毎回 6.7 秒は find_package を含む再 configure）。
+# Slow を外して 117 -> 65 秒になったが、M0 当時の約 20 秒には戻らない。
+# その差は M1 が受け入れた前提であり、この分割では解消しない。
 #
 # Slow を CI 専用にしても検証は失われない。CLAUDE.md が定めるとおり
 # merge 可否を決めるのは CI であり、Slow は必須チェックの中で必ず走る

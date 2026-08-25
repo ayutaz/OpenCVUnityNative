@@ -71,12 +71,17 @@ $moduleCollisionB.Modules = @('core,imgproc')
 Assert-That ((Get-OpenCvConfigHash -Config $moduleCollisionA) -ne (Get-OpenCvConfigHash -Config $moduleCollisionB)) 'Modules elements do not collide across element boundaries'
 
 
-# Get-OpenCvDependencyVersions: cv::getBuildInformation() の configure
-# summary から bundle された third-party のバージョンだけを拾う
-# （M1 完了条件「build-manifest.json に依存 version を含む」の入力）。
-# サンプルは実際に restore した artifact（third_party/opencv/<hash>）に
-# 対して ocvu_get_build_information() を呼んで得た本物のテキストを
-# 切り詰めたもの。
+# Get-OpenCvDependencyVersions は形式の違う 2 つの入力を受ける。ここは
+# 両方を固定する。片方だけを固定していたために、本番だけが常に 0 件を
+# 返す欠陥が緑のまま通っていた（再レビュー F1）:
+#
+#   本番 (tools/opencv.ps1)  cmake configure の stdout。message(STATUS) 経由
+#                            なので cmake が各行に "-- " を前置する。
+#   実行時・旧テスト          cv::getBuildInformation() の戻り値。前置は無い。
+#
+# 内容が同じでも行頭が違うので、前置を剥がさない実装は後者だけを通す。
+# 下の $sample は後者の形。$samplePrefixed はそれに "-- " を付けた前者の形で、
+# 実際の CI ログ（gh run view 32849957498 --log）と同じ字面になる。
 $sampleBuildInformation = @'
 
 General configuration for OpenCV 5.0.0 =====================================
@@ -130,6 +135,23 @@ Assert-That (-not $depVersions.Contains('Flatbuffers')) 'Flatbuffers (present bu
 # libclapack はどの section にもバージョン文字列が出ない
 # ("YES (Built-In libclapack)" のみ)。無いものを捏造しないことを確認する。
 Assert-That (-not $depVersions.Contains('Lapack')) 'libclapack has no reported version and is not fabricated'
+
+# --- 本番の入力形式（cmake configure stdout）での回帰テスト ---
+#
+# 抽出器がこの形式に対して 0 件を返していたのが再レビュー F1。テストが
+# 前置無しの形式しか使っていなかったため、CI は緑のまま manifest の
+# dependencyVersions だけが常に空になっていた。両形式が同じ結果を返す
+# ことをここで固定する。
+$samplePrefixed = ($sampleBuildInformation -split "`r?`n" | ForEach-Object { "-- $_" }) -join "`n"
+
+$fromPlain    = Get-OpenCvDependencyVersions -BuildInformation $sampleBuildInformation
+$fromPrefixed = Get-OpenCvDependencyVersions -BuildInformation $samplePrefixed
+
+Assert-That ($fromPrefixed.Count -gt 0) 'cmake configure stdout ("-- " 前置) からも version を抽出できる'
+Assert-That ($fromPrefixed.Count -eq $fromPlain.Count) '前置の有無で抽出件数が変わらない'
+foreach ($key in $fromPlain.Keys) {
+    Assert-That ($fromPrefixed[$key] -eq $fromPlain[$key]) "前置の有無で $key のバージョンが一致する"
+}
 
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red

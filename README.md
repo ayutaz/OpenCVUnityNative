@@ -62,7 +62,7 @@ CI calls the same `tools/dev.ps1` script — there are no CI-only procedures. A 
 
 ## License
 
-Apache License 2.0 for this repository's own source. That does not by itself determine the terms of third-party code linked into the distributed binary — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses of what the pinned OpenCV build bundles (zlib, libpng, libjpeg-turbo, libclapack). Dependencies are constrained by an allowlist (`tools/verify-opencv-artifact.ps1`) and documented per build profile.
+Apache License 2.0 for this repository's own source. That does not by itself determine the terms of third-party code linked into the distributed binary — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses of what the pinned OpenCV build bundles. That file lists every licence the artifact ships and says, per component, whether it is actually linked into the binaries — SoftFloat, annoylib, MSCR's chi table and the Rubik font are linked alongside zlib, libpng, libjpeg-turbo and libclapack; a few others ship a licence file without being linked. The Rubik font is under the SIL Open Font License, not a BSD-family licence, so the set is not uniform. Dependencies are constrained by an allowlist (`tools/verify-opencv-artifact.ps1`) and documented per build profile.
 
 The runtime library is shared (`/MD`), not embedded — a developer integrating this package decides what to redistribute with their game rather than the package deciding for them.
 

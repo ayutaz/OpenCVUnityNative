@@ -15,16 +15,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | コマンド | 内容 | 実測 |
 | --- | --- | --- |
 | `./tools/dev.ps1 build` | native の configure + build | — |
-| `./tools/dev.ps1 test` | **既定**。tools のテスト 3 本 + L1 + L3 | 約 65 秒（増分） |
-| `./tools/dev.ps1 test-tools` | `tools/tests/*.ps1` の前 3 本（OpenCV 構成・ハッシュ無効化・allowlist） | 約 48 秒 |
-| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 14 秒 |
-| `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke） | 約 12 秒 |
+| `./tools/dev.ps1 test` | **既定**。tools の速いテスト 2 本 + L1 + L3 | 約 65 秒（増分） |
+| `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 2 本（OpenCV 構成・ハッシュ無効化） | 約 18 秒 |
+| `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証と restore の実 download | 約 70 秒 + download |
+| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 28 秒 |
+| `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke） | 約 43 秒 |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 20 秒（増分）/ 約 55 秒（cold） |
 | `./tools/dev.ps1 clean` | `build/` を削除 | — |
 
 実測はいずれも増分ビルド時のもので、うち約 5 秒はハング検出テストの待ち時間。`test` は fail-fast で、tools のテストか L1 が落ちた時点でそれ以降は走らない。結果は `artifacts/test-results/*.xml` に出る（各コマンドの開始時に空にされる）。
 
-**`test` の約 65 秒のうち約 48 秒は `test-tools`、実質はほぼ `VerifyOpenCvArtifact.Tests.ps1` 1 本である。** 同ファイルは allowlist の 1 ケースごとに `pwsh -NoProfile -File` で新しい PowerShell プロセスを起こす作りで、この環境でのプロセス起動コストは 1 回あたり約 1〜1.5 秒、ケース数は 20 件超（実測: 単体で 44〜48 秒）。「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、この実測はすでに緊張関係にある。テスト自体の内容（規律）は変えず、実行方式（プロセスを跨がずに済ませる）を見直すのが妥当な対処だが、M1 の時点ではまだ着手していない。
+**`test` の約 65 秒の内訳は、tools のテストではなく OpenCV をリンクしたこと自体である。** `test-native` 単体で約 28 秒（3 回測って 28/28/29 と安定）、`test-managed` が約 43 秒。うち毎回 6.7 秒は CMake の再 configure で、OpenCV の `find_package` が `dev.ps1` の各レーンの前に必ず走るためである。M0 当時（OpenCV 非依存）の約 20 秒とは前提が違う。
+
+「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、この 65 秒はすでに緊張関係にある。M1 ではこれを**受け入れて記録するに留めており、解消していない**。着手するなら configure の結果を跨いで再利用するか、OpenCV に依存しないレーンを分けることになる。
+
+重いツールテスト 2 本（`VerifyOpenCvArtifact` は 1 ケースごとに `pwsh -NoProfile -File` を起こす作りで単体 69 秒、`OpenCvRestore` は実 download）は `test` から外して `test-tools-slow` に分け、必須チェック `ci-native` の step として走らせている。**ローカルで走らないが、CI では必ず走る。** どこからも走らない状態にしないことが目的である（M1 のレビュー H2）。
 
 `tools/dev.ps1` は OpenCV を自動では取得しない。`native` の configure/build より先に `./tools/opencv.ps1 restore` を実行しておくこと（未実行だと明示的なエラーで止まる）。
 
