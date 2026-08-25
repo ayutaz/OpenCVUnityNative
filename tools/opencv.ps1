@@ -87,51 +87,108 @@ function Invoke-Build {
     Write-BuildManifest -Modules $modules
 }
 
+function Write-RestoreFailure([string]$Message) {
+    # throw ではなく素の stderr 書き込み + exit にする。PowerShell 7 の
+    # 既定の ConciseView は未捕捉の throw を "Exception:" 見出しと
+    # "Line |" ブロック・ソース位置の "~~~" つきで描画し、
+    # 複数行メッセージの改行も潰される。この関数が返す具体的な次の
+    # アクション（gh workflow run ... 等）がスタックトレースの下に
+    # 埋もれ、スクリプトのクラッシュにしか見えなくなる。
+    # verify-opencv-artifact.ps1 が採る形（[Console]::Error + exit）と
+    # 揃える。
+    [Console]::Error.WriteLine($Message)
+    exit 1
+}
+
+function Test-OpenCvTreeValid([string]$ManifestPath) {
+    # 存在するというだけで信用しない。中断された download や壊れた木が
+    # 「present」と誤判定されると、以後そのマシン（や共有キャッシュ）上の
+    # restore が全員分、永久に検証も再取得もせず成功したふりをする。
+    # マニフェストがパースできて期待する configHash と一致し、かつ
+    # allowlist 検証（Invoke-Verify、実ファイルを見る）まで通って初めて
+    # 有効とみなす。
+    try {
+        $manifest = Get-Content -LiteralPath $ManifestPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        return $false
+    }
+    if (-not (($manifest.PSObject.Properties.Name -contains 'configHash') -and ($manifest.configHash -eq $ConfigHash))) {
+        return $false
+    }
+    try {
+        Invoke-Verify | Out-Null
+    }
+    catch {
+        return $false
+    }
+    return $true
+}
+
 function Invoke-Restore {
-    if (Test-Path -LiteralPath (Join-Path $OpenCvRoot 'build-manifest.json')) {
-        Write-Host "OpenCV $($Config.Tag) ($ConfigHash) is already present." -ForegroundColor Green
-        return
+    $manifestPath = Join-Path $OpenCvRoot 'build-manifest.json'
+
+    if (Test-Path -LiteralPath $manifestPath) {
+        if (Test-OpenCvTreeValid $manifestPath) {
+            Write-Host "OpenCV $($Config.Tag) ($ConfigHash) is already present." -ForegroundColor Green
+            return
+        }
+        # 自己修復する: 手で直させるのではなく、壊れている／不完全な木は
+        # 消して取り直す。中断された download や、破損したキャッシュを
+        # 次の人がリンクエラーで気づくよりずっと安く直る。
+        Write-Host "既存の $OpenCvRoot は不完全または検証に失敗したため、取り直します。" -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $OpenCvRoot -ErrorAction SilentlyContinue
     }
 
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        throw @(
+        Write-RestoreFailure (@(
             'gh CLI が見つかりません。restore は GitHub Actions の artifact を取得します。'
             'https://cli.github.com/ を入れて `gh auth login` するか、'
             'ローカルで再現する場合は `./tools/opencv.ps1 build` を使ってください（30-60 分）。'
-        ) -join "`n"
+        ) -join "`n")
     }
 
     New-Item -ItemType Directory -Force -Path $OpenCvRoot | Out-Null
 
-    Write-Host "==> download artifact '$ArtifactName'" -ForegroundColor Cyan
-    & gh run download --name $ArtifactName --dir $OpenCvRoot 2>&1 | Write-Host
+    # download の途中で中断されても（Ctrl+C、プロセスの強制終了）、
+    # 半端な木を残さない。$succeeded が立たない限り必ず取り除く。
+    $succeeded = $false
+    try {
+        Write-Host "==> download artifact '$ArtifactName'" -ForegroundColor Cyan
+        & gh run download --name $ArtifactName --dir $OpenCvRoot 2>&1 | Write-Host
 
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $OpenCvRoot 'build-manifest.json'))) {
-        Remove-Item -Recurse -Force $OpenCvRoot -ErrorAction SilentlyContinue
-        throw @(
-            "artifact '$ArtifactName' を取得できませんでした。"
-            ''
-            '考えられる原因:'
-            '  1. この構成でまだ一度もビルドしていない'
-            '  2. artifact が失効した（GitHub Actions の保持上限は 90 日）'
-            '  3. gh が認証されていない（`gh auth status` で確認）'
-            ''
-            '1 と 2 のどちらでも、対処は build ワークフローの再実行です:'
-            '  gh workflow run build-opencv.yml'
-            ''
-            'ローカルで再現する場合は `./tools/opencv.ps1 build`（30-60 分）。'
-        ) -join "`n"
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $manifestPath)) {
+            Write-RestoreFailure (@(
+                "artifact '$ArtifactName' を取得できませんでした。"
+                ''
+                '考えられる原因:'
+                '  1. この構成でまだ一度もビルドしていない'
+                '  2. artifact が失効した（GitHub Actions の保持上限は 90 日）'
+                '  3. gh が認証されていない（`gh auth status` で確認）'
+                ''
+                '1 と 2 のどちらでも、対処は build ワークフローの再実行です:'
+                '  gh workflow run build-opencv.yml'
+                ''
+                'ローカルで再現する場合は `./tools/opencv.ps1 build`（30-60 分）。'
+            ) -join "`n")
+        }
+
+        # download した物が本当に期待の構成か確認する。
+        # artifact 名が一致していても中身が壊れている可能性はある。
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ($manifest.configHash -ne $ConfigHash) {
+            Write-RestoreFailure "artifact の configHash は '$($manifest.configHash)' で、期待する '$ConfigHash' と異なります。"
+        }
+
+        Invoke-Verify | Out-Null
+        $succeeded = $true
+    }
+    finally {
+        if (-not $succeeded) {
+            Remove-Item -Recurse -Force $OpenCvRoot -ErrorAction SilentlyContinue
+        }
     }
 
-    # download した物が本当に期待の構成か確認する。
-    # artifact 名が一致していても中身が壊れている可能性はある。
-    $manifest = Get-Content -LiteralPath (Join-Path $OpenCvRoot 'build-manifest.json') -Raw | ConvertFrom-Json
-    if ($manifest.configHash -ne $ConfigHash) {
-        Remove-Item -Recurse -Force $OpenCvRoot -ErrorAction SilentlyContinue
-        throw "artifact の configHash は '$($manifest.configHash)' で、期待する '$ConfigHash' と異なります。"
-    }
-
-    Invoke-Verify | Out-Null
     Write-Host "restored OpenCV $($Config.Tag) ($ConfigHash)" -ForegroundColor Green
 }
 
