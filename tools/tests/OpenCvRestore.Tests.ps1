@@ -164,9 +164,17 @@ finally {
 # artifact のケースとは別の分岐だが、同じ描画規律を課す）。
 # ============================================================
 Write-Host '== case D: the "gh missing" failure must not render as a crash either ==' -ForegroundColor Cyan
-$ghPath = (Get-Command gh -ErrorAction SilentlyContinue).Source
-$ghDir = if ($ghPath) { Split-Path -Parent $ghPath } else { $null }
-if (-not $ghDir) {
+# gh は 1 箇所にあるとは限らない。開発機では "C:\Program Files\GitHub CLI" だけ
+# だが、GitHub Actions の runner では tool cache 等にも入っている。-All を付けずに
+# 1 件だけ取り、そのディレクトリを PATH から引くと、CI では gh が残ったまま
+# restore が走り、「artifact が無い」という別の分岐のメッセージが出る。exit 1 も
+# "Line |" が無いことも満たしてしまうので、remedy の assertion だけが落ちた（実測）。
+#
+# 著者の環境の形（gh は 1 箇所）を仮定していたのが原因なので、仮定をやめて
+# 「gh が本当に引けなくなったこと」を進む前に確認する。
+$ghPaths = @(Get-Command gh -All -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })
+$ghDirs = @($ghPaths | ForEach-Object { Split-Path -Parent $_ } | Sort-Object -Unique)
+if ($ghDirs.Count -eq 0) {
     Write-Host '  SKIP  case D: gh is not resolvable on this machine, cannot test its absence meaningfully' -ForegroundColor Yellow
 }
 else {
@@ -175,7 +183,13 @@ else {
     try {
         (Get-Content -LiteralPath $configPath) -replace "'-DWITH_TIFF=OFF'", "'-DWITH_TIFF=OFF'`n        '-DOCVU_PROBE_D=1'" |
             Set-Content -LiteralPath $configPath
-        $env:PATH = ($originalPath -split ';' | Where-Object { $_ -ne $ghDir }) -join ';'
+        $env:PATH = ($originalPath -split ';' | Where-Object { $_ -and ($_ -notin $ghDirs) }) -join ';'
+
+        # 前提が成立したことを確かめてから本題に入る。ここが崩れたまま先に進むと、
+        # 別の失敗経路を「gh が無い場合」として検査してしまう。
+        $ghStillThere = @(Get-Command gh -All -ErrorAction SilentlyContinue).Count
+        Assert-That ($ghStillThere -eq 0) 'case D: gh is actually unreachable before the case runs'
+
         $resultD = Invoke-RestoreProcess
         Assert-That ($resultD.ExitCode -eq 1) 'case D: restore exits 1 when gh is not on PATH'
         Assert-That ($resultD.StdErr -notmatch 'Line \|') 'case D: the gh-missing message has no "Line |" banner'

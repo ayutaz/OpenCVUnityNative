@@ -291,6 +291,7 @@ main には squash された 1 コミットしか残らないので、**squash �
 | --- | --- |
 | `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約 |
 | `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定 |
+| `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした |
 
 **hook**（`.claude/settings.json`）
 
@@ -299,6 +300,12 @@ main には squash された 1 コミットしか残らないので、**squash �
 | `block-bulk-git-add.sh` | PreToolUse (Bash/PowerShell) | `git add -A` / `git add .` を**拒否**。連結コマンド内も見る |
 | `check-unityengine-leak.sh` | PostToolUse (Write/Edit) | `Runtime/Interop` と `Runtime/Core` への `UnityEngine` 混入を指摘 |
 | `check-exception-barrier.sh` | PostToolUse (Write/Edit) | `ocvu_status` を返す `extern "C"` 関数の `OCVU_TRY_BEGIN` 囲い忘れを指摘 |
+| `check-powershell-encoding.sh` | PostToolUse (Write/Edit) | 非 ASCII を出力する `.ps1` / `.psm1` の `[Console]::OutputEncoding` 未設定を指摘。M1 で 3 つの別々のスクリプトに順に現れた |
+| `check-assertions-reachable.sh` | PostToolUse (Write/Edit) | `*.Tests.ps1` で、終了コードを決めた後ろに置かれ**落ちようがない** assertion を指摘 |
+
+後の 2 つが検出するのは、どちらも M1 で実際に起きたものである。前者は修正が隣の
+ファイルに在っても再発し、後者は PASS 表示が出るので目視では気づけなかった。
+「近くのコードを読めば分かる」類ではないから機械に見させている。
 
 hook は PowerShell ではなく **sh** で書いてある。この環境では pwsh の起動に
 約 3.3 秒、python に約 2.4 秒かかるのに対し sh は約 0.19 秒で、hook は毎回の
