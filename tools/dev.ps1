@@ -43,13 +43,28 @@ function Test-Asan {
     } 'run native tests under ASan (L2)'
 }
 
+function Test-Managed {
+    Build-Native
+    if (-not (Test-Path (Join-Path $NativeOutDir 'opencv_unity_native.dll'))) {
+        throw "Native library was not found in '$NativeOutDir' after building."
+    }
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+
+    $env:OCVU_NATIVE_DIR = $NativeOutDir
+    Invoke-Checked {
+        dotnet test (Join-Path $RepoRoot 'tests/Managed/CvUnity.Managed.sln') `
+            --logger "junit;LogFilePath=$(Join-Path $ResultsDir 'managed.xml')" `
+            --logger 'console;verbosity=normal'
+    } 'run managed tests (L3)'
+}
+
 switch ($Command) {
-    'build'       { Build-Native }
-    'test-native' { Test-Native }
-    'test-asan'   { Test-Asan }
-    'test'        { Test-Native }
-    'clean'       { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
-    default       { throw "Command '$Command' is not implemented yet." }
+    'build'        { Build-Native }
+    'test-native'  { Test-Native }
+    'test-asan'    { Test-Asan }
+    'test-managed' { Test-Managed }
+    'test'         { Test-Native; Test-Managed }
+    'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
 
 Write-Host "OK: $Command" -ForegroundColor Green

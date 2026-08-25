@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- ネイティブ DLL は x64。テストホストも x64 に固定する。 -->
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>CvUnity.Tests.Managed</RootNamespace>
+    <AssemblyName>CvUnity.Tests.Managed</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="JunitXml.TestLogger" Version="4.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CvUnity.Runtime.Shim\CvUnity.Runtime.Shim.csproj" />
+  </ItemGroup>
+
+</Project>

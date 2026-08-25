@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CvUnity.Runtime.Shim", "CvUnity.Runtime.Shim\CvUnity.Runtime.Shim.csproj", "{0E6B383A-A423-46B6-AE44-9FC371640903}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CvUnity.Tests.Managed", "CvUnity.Tests.Managed\CvUnity.Tests.Managed.csproj", "{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{0E6B383A-A423-46B6-AE44-9FC371640903}.Release|x64.Build.0 = Release|Any CPU
 		{0E6B383A-A423-46B6-AE44-9FC371640903}.Release|x86.ActiveCfg = Release|Any CPU
 		{0E6B383A-A423-46B6-AE44-9FC371640903}.Release|x86.Build.0 = Release|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Debug|x64.Build.0 = Debug|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Debug|x86.Build.0 = Debug|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Release|x64.ActiveCfg = Release|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Release|x64.Build.0 = Release|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Release|x86.ActiveCfg = Release|Any CPU
+		{9104C2C2-32BB-49C5-83C9-C54BAF13AABD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
