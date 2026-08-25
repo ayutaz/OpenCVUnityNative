@@ -99,8 +99,10 @@ extern "C" ocvu_status ocvu_get_last_error_message(char* buffer,
     const int32_t required = static_cast<int32_t>(length) + 1;
     *out_required_size = required;
 
+    // 失敗ではなくサイズ問い合わせの結果。呼び出し側は required の大きさで
+    // 確保して呼び直す（opencv_unity_native.h の契約を参照）。
     if (buffer == nullptr || buffer_size < required) {
-        return OCVU_STATUS_INVALID_ARGUMENT;
+        return OCVU_STATUS_BUFFER_TOO_SMALL;
     }
 
     std::memcpy(buffer, g_last_message, length);
