@@ -31,18 +31,13 @@ typedef int32_t ocvu_status;
  * ocvu_get_status_count / ocvu_get_status_value が公開する表が同時に増える。
  * C# 側（CvUnity.CvStatus）へは自動では伝播しないので必ず手で追随すること。
  * 追随し忘れは L3 の StatusCodeSyncTests が赤にする。
- */
-/*
- * status code の唯一の定義元。ここに 1 行足すと列挙子と実行時テーブルの
- * 両方が生成される。C# 側の CvStatus にも同じ値を足すこと（片側だけ足すと
- * StatusCodeSyncTests が赤くなる）。
  *
  * すべての非 OK が「失敗」ではない。OCVU_STATUS_BUFFER_TOO_SMALL は
  * サイズ問い合わせの正常な結果であって、呼び出し側の誤りではない。
  * 出力バッファを取る関数は、buffer に NULL を渡して必要サイズだけを聞く
  * 使い方を正規の経路として認めており、そのとき返るのがこの status である。
- * status を一律に例外へ変換する wrapper は、これを失敗として扱ってはならない。
- * M5 の generator もこの区別を読む前提で書くこと。
+ * status を一律に例外へ変換する wrapper は、これを失敗として扱ってはならない
+ * （C# 側の対応は CvNative.IsFailure）。M5 の generator もこの区別を読む前提で書くこと。
  */
 #define OCVU_STATUS_LIST(X)               \
     X(OCVU_STATUS_OK,                  0) \
