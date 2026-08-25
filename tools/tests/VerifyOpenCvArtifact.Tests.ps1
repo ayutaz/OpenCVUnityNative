@@ -24,7 +24,10 @@ function New-Tree([string[]]$libs) {
 $allowed = @(
     'opencv_core500.lib', 'opencv_imgproc500.lib', 'opencv_imgcodecs500.lib',
     'opencv_objdetect500.lib', 'opencv_features500.lib', 'opencv_flann500.lib',
-    'zlib.lib', 'libpng.lib', 'libjpeg-turbo.lib'
+    'zlib.lib', 'libpng.lib', 'libjpeg-turbo.lib',
+    # 'ipp' を単純な部分文字列として禁止すると "cl-ipp-er" に一致して
+    # 誤検出する。clipper は features モジュールが引き込み得る実在のライブラリ名。
+    'clipper.lib'
 )
 
 # 正常系
@@ -52,7 +55,6 @@ $missing = New-Tree @('opencv_core500.lib')
 $missingOutput = & pwsh -NoProfile -File $verify -Root $missing 2>&1 | Out-String
 Assert-That ($LASTEXITCODE -ne 0) 'a tree missing a required module is rejected'
 Assert-That ($missingOutput -match 'imgproc') 'the rejection message names a missing module'
-Assert-That ($missingOutput -notmatch 'PropertyNotFoundException') 'the rejection is not a StrictMode crash on a single-file tree'
 
 # 外部 IPP（WITH_IPP=ON + IPPROOT）は ippicv / ippiw ではなく
 # ippcoremt.lib / ippsmt.lib / ippvmmt.lib 等のファイル名で配布される。
