@@ -18,6 +18,23 @@
     }
 
     CMakeArgs = @(
+        # OpenCV のトップレベル CMakeLists.txt (行 81-84) は
+        # `check_language(ASM)` で「たまたま PATH 上にある」アセンブラを
+        # 探しに行き、見つかれば `enable_language(ASM)` する。GitHub Actions
+        # の windows-2022 runner は C:\mingw64\bin を PATH に持ち、そこの
+        # cc.exe が GNU アセンブラとして見つかってしまう。GNU 言語が 1 つでも
+        # enable されると、CMake は静的ライブラリの prefix/suffix を
+        # プロジェクト全体で GNU 規約（libX.a）に倒す — MSVC 規約（X.lib）を
+        # 前提にした verify-opencv-artifact.ps1 の allowlist もリンクする
+        # 側の consumer も壊れる。この構成（x86_64、dnn 不使用、
+        # PNG/JPEG の ASM 最適化は ARM 限定）では ASM は本来どこにも
+        # 要らないので、CMAKE_ASM_COMPILER を NOTFOUND に固定して
+        # `check_language(ASM)` 自体を no-op にする（OpenCV 自身の
+        # 3rdparty/mlas/CMakeLists.txt のコメントがこの no-op 挙動を
+        # 前提にしている）。PATH に何が乗っているかで結果が変わる状態を
+        # やめ、構成ファイル側で決着させる。
+        '-DCMAKE_ASM_COMPILER=NOTFOUND'
+
         # 配布は opencv_unity_native.dll 1 個で完結させる。
         # iOS（M4）は静的リンクが必須なので、最初からその形にしておく。
         '-DBUILD_SHARED_LIBS=OFF'
