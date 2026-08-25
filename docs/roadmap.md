@@ -46,7 +46,7 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 
 この分離から導かれる重要な帰結:
 
-- **OpenCV は CI がビルドし、artifact として配布する。** エージェントもローカル開発者も OpenCV を自分でビルドしない（`tools/opencv.ps1 restore` が固定ハッシュの artifact を download するだけ）。M1 の 30〜60 分のビルドコストが開発ループから完全に消える。
+- **OpenCV は CI がビルドし、artifact として配布する。** エージェントもローカル開発者も OpenCV を自分でビルドしない（`tools/opencv.ps1 restore` が固定ハッシュの artifact を download するだけ）。M1 のビルドコスト（CI 実測: clone〜verify まで通しで 4 分 09 秒。`windows-2022` runner、run 32849957498。ローカルでの実測はまだ無い）が開発ループから完全に消える。
 - **sanitizer レーンはローカルでは任意、CI では必須にする。** ローカルの毎編集ループは通常ビルドで秒単位を保ち、ASan / UBSan / Valgrind は push ごとに CI が全部回す。
 - **マトリクスをケチらない。** platform × 構成 × Unity バージョンの組み合わせを削る理由がないため、削らない。
 - **CI が唯一の正本の検証結果である。** ローカルの green は速さのための近似であり、merge 可否は CI が決める。
@@ -102,7 +102,7 @@ OpenCV の呼び出し。Unity Editor / Player テスト。画像処理。複数
 ## M1 — OpenCV 5.0.0 の再現可能ビルドとキャッシュ
 
 **目的**
-計画書 §8.3 の依存 allowlist を**最初から**満たす。「後で依存を削る」は配布直前に破綻するため、最小構成を最初に確定させる。同時に、**OpenCV のビルドを CI に完全に追い出し**、開発ループから 30〜60 分のコストを消して M0 で得た反復速度を維持する。
+計画書 §8.3 の依存 allowlist を**最初から**満たす。「後で依存を削る」は配布直前に破綻するため、最小構成を最初に確定させる。同時に、**OpenCV のビルドを CI に完全に追い出し**、開発ループからそのビルドコスト（CI 実測: 4 分 09 秒。ローカルは未計測）を消して M0 で得た反復速度を維持する。
 
 **ゴール**
 allowlist 構成の OpenCV 5.0.0 を **CI がビルドして artifact として公開**し、ローカルは download するだけで使える。**想定外の依存が有効になったら CI が落ちる。**
@@ -119,6 +119,31 @@ allowlist 構成の OpenCV 5.0.0 を **CI がビルドして artifact として�
 
 **非ゴール**
 複数プラットフォーム対応（M1 は Windows x64 のみ）。パッケージ配布。SBOM の完成（M3）。
+
+**既知の欠陥（意図的に見送った検証。担当マイルストーン未定）**
+
+`tools/opencv-config.psd1` が固定するのは**送信する** CMake flag であって、OpenCV のビルドが
+それを**守ったか**ではない。両者の間には検証を置かないと決めた — 構成ハッシュは意図の一意性を
+保証するが、成果物が意図どおりかは別問題として残る。
+
+この隙間から実際に 2 件の欠陥が生まれた。どちらも自動検証があれば構成変更の時点で機械的に
+検出できたはずで、代わりに人間が成果物を直接調べて発見した。
+
+- **Task 4**: `check_language(ASM)` が PATH 上の MinGW アセンブラを拾い、静的ライブラリの
+  命名規約が GNU 規約（`libX.a`）に倒れた。`-DCMAKE_ASM_COMPILER=NOTFOUND` で止めたが、
+  「ASM を要求していないのに ASM 言語が有効になっていないか」を成果物から機械的に確認する
+  検証は無い。
+- **Task 7 / Task 8**: `BUILD_WITH_STATIC_CRT`（MSVC 既定 ON）が
+  `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` の指定を黙って上書きし、要求した共有 CRT
+  （/MD）ではなく embedded CRT（/MT）の成果物ができていた。`opencv_core500.lib` の
+  `DEFAULTLIB` を人間が `grep` して発見した。`-DBUILD_WITH_STATIC_CRT=OFF` で止めたが、
+  「CRT linkage が要求どおりか」を成果物から機械的に確認する検証は無い。
+
+対応候補（優先度は未定。どのマイルストーンが拾うかも未確定）:
+成果物の `.lib` から `DEFAULTLIB` や有効言語を実際に読み取り、`opencv-config.psd1` の意図
+（CRT linkage、ASM 不使用、`WITH_CUDA=OFF` 等）と突き合わせる自動チェックを
+`tools/verify-opencv-artifact.ps1` に追加する。allowlist 検証（依存の集合）とは別軸の検証
+であることに注意 — 依存が正しくても linkage が違えば今回のような欠陥になる。
 
 ---
 

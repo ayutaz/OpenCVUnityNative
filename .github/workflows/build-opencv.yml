@@ -1,0 +1,60 @@
+name: build-opencv
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/opencv-config.psd1'
+      - 'tools/OpenCvConfig.psm1'
+      - 'tools/opencv.ps1'
+      - 'tools/verify-opencv-artifact.ps1'
+      - '.github/workflows/build-opencv.yml'
+
+concurrency:
+  group: build-opencv-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: OpenCV 5.0.0 Windows x64
+    runs-on: windows-2022
+    # CI 実測（clone〜verify まで通しで）は 4 分 09 秒（run 32849957498）。
+    # ローカルでの実測はまだ無い。cold runner やネットワークの変動、
+    # 将来の module 追加を見込んで大きめに取っている — 実測の何倍、という
+    # 根拠のある数字ではなく、安全側に振った目安であることに注意。
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve the configuration
+        id: config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $config = Get-OpenCvConfig
+          $name = Get-OpenCvArtifactName -Config $config
+          $hash = Get-OpenCvConfigHash -Config $config
+          "artifact-name=$name" >> $env:GITHUB_OUTPUT
+          "config-hash=$hash"   >> $env:GITHUB_OUTPUT
+          Write-Host "artifact: $name"
+
+      # ローカルと同一のコマンドを呼ぶ。CI 専用の手順は作らない。
+      - name: Build OpenCV
+        shell: pwsh
+        run: ./tools/opencv.ps1 build
+
+      - name: Show the manifest
+        shell: pwsh
+        run: Get-Content "third_party/opencv/${{ steps.config.outputs.config-hash }}/build-manifest.json"
+
+      - name: Upload the artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.config.outputs.artifact-name }}
+          path: third_party/opencv/${{ steps.config.outputs.config-hash }}/
+          if-no-files-found: error
+          # Actions artifact の上限。90 日を超えて保持することはできないため、
+          # 期限切れ後は restore が明示的に失敗して再実行を促す（tools/opencv.ps1）。
+          retention-days: 90

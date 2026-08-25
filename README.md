@@ -2,7 +2,7 @@
 
 OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible native UPM package.
 
-> **Status: early development (M0).** The automated test harness (native GoogleTest lane, AddressSanitizer lane, and managed P/Invoke contract lane) exists and passes locally and in CI. No OpenCV integration exists yet — the C ABI is still a skeleton.
+> **Status: early development (M1 complete, M2 next).** The automated test harness (native GoogleTest lane, AddressSanitizer lane, and managed P/Invoke contract lane) exists and passes locally and in CI, linked against a reproducible OpenCV 5.0.0 build that CI produces and publishes as an artifact. The C ABI still only exposes version/build-information queries and the debug/error-reporting surface built in M0 — no `Mat` lifecycle or `imgproc` calls yet; that is M2's job.
 
 ## What this is
 
@@ -28,13 +28,22 @@ Windows, macOS and Linux first, then Android and iOS, then Web/Wasm. Unity 6000.
 - CMake 3.25+
 - .NET 8 SDK or newer
 - PowerShell 7+
+- [GitHub CLI](https://cli.github.com/) (`gh`), authenticated — `tools/opencv.ps1 restore` uses it to download the prebuilt OpenCV artifact
 
 ## Development
 
-All local development goes through `tools/dev.ps1`:
+OpenCV is not built locally. Fetch the pinned artifact first:
 
 ```powershell
-# Both fast lanes (L1 native GoogleTest + L3 managed P/Invoke contract tests)
+./tools/opencv.ps1 restore
+```
+
+This downloads the prebuilt OpenCV 5.0.0 artifact CI publishes for the current configuration hash (`tools/opencv-config.psd1`); `tools/opencv.ps1 build` reproduces that build locally, so use it only to verify what CI produced. Measured cost: CI's own build step (clone + configure + build + install + verify) took 4m09s on a `windows-2022` GitHub Actions runner ([run 32849957498](https://github.com/ayutaz/OpenCVUnityNative/actions/runs/32849957498)); local timing hasn't been measured and may differ with local hardware and network conditions.
+
+All local development after that goes through `tools/dev.ps1`:
+
+```powershell
+# The fast tools tests plus both native lanes (L1 GoogleTest + L3 managed P/Invoke)
 ./tools/dev.ps1 test
 
 # Individual lanes
@@ -53,12 +62,16 @@ CI calls the same `tools/dev.ps1` script — there are no CI-only procedures. A 
 
 ## License
 
-Apache License 2.0. Note that the project's own source being Apache-2.0 does not by itself determine the terms of third-party code linked into a distributed binary — dependencies are constrained by an allowlist and documented per build profile.
+Apache License 2.0 for this repository's own source. That does not by itself determine the terms of third-party code linked into the distributed binary — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses of what the pinned OpenCV build bundles. That file lists every licence the artifact ships and says, per component, whether it is actually linked into the binaries — SoftFloat, annoylib, MSCR's chi table and the Rubik font are linked alongside zlib, libpng, libjpeg-turbo and libclapack; a few others ship a licence file without being linked. The Rubik font is under the SIL Open Font License, not a BSD-family licence, so the set is not uniform. Dependencies are constrained by an allowlist (`tools/verify-opencv-artifact.ps1`) and documented per build profile.
+
+The runtime library is shared (`/MD`), not embedded — a developer integrating this package decides what to redistribute with their game rather than the package deciding for them.
 
 ## Documentation
 
 Design and research documents (in Japanese) live under `docs/`:
 
 - [Roadmap](docs/roadmap.md)
+- [M0 implementation plan](docs/superpowers/plans/2026-08-25-m0-tdd-harness.md)
+- [M1 implementation plan](docs/superpowers/plans/2026-08-25-m1-opencv-build.md)
 - [Unity/OpenCV integration research and plan](docs/unity-opencv-integration-research-and-plan.md)
 - [Native backend language TDD evaluation](docs/native-backend-language-tdd-evaluation.md)

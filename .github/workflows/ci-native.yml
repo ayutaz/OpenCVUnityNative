@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 concurrency:
   group: ci-native-${{ github.ref }}
   cancel-in-progress: true
@@ -30,10 +34,44 @@ jobs:
           path: build/windows-x64-debug/_deps
           key: fetchcontent-windows-${{ hashFiles('native/tests/CMakeLists.txt') }}
 
+      # third_party/opencv/<hash> をハッシュ単位でキャッシュする。ヒットすれば
+      # restore は gh からの download をスキップし、既存の木を検証するだけで
+      # 済む（tools/opencv.ps1 の Invoke-Restore を参照）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v4
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
       # ローカルと同一のコマンドを呼ぶ。CI 専用の手順を作らない。
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
       - name: Run all fast lanes
         shell: pwsh
         run: ./tools/dev.ps1 test
+
+      # ローカルループから外した重いツールテスト。ここが唯一の実行場所なので、
+      # 落とすと構成ハッシュと allowlist 検証の回帰テストが誰にも見られなくなる。
+      # VerifyOpenCvArtifact はケースごとに pwsh を起動するため単体で 1 分規模、
+      # OpenCvRestore は実際に artifact を download する（tools/dev.ps1 の
+      # $ToolsTestScriptsSlow の注記を参照）。
+      - name: Run the slow tools tests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/dev.ps1 test-tools-slow
 
       - name: Upload test results
         if: always()

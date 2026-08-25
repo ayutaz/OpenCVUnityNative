@@ -2,12 +2,19 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-tools', 'test-tools-slow', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# CI のログは UTF-8。指定しないと Windows の PowerShell は既定の ANSI
+# コードページ（日本語環境なら cp932、CI の en-US runner なら cp1252）で
+# 書き出し、失敗メッセージが文字化けするか、cp1252 環境では日本語部分が
+# 可逆でない形で失われる。tools/opencv.ps1・tools/verify-opencv-artifact.ps1
+# と同じ対応。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $RepoRoot      = Split-Path -Parent $PSScriptRoot
 $Preset        = 'windows-x64-debug'
@@ -21,6 +28,20 @@ function Invoke-Checked([scriptblock]$Action, [string]$What) {
     if ($LASTEXITCODE -ne 0) { throw "$What failed with exit code $LASTEXITCODE" }
 }
 
+function Write-DevFailure([string]$Message) {
+    # throw ではなく素の stderr 書き込み + exit にする。PowerShell 7 の
+    # 既定の ConciseView は未捕捉の throw を "Exception:" 見出しと
+    # "Line |" ブロック・ソース位置の "~~~" つきで描画し、複数行メッセージの
+    # 改行も潰される（実測: restore し忘れて `dev.ps1 test` を叩いたときの
+    # CI ログで、次に打つべきコマンドを示す 2 行がまさにこの形で潰れて
+    # 読みにくくなっていた）。restore を忘れるのはここで最も踏みやすい
+    # 失敗経路であり、開発者が最初に読む可能性が高いメッセージでもある。
+    # tools/opencv.ps1 の Write-RestoreFailure、tools/verify-opencv-artifact.ps1
+    # の失敗描画と同じ形に揃える。
+    [Console]::Error.WriteLine($Message)
+    exit 1
+}
+
 # 結果ディレクトリを空にしてから作り直す。
 # New-Item -Force は既存の中身を消さないので、L1 が落ちて L3 が走らなかった
 # ときに前回の緑の managed.xml がそのまま残り、最新の結果に見えてしまう。
@@ -31,8 +52,75 @@ function Reset-Results {
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
 }
 
+# tools/*.ps1（OpenCV の構成・ハッシュ・allowlist 検証）の素の assert テスト。
+#
+# 2 段に分かれている。分岐の基準は「重要度」ではなく実測の所要時間である。
+# ローカルループは秒単位を死守するという M0 の不変条件が、どちらに置くかを決める。
+#
+#   Fast（local + CI）  : 各 3 秒。ハッシュ導出と構成の読み取りだけで、
+#                         OpenCV の実体も subprocess の大量生成も要らない。
+#   Slow（CI のみ）      : VerifyOpenCvArtifact は 22 のケースごとに
+#                         pwsh -NoProfile を起動する設計で、この環境では
+#                         起動が 1 回 1〜1.5 秒かかるため単体で 69 秒（実測）。
+#                         OpenCvRestore は実際に artifact を download する。
+#
+# 実測（このマシン、増分ビルド時）:
+#   test（この分割後）                     65 秒
+#   test（Slow も含めていたとき）          117 秒
+#   test-tools（Fast 2 本）                18 秒
+#
+# 65 秒の大半はこの一覧ではなく、OpenCV をリンクしたこと自体である
+# （test-native 単体 28 秒、うち毎回 6.7 秒は find_package を含む再 configure）。
+# Slow を外して 117 -> 65 秒になったが、M0 当時の約 20 秒には戻らない。
+# その差は M1 が受け入れた前提であり、この分割では解消しない。
+#
+# Slow を CI 専用にしても検証は失われない。CLAUDE.md が定めるとおり
+# merge 可否を決めるのは CI であり、Slow は必須チェックの中で必ず走る
+# （ci-native.yml の "Run the slow tools tests"）。レビュー H2 は
+# 「どのレーンからも走らない」ことを問題にしており、CI で走れば満たされる。
+$ToolsTestScriptsFast = @(
+    'OpenCvConfig.Tests.ps1'
+    'ConfigInvalidation.Tests.ps1'
+)
+
+$ToolsTestScriptsSlow = @(
+    'VerifyOpenCvArtifact.Tests.ps1'
+    'OpenCvRestore.Tests.ps1'
+)
+
+function Invoke-ToolsTestList {
+    param([string[]] $Scripts)
+
+    foreach ($script in $Scripts) {
+        $path = Join-Path $PSScriptRoot "tests/$script"
+        Invoke-Checked {
+            & pwsh -NoProfile -File $path
+        } "run $script (tools)"
+    }
+}
+
+function Test-Tools {
+    Invoke-ToolsTestList -Scripts $ToolsTestScriptsFast
+}
+
+# CI 専用。ローカルで叩いても動くが数分かかる。
+function Test-ToolsSlow {
+    Invoke-ToolsTestList -Scripts $ToolsTestScriptsSlow
+}
+
 function Build-Native {
-    Invoke-Checked { cmake --preset $Preset } 'configure native'
+    Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
+    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+    if (-not (Test-Path -LiteralPath (Join-Path $opencvRoot 'build-manifest.json'))) {
+        Write-DevFailure (@(
+            "OpenCV が '$opencvRoot' にありません。"
+            "先に './tools/opencv.ps1 restore' を実行してください。"
+        ) -join "`n")
+    }
+
+    Invoke-Checked {
+        cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot"
+    } 'configure native'
     Invoke-Checked { cmake --build --preset $Preset } 'build native'
 }
 
@@ -45,7 +133,18 @@ function Test-Native {
 }
 
 function Test-Asan {
-    Invoke-Checked { cmake --preset $AsanPreset } 'configure native (asan)'
+    Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
+    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+    if (-not (Test-Path -LiteralPath (Join-Path $opencvRoot 'build-manifest.json'))) {
+        Write-DevFailure (@(
+            "OpenCV が '$opencvRoot' にありません。"
+            "先に './tools/opencv.ps1 restore' を実行してください。"
+        ) -join "`n")
+    }
+
+    Invoke-Checked {
+        cmake --preset $AsanPreset "-DOCVU_OPENCV_ROOT=$opencvRoot"
+    } 'configure native (asan)'
     Invoke-Checked { cmake --build --preset $AsanPreset } 'build native (asan)'
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
     Invoke-Checked {
@@ -82,7 +181,9 @@ switch ($Command) {
     'test-native'  { Reset-Results; Test-Native }
     'test-asan'    { Reset-Results; Test-Asan }
     'test-managed' { Reset-Results; Test-Managed }
-    'test'         { Reset-Results; Test-Native; Test-Managed }
+    'test-tools'   { Test-Tools }
+    'test-tools-slow' { Test-ToolsSlow }
+    'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
 

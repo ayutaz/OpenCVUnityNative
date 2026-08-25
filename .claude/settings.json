@@ -29,6 +29,18 @@
             "command": "sh .claude/hooks/check-exception-barrier.sh",
             "timeout": 15,
             "statusMessage": "例外バリアを検査中"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-powershell-encoding.sh",
+            "timeout": 15,
+            "statusMessage": "PowerShell の出力エンコーディングを検査中"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-assertions-reachable.sh",
+            "timeout": 15,
+            "statusMessage": "assertion が終了コードに効くか検査中"
           }
         ]
       }
