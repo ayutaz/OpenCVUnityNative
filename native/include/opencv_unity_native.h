@@ -55,6 +55,14 @@ OCVU_API ocvu_status ocvu_get_last_error_message(char* buffer,
                                                  int32_t buffer_size,
                                                  int32_t* out_required_size);
 
+/*
+ * conformance test 用に、内部で意図的に例外を投げる。
+ * kind: 0 = std::runtime_error, 1 = std::bad_alloc,
+ *       2 = 非標準例外, 3 = 例外を投げない
+ * 例外が ABI 境界を越えないことの検証に使う。
+ */
+OCVU_API ocvu_status ocvu_debug_throw(int32_t kind);
+
 #ifdef __cplusplus
 }
 #endif
