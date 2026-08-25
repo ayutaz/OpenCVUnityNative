@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/block-bulk-git-add.sh",
+            "timeout": 15,
+            "statusMessage": "git add を検査中"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-unityengine-leak.sh",
+            "timeout": 15,
+            "statusMessage": "UnityEngine 非依存を検査中"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-exception-barrier.sh",
+            "timeout": 15,
+            "statusMessage": "例外バリアを検査中"
+          }
+        ]
+      }
+    ]
+  }
+}

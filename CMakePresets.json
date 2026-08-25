@@ -1,0 +1,39 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "windows-x64-debug",
+      "displayName": "Windows x64 Debug (MSVC)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-x64-debug",
+      "cacheVariables": { "OCVU_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "windows-x64-asan",
+      "inherits": "windows-x64-debug",
+      "displayName": "Windows x64 ASan (MSVC)",
+      "binaryDir": "${sourceDir}/build/windows-x64-asan",
+      "cacheVariables": { "OCVU_ENABLE_ASAN": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-x64-debug", "configurePreset": "windows-x64-debug", "configuration": "Debug" },
+    { "name": "windows-x64-asan", "configurePreset": "windows-x64-asan", "configuration": "Debug" }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-x64-debug",
+      "configurePreset": "windows-x64-debug",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-x64-asan",
+      "configurePreset": "windows-x64-asan",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

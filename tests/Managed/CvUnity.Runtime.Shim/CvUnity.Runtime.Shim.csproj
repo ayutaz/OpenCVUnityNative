@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Unity 6000.x の managed plug-in 条件に合わせる。
+         ここが通ることが Runtime/Interop と Runtime/Core が
+         UnityEngine 非依存であることの機械的な証明になる。 -->
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>CvUnity.Runtime</AssemblyName>
+    <RootNamespace>CvUnity</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <OcvuPackageRuntime>$(MSBuildThisFileDirectory)..\..\..\Packages\com.ayutaz.opencv-unity-native\Runtime</OcvuPackageRuntime>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UnityEngine に依存しない層だけを取り込む。
+         UnityIntegration は意図的に含めない。 -->
+    <Compile Include="$(OcvuPackageRuntime)\Interop\**\*.cs" />
+    <Compile Include="$(OcvuPackageRuntime)\Core\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CvUnity.Tests.Managed" />
+  </ItemGroup>
+
+</Project>

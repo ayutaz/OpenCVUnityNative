@@ -1,0 +1,13 @@
+build/
+third_party/
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
+.vscode/
+TestResults/
+artifacts/
+.superpowers/
+
+# 個人設定は共有しない（hook 定義の .claude/settings.json は共有する）
+.claude/settings.local.json
