@@ -11,6 +11,8 @@ set(OCVU_SOURCES
     src/ocvu_status.cpp
     src/ocvu_debug.cpp
     src/ocvu_opencv_info.cpp
+    src/ocvu_mat_table.cpp
+    src/ocvu_mat.cpp
 )
 
 add_library(opencv_unity_native SHARED ${OCVU_SOURCES})

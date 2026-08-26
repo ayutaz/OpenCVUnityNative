@@ -46,7 +46,8 @@ typedef int32_t ocvu_status;
     X(OCVU_STATUS_OUT_OF_MEMORY,       3) \
     X(OCVU_STATUS_OPENCV_ERROR,        4) \
     X(OCVU_STATUS_UNKNOWN_ERROR,       5) \
-    X(OCVU_STATUS_BUFFER_TOO_SMALL,    6)
+    X(OCVU_STATUS_BUFFER_TOO_SMALL,    6) \
+    X(OCVU_STATUS_INVALID_HANDLE,      7)
 
 #define OCVU_STATUS_ENUMERATOR_(name, value) name = value,
 enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
@@ -97,6 +98,58 @@ OCVU_API int32_t ocvu_get_status_count(void);
  * out_value が NULL なら OCVU_STATUS_NULL_POINTER を返す。
  */
 OCVU_API ocvu_status ocvu_get_status_value(int32_t index, int32_t* out_value);
+
+/*
+ * Mat の不透明 handle。
+ *
+ * 生ポインタではない。上位 32 bit が世代、下位 32 bit が table の索引である。
+ * 解放のたびに世代が進むので、解放済みの handle をもう一度渡しても
+ * OCVU_STATUS_INVALID_HANDLE として弾かれる。生ポインタなら未定義動作になり、
+ * sanitizer の無い環境（配布された Unity Player）では黙って壊れる。
+ *
+ * 0 は常に無効である。ゼロ初期化した変数を誤って渡した場合を確実に捕まえる。
+ *
+ * この handle が指すメモリは常に native が確保し native が解放する。
+ * Unity が所有するメモリを指す handle は存在しない
+ * （docs/abi-ownership-and-versioning.md §1）。
+ */
+typedef uint64_t ocvu_mat_handle;
+#define OCVU_MAT_HANDLE_NONE ((ocvu_mat_handle)0)
+
+/* OpenCV の CV_8UC1 等に対応する。ABI に cv:: の定数を露出させないための写し。 */
+#define OCVU_MAT_TYPE_8UC1  0
+#define OCVU_MAT_TYPE_8UC3 16
+#define OCVU_MAT_TYPE_8UC4 24
+
+/* ocvu_mat_get_info の出力。固定サイズ型のみで構成する。 */
+typedef struct ocvu_mat_info {
+    int32_t rows;
+    int32_t cols;
+    int32_t type;        /* OCVU_MAT_TYPE_* */
+    int32_t channels;
+    int64_t step;        /* 1 行のバイト数 */
+    int64_t total_bytes; /* rows * step */
+} ocvu_mat_info;
+
+/*
+ * rows x cols、指定 type の Mat を確保し、handle を out_handle に書く。
+ * rows / cols が 1 未満、または type が未知なら OCVU_STATUS_INVALID_ARGUMENT を返し、
+ * out_handle は変更しない。out_handle が NULL なら OCVU_STATUS_NULL_POINTER。
+ */
+OCVU_API ocvu_status ocvu_mat_create(int32_t rows, int32_t cols, int32_t type,
+                                     ocvu_mat_handle* out_handle);
+
+/*
+ * handle を解放する。解放済み、または未知の handle なら
+ * OCVU_STATUS_INVALID_HANDLE を返す（落とさない）。
+ */
+OCVU_API ocvu_status ocvu_mat_release(ocvu_mat_handle handle);
+
+/* src の内容を複製した独立の handle を作る。src と dst は別の記憶域を持つ。 */
+OCVU_API ocvu_status ocvu_mat_clone(ocvu_mat_handle src, ocvu_mat_handle* out_handle);
+
+/* handle の形状を out_info に書く。out_info が NULL なら OCVU_STATUS_NULL_POINTER。 */
+OCVU_API ocvu_status ocvu_mat_get_info(ocvu_mat_handle handle, ocvu_mat_info* out_info);
 
 /*
  * conformance test 用に、内部で意図的に例外を投げる。
