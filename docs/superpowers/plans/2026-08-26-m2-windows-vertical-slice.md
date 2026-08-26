@@ -513,7 +513,7 @@ using System.Runtime.CompilerServices;
 // public にはしない — P/Invoke 宣言は実装詳細であり、利用者向けの API ではない。
 [assembly: InternalsVisibleTo("CvUnity.Core")]
 [assembly: InternalsVisibleTo("CvUnity.Tests.Managed")]
-[assembly: InternalsVisibleTo("CvUnity.Runtime.Shim")]
+[assembly: InternalsVisibleTo("CvUnity.Runtime")]
 ```
 
 ```csharp
@@ -598,13 +598,24 @@ namespace CvUnity.Tests.Managed
         }
 
         [Fact]
-        public void FailedCreate_LeavesTheHandleUntouchedAndReportsAMessage()
+        public void FailedCreate_ReportsAMessageAndYieldsNoUsableHandle()
         {
-            ulong handle = 12345UL;
+            // 「out 引数が触られていないこと」はここでは検証できない。C# の out は
+            // 呼び出し前の値を必ず破棄するので、native が書かなかったことと
+            // marshaller が既定値を入れたことを managed 側から区別する手段が無い。
+            // その検証は L1 の InvalidDimensionsAreRejected が持っている。
+            //
+            // ここで確かめられるのは、失敗が失敗として観測でき、理由が読め、
+            // 返ってきた値が handle として通用しないことである。
+            ulong handle;
             var status = (CvStatus)NativeMethods.ocvu_mat_create(0, 4, 0, out handle);
 
             Assert.Equal(CvStatus.InvalidArgument, status);
             Assert.Contains("rows and cols", CvNative.GetLastErrorMessage());
+
+            OcvuMatInfo info;
+            Assert.Equal((int)CvStatus.InvalidHandle,
+                NativeMethods.ocvu_mat_get_info(handle, out info));
         }
     }
 }
@@ -624,7 +635,7 @@ Expected: 両方 PASS。ASan は handle table の解放経路を通るので、�
 - [ ] **Step 12: コミット**
 
 ```bash
-git add native/include/opencv_unity_native.h native/src/ocvu_mat_table.h native/src/ocvu_mat_table.cpp native/src/ocvu_mat.cpp native/CMakeLists.txt native/tests/test_mat_lifecycle.cpp native/tests/CMakeLists.txt Packages/com.ayutaz.opencv-unity-native/Runtime/Core/CvStatus.cs Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.cs tests/Managed/CvUnity.Tests.Managed/MatLifecycleTests.cs
+git add native/include/opencv_unity_native.h native/src/ocvu_mat_table.h native/src/ocvu_mat_table.cpp native/src/ocvu_mat.cpp native/CMakeLists.txt native/tests/test_mat_lifecycle.cpp native/tests/CMakeLists.txt Packages/com.ayutaz.opencv-unity-native/Runtime/Core/CvStatus.cs Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.cs Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/AssemblyInfo.cs tests/Managed/CvUnity.Tests.Managed/MatLifecycleTests.cs
 git commit -m "feat(mat): add generation-checked handles so use-after-release is a status, not UB"
 ```
 

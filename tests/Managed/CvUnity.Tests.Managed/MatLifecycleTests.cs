@@ -52,13 +52,28 @@ namespace CvUnity.Tests.Managed
         }
 
         [Fact]
-        public void FailedCreate_LeavesTheHandleUntouchedAndReportsAMessage()
+        public void FailedCreate_ReportsAMessageAndYieldsNoUsableHandle()
         {
-            ulong handle = 12345UL;
+            // 「out 引数が触られていないこと」はここでは検証できない。C# の out は
+            // 呼び出し前の値を必ず破棄するので、native が書かなかったことと
+            // marshaller が既定値を入れたことを managed 側から区別する手段が無い。
+            // その検証は L1 の InvalidDimensionsAreRejected が持っている
+            // （native の視点でしか意味を成さない）。
+            //
+            // ここで確かめられるのは、失敗が失敗として観測でき、理由が読め、
+            // 返ってきた値が handle として通用しないことである。
+            ulong handle;
             var status = (CvStatus)NativeMethods.ocvu_mat_create(0, 4, 0, out handle);
 
             Assert.Equal(CvStatus.InvalidArgument, status);
             Assert.Contains("rows and cols", CvNative.GetLastErrorMessage());
+
+            // 失敗した create の戻り値を使い回そうとしても、生きた Mat には
+            // 決して当たらない。ここが通ってしまうと、失敗を無視した呼び出し側が
+            // 他人の Mat を掴むことになる。
+            OcvuMatInfo info;
+            Assert.Equal((int)CvStatus.InvalidHandle,
+                NativeMethods.ocvu_mat_get_info(handle, out info));
         }
     }
 }
