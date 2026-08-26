@@ -91,6 +91,58 @@ TEST_F(MatBufferTest, RejectsNegativeLengthAndStride) {
               OCVU_STATUS_INVALID_ARGUMENT);
 }
 
+/*
+ * 拒否された呼び出しが、渡された領域を 1 バイトも汚さないことを固定する。
+ *
+ * 出発点は「負値検査を if (false) に置換しても test-native が exit 0 のまま」
+ * という観測だった。当初これをテストの弱さと読んだが、実際は違った。負値は
+ * 後続の 2 つの検査に必ず捕まる:
+ *   負の stride -> 必ず row_bytes 未満なので stride < row_bytes で落ちる
+ *   負の length -> stride * rows は非負なので stride * rows > length で落ちる
+ * つまり validate() の先頭にある負値検査は**冗長**であり、それを消しても
+ * 挙動が変わらないのは正しい。テストでは固定できないし、する必要も無い。
+ *
+ * 冗長な検査は残してある。読む人に意図（負値は不正である）を示す価値があり、
+ * 将来 row_bytes の算出や順序が変われば冗長でなくなるためである。
+ *
+ * 代わりにここで固定するのは、より重要な性質である: 検証に落ちた呼び出しは
+ * 出力領域へ一切書かない。番兵で前後を挟み、全バイトが無傷であることを見る。
+ * ポインタが後方や前方へ飛ぶ誤りは、書き込み先が「渡した範囲の外」になるので、
+ * 範囲だけを見るテストでは捕まらない。
+ */
+TEST_F(MatBufferTest, RejectedNegativeStrideLeavesTheArenaUntouched) {
+    // 後方に飛んだ書き込みを検出できるよう、前後に番兵を置いた領域の
+    // 真ん中を渡す。範囲内だけを見ていると、負の stride で前方へ飛ぶ
+    // 書き込みは見逃す。
+    std::vector<uint8_t> arena(1024, 0xC3);
+    uint8_t* middle = arena.data() + 512;
+
+    // length は意図的に大きく取る。負値検査が無ければ stride * rows は負になり、
+    // 「buffer が短い」判定にも「stride が 1 行より小さい」判定にも掛からない。
+    EXPECT_EQ(ocvu_mat_copy_to_buffer(handle_, middle, 512, -1),
+              OCVU_STATUS_INVALID_ARGUMENT);
+
+    for (size_t i = 0; i < arena.size(); ++i) {
+        ASSERT_EQ(arena[i], 0xC3)
+            << "rejected call wrote to the arena at offset " << i;
+    }
+}
+
+TEST_F(MatBufferTest, RejectedNegativeLengthLeavesTheArenaUntouched) {
+    // length が負の場合も同様に、領域が無傷であることまで見る。
+    std::vector<uint8_t> arena(1024, 0xA5);
+    uint8_t* middle = arena.data() + 512;
+
+    EXPECT_EQ(ocvu_mat_copy_to_buffer(handle_, middle, -1, 4),
+              OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(::ocvu_get_last_error_status(), OCVU_STATUS_INVALID_ARGUMENT);
+
+    for (size_t i = 0; i < arena.size(); ++i) {
+        ASSERT_EQ(arena[i], 0xA5)
+            << "rejected call wrote to the arena at offset " << i;
+    }
+}
+
 TEST_F(MatBufferTest, RejectsNullPointers) {
     EXPECT_EQ(ocvu_mat_copy_from_buffer(handle_, nullptr, 12, 4), OCVU_STATUS_NULL_POINTER);
     EXPECT_EQ(ocvu_mat_copy_to_buffer(handle_, nullptr, 12, 4), OCVU_STATUS_NULL_POINTER);

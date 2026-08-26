@@ -16,6 +16,10 @@ namespace {
  */
 bool validate(const cv::Mat& mat, int64_t length, int64_t stride,
               int64_t* out_row_bytes, ocvu_status* out_status) {
+    // 負値は下の 2 つの検査にも必ず捕まる（負の stride は row_bytes 未満、
+    // 負の length は非負の stride * rows 未満）ので、この検査は冗長である。
+    // 意図を明示する価値と、算出順が変われば冗長でなくなることから残している。
+    // 冗長なので、これを消しても L1 は緑のままである（実測・意図どおり）。
     if (length < 0 || stride < 0) {
         *out_status = ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
                                              "length and stride must not be negative");
