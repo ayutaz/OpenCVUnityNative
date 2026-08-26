@@ -152,6 +152,33 @@ OCVU_API ocvu_status ocvu_mat_clone(ocvu_mat_handle src, ocvu_mat_handle* out_ha
 OCVU_API ocvu_status ocvu_mat_get_info(ocvu_mat_handle handle, ocvu_mat_info* out_info);
 
 /*
+ * 外部 buffer から Mat へコピーする。
+ *
+ * src は呼び出しの内側でだけ読む借用である。この関数が戻った後、native 側は
+ * src を一切保持しない（docs/abi-ownership-and-versioning.md §1）。
+ *
+ * 書く前にすべて検証する。1 つでも合わなければ何も書かずに返す:
+ *   src が NULL              -> OCVU_STATUS_NULL_POINTER
+ *   handle が無効            -> OCVU_STATUS_INVALID_HANDLE
+ *   src_length / src_stride が負          -> OCVU_STATUS_INVALID_ARGUMENT
+ *   src_stride が Mat の 1 行より小さい    -> OCVU_STATUS_INVALID_ARGUMENT
+ *   src_stride * rows が src_length を超える -> OCVU_STATUS_INVALID_ARGUMENT
+ *
+ * src_stride は Mat の step と異なってよい（Unity のテクスチャは行が整列されて
+ * いることがある）。行ごとにコピーする。
+ */
+OCVU_API ocvu_status ocvu_mat_copy_from_buffer(ocvu_mat_handle dst,
+                                               const uint8_t* src,
+                                               int64_t src_length,
+                                               int64_t src_stride);
+
+/* Mat から外部 buffer へコピーする。検証規則は copy_from_buffer と同じ。 */
+OCVU_API ocvu_status ocvu_mat_copy_to_buffer(ocvu_mat_handle src,
+                                             uint8_t* dst,
+                                             int64_t dst_length,
+                                             int64_t dst_stride);
+
+/*
  * conformance test 用に、内部で意図的に例外を投げる。
  * kind: 0 = std::runtime_error, 1 = std::bad_alloc,
  *       2 = 非標準例外, 3 = 例外を投げない

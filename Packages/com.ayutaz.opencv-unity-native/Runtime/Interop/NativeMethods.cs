@@ -64,5 +64,13 @@ namespace CvUnity.Interop
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_mat_get_info(ulong handle, out OcvuMatInfo info);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_mat_copy_from_buffer(
+            ulong dst, byte[] src, long srcLength, long srcStride);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_mat_copy_to_buffer(
+            ulong src, byte[] dst, long dstLength, long dstStride);
     }
 }

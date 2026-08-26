@@ -1,0 +1,95 @@
+#include <cstring>
+
+#include <opencv2/core.hpp>
+
+#include "ocvu_error.h"
+#include "ocvu_mat_table.h"
+
+namespace {
+
+/*
+ * 外部 buffer と Mat の整合を検証する。合格したときだけ true を返し、
+ * row_bytes に 1 行の実バイト数を書く。
+ *
+ * 呼ぶ側を信用しないための関門であり、この関数を通らない書き込み経路を
+ * 作らないこと（docs/abi-ownership-and-versioning.md §3）。
+ */
+bool validate(const cv::Mat& mat, int64_t length, int64_t stride,
+              int64_t* out_row_bytes, ocvu_status* out_status) {
+    if (length < 0 || stride < 0) {
+        *out_status = ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                             "length and stride must not be negative");
+        return false;
+    }
+
+    const int64_t row_bytes = static_cast<int64_t>(mat.cols) * mat.elemSize();
+    if (stride < row_bytes) {
+        *out_status = ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                             "stride is smaller than one row of the mat");
+        return false;
+    }
+    if (stride * mat.rows > length) {
+        *out_status = ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                             "buffer is shorter than stride * rows");
+        return false;
+    }
+
+    *out_row_bytes = row_bytes;
+    return true;
+}
+
+}  // namespace
+
+extern "C" ocvu_status ocvu_mat_copy_from_buffer(ocvu_mat_handle dst,
+                                                 const uint8_t* src,
+                                                 int64_t src_length,
+                                                 int64_t src_stride) {
+    OCVU_TRY_BEGIN
+    if (src == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER, "src is NULL");
+    }
+    cv::Mat* mat = ::ocvu::mat_table_get(dst);
+    if (mat == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_HANDLE, "dst handle is invalid");
+    }
+
+    int64_t row_bytes = 0;
+    ocvu_status failure = OCVU_STATUS_OK;
+    if (!validate(*mat, src_length, src_stride, &row_bytes, &failure)) {
+        return failure;
+    }
+
+    for (int row = 0; row < mat->rows; ++row) {
+        std::memcpy(mat->ptr(row), src + static_cast<size_t>(row * src_stride),
+                    static_cast<size_t>(row_bytes));
+    }
+    return OCVU_STATUS_OK;
+    OCVU_TRY_END
+}
+
+extern "C" ocvu_status ocvu_mat_copy_to_buffer(ocvu_mat_handle src,
+                                               uint8_t* dst,
+                                               int64_t dst_length,
+                                               int64_t dst_stride) {
+    OCVU_TRY_BEGIN
+    if (dst == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER, "dst is NULL");
+    }
+    cv::Mat* mat = ::ocvu::mat_table_get(src);
+    if (mat == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_HANDLE, "src handle is invalid");
+    }
+
+    int64_t row_bytes = 0;
+    ocvu_status failure = OCVU_STATUS_OK;
+    if (!validate(*mat, dst_length, dst_stride, &row_bytes, &failure)) {
+        return failure;
+    }
+
+    for (int row = 0; row < mat->rows; ++row) {
+        std::memcpy(dst + static_cast<size_t>(row * dst_stride), mat->ptr(row),
+                    static_cast<size_t>(row_bytes));
+    }
+    return OCVU_STATUS_OK;
+    OCVU_TRY_END
+}

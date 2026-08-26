@@ -18,6 +18,7 @@ add_executable(ocvu_tests
     test_exception_barrier.cpp
     test_opencv_link.cpp
     test_mat_lifecycle.cpp
+    test_mat_buffer.cpp
 )
 
 # SHARED ではなく STATIC 側にリンクする（native/CMakeLists.txt の注記を参照）
