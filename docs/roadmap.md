@@ -191,6 +191,32 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 **これは緩和ではない。** 検証すべき危険が消えたのではなく、危険な状態を作れなくしたので、
 検証の対象が「その状態が作られていないこと」に変わった。
 
+**実測による完了判定（2026-08-27、`milestone-complete` skill の手順で照合）**
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 1 | 9 関数（`ocvu_mat_*` 6 本 + `cvtColor` / `resize` / `GaussianBlur`）が C ABI にある | 満たす |
+| 2 | 所有権契約が L3 でテストされている（二重解放、解放後アクセス、buffer 引数の検証） | 満たす |
+| 3 | Texture2D / NativeArray からの入力と結果反映 | 満たす |
+| 4 | ABI version / OpenCV version / build features を実行時に問い合わせられる | 満たす |
+| 5 | ASan レーンが clean | 満たす |
+| 6 | Unity EditMode と Windows IL2CPP Player で同じ smoke test が通る | 満たす |
+| 7 | `ci-unity.yml` が CI 上で L4/L5 を実行する | **満たさない** |
+| 8 | ローカル参照可能な最小 UPM パッケージとして動作する | 満たす |
+
+**条件 7 は未達である。** `ci-unity.yml` は書かれ、ローカルでは `dev.ps1 test-unity-editmode` /
+`dev.ps1 test-unity-player` の両方が green だが、Unity ライセンスを GitHub Secrets に登録
+していないため CI 上では一度も実行されていない（`gh run list --workflow=ci-unity.yml` は
+default branch に存在せず 404、`gh secret list` に `UNITY_*` は 0 件）。完了条件は
+「workflow ファイルが存在すること」ではなく「CI 上で L4/L5 を実行すること」であり、
+両者を取り違えないよう最初から実行の有無で判定した（M1 の条件 6 判定で同じ取り違えが
+一度起きている）。資格情報の登録はユーザーの操作であり、エージェントの作業ではない。
+
+**したがって M2 は「8 件中 7 件達成」であって「完了」ではない。** 実装計画
+（[docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)）
+は Task 8 まで実施済みで、進行記録は
+`.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md` にある。
+
 ---
 
 ## M3 — Desktop 3 platform と配布の再現性

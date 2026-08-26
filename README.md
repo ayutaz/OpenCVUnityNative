@@ -2,7 +2,7 @@
 
 OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible native UPM package.
 
-> **Status: early development (M1 complete, M2 next).** The automated test harness (native GoogleTest lane, AddressSanitizer lane, and managed P/Invoke contract lane) exists and passes locally and in CI, linked against a reproducible OpenCV 5.0.0 build that CI produces and publishes as an artifact. The C ABI still only exposes version/build-information queries and the debug/error-reporting surface built in M0 — no `Mat` lifecycle or `imgproc` calls yet; that is M2's job.
+> **Status: early development (M0/M1 complete; M2 meets 7 of its 8 completion criteria locally).** The automated test harness (native GoogleTest lane, AddressSanitizer lane, managed P/Invoke contract lane, and — new in M2 — a Unity EditMode lane and a Windows IL2CPP Player lane) exists and passes locally, linked against a reproducible OpenCV 5.0.0 build that CI produces and publishes as an artifact. The C ABI now exposes a `Mat` lifecycle (create/release/clone/get_info/copy_from_buffer/copy_to_buffer) and three `imgproc` calls (cvtColor/resize/GaussianBlur) in addition to the M0 version/build-information/debug surface — 18 functions total. `Texture2D` round-trips through OpenCV and back with the same result in both Unity Editor (Mono) and a Windows IL2CPP Player build. The one unmet criterion is CI execution of those Unity lanes (`ci-unity.yml` exists but has never run — no Unity license is registered in this repo's GitHub Secrets yet, which is a step only a repo owner can take). Nothing beyond Windows x64 is in scope yet.
 
 ## What this is
 
@@ -54,11 +54,15 @@ All local development after that goes through `tools/dev.ps1`:
 # AddressSanitizer lane (L2)
 ./tools/dev.ps1 test-asan
 
+# Unity EditMode (L4) and a Windows IL2CPP Player build + run (L5); require a local Unity install
+./tools/dev.ps1 test-unity-editmode
+./tools/dev.ps1 test-unity-player
+
 # Remove build output
 ./tools/dev.ps1 clean
 ```
 
-CI calls the same `tools/dev.ps1` script — there are no CI-only procedures. A local green run is an approximation kept for speed; CI decides mergeability.
+CI calls the same `tools/dev.ps1` script — there are no CI-only procedures. A local green run is an approximation kept for speed; CI decides mergeability. The Unity lanes above are the one exception right now: `ci-unity.yml` exists but has never executed in this repo's CI, because no Unity license is registered in GitHub Secrets. They currently pass only where run locally.
 
 ## License
 
@@ -73,5 +77,7 @@ Design and research documents (in Japanese) live under `docs/`:
 - [Roadmap](docs/roadmap.md)
 - [M0 implementation plan](docs/superpowers/plans/2026-08-25-m0-tdd-harness.md)
 - [M1 implementation plan](docs/superpowers/plans/2026-08-25-m1-opencv-build.md)
+- [M2 implementation plan](docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)
+- [C ABI ownership and versioning](docs/abi-ownership-and-versioning.md)
 - [Unity/OpenCV integration research and plan](docs/unity-opencv-integration-research-and-plan.md)
 - [Native backend language TDD evaluation](docs/native-backend-language-tdd-evaluation.md)
