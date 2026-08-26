@@ -26,6 +26,15 @@ namespace CvUnity.Unity
                     "M2 supports RGBA32 only; got " + texture.format);
             }
 
+            // NativeArray からポインタを取って直接渡す経路は、M2 では作っていない。
+            // ここは ToArray() で managed 配列へ 1 回コピーしてから Mat へ渡すので、
+            // Texture2D -> Mat はコピー 2 回になる（実装計画はポインタ経路を指示して
+            // いたが、実装は byte[] 経路のままで、その差分が記録されていなかった）。
+            //
+            // 「Unity データとの低コピー連携」を名乗るならポインタ経路が要る。
+            // 現状はそう名乗れない。M3 以降で NativeMethods に IntPtr overload を
+            // 足し、GetRawTextureData の NativeArray から直接渡す形にする。
+            // asmdef の allowUnsafeCode と下の using はそのとき使う。
             var raw = texture.GetRawTextureData<byte>();
             var mat = CvMat.Create(texture.height, texture.width, CvMatType.Bgra32);
             try

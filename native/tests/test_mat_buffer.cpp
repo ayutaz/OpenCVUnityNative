@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include "opencv_unity_native.h"
@@ -140,6 +141,47 @@ TEST_F(MatBufferTest, RejectedNegativeLengthLeavesTheArenaUntouched) {
     for (size_t i = 0; i < arena.size(); ++i) {
         ASSERT_EQ(arena[i], 0xA5)
             << "rejected call wrote to the arena at offset " << i;
+    }
+}
+
+/*
+ * 桁あふれで検査が反転しないことを固定する。
+ *
+ * 旧実装は stride * mat.rows を計算してから length と比べていた。stride は
+ * 呼び出し側が決める int64_t なので、2^62 のような値では積が負になり、
+ * 比較が偽になって関門を通過した。stride < row_bytes も巨大な値では通るので、
+ * **両方の検査を抜けて memcpy に到達し、任意アドレスへ書き込んだ**
+ * （実測: 3x4 の Mat に stride=2^62 でアクセス違反、プロセス即死）。
+ *
+ * ヘッダの契約・CLAUDE.md・abi-ownership-and-versioning.md・add-abi-function skill の
+ * 4 箇所すべてが「必ず検証する」と書いていたが、この入力に対しては事実に反していた。
+ * L1 / L2 / L3 のどれも桁あふれの値を試していなかったので CI は緑のままだった。
+ *
+ * 現在は length / rows と比べる形にして、乗算そのものを無くしてある。
+ */
+TEST_F(MatBufferTest, RejectsStridesThatWouldOverflowTheBoundsCheck) {
+    std::vector<uint8_t> buffer(3 * 4, 0x7E);
+
+    // stride * rows が int64_t で桁あふれする値。旧実装はここで即死した。
+    const int64_t overflowing[] = {
+        int64_t{1} << 62,
+        std::numeric_limits<int64_t>::max(),
+        std::numeric_limits<int64_t>::max() / 2,
+    };
+
+    for (int64_t stride : overflowing) {
+        EXPECT_EQ(ocvu_mat_copy_to_buffer(handle_, buffer.data(),
+                                          static_cast<int64_t>(buffer.size()), stride),
+                  OCVU_STATUS_INVALID_ARGUMENT)
+            << "stride " << stride << " slipped past the bounds check";
+        EXPECT_EQ(ocvu_mat_copy_from_buffer(handle_, buffer.data(),
+                                            static_cast<int64_t>(buffer.size()), stride),
+                  OCVU_STATUS_INVALID_ARGUMENT)
+            << "stride " << stride << " slipped past on the write path";
+    }
+
+    for (uint8_t b : buffer) {
+        ASSERT_EQ(b, 0x7E) << "a rejected oversized stride still touched the buffer";
     }
 }
 

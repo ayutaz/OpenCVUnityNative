@@ -32,7 +32,23 @@ bool validate(const cv::Mat& mat, int64_t length, int64_t stride,
                                              "stride is smaller than one row of the mat");
         return false;
     }
-    if (stride * mat.rows > length) {
+    // stride * rows を「計算してから比較する」と桁あふれで検査が反転する。
+    // stride は呼び出し側が自由に決める int64_t なので、2^62 のような値を渡すと
+    // 積が負になり、この比較が偽になって関門を通過する。上の stride < row_bytes も
+    // 巨大な stride では通るため、両方を抜けて memcpy に到達し、任意アドレスへ
+    // 書き込む（実測: 3x4 の Mat に stride=2^62 でアクセス違反、プロセス即死）。
+    //
+    // これは docs/abi-ownership-and-versioning.md §1 が「最も危険」と名指しした
+    // 壊れ方そのものである。借用 handle を廃してもこの経路には残っていた。
+    //
+    // 割り算に直すと桁あふれしない。rows >= 1 は cv::Mat の不変条件だが、
+    // 0 除算を構造的に不可能にするため明示的に確かめる。
+    if (mat.rows < 1) {
+        *out_status = ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                             "mat has no rows");
+        return false;
+    }
+    if (stride > length / mat.rows) {
         *out_status = ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
                                              "buffer is shorter than stride * rows");
         return false;

@@ -280,10 +280,28 @@ function Test-UnityEditMode {
     }
     [xml]$xml = Get-Content -LiteralPath $results
     $failed = [int]$xml.'test-run'.failed
+    $passed = [int]$xml.'test-run'.passed
     if ($exit -ne 0 -or $failed -ne 0) {
         Write-DevFailure "Unity EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
     }
-    Write-Host "==> Unity EditMode: $($xml.'test-run'.passed) passed" -ForegroundColor Green
+
+    # 0 件で緑にしない。テストが 1 つも走らなかった場合、exit code も failed も 0 に
+    # なるので、上の判定だけでは成功と見分けが付かない（実測: asmdef の
+    # defineConstraints に未定義の記号を足すとテスト assembly がコンパイル対象から
+    # 外れ、「0 passed」で exit 0 になった）。
+    #
+    # このレーンは完了条件 6 を担う唯一の証拠で、しかも CI では一度も走っていない。
+    # asmdef の改名、UNITY_INCLUDE_TESTS の扱いの変化、test-framework の解決失敗、
+    # file: 参照の破損 — どれが起きても静かに 0 件になり、緑のまま何も検証しなくなる。
+    if ($passed -lt 1) {
+        Write-DevFailure (@(
+            "Unity EditMode でテストが 1 件も実行されませんでした（passed=$passed、failed=$failed）。"
+            'テストが全部消えたか、テスト assembly がコンパイル対象から外れています。'
+            '0 件の実行は成功ではありません。'
+            "ログ: $log"
+        ) -join "`n")
+    }
+    Write-Host "==> Unity EditMode: $passed passed" -ForegroundColor Green
 }
 
 <#
@@ -337,10 +355,28 @@ function Test-UnityPlayer {
     }
     [xml]$xml = Get-Content -LiteralPath $results
     $failed = [int]$xml.'test-run'.failed
+    $passed = [int]$xml.'test-run'.passed
     if ($exit -ne 0 -or $failed -ne 0) {
         Write-DevFailure "Unity Player テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
     }
-    Write-Host "==> Unity Player (IL2CPP): $($xml.'test-run'.passed) passed" -ForegroundColor Green
+
+    # 0 件で緑にしない。テストが 1 つも走らなかった場合、exit code も failed も 0 に
+    # なるので、上の判定だけでは成功と見分けが付かない（実測: asmdef の
+    # defineConstraints に未定義の記号を足すとテスト assembly がコンパイル対象から
+    # 外れ、「0 passed」で exit 0 になった）。
+    #
+    # このレーンは完了条件 6 を担う唯一の証拠で、しかも CI では一度も走っていない。
+    # asmdef の改名、UNITY_INCLUDE_TESTS の扱いの変化、test-framework の解決失敗、
+    # file: 参照の破損 — どれが起きても静かに 0 件になり、緑のまま何も検証しなくなる。
+    if ($passed -lt 1) {
+        Write-DevFailure (@(
+            "Unity Player でテストが 1 件も実行されませんでした（passed=$passed、failed=$failed）。"
+            'テストが全部消えたか、テスト assembly がコンパイル対象から外れています。'
+            '0 件の実行は成功ではありません。'
+            "ログ: $log"
+        ) -join "`n")
+    }
+    Write-Host "==> Unity Player (IL2CPP): $passed passed" -ForegroundColor Green
 }
 
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する

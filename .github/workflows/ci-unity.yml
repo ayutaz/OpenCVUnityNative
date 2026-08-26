@@ -1,8 +1,22 @@
 name: ci-unity
 
+# 現時点では workflow_dispatch のみ。push / pull_request では走らせない。
+#
+# 理由は 2 つあり、どちらもこの workflow がまだ成功し得ないことに由来する:
+#   1. GitHub ホストの windows-2022 イメージに Unity は含まれず、この workflow は
+#      インストールもしていない。dev.ps1 の Get-UnityEditorPath は Unity Hub の
+#      既定の配置を決め打ちで探し、無ければ失敗する。
+#   2. UNITY_LICENSE / UNITY_EMAIL / UNITY_PASSWORD を env に置いてはあるが、
+#      それを読んでアクティベーションする処理をまだ誰も書いていない。
+#
+# push で走らせると全 push が恒常的に赤くなる。必須チェックではないので merge は
+# 止まらないが、「赤い CI は直すもの」という前提が壊れる方が高くつく。
+#
+# 上の 2 つが揃った時点で push / pull_request を戻すこと。それが M2 完了条件 7
+# （「ci-unity.yml が CI 上で L4 / L5 を実行する」）の残作業である。
+# **資格情報の登録だけでは足りない。** ランナーへの Unity 導入とアクティベーションの
+# 実装はエージェントが書ける作業として残っている。
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:

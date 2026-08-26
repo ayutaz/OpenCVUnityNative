@@ -197,22 +197,51 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 | --- | --- | --- |
 | 1 | 9 関数（`ocvu_mat_*` 6 本 + `cvtColor` / `resize` / `GaussianBlur`）が C ABI にある | 満たす |
 | 2 | 所有権契約が L3 でテストされている（二重解放、解放後アクセス、buffer 引数の検証） | 満たす |
-| 3 | Texture2D / NativeArray からの入力と結果反映 | 満たす |
+| 3 | Texture2D / NativeArray からの入力と結果反映 | **満たさない**（Texture2D のみ） |
 | 4 | ABI version / OpenCV version / build features を実行時に問い合わせられる | 満たす |
 | 5 | ASan レーンが clean | 満たす |
 | 6 | Unity EditMode と Windows IL2CPP Player で同じ smoke test が通る | 満たす |
 | 7 | `ci-unity.yml` が CI 上で L4/L5 を実行する | **満たさない** |
 | 8 | ローカル参照可能な最小 UPM パッケージとして動作する | 満たす |
 
-**条件 7 は未達である。** `ci-unity.yml` は書かれ、ローカルでは `dev.ps1 test-unity-editmode` /
-`dev.ps1 test-unity-player` の両方が green だが、Unity ライセンスを GitHub Secrets に登録
-していないため CI 上では一度も実行されていない（`gh run list --workflow=ci-unity.yml` は
-default branch に存在せず 404、`gh secret list` に `UNITY_*` は 0 件）。完了条件は
-「workflow ファイルが存在すること」ではなく「CI 上で L4/L5 を実行すること」であり、
-両者を取り違えないよう最初から実行の有無で判定した（M1 の条件 6 判定で同じ取り違えが
-一度起きている）。資格情報の登録はユーザーの操作であり、エージェントの作業ではない。
+**条件 3 は文言どおりには満たしていない。** Texture2D については EditMode / Player の
+両方で往復が検証済みだが、**`NativeArray` を直接受ける API は存在しない**。
+`NativeMethods` の buffer 引数はすべて `byte[]` で、`IntPtr` を取る overload は無い。
+`TextureConverter.ToMat` は `GetRawTextureData<byte>()` の `NativeArray` を
+`ToArray()` で managed 配列へ写してから渡しているので、Texture2D → Mat はコピー 2 回に
+なる。実装計画は「NativeArray からポインタを取って渡す」と指示しており、実装はそこから
+外れたまま、外れたことが記録されていなかった（未使用の `using
+Unity.Collections.LowLevel.Unsafe;` と、使われていない `allowUnsafeCode: true` がその
+痕跡である）。`CLAUDE.md` が差別化として挙げる「Unity データとの低コピー連携」は、
+M2 の唯一の実例において実現されていない。スコープを縮めること自体は構わないが、
+縮めたことを書かずに「満たす」と記録するのは別問題なので、判定を改めた。
 
-**したがって M2 は「8 件中 7 件達成」であって「完了」ではない。** 実装計画
+**条件 7 は未達である。** `ci-unity.yml` は書かれ、ローカルでは `dev.ps1 test-unity-editmode` /
+`dev.ps1 test-unity-player` の両方が green だが、CI 上では一度も実行されていない
+（`gh run list --workflow=ci-unity.yml` は default branch に存在せず 404）。
+
+**残作業は 3 つあり、うち 2 つはエージェントが書ける。**「資格情報を登録すれば動く」は
+事実ではなかったので訂正する:
+
+1. **CI ランナーへの Unity 導入。** `ci-unity.yml` は GitHub ホストの `windows-2022` で
+   `dev.ps1 test-unity-editmode` を直接呼ぶが、このイメージに Unity は含まれない。
+   `Get-UnityEditorPath` は Unity Hub の既定の配置を決め打ちで探し、無ければ失敗する。
+   導入する action も入れていない。
+2. **ライセンスのアクティベーション実装。** `UNITY_LICENSE` / `UNITY_EMAIL` /
+   `UNITY_PASSWORD` を env に置いてあるが、`tools/` 内にそれらを読むコードは 1 行も無い
+   （`grep -rn UNITY_LICENSE tools/` の結果は 0 件）。完了条件の文言自体が
+   「アクティベーションを自動化する」を含んでいる。
+3. **GitHub Secrets への資格情報登録。** これだけがユーザーの操作である。
+
+現在この workflow の trigger は `workflow_dispatch` のみに絞ってある。push で走らせると
+成功し得ない job が全 push で赤くなり、「赤い CI は直すもの」という前提が壊れるためで、
+上の 1 と 2 が揃った時点で戻す。
+
+完了条件は「workflow ファイルが存在すること」ではなく「CI 上で L4/L5 を実行すること」
+であり、両者を取り違えないよう最初から実行の有無で判定した（M1 の条件 6 判定で同じ
+取り違えが一度起きている）。
+
+**したがって M2 は「8 件中 6 件達成」であって「完了」ではない。** 実装計画
 （[docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)）
 は Task 8 まで実施済みで、進行記録は
 `.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md` にある。
