@@ -1,0 +1,10 @@
+{
+    "name": "CvUnity.UnityIntegration",
+    "rootNamespace": "CvUnity.Unity",
+    "references": [
+        "CvUnity.Core",
+        "CvUnity.Interop"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": []
+}

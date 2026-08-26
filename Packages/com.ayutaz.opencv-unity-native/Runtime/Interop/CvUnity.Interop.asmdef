@@ -1,0 +1,9 @@
+{
+    "name": "CvUnity.Interop",
+    "rootNamespace": "CvUnity.Interop",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "noEngineReferences": true
+}
