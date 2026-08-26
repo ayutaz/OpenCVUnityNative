@@ -122,6 +122,33 @@ function Build-Native {
         cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot"
     } 'configure native'
     Invoke-Checked { cmake --build --preset $Preset } 'build native'
+
+    Copy-NativePluginForUnity
+}
+
+<#
+    ビルドした DLL を UPM パッケージの Plugins へ写す。
+
+    Unity は Packages/<id>/Runtime/Plugins/x86_64/ に置かれた DLL を native plugin
+    として読む。ビルドのたびにここへ写しておかないと、Unity 側は「古い DLL のまま
+    緑」という最も紛らわしい状態になる — テストは通るのに、検証しているのは
+    今ビルドしたコードではない。だから Build-Native の末尾にぶら下げ、
+    忘れようがない位置に置く。
+
+    成果物なのでコミットしない（.gitignore 済み）。
+#>
+function Copy-NativePluginForUnity {
+    $source = Join-Path $RepoRoot 'build/windows-x64-debug/native/Debug/opencv_unity_native.dll'
+    if (-not (Test-Path -LiteralPath $source)) {
+        Write-DevFailure (@(
+            "native plugin が見つかりません: $source"
+            "先に './tools/dev.ps1 build' を実行してください。"
+        ) -join "`n")
+    }
+
+    $destDir = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/x86_64'
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+    Copy-Item -LiteralPath $source -Destination $destDir -Force
 }
 
 function Test-Native {

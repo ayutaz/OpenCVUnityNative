@@ -11,3 +11,6 @@ artifacts/
 
 # 個人設定は共有しない（hook 定義の .claude/settings.json は共有する）
 .claude/settings.local.json
+
+# Unity の native plugin 置き場。dev.ps1 build がビルド成果物を写す（成果物なので追跡しない）
+Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/
