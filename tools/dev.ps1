@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
@@ -286,6 +286,63 @@ function Test-UnityEditMode {
     Write-Host "==> Unity EditMode: $($xml.'test-run'.passed) passed" -ForegroundColor Green
 }
 
+<#
+    Unity IL2CPP Player テスト（L5）。EditMode (Mono) では再現しない、
+    IL2CPP の managed code stripping が P/Invoke 宣言を削る問題を検出する
+    唯一のレーンである。link.xml の保護が効いているかは、実際に Player を
+    ビルドして走らせる以外に確かめる方法が無い。
+
+    2 回 Unity を起動する。1 回目は -executeMethod で Standalone の
+    scripting backend を IL2CPP に固定するためだけの起動で、Test-UnityEditMode
+    の注記どおり -executeMethod のときは -quit が正しい（-runTests のときは
+    付けない、というのが Task 6 で確定した規則で、今回は逆側のケースにあたる）。
+    2 回目が実際のテスト実行で、-testPlatform StandaloneWindows64 を渡すと
+    Unity は Standalone Player を実際にビルドし、その中でテストを走らせて
+    結果を回収する（IL2CPP ビルドを含むため 5〜20 分かかる）。
+
+    どちらの起動も Test-UnityEditMode と同じ理由で `&` ではなく
+    Start-Process -Wait -PassThru を使う。
+#>
+function Test-UnityPlayer {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $results = Join-Path $ResultsDir 'unity-player.xml'
+    $log     = Join-Path $ResultsDir 'unity-player.log'
+
+    # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
+    # M2 が確かめたい stripping の問題が再現しない。
+    $configureArgs = @(
+        '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+        '-executeMethod', 'BuildPlayer.ConfigureIl2cpp', '-logFile', "$log.configure"
+    )
+    $configure = Start-Process -FilePath $unity -ArgumentList $configureArgs -Wait -PassThru -NoNewWindow
+    if ($configure.ExitCode -ne 0) {
+        Write-DevFailure "IL2CPP の設定に失敗しました。ログ: $log.configure"
+    }
+
+    $unityArgs = @(
+        '-projectPath', $project,
+        '-runTests', '-testPlatform', 'StandaloneWindows64',
+        '-testResults', $results, '-logFile', $log,
+        '-batchmode', '-nographics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
+
+    if (-not (Test-Path -LiteralPath $results)) {
+        Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
+    }
+    [xml]$xml = Get-Content -LiteralPath $results
+    $failed = [int]$xml.'test-run'.failed
+    if ($exit -ne 0 -or $failed -ne 0) {
+        Write-DevFailure "Unity Player テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+    }
+    Write-Host "==> Unity Player (IL2CPP): $($xml.'test-run'.passed) passed" -ForegroundColor Green
+}
+
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
 # (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
 function Test-ManagedProbe {
@@ -312,6 +369,7 @@ switch ($Command) {
     'test-tools'   { Test-Tools }
     'test-tools-slow' { Test-ToolsSlow }
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
+    'test-unity-player' { Reset-Results; Test-UnityPlayer }
     'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
