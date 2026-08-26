@@ -72,5 +72,16 @@ namespace CvUnity.Interop
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_mat_copy_to_buffer(
             ulong src, byte[] dst, long dstLength, long dstStride);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_cvt_color(ulong src, ulong dst, int code);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_resize(
+            ulong src, ulong dst, int width, int height, int interpolation);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_gaussian_blur(
+            ulong src, ulong dst, int ksizeWidth, int ksizeHeight, double sigmaX, double sigmaY);
     }
 }

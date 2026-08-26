@@ -178,6 +178,42 @@ OCVU_API ocvu_status ocvu_mat_copy_to_buffer(ocvu_mat_handle src,
                                              int64_t dst_length,
                                              int64_t dst_stride);
 
+/* cvtColor の変換コード。cv::COLOR_* の値をそのまま使う（写し間違いを避けるため
+ * 実装側で static_assert する）。M2 で必要な 3 つだけを公開する。 */
+#define OCVU_CVT_BGRA2BGR   1
+#define OCVU_CVT_RGBA2BGRA  5
+#define OCVU_CVT_BGR2GRAY   6
+
+/* resize の補間方法。 */
+#define OCVU_INTER_NEAREST  0
+#define OCVU_INTER_LINEAR   1
+
+/*
+ * 色空間を変換する。dst の形状と型は結果に応じて上書きされる。
+ * src と dst が同じ handle の場合は OCVU_STATUS_INVALID_ARGUMENT を返す
+ * (OpenCV の in-place 対応は関数ごとに異なり、曖昧さを ABI に持ち込まない)。
+ * OpenCV 由来の失敗は OCVU_STATUS_OPENCV_ERROR になる。
+ */
+OCVU_API ocvu_status ocvu_cvt_color(ocvu_mat_handle src, ocvu_mat_handle dst,
+                                    int32_t code);
+
+/*
+ * width x height に拡大縮小する。width / height が 1 未満なら
+ * OCVU_STATUS_INVALID_ARGUMENT。src と dst の同一 handle も同様に拒否する。
+ */
+OCVU_API ocvu_status ocvu_resize(ocvu_mat_handle src, ocvu_mat_handle dst,
+                                 int32_t width, int32_t height,
+                                 int32_t interpolation);
+
+/*
+ * Gaussian ぼかしを掛ける。ksize は正の奇数でなければならず、
+ * そうでなければ OCVU_STATUS_INVALID_ARGUMENT。
+ * sigma に 0 を渡すと OpenCV が ksize から算出する。
+ */
+OCVU_API ocvu_status ocvu_gaussian_blur(ocvu_mat_handle src, ocvu_mat_handle dst,
+                                        int32_t ksize_width, int32_t ksize_height,
+                                        double sigma_x, double sigma_y);
+
 /*
  * conformance test 用に、内部で意図的に例外を投げる。
  * kind: 0 = std::runtime_error, 1 = std::bad_alloc,
