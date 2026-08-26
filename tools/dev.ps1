@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-tools', 'test-tools-slow', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
@@ -165,11 +165,29 @@ function Test-Managed {
         # lifecycle をネイティブ越しに回すので、ネイティブ側のデッドロックや
         # 無限ループがそのままローカルループを無限に固める。60 秒で打ち切り、
         # ハングしたテストの dump を残す。
+        #
+        # Category!=Probe: HarnessProbeTests は意図的に落ちる／固まるための
+        # プローブで、通常の実行に含めると常に赤くなる。実行は
+        # test-managed-probe (tools/run-managed-probe.ps1) が名指しで行う。
         dotnet test (Join-Path $RepoRoot 'tests/Managed/CvUnity.Managed.sln') `
+            --filter "Category!=Probe" `
             --blame-hang --blame-hang-timeout 60s `
             --logger "junit;LogFilePath=$(Join-Path $ResultsDir 'managed.xml')" `
             --logger 'console;verbosity=normal'
     } 'run managed tests (L3)'
+}
+
+# CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
+# (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
+function Test-ManagedProbe {
+    Build-Native
+    if (-not (Test-Path (Join-Path $NativeOutDir 'opencv_unity_native.dll'))) {
+        throw "Native library was not found in '$NativeOutDir' after building."
+    }
+    $env:OCVU_NATIVE_DIR = $NativeOutDir
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-managed-probe.ps1')
+    } 'run L3 crash/hang probes (test-managed-probe)'
 }
 
 # 'test' は fail-fast である。Invoke-Checked が最初の失敗で throw するため、
@@ -181,6 +199,7 @@ switch ($Command) {
     'test-native'  { Reset-Results; Test-Native }
     'test-asan'    { Reset-Results; Test-Asan }
     'test-managed' { Reset-Results; Test-Managed }
+    'test-managed-probe' { Test-ManagedProbe }
     'test-tools'   { Test-Tools }
     'test-tools-slow' { Test-ToolsSlow }
     'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }

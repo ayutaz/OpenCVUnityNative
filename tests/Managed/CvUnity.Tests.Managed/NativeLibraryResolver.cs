@@ -18,6 +18,16 @@ namespace CvUnity.Tests.Managed
         {
             var runtimeAssembly = typeof(CvNative).Assembly;
             NativeLibrary.SetDllImportResolver(runtimeAssembly, Resolve);
+
+            // HarnessProbeTests は ocvu_debug_crash を CvUnity.Runtime を介さず
+            // 直接 P/Invoke する（意図的に落とす関数を通常の API 表に出したくない
+            // ため）。resolver はアセンブリ単位でしか効かないので、このテスト
+            // アセンブリ自身にも同じ resolver を登録しておく。
+            var thisAssembly = typeof(NativeLibraryResolver).Assembly;
+            if (!ReferenceEquals(thisAssembly, runtimeAssembly))
+            {
+                NativeLibrary.SetDllImportResolver(thisAssembly, Resolve);
+            }
         }
 
         private static IntPtr Resolve(

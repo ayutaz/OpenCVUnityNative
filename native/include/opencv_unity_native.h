@@ -223,6 +223,16 @@ OCVU_API ocvu_status ocvu_gaussian_blur(ocvu_mat_handle src, ocvu_mat_handle dst
 OCVU_API ocvu_status ocvu_debug_throw(int32_t kind);
 
 /*
+ * conformance test 用に、意図的にプロセスを壊す。
+ * kind: 0 = 不正アクセスで即死、1 = 戻ってこない（無限ループ）
+ *
+ * ocvu_debug_throw と違い、これは status を返さない — 戻ってこないからである。
+ * L3 のハーネスが、managed 側からネイティブが死んだときに有限時間で赤くなるかを
+ * 確かめるためだけに存在する。通常の経路からは決して呼ばれない。
+ */
+OCVU_API void ocvu_debug_crash(int32_t kind);
+
+/*
  * リンクされている OpenCV のバージョン文字列（例 "5.0.0"）を UTF-8 で書く。
  * バッファ規約は ocvu_get_last_error_message と同一。buffer が NULL または
  * 小さすぎる場合は OCVU_STATUS_BUFFER_TOO_SMALL を返し、これは失敗ではない。

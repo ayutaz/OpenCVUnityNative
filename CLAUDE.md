@@ -152,7 +152,7 @@ Unity application
 | L4 | Unity EditMode (Mono) | 1〜3 分 | M2 |
 | L5 | Unity IL2CPP Player | 5〜20 分 | M2 |
 
-**L3 のクラッシュ・ハング耐性はまだ証明されていない。** L1 / L2 には意図的にクラッシュ・ハングする `native/tests/ocvu_probe.cpp` があり、「クラッシュが赤いテストになる」ことを expect-failure テストで実証している。L3 には同等のプローブが無い。`tools/dev.ps1` は `dotnet test --blame-hang --blame-hang-timeout 60s` で時間の上限だけは与えているが、managed 側からネイティブがクラッシュ／デッドロックしたときに本当に有限時間で赤くなるかは未検証である。managed の expect-failure プローブを足すのは M2 の作業。**それまで L3 にこの耐性があると仮定しないこと。**
+**L3 のクラッシュ・ハング耐性は M2 Task 4 で実証済み。** `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`、kind=0 で不正アクセス、kind=1 で無限ループ。戻らない前提の関数なので `OCVU_TRY_BEGIN` では囲まない）を `tests/Managed/CvUnity.Tests.Managed/HarnessProbeTests.cs` から P/Invoke し、`tools/run-managed-probe.ps1`（`dev.ps1 test-managed-probe` 経由）が「非 0 終了かつ有限時間」を assertion する形で確かめている。実測（このマシン）: segfault は `AccessViolationException` で 5 秒後に非 0 終了、hang は `--blame-hang-timeout 30s` に捕まり 35 秒後に非 0 終了・hangdump を生成。いずれも 60〜180 秒の上限内に収まった。L1 / L2 の `native/tests/ocvu_probe.cpp` が持つ expect-failure の構図（`cmake/run_expect_failure.cmake`）の L3 版であり、`cmake/run_expect_failure.cmake` 同様「非 0 で終わっただけ」では合格にせず、スタックトレース／hangdump の宛先テスト名でプローブが意図した経路に実際に到達したことまで見ている。このプローブは意図的に落ちるため通常の `dev.ps1 test` には含めない（`Category!=Probe` で除外、`StatusCodeSyncTests` 等の既存 L3 とは別枠）。数分かかるので CI 専用（`ci-native.yml` の「Run the L3 crash and hang probes」）で、ローカルでは走らない。
 
 守るべき不変条件:
 
@@ -281,7 +281,6 @@ main には squash された 1 コミットしか残らないので、**squash �
 
 - 文書の陳腐化（M0 で Critical になった経路。CI は緑だった）
 - 完了条件を満たしていないのに完了と称すること、スコープ超過
-- L3 のクラッシュ・ハング耐性（L1 / L2 にはプローブがあるが L3 には無い。M2 の作業）
 - Windows 以外のプラットフォーム、Unity Editor / Player 上の挙動（M2 以降）
 - メモリリーク（MSVC ASan は LeakSanitizer 非対応。M3 の Linux レーンの担当）
 
