@@ -1682,10 +1682,11 @@ git commit -m "test(l3): prove a native crash and hang actually turn the managed
 
 **Files:**
 - Create: `Packages/com.ayutaz.opencv-unity-native/Runtime/UnityIntegration/CvUnity.UnityIntegration.asmdef`
-- Create: `Packages/com.ayutaz.opencv-unity-native/Runtime/UnityIntegration/CvMat.cs`
+- Create: `Packages/com.ayutaz.opencv-unity-native/Runtime/Core/CvMat.cs`（UnityEngine 非依存。UnityIntegration ではない — L3 が触れるのは Core だけである）
 - Create: `Packages/com.ayutaz.opencv-unity-native/Runtime/UnityIntegration/TextureConverter.cs`
 - Create: `Packages/com.ayutaz.opencv-unity-native/package.json`
 - Modify: `Packages/com.ayutaz.opencv-unity-native/Runtime/Core/` と `Runtime/Interop/` の asmdef（無ければ作る）
+- Delete: `Packages/com.ayutaz.opencv-unity-native/Runtime/CvUnity.Runtime.asmdef` — 分割前に Core と Interop を 1 つの assembly にまとめていたもの。3 分割後はコンパイル対象が空になり、しかも shim の AssemblyName と同名（無関係な別物）で紛らわしいので消す
 
 **Interfaces:**
 - Consumes: Task 1〜3 の全 ABI
@@ -1967,7 +1968,11 @@ namespace CvUnity.Unity
 }
 ```
 
-- [ ] **Step 7: `package.json` を書く**
+- [ ] **Step 7: `package.json` の version を上げる**
+
+`package.json` は既に存在する（`0.0.1`、`keywords` つき、`author` なし）。**全置換しない** —
+下の内容は初期案であって、既存の `keywords` を理由なく落とすことになる。変えるのは
+`version` を `0.1.0` にする 1 行だけでよい。M2 で初めて実機能が入るためである。
 
 ```json
 {
