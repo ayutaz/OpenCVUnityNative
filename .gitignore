@@ -14,3 +14,14 @@ artifacts/
 
 # Unity の native plugin 置き場。dev.ps1 build がビルド成果物を写す（成果物なので追跡しない）
 Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/
+
+# tests/UnityProject は Unity が起動のたびに生成するキャッシュ・ローカル成果物を持つ。
+# ルートの [Oo]bj/ は既に効くが、Library/ Logs/ UserSettings/ Temp/ とプロジェクト直下に
+# 生成される .csproj/.sln はここでしか出ないので明示する
+# （ルート直下の tests/Managed/CvUnity.Managed.sln は追跡対象であり、無条件の *.sln は書けない）。
+tests/UnityProject/Library/
+tests/UnityProject/Temp/
+tests/UnityProject/Logs/
+tests/UnityProject/UserSettings/
+tests/UnityProject/*.csproj
+tests/UnityProject/*.sln

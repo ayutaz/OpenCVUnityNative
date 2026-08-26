@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
@@ -204,6 +204,88 @@ function Test-Managed {
     } 'run managed tests (L3)'
 }
 
+# tests/UnityProject/ProjectSettings/ProjectVersion.txt の m_EditorVersion から
+# Unity Hub の既定インストール先を組み立てる。バージョンを合わせるのは
+# uloop-launch skill と同じ考え方（ProjectVersion.txt が正本）。
+function Get-UnityEditorPath {
+    $versionFile = Join-Path $RepoRoot 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+    if (-not (Test-Path -LiteralPath $versionFile)) {
+        Write-DevFailure "Unity プロジェクトの ProjectVersion.txt が見つかりません: $versionFile"
+    }
+
+    $match = Select-String -LiteralPath $versionFile -Pattern '^m_EditorVersion:\s*(\S+)' |
+        Select-Object -First 1
+    if (-not $match) {
+        Write-DevFailure "m_EditorVersion を $versionFile から読み取れませんでした。"
+    }
+    $version = $match.Matches[0].Groups[1].Value
+
+    $editorPath = "C:\Program Files\Unity\Hub\Editor\$version\Editor\Unity.exe"
+    if (-not (Test-Path -LiteralPath $editorPath)) {
+        Write-DevFailure (@(
+            "Unity Editor $version が見つかりません: $editorPath"
+            "Unity Hub でこのバージョンをインストールしてください。"
+        ) -join "`n")
+    }
+    return $editorPath
+}
+
+<#
+    Unity EditMode テスト（L4）。file: 参照で取り込んだ UPM パッケージが
+    Unity 上で実際に動くことを検証する唯一のレーンである。
+
+    -quit は付けない。-runTests は Test Runner がテスト完了後に自分で
+    Unity を終了させる仕組みで、-quit を併用すると Unity がプロジェクトを
+    開いた直後（テスト実行より先）に終了してしまい、結果 XML が一切
+    書かれない（実測: ログが "Loaded All Assemblies" の直後で止まり、
+    exit code だけが返る。計画書の元のコマンド例は -quit 付きだったが、
+    これは Task 6 で見つかった計画の欠陥である — 公式ドキュメントも
+    -runTests との併用を避けるよう明記している）。
+
+    起動には `&` ではなく Start-Process -Wait を使う。`&` だと（この環境では）
+    Unity.exe のような GUI サブシステムの実行ファイルに対して呼び出しが
+    数十 ms で返ってしまい、実際のテスト実行を待たない（実測: `&` は
+    $LASTEXITCODE も設定されないまま即座に返り、結果 XML が存在しない
+    まま次のコードへ進んだ。Start-Process -Wait -PassThru に替えると
+    Unity の実プロセス終了まで正しくブロックし、ExitCode と結果 XML の
+    両方が揃って戻ってくる）。
+
+    -quit を外しても、Unity は失敗時に終了コード 0 で戻ることがあり得る
+    という懸念（元の設計判断）自体は残る。終了コードだけを見るのではなく、
+    終了コードと結果 XML の failed カウントの両方を見る。結果 XML が
+    無いこと自体も失敗として扱う — Unity がテストを書き出す前に落ちた
+    ことを意味し、それは成功ではない。
+#>
+function Test-UnityEditMode {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $results = Join-Path $ResultsDir 'unity-editmode.xml'
+    $log     = Join-Path $ResultsDir 'unity-editmode.log'
+
+    # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
+    $unityArgs = @(
+        '-projectPath', $project,
+        '-runTests', '-testPlatform', 'EditMode',
+        '-testResults', $results, '-logFile', $log,
+        '-batchmode', '-nographics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
+
+    if (-not (Test-Path -LiteralPath $results)) {
+        Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
+    }
+    [xml]$xml = Get-Content -LiteralPath $results
+    $failed = [int]$xml.'test-run'.failed
+    if ($exit -ne 0 -or $failed -ne 0) {
+        Write-DevFailure "Unity EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+    }
+    Write-Host "==> Unity EditMode: $($xml.'test-run'.passed) passed" -ForegroundColor Green
+}
+
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
 # (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
 function Test-ManagedProbe {
@@ -229,6 +311,7 @@ switch ($Command) {
     'test-managed-probe' { Test-ManagedProbe }
     'test-tools'   { Test-Tools }
     'test-tools-slow' { Test-ToolsSlow }
+    'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
     'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
