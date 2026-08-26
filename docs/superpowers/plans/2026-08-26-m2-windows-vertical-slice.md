@@ -2190,10 +2190,23 @@ function Test-UnityEditMode {
     $log     = Join-Path $RepoRoot 'artifacts/test-results/unity-editmode.log'
 
     # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
+    #
+    # -quit は付けない。-runTests は Test Runner がテスト完了後に自分で Unity を
+    # 終了させる仕組みで、-quit を併用すると Unity がプロジェクトを開いた直後に
+    # 終了し、テストを 1 つも走らせないまま結果 XML も出さずに戻る（実測）。
+    #
+    # 呼び出しは & ではなく Start-Process -Wait にする。この環境では & が
+    # Unity.exe の終了を待たず 17 ms で戻り、$LASTEXITCODE が未設定のまま次へ
+    # 進んだ（実測）。待たずに結果 XML を読むと「まだ書かれていない」か
+    # 「前回の実行の残骸」を読むことになり、どちらも静かに緑を返す。
+    #
     # Unity は失敗時も 0 で終わることがあるので、終了コードと結果 XML の両方を見る。
-    & $unity -projectPath $project -runTests -testPlatform EditMode `
-        -testResults $results -logFile $log -batchmode -nographics -quit
-    $exit = $LASTEXITCODE
+    $unityArgs = @(
+        '-projectPath', $project, '-runTests', '-testPlatform', 'EditMode',
+        '-testResults', $results, '-logFile', $log, '-batchmode', '-nographics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
 
     if (-not (Test-Path -LiteralPath $results)) {
         Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
@@ -2410,15 +2423,25 @@ function Test-UnityPlayer {
 
     # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
     # M2 が確かめたい stripping の問題が再現しない。
-    & $unity -projectPath $project -batchmode -nographics -quit `
-        -executeMethod BuildPlayer.ConfigureIl2cpp -logFile "$log.configure"
-    if ($LASTEXITCODE -ne 0) {
+    #
+    # 呼び出し規約は Test-UnityEditMode と同じ（Task 6 の注記を参照）:
+    # -executeMethod のときは -quit が必要だが、-runTests のときは付けない。
+    # どちらも & ではなく Start-Process -Wait で待つ。
+    $configureArgs = @(
+        '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+        '-executeMethod', 'BuildPlayer.ConfigureIl2cpp', '-logFile', "$log.configure"
+    )
+    $configure = Start-Process -FilePath $unity -ArgumentList $configureArgs -Wait -PassThru -NoNewWindow
+    if ($configure.ExitCode -ne 0) {
         Write-DevFailure "IL2CPP の設定に失敗しました。ログ: $log.configure"
     }
 
-    & $unity -projectPath $project -runTests -testPlatform StandaloneWindows64 `
-        -testResults $results -logFile $log -batchmode -nographics
-    $exit = $LASTEXITCODE
+    $unityArgs = @(
+        '-projectPath', $project, '-runTests', '-testPlatform', 'StandaloneWindows64',
+        '-testResults', $results, '-logFile', $log, '-batchmode', '-nographics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
 
     if (-not (Test-Path -LiteralPath $results)) {
         Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
