@@ -220,14 +220,20 @@ function Invoke-Restore {
         #
         # 構成ハッシュが同じなら中身も同じはずなので、どれを取っても等価である。
         # 最新の成功した実行のものを選ぶ。
-        $runId = (& gh run list --workflow=build-opencv.yml --status=success `
-                    --limit 20 --json databaseId,createdAt `
-                  | ConvertFrom-Json |
-                  Where-Object {
-                      $arts = & gh api "repos/:owner/:repo/actions/runs/$($_.databaseId)/artifacts" `
-                                  --jq '.artifacts[].name' 2>$null
-                      $arts -contains $ArtifactName
-                  } | Select-Object -First 1).databaseId
+        # 該当する実行を 1 つ選ぶ。**先に受けてから property を読む** —
+        # 空の結果に対して (...).databaseId と書くと StrictMode が
+        # 「property が無い」で落ち、下の分かりやすいエラーに到達しない
+        # （実測: artifact が存在しない構成で restore すると、意図した案内では
+        # なく PowerShell の内部例外が出ていた）。
+        $candidates = @(& gh run list --workflow=build-opencv.yml --status=success `
+                            --limit 20 --json databaseId,createdAt `
+                        | ConvertFrom-Json |
+                        Where-Object {
+                            $arts = & gh api "repos/:owner/:repo/actions/runs/$($_.databaseId)/artifacts" `
+                                        --jq '.artifacts[].name' 2>$null
+                            $arts -contains $ArtifactName
+                        })
+        $runId = if ($candidates.Count -gt 0) { $candidates[0].databaseId } else { $null }
 
         if (-not $runId) {
             Write-RestoreFailure (@(
