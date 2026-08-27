@@ -263,7 +263,15 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # license の配置も platform で変わる（Unix 系は share/licenses/ に置く）。
     # 名前 allowlist が主たる門なので、場所は「licenses/ 直下であること」に
     # 緩めつつ、任意の深さは許さない。
-    if ($relative -match '^(etc|share)/licenses/[^/]+$' -and $file.Name -in $InertLicenseFiles) { return $true }
+    #
+    # 実測した配置（M3 Task 4 の CI）:
+    #   Windows      etc/licenses/<name>
+    #   macOS/Linux  share/licenses/opencv5/<name>
+    #
+    # Unix 系はパッケージ名のディレクトリを 1 階層挟む。任意の深さを許すと
+    # 「licenses という語がどこかに在れば通る」になってしまうので、
+    # 0 段か 1 段だけに限る。名前 allowlist は変わらず主たる門である。
+    if ($relative -match '^(etc|share)/licenses/([^/]+/)?[^/]+$' -and $file.Name -in $InertLicenseFiles) { return $true }
 
     # valgrind の抑制ファイル: 名前で認識する。Unix 系の install だけが置く。
     if ($file.Name -in $InertValgrindFiles) { return $true }
