@@ -188,6 +188,36 @@ try { Get-OpenCvConfig -Platform 'solaris-sparc' | Out-Null }
 catch { $rejected = $true }
 Assert-That $rejected 'an unknown platform is rejected rather than silently defaulted'
 
+# --- psd1 に新しい top-level キーを足すとハッシュが動く ---
+#
+# Get-OpenCvConfig がキーを名指しで列挙すると、psd1 に足したキーが構成に
+# 入らず「構成を変えたのにハッシュが動かない」状態になる。M1 の H3 は
+# Get-OpenCvConfigHash について同じ欠陥を閉じたが、列挙を Get-OpenCvConfig へ
+# 移すと 1 段上で再発する（M3 Task 1 の初回実装が実際にそうなっていた:
+# ContribTag を足してもハッシュが 4785d98e9aad のまま動かなかった）。
+#
+# 実ファイルを一時的に書き換えて確かめる。読み取り専用の検査では、
+# 「列挙している実装」と「していない実装」を区別できない。
+$configPath = Join-Path $PSScriptRoot '../opencv-config.psd1' | Resolve-Path | Select-Object -ExpandProperty Path
+$backup = Get-Content -LiteralPath $configPath -Raw
+try {
+    $baseline = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'windows-x64')
+
+    # 将来ありうる top-level キーを足す（contrib の tag など）
+    ($backup -replace "(?m)^(\s*)Tag = '5\.0\.0'", "`$1Tag = '5.0.0'`n`$1OcvuHashProbeKey = 'probe'") |
+        Set-Content -LiteralPath $configPath -NoNewline
+
+    $withNewKey = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'windows-x64')
+    Assert-That ($withNewKey -ne $baseline) `
+        'adding a new top-level key to opencv-config.psd1 changes the hash'
+}
+finally {
+    Set-Content -LiteralPath $configPath -Value $backup -NoNewline
+    # 復元できたことを確かめる。ここが崩れると以降のテストが嘘の値で走る。
+    $restored = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'windows-x64')
+    Assert-That ($restored -eq $baseline) 'opencv-config.psd1 is restored to its original content'
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

@@ -98,13 +98,28 @@ function Get-OpenCvConfig {
         throw "opencv-config.psd1 has a toolchain for '$Platform' but no PlatformCMakeArgs entry."
     }
 
-    return [pscustomobject]@{
-        Platform  = $Platform
-        Tag       = [string]$raw.Tag
-        Modules   = [string[]]$raw.Modules
-        Toolchain = $raw.Toolchains[$Platform]
-        CMakeArgs = [string[]](@($raw.CMakeArgs) + @($raw.PlatformCMakeArgs[$Platform]))
+    # psd1 の内容を丸ごと引き継ぎ、platform 依存の 2 箇所だけを解決する。
+    #
+    # **キーを名指しで列挙しない。** 列挙すると、psd1 に新しい top-level キーを
+    # 足した人が「構成を変えたのにハッシュが動かない」状態を作る。M1 の H3 は
+    # Get-OpenCvConfigHash について同じ欠陥を閉じたが、列挙をここへ移すと
+    # 1 段上で同じことが起きる（実測で確認: ContribTag を足してもハッシュが
+    # 変わらなかった）。構成ハッシュは「この構成でビルドすると何ができるか」を
+    # 一意に表すという契約なので、知らないキーも黙って混ぜる。
+    #
+    # Toolchains / PlatformCMakeArgs は platform 別の入れ物であって構成そのもの
+    # ではないので、解決後の値に置き換えて元のキーは落とす。残すと「選ばれなかった
+    # platform の構成」までハッシュに混ざり、macOS の構成を変えただけで Windows の
+    # artifact が無効になる。
+    $resolved = [ordered]@{ Platform = $Platform }
+    foreach ($key in ($raw.Keys | Sort-Object)) {
+        if ($key -in @('Toolchains', 'PlatformCMakeArgs')) { continue }
+        $resolved[$key] = $raw[$key]
     }
+    $resolved['Toolchain'] = $raw.Toolchains[$Platform]
+    $resolved['CMakeArgs'] = [string[]](@($raw.CMakeArgs) + @($raw.PlatformCMakeArgs[$Platform]))
+
+    return [pscustomobject]$resolved
 }
 
 # $Value を「キーの並び順にも配列の並び順にも依存しない」正規形の JSON 文字列

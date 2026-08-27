@@ -209,13 +209,21 @@ function Get-OpenCvConfig {
         throw "opencv-config.psd1 has a toolchain for '$Platform' but no PlatformCMakeArgs entry."
     }
 
-    return [pscustomobject]@{
-        Platform  = $Platform
-        Tag       = [string]$raw.Tag
-        Modules   = [string[]]$raw.Modules
-        Toolchain = $raw.Toolchains[$Platform]
-        CMakeArgs = [string[]](@($raw.CMakeArgs) + @($raw.PlatformCMakeArgs[$Platform]))
+    # psd1 の内容を丸ごと引き継ぎ、platform 依存の 2 箇所だけを解決する。
+    #
+    # **キーを名指しで列挙しない。** 列挙すると、psd1 に新しい top-level キーを
+    # 足した人が「構成を変えたのにハッシュが動かない」状態を作る。M1 の H3 は
+    # Get-OpenCvConfigHash について同じ欠陥を閉じており、列挙をここへ移すと
+    # 1 段上で再発する。
+    $resolved = [ordered]@{ Platform = $Platform }
+    foreach ($key in ($raw.Keys | Sort-Object)) {
+        if ($key -in @('Toolchains', 'PlatformCMakeArgs')) { continue }
+        $resolved[$key] = $raw[$key]
     }
+    $resolved['Toolchain'] = $raw.Toolchains[$Platform]
+    $resolved['CMakeArgs'] = [string[]](@($raw.CMakeArgs) + @($raw.PlatformCMakeArgs[$Platform]))
+
+    return [pscustomobject]$resolved
 }
 ```
 
