@@ -2,6 +2,7 @@ using System.Collections;
 using CvUnity;
 using CvUnity.Unity;
 using NUnit.Framework;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -75,6 +76,85 @@ public class PlayerSmokeTests
         var mat = CvMat.Create(2, 2, CvMatType.Gray8);
         mat.Dispose();
         Assert.Throws<System.ObjectDisposedException>(() => { var _ = mat.Rows; });
+        yield return null;
+    }
+    [UnityTest]
+    public IEnumerator UserOwnedNativeArray_RoundTripsWithoutGoingThroughAManagedArray()
+    {
+        var input = new NativeArray<byte>(12, Allocator.Temp);
+        var output = new NativeArray<byte>(12, Allocator.Temp);
+        try
+        {
+            for (int i = 0; i < input.Length; i++) { input[i] = (byte)(i * 7 + 1); }
+
+            using (var mat = CvMat.Create(3, 4, CvMatType.Gray8))
+            {
+                mat.CopyFrom(input, 4);
+                mat.CopyTo(output, 4);
+            }
+
+            for (int i = 0; i < input.Length; i++)
+            {
+                Assert.AreEqual(input[i], output[i], $"byte {i} did not survive the round trip");
+            }
+        }
+        finally { input.Dispose(); output.Dispose(); }
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator NativeArrayLength_IsElementsNotBytes()
+    {
+        var pixels = new NativeArray<Color32>(12, Allocator.Temp);
+        try
+        {
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                pixels[i] = new Color32((byte)i, (byte)(i * 2), (byte)(i * 3), 255);
+            }
+
+            using (var mat = CvMat.Create(3, 4, CvMatType.Bgra32))
+            {
+                mat.CopyFrom(pixels, 4 * 4);
+
+                var back = new NativeArray<Color32>(12, Allocator.Temp);
+                try
+                {
+                    mat.CopyTo(back, 4 * 4);
+                    for (int i = 0; i < pixels.Length; i++)
+                    {
+                        Assert.AreEqual(pixels[i].r, back[i].r, $"pixel {i} red channel");
+                        Assert.AreEqual(pixels[i].a, back[i].a, $"pixel {i} alpha channel");
+                    }
+                }
+                finally { back.Dispose(); }
+            }
+        }
+        finally { pixels.Dispose(); }
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator ToTexture_RejectsAMatWhoseChannelCountDoesNotMatchTheTexture()
+    {
+        var texture = new Texture2D(4, 3, TextureFormat.RGBA32, false);
+        using (var gray = CvMat.Create(3, 4, CvMatType.Gray8))
+        {
+            var ex = Assert.Throws<System.ArgumentException>(
+                () => TextureConverter.ToTexture(gray, texture));
+            StringAssert.Contains("pixel format mismatch", ex.Message);
+        }
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator ToTexture_AcceptsAMatchingFourChannelMat()
+    {
+        var texture = new Texture2D(4, 3, TextureFormat.RGBA32, false);
+        using (var rgba = CvMat.Create(3, 4, CvMatType.Bgra32))
+        {
+            TextureConverter.ToTexture(rgba, texture);
+        }
         yield return null;
     }
 }

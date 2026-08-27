@@ -52,10 +52,39 @@ namespace CvUnity.Unity
         {
             if (mat == null) { throw new ArgumentNullException(nameof(mat)); }
             if (texture == null) { throw new ArgumentNullException(nameof(texture)); }
+            if (texture.format != TextureFormat.RGBA32)
+            {
+                throw new NotSupportedException(
+                    "M2 supports RGBA32 only; got " + texture.format);
+            }
             if (mat.Cols != texture.width || mat.Rows != texture.height)
             {
                 throw new ArgumentException(
                     $"size mismatch: mat is {mat.Cols}x{mat.Rows}, texture is {texture.width}x{texture.height}");
+            }
+
+            // 書き込むバイト数がテクスチャの生データ長と一致することを確かめる。
+            //
+            // native の検証は stride >= 1 行 かつ stride <= length / rows しか見ない。
+            // テクスチャより 1 画素あたりのバイト数が**小さい** Mat（例: cvtColor で
+            // グレースケール化した Gray8）は、その両方を余裕で通る。結果、成功が
+            // 返るのに先頭へ詰めて一部だけ書かれ、残りは古い内容のまま Apply される。
+            // 例外もログも出ない（実測: 4x3 の Gray8 を RGBA32 相当の 48 バイトへ
+            // 書くと status 0 で 12 バイトだけ書き換わった）。
+            //
+            // byte[] 経路にはこの関門が Unity 側にあった — LoadRawTextureData は
+            // バイト数が合わなければ例外を投げる。ポインタ経路はそこを通らないので、
+            // 外した安全網をここで置き直す。native を責める話ではない: native は
+            // 渡された length と stride に対して正しく振る舞っている。抜けていたのは
+            // 「その組み合わせがそもそも意味を成すか」を Unity 層が見ることである。
+            var matBytes = (long)mat.Rows * mat.Cols * mat.Channels;
+            var textureBytes = (long)texture.width * texture.height * 4;
+            if (matBytes != textureBytes)
+            {
+                throw new ArgumentException(
+                    $"pixel format mismatch: mat has {mat.Channels} channel(s) " +
+                    $"({matBytes} bytes), the RGBA32 texture needs {textureBytes}. " +
+                    "Convert the mat to 4 channels before writing it back.");
             }
 
             // 戻りも同じくコピー無しで書く。LoadRawTextureData(byte[]) を使うと
