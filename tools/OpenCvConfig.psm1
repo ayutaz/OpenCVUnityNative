@@ -22,43 +22,89 @@ Set-StrictMode -Version Latest
     落としてからハッシュを取る。「どのキーを見るか」を列挙しない設計にする
     ことで、次に増えるキーを個別に配線し忘れるという事故そのものを構造的に
     閉じる。
+
+    M3 Task 1 で Get-OpenCvConfig は「psd1 の全トップレベルキーをそのまま
+    保持する」から「Platform / Tag / Modules / Toolchain / CMakeArgs の
+    5 プロパティを明示的に組み立てる」へ変わった。Toolchain は
+    psd1 の Toolchains[$Platform]（platform ごとの 1 ブロック）を選んで
+    渡し、CMakeArgs は共通 CMakeArgs と PlatformCMakeArgs[$Platform] を
+    結合する。理由は、「platform ごとに 1 つを選ぶ」「複数配列を結合する」
+    という解決処理自体が、単純な pass-through では表現できないため。
+    Toolchain ブロックの中身や CMakeArgs の要素は依然として素通しなので、
+    その内側に新しいキーが増えたときは今まで通り自動的にハッシュへ混ざる。
+    一方、psd1 に新しいトップレベルキー（例: ContribTag）を足したときは、
+    この関数が明示的に拾わない限りハッシュに混ざらない —
+    Get-OpenCvConfigHash 自体は変わらず構造的（列挙しない）だが、
+    Get-OpenCvConfig の「どの 5 プロパティを組み立てるか」は列挙式に
+    戻っている。新しいトップレベルキーを足すときはこの関数を必ず更新すること。
 #>
+
+<#
+    実行中の platform を返す。
+
+    PowerShell 7 の $IsWindows / $IsMacOS / $IsLinux を使う。uname に頼らない
+    のは、Windows に uname が無いか、あっても MSYS のものが混ざるためである。
+
+    アーキテクチャは RuntimeInformation から取る。macOS は Apple Silicon の
+    arm64 のみ対応する（Intel Mac は M3 の対象外 — 対応するなら platform を
+    1 つ足す作業になり、この関数がその増やし方を示している）。
+#>
+function Get-OpenCvPlatform {
+    [CmdletBinding()]
+    param()
+
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+
+    if ($IsWindows) {
+        if ($arch -ne 'X64') { throw "Windows on $arch is not supported (x64 only)." }
+        return 'windows-x64'
+    }
+    if ($IsMacOS) {
+        if ($arch -ne 'Arm64') { throw "macOS on $arch is not supported (Apple Silicon only)." }
+        return 'macos-arm64'
+    }
+    if ($IsLinux) {
+        if ($arch -ne 'X64') { throw "Linux on $arch is not supported (x64 only)." }
+        return 'linux-x64'
+    }
+
+    throw 'Unable to determine the platform. $IsWindows / $IsMacOS / $IsLinux were all false.'
+}
 
 function Get-OpenCvConfig {
     [CmdletBinding()]
-    param()
+    param(
+        # 省略時は実行中の platform。明示すると他 platform の構成も引ける
+        # （CI が全 platform のハッシュを算出するのに使う）。
+        [string]$Platform
+    )
 
     $path = Join-Path $PSScriptRoot 'opencv-config.psd1'
     if (-not (Test-Path -LiteralPath $path)) {
         throw "OpenCV build configuration not found at '$path'."
     }
 
+    if (-not $Platform) { $Platform = Get-OpenCvPlatform }
+
     $raw = Import-PowerShellDataFile -LiteralPath $path
 
-    # $raw を丸ごと保持する（4 プロパティだけを名指しで抜き出さない）。
-    # [pscustomobject]$raw は Hashtable の全キーをプロパティとして写すので、
-    # psd1 に足された未知のキーも透過的に生き残り、Get-OpenCvConfigHash の
-    # 再帰的な正規化に自然に載る。ネストした Toolchain は Hashtable のまま
-    # 残る（再帰的に変換はしない）—それでハッシュ側は困らない。
-    # ConvertTo-CanonicalJson が Hashtable も PSCustomObject も同じ経路で扱う。
-    $config = [pscustomobject]$raw
-
-    # 既知のキーだけは、呼び出し側が期待する型（配列）に正規化する。
-    # psd1 の書き方次第で Import-PowerShellDataFile の戻り値の型が変わり得る
-    # ため、$config.Modules に対して foreach や .Count を使う既存コードが
-    # 壊れないようにするための型合わせであり、値そのものは変えない。
-    $propertyNames = @($config.PSObject.Properties.Name)
-    if ($propertyNames -contains 'Tag') {
-        $config.Tag = [string]$config.Tag
+    # 未知の platform を黙って通さない。既定に倒すと、対応していない環境で
+    # 「Windows の構成で macOS をビルドする」ような事故が静かに成立する。
+    if (-not $raw.Toolchains.ContainsKey($Platform)) {
+        $known = ($raw.Toolchains.Keys | Sort-Object) -join ', '
+        throw "Unknown platform '$Platform'. Known platforms: $known"
     }
-    if ($propertyNames -contains 'Modules') {
-        $config.Modules = [string[]]$config.Modules
-    }
-    if ($propertyNames -contains 'CMakeArgs') {
-        $config.CMakeArgs = [string[]]$config.CMakeArgs
+    if (-not $raw.PlatformCMakeArgs.ContainsKey($Platform)) {
+        throw "opencv-config.psd1 has a toolchain for '$Platform' but no PlatformCMakeArgs entry."
     }
 
-    return $config
+    return [pscustomobject]@{
+        Platform  = $Platform
+        Tag       = [string]$raw.Tag
+        Modules   = [string[]]$raw.Modules
+        Toolchain = $raw.Toolchains[$Platform]
+        CMakeArgs = [string[]](@($raw.CMakeArgs) + @($raw.PlatformCMakeArgs[$Platform]))
+    }
 }
 
 # $Value を「キーの並び順にも配列の並び順にも依存しない」正規形の JSON 文字列
@@ -135,7 +181,7 @@ function Get-OpenCvArtifactName {
     param([Parameter(Mandatory)] $Config)
 
     $hash = Get-OpenCvConfigHash -Config $Config
-    return "opencv-$($Config.Tag)-windows-x64-$hash"
+    return "opencv-$($Config.Tag)-$($Config.Platform)-$hash"
 }
 
 function Get-OpenCvRoot {
@@ -200,5 +246,5 @@ function Get-OpenCvDependencyVersions {
     return $versions
 }
 
-Export-ModuleMember -Function Get-OpenCvConfig, Get-OpenCvConfigHash,
+Export-ModuleMember -Function Get-OpenCvPlatform, Get-OpenCvConfig, Get-OpenCvConfigHash,
     Get-OpenCvArtifactName, Get-OpenCvRoot, Get-OpenCvDependencyVersions

@@ -11,10 +11,46 @@
     # これより大きくなり得る。実測値は build-manifest.json に記録する。
     Modules = @('core', 'imgproc', 'imgcodecs', 'objdetect', 'features')
 
-    Toolchain = @{
-        Generator    = 'Visual Studio 17 2022'
-        Architecture = 'x64'
-        BuildType    = 'Release'
+    # platform ごとの toolchain。実行中の platform に対応する 1 つが選ばれ、
+    # 構成ハッシュに混ざる（Get-OpenCvConfigHash は Config 全体を正規化する）。
+    #
+    # Generator が platform ごとに違うのは避けられない: MSVC は Visual Studio
+    # generator、macOS / Linux は Ninja を使う。Ninja を選ぶのは、Xcode /
+    # Unix Makefiles と違って生成物の配置が platform 間で揃うためである。
+    Toolchains = @{
+        'windows-x64' = @{
+            Generator    = 'Visual Studio 17 2022'
+            Architecture = 'x64'
+            BuildType    = 'Release'
+        }
+        'macos-arm64' = @{
+            Generator    = 'Ninja'
+            Architecture = 'arm64'
+            BuildType    = 'Release'
+        }
+        'linux-x64' = @{
+            Generator    = 'Ninja'
+            Architecture = 'x86_64'
+            BuildType    = 'Release'
+        }
+    }
+
+    # platform 固有の CMake flag。共通の CMakeArgs に足される。
+    PlatformCMakeArgs = @{
+        'windows-x64' = @()
+        'macos-arm64' = @(
+            # 単一アーキテクチャに固定する。指定しないと universal binary に
+            # なり得て、成果物の中身が構成から読めなくなる。
+            '-DCMAKE_OSX_ARCHITECTURES=arm64'
+            # 配布先の下限を固定する。指定しないとビルドマシンの OS 版に
+            # 引きずられ、同じ構成ハッシュで別物ができる。
+            '-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
+        )
+        'linux-x64' = @(
+            # 共有ライブラリへ静的ライブラリを取り込むため。
+            # 指定しないとリンク時に relocation エラーになる。
+            '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
+        )
     }
 
     CMakeArgs = @(

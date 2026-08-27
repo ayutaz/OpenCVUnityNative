@@ -2,6 +2,7 @@
 # Pester を使わず素の assert で書く。依存を増やさないため。
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
@@ -152,6 +153,40 @@ Assert-That ($fromPrefixed.Count -eq $fromPlain.Count) '前置の有無で抽出
 foreach ($key in $fromPlain.Keys) {
     Assert-That ($fromPrefixed[$key] -eq $fromPlain[$key]) "前置の有無で $key のバージョンが一致する"
 }
+
+# --- platform ごとに構成とハッシュが分かれる ---
+#
+# 現在ハッシュに platform が入っておらず、macOS でビルドしても Windows と同じ
+# ハッシュを名乗れてしまう。M1 が「古い成果物が黙って再利用されない」ために
+# 作った仕組みの穴なので、platform が違えば必ず違うハッシュになることを固定する。
+$platforms = @('windows-x64', 'macos-arm64', 'linux-x64')
+$hashes = @{}
+foreach ($p in $platforms) {
+    $cfg = Get-OpenCvConfig -Platform $p
+    Assert-That ($cfg.Platform -eq $p) "Get-OpenCvConfig -Platform $p returns that platform"
+    Assert-That ($null -ne $cfg.Toolchain.Generator) "$p has a generator"
+    $hashes[$p] = Get-OpenCvConfigHash -Config $cfg
+}
+
+Assert-That (($hashes.Values | Sort-Object -Unique).Count -eq $platforms.Count) `
+    'every platform produces a distinct config hash'
+
+foreach ($p in $platforms) {
+    $name = Get-OpenCvArtifactName -Config (Get-OpenCvConfig -Platform $p)
+    Assert-That ($name -eq "opencv-5.0.0-$p-$($hashes[$p])") `
+        "the artifact name for $p embeds that platform and its hash"
+}
+
+# 実行中の platform を既定にする。引数なしの呼び出しが壊れないこと。
+$current = Get-OpenCvPlatform
+Assert-That ($current -in $platforms) "Get-OpenCvPlatform returns a known platform (saw '$current')"
+Assert-That ((Get-OpenCvConfig).Platform -eq $current) 'Get-OpenCvConfig defaults to the running platform'
+
+# 未知の platform は黙って通さない。認識できなかったものは失敗側に落とす。
+$rejected = $false
+try { Get-OpenCvConfig -Platform 'solaris-sparc' | Out-Null }
+catch { $rejected = $true }
+Assert-That $rejected 'an unknown platform is rejected rather than silently defaulted'
 
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
