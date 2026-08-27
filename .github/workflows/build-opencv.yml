@@ -15,25 +15,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
-    name: OpenCV 5.0.0 Windows x64
-    runs-on: windows-2022
-    # CI 実測（clone〜verify まで通しで）は 4 分 09 秒（run 32849957498）。
-    # ローカルでの実測はまだ無い。cold runner やネットワークの変動、
+  build:
+    name: OpenCV 5.0.0 ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    # CI 実測（Windows、clone〜verify まで通しで）は 4 分 09 秒（run 32849957498）。
+    # macOS / Linux での実測はまだ無い。cold runner やネットワークの変動、
     # 将来の module 追加を見込んで大きめに取っている — 実測の何倍、という
     # 根拠のある数字ではなく、安全側に振った目安であることに注意。
     timeout-minutes: 150
+    strategy:
+      fail-fast: false   # 1 platform の失敗で他を巻き込まない
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+          - platform: macos-arm64
+            runner: macos-14
+          - platform: linux-x64
+            runner: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Ninja は macOS / Linux の generator。Windows は Visual Studio generator
+      # を使うので不要。
+      - name: Install Ninja
+        if: matrix.platform != 'windows-x64'
+        shell: pwsh
+        run: |
+          if ($IsMacOS) { brew install ninja }
+          else { sudo apt-get update; sudo apt-get install -y ninja-build }
 
       - name: Resolve the configuration
         id: config
         shell: pwsh
         run: |
           Import-Module ./tools/OpenCvConfig.psm1 -Force
-          $config = Get-OpenCvConfig
+          $config = Get-OpenCvConfig -Platform '${{ matrix.platform }}'
           $name = Get-OpenCvArtifactName -Config $config
           $hash = Get-OpenCvConfigHash -Config $config
           "artifact-name=$name" >> $env:GITHUB_OUTPUT
