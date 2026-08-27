@@ -1095,7 +1095,9 @@ SBOM は「成果物に何が入っているか」の申告である。**申告�
 Set-StrictMode -Version Latest
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+# $PSScriptRoot は tools/tests を指すので 2 段上がる。1 段だと tools/ になり、
+# tools/tools/... という存在しないパスになる（M3 で 3 回踏んだ）。
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script = Join-Path $repoRoot 'tools/package-release.ps1'
 $failures = @()
 
@@ -1163,7 +1165,9 @@ $ErrorActionPreference = 'Stop'
 
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+# $PSScriptRoot は tools/tests を指すので 2 段上がる。1 段だと tools/ になり、
+# tools/tools/... という存在しないパスになる（M3 で 3 回踏んだ）。
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $config = Get-OpenCvConfig
 $root = Get-OpenCvRoot -Config $config
 
