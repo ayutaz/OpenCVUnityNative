@@ -138,5 +138,20 @@ if (-not (Test-Path -LiteralPath $manifestSource)) {
 Copy-Item -LiteralPath $manifestSource `
           -Destination (Join-Path $OutputDir 'build-manifest.json') -Force
 
+# ライセンス通知も配布物に含める。roadmap の M3 完了条件は
+# 「artifact manifest、checksums、THIRD_PARTY_NOTICES.md、SBOM」を 4 点で
+# 求めている。SBOM は機械可読な一覧、通知は人が読む全文で役割が違うので、
+# 片方でもう片方を代替できない。
+$noticesSource = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
+if (-not (Test-Path -LiteralPath $noticesSource)) {
+    [Console]::Error.WriteLine(@(
+        "THIRD_PARTY_NOTICES.md not found at $noticesSource"
+        '通知を欠いた配布物を出さない — 配るものの中身を説明する文書である。'
+    ) -join "`n")
+    exit 1
+}
+Copy-Item -LiteralPath $noticesSource `
+          -Destination (Join-Path $OutputDir 'THIRD_PARTY_NOTICES.md') -Force
+
 Write-Host "==> release artifacts written to $OutputDir" -ForegroundColor Green
 exit 0

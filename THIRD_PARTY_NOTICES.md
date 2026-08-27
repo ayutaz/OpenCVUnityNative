@@ -7,14 +7,26 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
 ## Scope of this document
 
 - OpenCV version: **5.0.0**
-- Build configuration hash: **b20b4dacd9a9** (`tools/opencv-config.psd1`,
-  see `tools/OpenCvConfig.psm1` for how the hash is derived)
+- Build configuration hash: **配置ごとに変わるのでここには書かない。**
+  現在の値は次で取れる:
+
+      pwsh -c "Import-Module ./tools/OpenCvConfig.psm1; Get-OpenCvConfigHash -Config (Get-OpenCvConfig)"
+
+  以下このハッシュを `<hash>` と書く。値を本文に埋め込むと、構成を変えるたびに
+  この文書が黙って古くなる（M3 で実際に起きた: Platform をハッシュに含めた結果、
+  19 箇所の参照が一斉に死んだ）。ハッシュの導出は `tools/OpenCvConfig.psm1`。
+- 対象 platform: **配置ごとに変わる。** 下記のパスは platform で異なる:
+
+  | | ライブラリ | ライセンス |
+  | --- | --- | --- |
+  | Windows | `x64/vc17/staticlib/*.lib` | `etc/licenses/` |
+  | macOS / Linux | `lib/*.a` | `share/licenses/opencv5/` |
 - Modules built for this configuration (`tools/opencv-config.psd1`):
   `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, plus `flann` and
   `geometry`, pulled in transitively (`tools/verify-opencv-artifact.ps1`
   `$AcceptedTransitiveModules`).
 - **Universe considered**: every file under
-  `third_party/opencv/b20b4dacd9a9/etc/licenses/` in the restored artifact
+  `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）` in the restored artifact
   (`./tools/opencv.ps1 restore`) — **13 files** as of this hash. This is the
   set OpenCV's own install step attributes as third-party, and it is now the
   allowlist `tools/verify-opencv-artifact.ps1`'s `$InertLicenseFiles`
@@ -28,7 +40,7 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
   linked): a plain-text search (`grep -a -o`) for a symbol-mangling
   substring specific to that component's own C++ namespace or function
   names — not a generic word — across every `.lib` under
-  `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`. A generic word is
+  `third_party/opencv/<hash>/ のライブラリディレクトリ（上表）`. A generic word is
   not enough: `cv::getBuildInformation()`'s own summary text is compiled
   into `opencv_core500.lib` as a string literal and contains lines like
   `Flatbuffers: builtin/3rdparty (25.9.23)`, so grepping for the bare word
@@ -49,7 +61,7 @@ libraries, what's linked into them, or their license text is unchanged.
 
 ## zlib
 
-License: zlib License (`third_party/opencv/b20b4dacd9a9/etc/licenses/zlib-LICENSE`)
+License: zlib License (`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）zlib-LICENSE`)
 
 Linked into: `zlib.lib` (its own static library alongside the `opencv_*.lib`
 module libraries — the one component here that doesn't need a symbol-table
@@ -86,7 +98,7 @@ Copyright notice:
 
 License: PNG Reference Library License version 2, with the version 1 terms
 carried forward for pre-1.6.36 contributions
-(`third_party/opencv/b20b4dacd9a9/etc/licenses/libpng-LICENSE`)
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）libpng-LICENSE`)
 
 Linked into: `libpng.lib` (its own static library). The artifact also
 carries `etc/licenses/libpng-README`, libpng's own project README — it is
@@ -236,7 +248,7 @@ be appreciated.
 
 License: dual — the IJG License (for the libjpeg API) and the Modified
 (3-clause) BSD License (for the TurboJPEG API and build system)
-(`third_party/opencv/b20b4dacd9a9/etc/licenses/libjpeg-turbo-LICENSE.md`)
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）libjpeg-turbo-LICENSE.md`)
 
 Linked into: `libjpeg-turbo.lib` (its own static library). The artifact also
 carries `etc/licenses/libjpeg-turbo-README.md`, the upstream project
@@ -357,7 +369,7 @@ POSSIBILITY OF SUCH DAMAGE.
 ```
 
 IJG License (reproduced from
-`third_party/opencv/b20b4dacd9a9/etc/licenses/libjpeg-turbo-README.ijg`,
+`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）libjpeg-turbo-README.ijg`,
 LEGAL ISSUES section — the full README is retained verbatim per the
 condition above, minus the sections not relevant to licensing):
 
@@ -422,7 +434,7 @@ assumed by the product vendor.
 ## libclapack (CLAPACK)
 
 License: BSD-3-Clause (University of Tennessee et al.)
-(`third_party/opencv/b20b4dacd9a9/etc/licenses/clapack-lapack_LICENSE`)
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）clapack-lapack_LICENSE`)
 
 Linked into: `libclapack.lib` (its own static library, used by `core`'s
 linear-algebra routines).
@@ -483,7 +495,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## Berkeley SoftFloat
 
 License: BSD-3-Clause (The Regents of the University of California)
-(`third_party/opencv/b20b4dacd9a9/etc/licenses/SoftFloat-COPYING.txt`)
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）SoftFloat-COPYING.txt`)
 
 Linked into: compiled directly into `opencv_core500.lib`,
 `opencv_geometry500.lib`, and `opencv_imgproc500.lib` — not a separate
@@ -492,7 +504,7 @@ check. OpenCV vendors SoftFloat's algorithms as `cv::softfloat` /
 `cv::softdouble` (`modules/core/src/softfloat.cpp`) for reproducible,
 platform-independent IEEE 754 arithmetic.
 
-Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+Confirmed by (run from `third_party/opencv/<hash>/ のライブラリディレクトリ（上表）`):
 
 ```
 grep -a -o "softfloat@cv@@\|softdouble@cv@@" opencv_core500.lib opencv_geometry500.lib opencv_imgproc500.lib
@@ -541,7 +553,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## MSCR chi_table (Per-Erik Forssen)
 
 License: custom BSD-style terms
-(`third_party/opencv/b20b4dacd9a9/etc/licenses/mscr-chi_table_LICENSE.txt`)
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）mscr-chi_table_LICENSE.txt`)
 
 Linked into: `opencv_features500.lib`. This is a chi-squared lookup table
 from Per-Erik Forssen's Maximally Stable Colour Regions (MSCR) paper, used
@@ -551,7 +563,7 @@ symbol named `chi_table` survives), so it can't be confirmed by name
 directly; the surrounding MSCR machinery that only exists to use that table
 does survive as named symbols, which is what's searched for below.
 
-Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+Confirmed by (run from `third_party/opencv/<hash>/ のライブラリディレクトリ（上表）`):
 
 ```
 grep -a -o "MSCRNode\|MSCREdge\|preprocessMSER" opencv_features500.lib
@@ -593,13 +605,13 @@ the use of this software, even if advised of the possibility of such damage.
 ## annoylib
 
 License: Apache License 2.0 (Spotify AB)
-(`third_party/opencv/b20b4dacd9a9/etc/licenses/annoylib-LICENSE`)
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）annoylib-LICENSE`)
 
 Linked into: `opencv_features500.lib`, under OpenCV's own `cvannoy`
 namespace (`ANNIndexImpl` and related types) — an approximate nearest
 neighbor index used by the descriptor matching machinery in `features`.
 
-Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+Confirmed by (run from `third_party/opencv/<hash>/ のライブラリディレクトリ（上表）`):
 
 ```
 grep -a -o "cvannoy\|ANNIndexImpl" opencv_features500.lib
@@ -626,7 +638,7 @@ the License.
 ## Rubik font
 
 License: SIL Open Font License, Version 1.1 (The Rubik Project Authors)
-(`third_party/opencv/b20b4dacd9a9/etc/licenses/fonts-Rubik_OFL.txt`)
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）fonts-Rubik_OFL.txt`)
 
 Linked into: `opencv_imgproc500.lib`, as OpenCV's "Built-in Unicode font"
 (`cv::getBuildInformation()` reports `Built-in Unicode font: YES` for this
@@ -637,7 +649,7 @@ Apache-style permissive licenses above, the SIL OFL requires that this
 notice (or the license text) accompany any redistribution that bundles the
 font, and forbids selling the font by itself.
 
-Confirmed by (run from `third_party/opencv/b20b4dacd9a9/x64/vc17/staticlib/`):
+Confirmed by (run from `third_party/opencv/<hash>/ のライブラリディレクトリ（上表）`):
 
 ```
 grep -a -o "Rubik[A-Za-z0-9_.-]*" opencv_imgproc500.lib
@@ -748,7 +760,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 Two of the 13 files are license texts for components that OpenCV's build
 system attributes generally, but a symbol-table search of every `.lib`
-under `x64/vc17/staticlib/` for identifiers specific to each found nothing.
+under the platform's library directory (see the table above) for identifiers
+specific to each found nothing.
 Both belong to OpenCV modules (`dnn`, `gapi`) that are **not** in this
 configuration's `Modules` list (`tools/opencv-config.psd1`), so their code
 was never compiled into anything this package ships. Their license text is
@@ -756,11 +769,11 @@ listed here for completeness — so the 13-file inventory is fully
 accounted for — but is not reproduced, because nothing of theirs ships.
 
 - **dlpack** (Apache License 2.0) —
-  `third_party/opencv/b20b4dacd9a9/etc/licenses/dlpack-LICENSE`. Searched
+  `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）dlpack-LICENSE`. Searched
   for `DLManagedTensor`, `DLPackVersioned`, `dlpack` (case-insensitive)
   across every `.lib`; zero matches.
 - **flatbuffers** (Apache License 2.0) —
-  `third_party/opencv/b20b4dacd9a9/etc/licenses/flatbuffers-LICENSE.txt`.
+  `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）flatbuffers-LICENSE.txt`.
   Searched for `flatbuffers::`, `FlatBufferBuilder`, `flatbuffers_`; zero
   matches. (`opencv_core500.lib` does contain the bare word "Flatbuffers"
   once, but only inside the embedded `cv::getBuildInformation()` summary
@@ -776,6 +789,6 @@ the reproduced sections above.
 ## OpenCV itself
 
 OpenCV 5.0.0 is Apache License 2.0. See
-`third_party/opencv/b20b4dacd9a9/LICENSE` in the restored artifact for the
+`third_party/opencv/<hash>/LICENSE` in the restored artifact for the
 full text; it is not reproduced here since it is the same license as this
 repository's own code.

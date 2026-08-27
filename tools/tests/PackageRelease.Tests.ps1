@@ -171,6 +171,31 @@ try {
 }
 finally { Pop-Location }
 
+# --- 配布物は 4 点そろうこと ---
+#
+# roadmap の M3 完了条件は manifest / checksums / THIRD_PARTY_NOTICES.md / SBOM を
+# 4 点で求めている。SBOM は機械可読な一覧、通知は人が読む全文で役割が違うので、
+# 片方でもう片方を代替できない。通知の同梱は当初漏れていた（Task 8 の判定で発覚）。
+# 上の $out は既に片付けられている場合があるので、この節は自前で出力を作る。
+$bundleOut = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-bundle-" + [guid]::NewGuid().ToString('n'))
+try {
+    & pwsh -NoProfile -File $script -OutputDir $bundleOut | Out-Null
+    Assert-That ($LASTEXITCODE -eq 0) 'package-release exits 0 for the bundle check'
+
+    foreach ($f in @('build-manifest.json', 'checksums.txt', 'sbom.spdx.json', 'THIRD_PARTY_NOTICES.md')) {
+        Assert-That (Test-Path -LiteralPath (Join-Path $bundleOut $f)) "the release bundle contains $f"
+    }
+
+# 通知が構成ハッシュを埋め込んでいないこと。
+#
+# 埋め込むと構成を変えるたびに黙って古くなる。M3 で実際に起きた: Platform を
+# ハッシュに含めた結果、19 箇所の参照が一斉に死んだ（内容自体は正しいまま）。
+    $noticesText = Get-Content -LiteralPath (Join-Path $bundleOut 'THIRD_PARTY_NOTICES.md') -Raw
+    Assert-That ($noticesText -notmatch '(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])') `
+        'the notices do not hardcode a configuration hash'
+}
+finally { Remove-Item -Recurse -Force $bundleOut -ErrorAction SilentlyContinue }
+
 if ($failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
     exit 1
