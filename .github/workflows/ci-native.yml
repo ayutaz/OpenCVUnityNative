@@ -1,7 +1,16 @@
 name: ci-native
 
+# push は main のみ。ブランチへの push では走らせない。
+#
+# concurrency だけでは重複は消せない — あれは後発が先発を打ち切る仕組みで、
+# 2 本起動すること自体は止まらないからである。作業ブランチでは pull_request が
+# 拾うので、push 側を main に絞れば「同じコミットに 2 本」が構造的に無くなる。
+#
+# main への push（squash merge の着地）は PR を伴わないので、明示的に残す。
+# これが必須チェックの記録を main 上に残す唯一の経路である。
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -9,8 +18,17 @@ permissions:
   contents: read
   actions: read
 
+# 同じコミットに対して push と pull_request の両方が走らないようにする。
+#
+# 以前は group に github.ref を使っていたが、これは push ではブランチ名
+# （refs/heads/foo）、pull_request では PR の参照（refs/pull/N/merge）になるため、
+# **同じコミットでも別グループと見なされて重複排除が効かなかった**。実測: 2026-08-27 に
+# 6cfc31d へ 37 秒差で 2 本走り、後発が資源の奪い合いで落ちた（先発は成功）。
+#
+# head_ref は pull_request のときだけソースブランチ名になり、push では空になる。
+# ref との組み合わせで、PR がある間は PR 側の 1 本に寄る。
 concurrency:
-  group: ci-native-${{ github.ref }}
+  group: ci-native-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
