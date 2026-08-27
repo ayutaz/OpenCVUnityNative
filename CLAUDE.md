@@ -188,7 +188,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | **M0** | **自動 TDD ハーネスの成立（OpenCV 非依存）。** 反復速度の土台を他の何よりも先に固定する — **完了** |
 | **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
 | **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件中 7 件達成。未達は条件 7（CI で L4/L5 が一度も実行されていない。Unity 導入とアクティベーション実装が未着手で、資格情報登録だけでは動かない）** |
-| M3 | Desktop 3 platform と配布の再現性。Linux レーンでリーク検出（MSVC ASan は LSan 非対応） |
+| M3 | Desktop 3 platform と配布の再現性。Linux レーンでリーク検出（MSVC ASan は LSan 非対応）。**M1 が見送った「成果物が構成の意図どおりか」の機械的検証もここで拾う**（送った CMake flag ではなく、できたバイナリを読む） |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
 | M5 | binding specification と generator |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |

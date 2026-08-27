@@ -120,7 +120,7 @@ allowlist 構成の OpenCV 5.0.0 を **CI がビルドして artifact として�
 **非ゴール**
 複数プラットフォーム対応（M1 は Windows x64 のみ）。パッケージ配布。SBOM の完成（M3）。
 
-**既知の欠陥（意図的に見送った検証。担当マイルストーン未定）**
+**既知の欠陥（意図的に見送った検証。M3 が拾う — 同節の完了条件に入れた）**
 
 `tools/opencv-config.psd1` が固定するのは**送信する** CMake flag であって、OpenCV のビルドが
 それを**守ったか**ではない。両者の間には検証を置かないと決めた — 構成ハッシュは意図の一意性を
@@ -139,11 +139,26 @@ allowlist 構成の OpenCV 5.0.0 を **CI がビルドして artifact として�
   `DEFAULTLIB` を人間が `grep` して発見した。`-DBUILD_WITH_STATIC_CRT=OFF` で止めたが、
   「CRT linkage が要求どおりか」を成果物から機械的に確認する検証は無い。
 
-対応候補（優先度は未定。どのマイルストーンが拾うかも未確定）:
-成果物の `.lib` から `DEFAULTLIB` や有効言語を実際に読み取り、`opencv-config.psd1` の意図
-（CRT linkage、ASM 不使用、`WITH_CUDA=OFF` 等）と突き合わせる自動チェックを
-`tools/verify-opencv-artifact.ps1` に追加する。allowlist 検証（依存の集合）とは別軸の検証
-であることに注意 — 依存が正しくても linkage が違えば今回のような欠陥になる。
+**担当は M3（2026-08-27 決定）。** 理由は 3 つある。
+
+1. **M3 が同じ問題を 3 倍にする。** この欠陥は「送った指定が上流に黙って無視される」形で、
+   Windows だけで既に 2 回起きた。macOS / Linux が加われば、ツールチェーンごとの既定値の
+   違いで同種の欠陥が起きる面が 3 倍になる。1 プラットフォームで検査を作ってから広げる方が、
+   3 つ分の未検証な成果物の上に後から載せるより安い。
+2. **M3 の完了条件が既に成果物の検査を求めている。** artifact manifest / checksums / SBOM が
+   条件に入っており、SBOM は「成果物に何が入っているか」の申告である。申告と実物を突き合わせる
+   仕組みが無ければ、M1 と同じ穴が今度は SBOM に開く。同じ場所で作るのが自然である。
+3. **M4 以降では遅い。** M4 の mobile では iOS の静的リンクと Android の ABI 差が入る。
+   そこで初めて検査を作ると、既に 3 platform 分の未検証な成果物を土台にすることになる。
+
+実装の形（M3 の完了条件に入れた項目の詳細）:
+成果物の `.lib` / `.a` / `.dylib` から `DEFAULTLIB`・有効言語・リンク済みシンボルを実際に
+読み取り、`opencv-config.psd1` の意図（CRT linkage、ASM 不使用、`WITH_CUDA=OFF` 等）と
+突き合わせる。**allowlist 検証（依存の集合）とは別軸である** — 依存が正しくても linkage が
+違えば今回のような欠陥になる。置き場所は `tools/verify-opencv-artifact.ps1` の隣か、
+platform 別の実装を持つ新しい入口。プラットフォームごとに読み取り方が違う
+（Windows は `DEFAULTLIB`、ELF は `readelf`、Mach-O は `otool`）ので、
+**「読み取れなかったら通す」形にしないこと** — それは M1 が繰り返した欠陥そのものである。
 
 ---
 
@@ -277,6 +292,7 @@ Windows / macOS / Linux の native artifact が CI から再現生成され、UP
 - Git URL または tarball から導入できる UPM パッケージ
 - artifact manifest、checksums、`THIRD_PARTY_NOTICES.md`、SBOM
 - **Linux レーンでのリーク検出**（LeakSanitizer / Valgrind）— MSVC の ASan は LeakSanitizer 非対応のため、リーク検出は Linux CI が担う
+- **成果物が構成の意図どおりであることを機械的に検証する**（M1 からの持ち越し。同節「既知の欠陥」を参照）— 送った CMake flag ではなく、できた `.lib` / `.a` / `.dylib` を読んで CRT linkage・有効言語・想定外の依存を確かめ、`opencv-config.psd1` の意図と食い違ったら CI を落とす。M1 ではこの隙間から 2 件の欠陥が出て、どちらも人間が成果物を直接調べて発見した
 - Unity sample と最小 API reference
 
 **非ゴール**
