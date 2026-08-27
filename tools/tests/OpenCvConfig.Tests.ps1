@@ -218,6 +218,28 @@ finally {
     Assert-That ($restored -eq $baseline) 'opencv-config.psd1 is restored to its original content'
 }
 
+# --- CMakePresets に全 platform 分が在り、名前が platform と一致する ---
+#
+# preset 名を platform 名から機械的に導くので、片方だけ足して他方を忘れると
+# 「preset が無い」という実行時エラーになる。ここで先に落とす。
+$presetsPath = Join-Path $repoRoot 'CMakePresets.json'
+$presets = Get-Content -LiteralPath $presetsPath -Raw | ConvertFrom-Json
+$configureNames = @($presets.configurePresets | ForEach-Object { $_.name })
+
+foreach ($p in @('windows-x64', 'macos-arm64', 'linux-x64')) {
+    Assert-That ("$p-debug" -in $configureNames) "CMakePresets has a configure preset '$p-debug'"
+    Assert-That ("$p-asan" -in $configureNames) "CMakePresets has a configure preset '$p-asan'"
+}
+
+# build / test preset も同数あること。configure だけ足して build を忘れると
+# cmake --build --preset が失敗する。
+$buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
+$testNames = @($presets.testPresets | ForEach-Object { $_.name })
+foreach ($n in $configureNames) {
+    Assert-That ($n -in $buildNames) "there is a build preset for '$n'"
+    Assert-That ($n -in $testNames) "there is a test preset for '$n'"
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

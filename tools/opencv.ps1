@@ -77,11 +77,18 @@ function Invoke-Build {
     }
     finally { Pop-Location }
 
+    # -A は Visual Studio generator 専用のオプションで、Ninja に渡すとエラーになる。
+    # アーキテクチャは macOS では CMAKE_OSX_ARCHITECTURES（PlatformCMakeArgs）、
+    # Linux ではネイティブ既定で決まる。
+    $generatorArgs = @('-G', $Config.Toolchain.Generator)
+    if ($Config.Toolchain.Generator -like 'Visual Studio*') {
+        $generatorArgs += @('-A', $Config.Toolchain.Architecture)
+    }
+
     $cmakeArgs = @(
         '-S', $sourceRoot
         '-B', $buildRoot
-        '-G', $Config.Toolchain.Generator
-        '-A', $Config.Toolchain.Architecture
+    ) + $generatorArgs + @(
         "-DCMAKE_BUILD_TYPE=$($Config.Toolchain.BuildType)"
         "-DCMAKE_INSTALL_PREFIX=$OpenCvRoot"
         "-DBUILD_LIST=$($Config.Modules -join ',')"

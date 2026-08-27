@@ -16,11 +16,50 @@
       "displayName": "Windows x64 ASan (MSVC)",
       "binaryDir": "${sourceDir}/build/windows-x64-asan",
       "cacheVariables": { "OCVU_ENABLE_ASAN": "ON" }
+    },
+    {
+      "name": "macos-arm64-debug",
+      "displayName": "macOS arm64 Debug (Clang)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-arm64-debug",
+      "cacheVariables": {
+        "OCVU_BUILD_TESTS": "ON",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name": "macos-arm64-asan",
+      "inherits": "macos-arm64-debug",
+      "displayName": "macOS arm64 ASan (Clang)",
+      "binaryDir": "${sourceDir}/build/macos-arm64-asan",
+      "cacheVariables": { "OCVU_ENABLE_ASAN": "ON" }
+    },
+    {
+      "name": "linux-x64-debug",
+      "displayName": "Linux x64 Debug (GCC)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-x64-debug",
+      "cacheVariables": {
+        "OCVU_BUILD_TESTS": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-x64-asan",
+      "inherits": "linux-x64-debug",
+      "displayName": "Linux x64 ASan+LSan (GCC)",
+      "binaryDir": "${sourceDir}/build/linux-x64-asan",
+      "cacheVariables": { "OCVU_ENABLE_ASAN": "ON" }
     }
   ],
   "buildPresets": [
     { "name": "windows-x64-debug", "configurePreset": "windows-x64-debug", "configuration": "Debug" },
-    { "name": "windows-x64-asan", "configurePreset": "windows-x64-asan", "configuration": "Debug" }
+    { "name": "windows-x64-asan", "configurePreset": "windows-x64-asan", "configuration": "Debug" },
+    { "name": "macos-arm64-debug", "configurePreset": "macos-arm64-debug" },
+    { "name": "macos-arm64-asan", "configurePreset": "macos-arm64-asan" },
+    { "name": "linux-x64-debug", "configurePreset": "linux-x64-debug" },
+    { "name": "linux-x64-asan", "configurePreset": "linux-x64-asan" }
   ],
   "testPresets": [
     {
@@ -33,6 +72,26 @@
       "name": "windows-x64-asan",
       "configurePreset": "windows-x64-asan",
       "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "macos-arm64-debug",
+      "configurePreset": "macos-arm64-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "macos-arm64-asan",
+      "configurePreset": "macos-arm64-asan",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-x64-debug",
+      "configurePreset": "linux-x64-debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-x64-asan",
+      "configurePreset": "linux-x64-asan",
       "output": { "outputOnFailure": true }
     }
   ]

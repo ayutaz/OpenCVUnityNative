@@ -17,10 +17,20 @@ Set-StrictMode -Version Latest
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $RepoRoot      = Split-Path -Parent $PSScriptRoot
-$Preset        = 'windows-x64-debug'
-$AsanPreset    = 'windows-x64-asan'
-$NativeOutDir  = Join-Path $RepoRoot "build/$Preset/native/Debug"
+Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
+$Platform      = Get-OpenCvPlatform
+$Preset        = "$Platform-debug"
+$AsanPreset    = "$Platform-asan"
 $ResultsDir    = Join-Path $RepoRoot 'artifacts/test-results'
+
+# L3 (P/Invoke) が読む native ライブラリの出力先。Visual Studio generator は
+# 構成名のサブディレクトリ（Debug/）を作るが、Ninja（macOS / Linux）は単一構成
+# generator なので作らない。Copy-NativePluginForUnity の $source 判定と同じ形。
+$NativeOutDir  = if ($IsWindows) {
+    Join-Path $RepoRoot "build/$Preset/native/Debug"
+} else {
+    Join-Path $RepoRoot "build/$Preset/native"
+}
 
 function Invoke-Checked([scriptblock]$Action, [string]$What) {
     Write-Host "==> $What" -ForegroundColor Cyan
@@ -138,7 +148,17 @@ function Build-Native {
     成果物なのでコミットしない（.gitignore 済み）。
 #>
 function Copy-NativePluginForUnity {
-    $source = Join-Path $RepoRoot 'build/windows-x64-debug/native/Debug/opencv_unity_native.dll'
+    # 出力ファイル名と配置は platform ごとに違う。Visual Studio generator は
+    # 構成名のサブディレクトリ（Debug/）を作るが、Ninja は作らない。
+    $buildDir = Join-Path $RepoRoot "build/$Preset/native"
+    $source = if ($IsWindows) {
+        Join-Path $buildDir 'Debug/opencv_unity_native.dll'
+    } elseif ($IsMacOS) {
+        Join-Path $buildDir 'libopencv_unity_native.dylib'
+    } else {
+        Join-Path $buildDir 'libopencv_unity_native.so'
+    }
+
     if (-not (Test-Path -LiteralPath $source)) {
         Write-DevFailure (@(
             "native plugin が見つかりません: $source"
@@ -146,7 +166,13 @@ function Copy-NativePluginForUnity {
         ) -join "`n")
     }
 
-    $destDir = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/x86_64'
+    # Unity の native plugin 置き場も platform ごとに分かれる。
+    $pluginDir = switch ($Platform) {
+        'windows-x64' { 'x86_64' }
+        'macos-arm64' { 'macOS' }
+        'linux-x64'   { 'Linux/x86_64' }
+    }
+    $destDir = Join-Path $RepoRoot "Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/$pluginDir"
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
     Copy-Item -LiteralPath $source -Destination $destDir -Force
 }
