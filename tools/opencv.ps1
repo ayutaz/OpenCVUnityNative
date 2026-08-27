@@ -211,7 +211,34 @@ function Invoke-Restore {
     $succeeded = $false
     try {
         Write-Host "==> download artifact '$ArtifactName'" -ForegroundColor Cyan
-        & gh run download --name $ArtifactName --dir $OpenCvRoot 2>&1 | Write-Host
+        # **実行 ID を指定して 1 つだけ取る。**
+        #
+        # `gh run download --name <名前>` は名前だけを指定すると、その名前を持つ
+        # artifact を**すべての実行から**取ってきて同じディレクトリへ展開しようと
+        # する。同じ構成で build を複数回走らせると同名の artifact が増えるので
+        # （実測: 6 個）、2 つ目の展開で「The file exists」になって失敗する。
+        #
+        # 構成ハッシュが同じなら中身も同じはずなので、どれを取っても等価である。
+        # 最新の成功した実行のものを選ぶ。
+        $runId = (& gh run list --workflow=build-opencv.yml --status=success `
+                    --limit 20 --json databaseId,createdAt `
+                  | ConvertFrom-Json |
+                  Where-Object {
+                      $arts = & gh api "repos/:owner/:repo/actions/runs/$($_.databaseId)/artifacts" `
+                                  --jq '.artifacts[].name' 2>$null
+                      $arts -contains $ArtifactName
+                  } | Select-Object -First 1).databaseId
+
+        if (-not $runId) {
+            Write-RestoreFailure (@(
+                "artifact '$ArtifactName' を持つ成功した実行が見つかりません。"
+                ''
+                'この構成でまだビルドしていないか、artifact が失効しています。'
+                '  gh workflow run build-opencv.yml'
+            ) -join "`n")
+        }
+
+        & gh run download $runId --name $ArtifactName --dir $OpenCvRoot 2>&1 | Write-Host
 
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $manifestPath)) {
             Write-RestoreFailure (@(
