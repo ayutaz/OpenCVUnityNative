@@ -130,8 +130,13 @@ M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わな�
 | `ocvu_mat_copy_from_buffer` | 外部 buffer から Mat へ。ポインタ・長さ・stride を受け取り、**整合を検証してから**書く |
 | `ocvu_mat_copy_to_buffer` | Mat から外部 buffer へ。同上 |
 
-長さと stride は必ず検証する。`rows * stride` が渡された長さを超えるなら
+長さと stride は必ず検証し、buffer が `stride * rows` 分の長さを持たないなら
 `OCVU_STATUS_INVALID_ARGUMENT` を返して何も書かない。**呼ぶ側を信用しない。**
+
+**この検査で `stride * rows` を計算してはならない。** `stride` は呼び出し側が
+自由に決める `int64_t` なので積が桁あふれし、負に反転して比較が偽になる。M2 の
+初回実装がこれを踏み、`stride = 2^62` で検証を素通りしてアクセス違反に至った
+（レビューで再現）。`stride > length / rows` と書けば乗算が無く、あふれる余地も無い。
 
 ### imgproc
 

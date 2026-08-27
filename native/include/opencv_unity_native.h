@@ -162,7 +162,9 @@ OCVU_API ocvu_status ocvu_mat_get_info(ocvu_mat_handle handle, ocvu_mat_info* ou
  *   handle が無効            -> OCVU_STATUS_INVALID_HANDLE
  *   src_length / src_stride が負          -> OCVU_STATUS_INVALID_ARGUMENT
  *   src_stride が Mat の 1 行より小さい    -> OCVU_STATUS_INVALID_ARGUMENT
- *   src_stride * rows が src_length を超える -> OCVU_STATUS_INVALID_ARGUMENT
+ *   src_length が stride * rows 分の長さに満たない -> OCVU_STATUS_INVALID_ARGUMENT
+ *     （実装は stride > src_length / rows で判定する。src_stride * rows を計算すると
+ *      桁あふれで負に反転し、検査が素通りする — M2 で実際に起きた）
  *
  * src_stride は Mat の step と異なってよい（Unity のテクスチャは行が整列されて
  * いることがある）。行ごとにコピーする。

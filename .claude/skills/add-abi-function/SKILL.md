@@ -119,7 +119,11 @@ doc コメント）。
 2. handle が無効 → `OCVU_STATUS_INVALID_HANDLE`
 3. `length` / `stride` が負 → `OCVU_STATUS_INVALID_ARGUMENT`
 4. `stride` が Mat の 1 行のバイト数未満 → `OCVU_STATUS_INVALID_ARGUMENT`
-5. `stride * rows` が `length` を超える → `OCVU_STATUS_INVALID_ARGUMENT`
+5. buffer が `stride * rows` 分の長さを持たない → `OCVU_STATUS_INVALID_ARGUMENT`
+   **ただし `stride * rows` を計算してはならない。** `stride` は呼び出し側が決める
+   `int64_t` なので積が桁あふれし、負に反転して検査を素通りする。実際に M2 で
+   これが起き、`stride = 2^62` でアクセス違反によりプロセスが即死した。
+   `stride > length / rows` の形で比べること（除算なら桁あふれしない）。
 
 コピーは行ごとに行う。Mat の `step` と外部 buffer の `stride` は一致しないことが
 ある（Unity のテクスチャは行が整列されている場合がある）ので、一括 `memcpy` は

@@ -68,7 +68,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
 | `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ |
 | `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する |
-| `.github/workflows/` | `ci-native.yml`（L1 + L3）、`ci-sanitizers.yml`（L2）、`build-opencv.yml`（OpenCV のビルドと artifact 公開）、`ci-unity.yml`（L4 + L5。**書かれているが Unity ライセンスの Secrets が未登録のため CI では未実行**） |
+| `.github/workflows/` | `ci-native.yml`（L1 + L3）、`ci-sanitizers.yml`（L2）、`build-opencv.yml`（OpenCV のビルドと artifact 公開）、`ci-unity.yml`（L4 + L5。**書かれているが CI では一度も実行されていない。**残作業は 3 つで、うち 2 つはエージェントが書ける — ランナーへの Unity 導入、アクティベーションの実装、Secrets 登録。**資格情報を登録しただけでは動かない。**現在 trigger は `workflow_dispatch` のみ） |
 
 正本となる設計文書:
 
