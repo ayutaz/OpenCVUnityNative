@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **M0（自動 TDD ハーネス）と M1（OpenCV 5.0.0 の再現可能ビルド）は完了している。** ビルドシステム、C ABI の骨格、テストレーン 3 本（L1 / L2 / L3）に加え、CI がビルドし artifact 配布する allowlist 構成の OpenCV 5.0.0 が全レーンにリンクされた状態で、ローカルでも CI でも green になる。
 
-**M2（Windows vertical slice）は、8 件の完了条件のうち 6 件を満たしている。残る 2 件は未達で、M2 を完了と称さない。** `Mat` のライフサイクル（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `imgproc` 3 関数（cvtColor / resize / GaussianBlur）が C ABI にあり、所有権契約（二重解放・解放後アクセス・buffer の長さ/stride/NULL 検証）が L3 でテストされ、Unity Editor (Mono) と Windows IL2CPP Player の両方で同じ smoke test が通る。未達は 2 件ある。**条件 3**（「Texture2D / NativeArray からの入力と結果反映」）は Texture2D については満たすが、**NativeArray を直接受ける API は存在しない** — `TextureConverter` は `GetRawTextureData` の NativeArray を `ToArray()` で managed 配列へ 写してから渡しており、Texture2D → Mat はコピー 2 回になる。「低コピー連携」はまだ名乗れない。**条件 7**（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、workflow ファイルは在るが 一度も実行されていない。残作業は 3 つで、うち 2 つはエージェントが書ける: (a) CI ランナーへの Unity 導入（GitHub ホストの windows-2022 に Unity は含まれない）、(b) ライセンスのアクティベーション実装（`UNITY_LICENSE` 等を env に置いてあるが、読むコードが無い）、(c) GitHub Secrets への資格情報登録（これだけがユーザーの操作）。**資格情報を登録しただけでは動かない。** 現在 trigger は `workflow_dispatch` のみに絞ってある（push で走らせると恒常的に赤くなるため）。 判定の詳細は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md` の実装計画と、その進行記録（`.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md`）にある。
+**M2（Windows vertical slice）は、8 件の完了条件のうち 7 件を満たしている。残る 1 件は未達で、M2 を完了と称さない。** `Mat` のライフサイクル（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `imgproc` 3 関数（cvtColor / resize / GaussianBlur）が C ABI にあり、所有権契約（二重解放・解放後アクセス・buffer の長さ/stride/NULL 検証）が L3 でテストされ、Unity Editor (Mono) と Windows IL2CPP Player の両方で同じ smoke test が通る。未達は 1 件。**条件 7**（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、workflow ファイルは在るが 一度も実行されていない。残作業は 3 つで、うち 2 つはエージェントが書ける: (a) CI ランナーへの Unity 導入（GitHub ホストの windows-2022 に Unity は含まれない）、(b) ライセンスのアクティベーション実装（`UNITY_LICENSE` 等を env に置いてあるが、読むコードが無い）、(c) GitHub Secrets への資格情報登録（これだけがユーザーの操作）。**資格情報を登録しただけでは動かない。** 現在 trigger は `workflow_dispatch` のみに絞ってある（push で走らせると恒常的に赤くなるため）。 判定の詳細は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md` の実装計画と、その進行記録（`.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md`）にある。
 
 現在の公開 ABI は 18 本。M0/M1 由来の 8 本（`ocvu_get_abi_version`、last-error の取得、status 表の照会、`ocvu_get_opencv_version` / `ocvu_get_build_information`）に、M2 で `Mat` のライフサイクルと buffer 転送の 6 本（`ocvu_mat_create` / `_release` / `_clone` / `_get_info` / `_copy_from_buffer` / `_copy_to_buffer`。`native/src/ocvu_mat_table.cpp`、`native/src/ocvu_mat.cpp`、`native/src/ocvu_mat_buffer.cpp`）、`imgproc` の 3 本（`ocvu_cvt_color` / `ocvu_resize` / `ocvu_gaussian_blur`。`native/src/ocvu_imgproc.cpp`）、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`）が加わった。所有権・versioning・API allowlist の正本は `docs/abi-ownership-and-versioning.md`。
 
@@ -179,7 +179,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: M2 は 8 件中 6 件達成。未達 2 件 — 条件 3 と条件 7）
+## マイルストーン（現在地: M2 は 8 件中 7 件達成。未達 1 件 — 条件 7）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
@@ -187,7 +187,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | --- | --- |
 | **M0** | **自動 TDD ハーネスの成立（OpenCV 非依存）。** 反復速度の土台を他の何よりも先に固定する — **完了** |
 | **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
-| **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件中 6 件達成。未達は条件 3（NativeArray を直接受ける API が無い）と条件 7（CI で L4/L5 が一度も実行されていない。Unity 導入とアクティベーション実装が未着手で、資格情報登録だけでは動かない）** |
+| **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件中 7 件達成。未達は条件 7（CI で L4/L5 が一度も実行されていない。Unity 導入とアクティベーション実装が未着手で、資格情報登録だけでは動かない）** |
 | M3 | Desktop 3 platform と配布の再現性。Linux レーンでリーク検出（MSVC ASan は LSan 非対応） |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
 | M5 | binding specification と generator |

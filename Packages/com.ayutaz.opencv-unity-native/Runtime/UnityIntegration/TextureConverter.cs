@@ -11,13 +11,16 @@ namespace CvUnity.Unity
         /// <summary>
         /// Texture2D の内容を新しい CvMat に写す。
         ///
-        /// テクスチャのメモリを借りたまま保持しない。GetRawTextureData が返す
-        /// NativeArray はテクスチャの更新や破棄で無効になり、それを跨いで
-        /// 保持すると存在しないメモリを触ることになる。ここでは 1 回の
-        /// コピーで native 側へ移し、呼び出しが戻った時点で借用を終える
+        /// テクスチャの生データを**コピー無しで**渡す。GetRawTextureData が返す
+        /// NativeArray からポインタを取り、その呼び出しの内側だけで native に
+        /// 読ませる。戻った時点で借用は終わり、native 側は一切保持しない
         /// （docs/abi-ownership-and-versioning.md §1）。
+        ///
+        /// この NativeArray はテクスチャの更新や破棄で無効になるので、跨いで
+        /// 保持してはならない。ここでは同一の呼び出し内で読み切るので、その
+        /// 危険は構造的に存在しない。
         /// </summary>
-        public static CvMat ToMat(Texture2D texture)
+        public static unsafe CvMat ToMat(Texture2D texture)
         {
             if (texture == null) { throw new ArgumentNullException(nameof(texture)); }
             if (texture.format != TextureFormat.RGBA32)
@@ -26,21 +29,15 @@ namespace CvUnity.Unity
                     "M2 supports RGBA32 only; got " + texture.format);
             }
 
-            // NativeArray からポインタを取って直接渡す経路は、M2 では作っていない。
-            // ここは ToArray() で managed 配列へ 1 回コピーしてから Mat へ渡すので、
-            // Texture2D -> Mat はコピー 2 回になる（実装計画はポインタ経路を指示して
-            // いたが、実装は byte[] 経路のままで、その差分が記録されていなかった）。
-            //
-            // 「Unity データとの低コピー連携」を名乗るならポインタ経路が要る。
-            // 現状はそう名乗れない。M3 以降で NativeMethods に IntPtr overload を
-            // 足し、GetRawTextureData の NativeArray から直接渡す形にする。
-            // asmdef の allowUnsafeCode と下の using はそのとき使う。
             var raw = texture.GetRawTextureData<byte>();
             var mat = CvMat.Create(texture.height, texture.width, CvMatType.Bgra32);
             try
             {
-                var managed = raw.ToArray();
-                mat.CopyFrom(managed, texture.width * 4);
+                // NativeArray の先頭アドレスをそのまま渡す。ToArray() を挟むと
+                // managed 配列への写しが 1 回増え、Texture2D -> Mat がコピー
+                // 2 回になる。長さと stride は native 側が検証する。
+                var ptr = (IntPtr)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(raw);
+                mat.CopyFrom(ptr, raw.Length, texture.width * 4);
                 return mat;
             }
             catch
@@ -51,7 +48,7 @@ namespace CvUnity.Unity
         }
 
         /// <summary>CvMat の内容を既存の Texture2D に書き戻し、Apply する。</summary>
-        public static void ToTexture(CvMat mat, Texture2D texture)
+        public static unsafe void ToTexture(CvMat mat, Texture2D texture)
         {
             if (mat == null) { throw new ArgumentNullException(nameof(mat)); }
             if (texture == null) { throw new ArgumentNullException(nameof(texture)); }
@@ -61,9 +58,14 @@ namespace CvUnity.Unity
                     $"size mismatch: mat is {mat.Cols}x{mat.Rows}, texture is {texture.width}x{texture.height}");
             }
 
-            var bytes = new byte[mat.Rows * mat.Cols * mat.Channels];
-            mat.CopyTo(bytes, mat.Cols * mat.Channels);
-            texture.LoadRawTextureData(bytes);
+            // 戻りも同じくコピー無しで書く。LoadRawTextureData(byte[]) を使うと
+            // 中間配列が 1 つ増えるので、テクスチャの生データへ直接書き込む。
+            var raw = texture.GetRawTextureData<byte>();
+            var ptr = (IntPtr)NativeArrayUnsafeUtility.GetUnsafePtr(raw);
+            mat.CopyTo(ptr, raw.Length, mat.Cols * mat.Channels);
+
+            // 書いた内容を GPU 側へ反映する。これを忘れると CPU 側だけが
+            // 新しい状態になり、描画結果が変わらない。
             texture.Apply();
         }
     }

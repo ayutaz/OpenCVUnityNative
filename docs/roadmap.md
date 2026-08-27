@@ -197,24 +197,26 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 | --- | --- | --- |
 | 1 | 9 関数（`ocvu_mat_*` 6 本 + `cvtColor` / `resize` / `GaussianBlur`）が C ABI にある | 満たす |
 | 2 | 所有権契約が L3 でテストされている（二重解放、解放後アクセス、buffer 引数の検証） | 満たす |
-| 3 | Texture2D / NativeArray からの入力と結果反映 | **満たさない**（Texture2D のみ） |
+| 3 | Texture2D / NativeArray からの入力と結果反映 | 満たす |
 | 4 | ABI version / OpenCV version / build features を実行時に問い合わせられる | 満たす |
 | 5 | ASan レーンが clean | 満たす |
 | 6 | Unity EditMode と Windows IL2CPP Player で同じ smoke test が通る | 満たす |
 | 7 | `ci-unity.yml` が CI 上で L4/L5 を実行する | **満たさない** |
 | 8 | ローカル参照可能な最小 UPM パッケージとして動作する | 満たす |
 
-**条件 3 は文言どおりには満たしていない。** Texture2D については EditMode / Player の
-両方で往復が検証済みだが、**`NativeArray` を直接受ける API は存在しない**。
-`NativeMethods` の buffer 引数はすべて `byte[]` で、`IntPtr` を取る overload は無い。
-`TextureConverter.ToMat` は `GetRawTextureData<byte>()` の `NativeArray` を
-`ToArray()` で managed 配列へ写してから渡しているので、Texture2D → Mat はコピー 2 回に
-なる。実装計画は「NativeArray からポインタを取って渡す」と指示しており、実装はそこから
-外れたまま、外れたことが記録されていなかった（未使用の `using
-Unity.Collections.LowLevel.Unsafe;` と、使われていない `allowUnsafeCode: true` がその
-痕跡である）。`CLAUDE.md` が差別化として挙げる「Unity データとの低コピー連携」は、
-M2 の唯一の実例において実現されていない。スコープを縮めること自体は構わないが、
-縮めたことを書かずに「満たす」と記録するのは別問題なので、判定を改めた。
+**条件 3 は達成した（当初は未達だった）。** レビューで「`NativeArray` を直接受ける API が
+無く、`ToArray()` で managed 配列へ写しているのでコピー 2 回になる」と指摘され、判定を
+一度「満たさない」に下げた。その後 `NativeMethods` と `CvMat` に `IntPtr` を受ける経路を
+足し、`TextureConverter` を両方向ともその経路に付け替えて解消した。
+
+`Texture2D.GetRawTextureData<byte>()` が返す `NativeArray` の先頭アドレスをそのまま
+native へ渡し、戻り側もテクスチャの生データへ直接書く。中間の managed 配列は無い。
+借用は 1 回の呼び出しの内側で完結し、`docs/abi-ownership-and-versioning.md` §1 の規約を
+崩していない。
+
+検証は L3（`MatPointerBufferTests`、Unity 不要）でポインタ経路そのものを固定し、
+L4 / L5 で `TextureConverter` がその経路を使っていることを見る。書き戻し先を 1 バイト
+ずらす変異を入れると EditMode が赤くなることを確認済み。IL2CPP Player でも 4/4 通る。
 
 **条件 7 は未達である。** `ci-unity.yml` は書かれ、ローカルでは `dev.ps1 test-unity-editmode` /
 `dev.ps1 test-unity-player` の両方が green だが、CI 上では一度も実行されていない
@@ -241,7 +243,7 @@ M2 の唯一の実例において実現されていない。スコープを縮�
 であり、両者を取り違えないよう最初から実行の有無で判定した（M1 の条件 6 判定で同じ
 取り違えが一度起きている）。
 
-**したがって M2 は「8 件中 6 件達成」であって「完了」ではない。** 実装計画
+**したがって M2 は「8 件中 7 件達成」であって「完了」ではない。** 実装計画
 （[docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)）
 は Task 8 まで実施済みで、進行記録は
 `.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md` にある。

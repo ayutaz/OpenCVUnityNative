@@ -6,5 +6,6 @@
         "CvUnity.Interop"
     ],
     "includePlatforms": [],
-    "excludePlatforms": []
+    "excludePlatforms": [],
+    "allowUnsafeCode": true
 }
