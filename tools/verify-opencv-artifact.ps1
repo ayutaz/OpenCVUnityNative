@@ -234,7 +234,14 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # （実測: このツリーの include/ 直下は opencv2 のみ）、そこに限定すれば
     # 「OpenCV が置いたものである」ことを積極的に認識したことになる。
     # include/ 直下や include/<別名>/ に来たものは分類されず reject される。
-    if ($relative -like 'include/opencv2/*' -and $ext -in @('.h', '.hpp')) { return $true }
+    #
+    # **配置は platform で変わる。** Windows の install は include/opencv2/ に置くが、
+    # Unix 系（macOS / Linux）は include/opencv4/opencv2/ に置く（M3 Task 4 の CI で
+    # 実測: macOS の全 header が「未知」として拒否された）。**片方を決め打ちにすると、
+    # 正しい成果物を拒否するか、逆に緩めすぎて由来を見なくなる。** どちらの配置でも
+    # 「opencv2/ の下に在ること」は共通なので、そこを条件にする。
+    # include/ 直下や opencv2/ を経由しないものは分類されず reject される。
+    if ($relative -match '^include/(opencv[0-9]*/)?opencv2/' -and $ext -in @('.h', '.hpp')) { return $true }
 
     # notice/text: etc/licenses/ 配下の、名前そのものを allowlist にした
     # ファイルだけ。拡張子や場所だけでは判定しない — $InertLicenseFiles を見よ。
@@ -243,7 +250,11 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # よく、etc/foo/bar/zlib-LICENSE も通った。名前 allowlist が主たる門に
     # なった後も、コメントは「etc/licenses/ 配下の」と書いているのに実装は
     # そう読んでいなかった（再レビュー F8）。
-    if ($relative -like 'etc/licenses/*' -and $file.Name -in $InertLicenseFiles) { return $true }
+    #
+    # license の配置も platform で変わる（Unix 系は share/licenses/ に置く）。
+    # 名前 allowlist が主たる門なので、場所は「licenses/ 直下であること」に
+    # 緩めつつ、任意の深さは許さない。
+    if ($relative -match '^(etc|share)/licenses/[^/]+$' -and $file.Name -in $InertLicenseFiles) { return $true }
 
     # cmake package file: 場所ではなく名前そのもので認識する。
     if ($file.Name -in $InertCMakePackageFiles) { return $true }
