@@ -73,6 +73,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tools/dev.ps1 test-tools-slow
 
+      # L3 が本当にクラッシュ・ハング耐性を持つかを実証する probe。数分かかるため
+      # ローカルの test には含めず、ここが唯一の実行場所になる
+      # (tools/run-managed-probe.ps1 / CLAUDE.md の L3 の節を参照)。
+      - name: Run the L3 crash and hang probes
+        shell: pwsh
+        run: ./tools/dev.ps1 test-managed-probe
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

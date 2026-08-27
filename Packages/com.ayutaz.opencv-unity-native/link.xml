@@ -1,0 +1,25 @@
+<linker>
+  <!--
+    IL2CPP の managed code stripping は、参照が静的に辿れない型を削る。
+    P/Invoke 宣言は削られると実行時に EntryPointNotFoundException になり、
+    Editor (Mono) では再現しないので Player で走らせるまで気づけない。
+
+    **現時点でこの保護は効いていない（実測、M2 Task 7）。**
+    この link.xml を削除して IL2CPP Player を stripping=Medium で丸ごと
+    ビルドし直しても、L5 の 4 テストは全部通った。理由は、いま公開している
+    P/Invoke がすべて CvMat / CvNative / CvOps を経由してテストから静的に
+    辿れる経路で呼ばれており、stripping の対象にならないためである。
+
+    つまりこれは**保険**であって、現に何かを守っている証拠は無い。
+    次のような呼び方が増えた時点で初めて効き始める:
+      - reflection 経由でしか到達しない型
+      - Unity の serialization からのみ参照されるコード
+      - 条件コンパイルで参照が消える経路
+      - 利用者のゲーム側が直接 NativeMethods を呼ぶ構成
+
+    保険なので残す。ただし「link.xml があるから安全」と読まないこと —
+    それを主張するには、これを外すと落ちるテストが要る。M2 にはそれが無い。
+  -->
+  <assembly fullname="CvUnity.Interop" preserve="all" />
+  <assembly fullname="CvUnity.Core" preserve="all" />
+</linker>

@@ -90,6 +90,51 @@ status code と thread-local last-error に変換する。
 `catch (std::bad_alloc&)` の内側からも呼ばれるためで、ここでアロケートすると
 メモリ逼迫時に二次的な例外が ABI を越える。
 
+**引数に handle があるなら（M2 で確立した規約）**
+
+`ocvu_mat_handle` のような opaque handle を引数に取る関数は、生ポインタを
+直接受け取ってはならない。代わりに `native/src/ocvu_mat_table.h` の table 経由で
+解決する:
+
+1. `ocvu::mat_table_get(handle)` で `cv::Mat*` を得る。
+2. 戻り値が `nullptr` なら `OCVU_STATUS_INVALID_HANDLE` を返す。handle が
+   `0`（`OCVU_MAT_HANDLE_NONE`）、解放済み（世代が合わない）、未知の索引の
+   いずれでも同じ status になる — 呼び出し側は理由を区別できないし、区別する
+   必要も無い。
+3. 得たポインタは呼び出しの内側でだけ使う。**保持しない。** 同じスレッドで
+   別の呼び出しが `release` すると無効になる。
+
+新しい種類の handle（Mat 以外）を足す場合も、この「世代番号つき table」の形を
+再利用する。生ポインタを handle にすると、解放後の再利用が未定義動作になり、
+sanitizer の無い環境（配布された Unity Player）では黙って壊れる
+（`docs/abi-ownership-and-versioning.md` §1、`native/src/ocvu_mat_table.h` の
+doc コメント）。
+
+**引数に buffer があるなら（M2 で確立した規約）**
+
+`(const uint8_t* data, int64_t length, int64_t stride)` の形を取る関数は、
+**書く前にすべて検証し、1 つでも合わなければ何も書かずに返す。** 検証の順序:
+
+1. ポインタが NULL → `OCVU_STATUS_NULL_POINTER`
+2. handle が無効 → `OCVU_STATUS_INVALID_HANDLE`
+3. `length` / `stride` が負 → `OCVU_STATUS_INVALID_ARGUMENT`
+4. `stride` が Mat の 1 行のバイト数未満 → `OCVU_STATUS_INVALID_ARGUMENT`
+5. buffer が `stride * rows` 分の長さを持たない → `OCVU_STATUS_INVALID_ARGUMENT`
+   **ただし `stride * rows` を計算してはならない。** `stride` は呼び出し側が決める
+   `int64_t` なので積が桁あふれし、負に反転して検査を素通りする。実際に M2 で
+   これが起き、`stride = 2^62` でアクセス違反によりプロセスが即死した。
+   `stride > length / rows` の形で比べること（除算なら桁あふれしない）。
+
+コピーは行ごとに行う。Mat の `step` と外部 buffer の `stride` は一致しないことが
+ある（Unity のテクスチャは行が整列されている場合がある）ので、一括 `memcpy` は
+誤り得る。参照実装は `native/src/ocvu_mat_buffer.cpp` の `validate()`。
+
+この検証を省略・弱めると、Unity のヒープを踏み越える誤りが「即座には落ちず、
+後から無関係な場所が壊れる」形になる。Windows の ASan は Unity のアロケータを
+見られないので CI でも検出できない（`docs/abi-ownership-and-versioning.md` §1）。
+検証を足したり変えたりしたら、`prove-a-check-works` skill の手順で、境界条件を
+1 つ緩めてテストが実際に赤くなることを確認してから戻すこと。
+
 ### 4. L1 を緑にする
 
 ```
@@ -155,5 +200,8 @@ MSVC の ASan に LeakSanitizer は含まれないので、リークはここで
 
 - `native/include/opencv_unity_native.h` — 公開 ABI と `OCVU_STATUS_LIST`
 - `native/src/ocvu_error.h` — バリアのマクロと、囲ってはならない関数の一覧
+- `native/src/ocvu_mat_table.h` / `.cpp` — 世代番号つき handle table の参照実装
+- `native/src/ocvu_mat_buffer.cpp` — buffer 引数の検証順序の参照実装（`validate()`）
+- `docs/abi-ownership-and-versioning.md` — handle と buffer の所有権契約の正本（M2 で確定）
 - `docs/roadmap.md` — 対象マイルストーンのゴールと非ゴール
 - `docs/unity-opencv-integration-research-and-plan.md` §6 — ABI 設計原則

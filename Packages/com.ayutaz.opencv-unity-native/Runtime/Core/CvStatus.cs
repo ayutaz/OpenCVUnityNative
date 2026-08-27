@@ -21,5 +21,12 @@ namespace CvUnity
         /// status を一律に例外へ変換する経路で、これを失敗として扱わないこと。
         /// </summary>
         BufferTooSmall = 6,
+
+        /// <summary>
+        /// handle が未知か、解放済みである。生ポインタではなく世代番号つきの
+        /// table 索引にしていることの帰結として観測できる status
+        /// （docs/abi-ownership-and-versioning.md §1）。
+        /// </summary>
+        InvalidHandle = 7,
     }
 }

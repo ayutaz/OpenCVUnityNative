@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **M0（自動 TDD ハーネス）と M1（OpenCV 5.0.0 の再現可能ビルド）は完了している。** ビルドシステム、C ABI の骨格、テストレーン 3 本（L1 / L2 / L3）に加え、CI がビルドし artifact 配布する allowlist 構成の OpenCV 5.0.0 が全レーンにリンクされた状態で、ローカルでも CI でも green になる。
 
-現在の公開 ABI は `ocvu_get_abi_version`、last-error の取得、status 表の照会、conformance 用の `ocvu_debug_throw` に加え、`ocvu_get_opencv_version` / `ocvu_get_build_information`（`native/src/ocvu_opencv_info.cpp`）がある。OpenCV 呼び出し自体（`Mat` の生成・`imgproc` API 等）はまだ無い — それは M2 の作業。
+**M2（Windows vertical slice）は、8 件の完了条件のうち 7 件を満たしている。残る 1 件は未達で、M2 を完了と称さない。** `Mat` のライフサイクル（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `imgproc` 3 関数（cvtColor / resize / GaussianBlur）が C ABI にあり、所有権契約（二重解放・解放後アクセス・buffer の長さ/stride/NULL 検証）が L3 でテストされ、Unity Editor (Mono) と Windows IL2CPP Player の両方で同じ smoke test が通る。未達は 1 件。**条件 7**（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、workflow ファイルは在るが 一度も実行されていない。残作業は 3 つで、うち 2 つはエージェントが書ける: (a) CI ランナーへの Unity 導入（GitHub ホストの windows-2022 に Unity は含まれない）、(b) ライセンスのアクティベーション実装（`UNITY_LICENSE` 等を env に置いてあるが、読むコードが無い）、(c) GitHub Secrets への資格情報登録（これだけがユーザーの操作）。**資格情報を登録しただけでは動かない。** 現在 trigger は `workflow_dispatch` のみに絞ってある（push で走らせると恒常的に赤くなるため）。 判定の詳細は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md` の実装計画と、その進行記録（`.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md`）にある。
+
+現在の公開 ABI は 18 本。M0/M1 由来の 8 本（`ocvu_get_abi_version`、last-error の取得、status 表の照会、`ocvu_get_opencv_version` / `ocvu_get_build_information`）に、M2 で `Mat` のライフサイクルと buffer 転送の 6 本（`ocvu_mat_create` / `_release` / `_clone` / `_get_info` / `_copy_from_buffer` / `_copy_to_buffer`。`native/src/ocvu_mat_table.cpp`、`native/src/ocvu_mat.cpp`、`native/src/ocvu_mat_buffer.cpp`）、`imgproc` の 3 本（`ocvu_cvt_color` / `ocvu_resize` / `ocvu_gaussian_blur`。`native/src/ocvu_imgproc.cpp`）、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`）が加わった。所有権・versioning・API allowlist の正本は `docs/abi-ownership-and-versioning.md`。
 
 ### 開発コマンド
 
@@ -15,19 +17,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | コマンド | 内容 | 実測 |
 | --- | --- | --- |
 | `./tools/dev.ps1 build` | native の configure + build | — |
-| `./tools/dev.ps1 test` | **既定**。tools の速いテスト 2 本 + L1 + L3 | 約 65 秒（増分） |
+| `./tools/dev.ps1 test` | **既定**。tools の速いテスト 2 本 + L1 + L3 | 約 25 秒（増分、成果物が最新） |
 | `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 2 本（OpenCV 構成・ハッシュ無効化） | 約 18 秒 |
 | `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証と restore の実 download | 約 70 秒 + download |
-| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 28 秒 |
-| `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke） | 約 43 秒 |
-| `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 20 秒（増分）/ 約 55 秒（cold） |
+| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 10 秒 |
+| `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke） | 約 11 秒 |
+| `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 11 秒（増分） |
+| `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
+| `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono） | 約 24 秒（増分） |
+| `./tools/dev.ps1 test-unity-player` | L5（Unity IL2CPP Player のビルドと実行） | 約 50 秒（増分・キャッシュ温状態。cold 実測はまだ無く、roadmap の想定は 5〜20 分） |
 | `./tools/dev.ps1 clean` | `build/` を削除 | — |
 
-実測はいずれも増分ビルド時のもので、うち約 5 秒はハング検出テストの待ち時間。`test` は fail-fast で、tools のテストか L1 が落ちた時点でそれ以降は走らない。結果は `artifacts/test-results/*.xml` に出る（各コマンドの開始時に空にされる）。
+上記のうち `test` / `test-native` / `test-managed` / `test-asan` は 2026-08-27 に、ネイティブ成果物が最新の状態（直前のビルドから変更なし）で再実測した値である。**M1 時点でソースの変更を伴う増分ビルドを計測したときは `test` が約 65 秒（`test-native` 約 28 秒、`test-managed` 約 43 秒）だった。** 差の主因は毎回のビルドで実際に何を再コンパイルするかで、OpenCV の `find_package` を伴う CMake の再 configure 自体は毎回走る。成果物が最新かどうかで数字は大きく動くので、ここでの「実測」は目安であって上限の保証ではない。
 
-**`test` の約 65 秒の内訳は、tools のテストではなく OpenCV をリンクしたこと自体である。** `test-native` 単体で約 28 秒（3 回測って 28/28/29 と安定）、`test-managed` が約 43 秒。うち毎回 6.7 秒は CMake の再 configure で、OpenCV の `find_package` が `dev.ps1` の各レーンの前に必ず走るためである。M0 当時（OpenCV 非依存）の約 20 秒とは前提が違う。
-
-「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、この 65 秒はすでに緊張関係にある。M1 ではこれを**受け入れて記録するに留めており、解消していない**。着手するなら configure の結果を跨いで再利用するか、OpenCV に依存しないレーンを分けることになる。
+「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、ソース変更を伴う `test` の実測（約 65 秒）はすでに緊張関係にある。M1 ではこれを**受け入れて記録するに留めており、解消していない**。着手するなら configure の結果を跨いで再利用するか、OpenCV に依存しないレーンを分けることになる。
 
 重いツールテスト 2 本（`VerifyOpenCvArtifact` は 1 ケースごとに `pwsh -NoProfile -File` を起こす作りで単体 69 秒、`OpenCvRestore` は実 download）は `test` から外して `test-tools-slow` に分け、必須チェック `ci-native` の step として走らせている。**ローカルで走らないが、CI では必ず走る。** どこからも走らない状態にしないことが目的である（M1 のレビュー H2）。
 
@@ -50,7 +53,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 場所 | 内容 |
 | --- | --- |
 | `native/include/opencv_unity_native.h` | 公開 C ABI ヘッダ。`OCVU_STATUS_LIST` が status code の唯一の定義元 |
-| `native/src/` | C ABI 実装（version / last-error / status 表 / debug throw / OpenCV version・build information） |
+| `native/src/` | C ABI 実装（version / last-error / status 表 / debug throw・crash / OpenCV version・build information / `Mat` のライフサイクルと buffer 転送 / imgproc 3 関数） |
 | `native/tests/` | L1 の GoogleTest と、意図的にクラッシュ・ハングする `ocvu_probe` |
 | `cmake/run_expect_failure.cmake` | 「失敗するはずのコマンド」を走らせる CTest ドライバ |
 | `cmake/FindOpenCvUnityDeps.cmake` | `third_party/opencv/<hash>/` を探して OpenCV を取り込む |
@@ -60,16 +63,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tools/verify-opencv-artifact.ps1` | ビルド済み OpenCV ツリーに対する依存 allowlist の検証（denylist ではない） |
 | `third_party/opencv/<hash>/` | 展開先（gitignore 済み）。`build-manifest.json` に実測の構成が入る |
 | `THIRD_PARTY_NOTICES.md` | OpenCV が bundle する third-party（zlib / libpng / libjpeg-turbo / libclapack）のライセンス全文 |
-| `Packages/com.ayutaz.opencv-unity-native/` | UPM パッケージ本体（`Runtime/Core`、`Runtime/Interop`） |
+| `Packages/com.ayutaz.opencv-unity-native/` | UPM パッケージ本体（`Runtime/Core`、`Runtime/Interop`、`Runtime/UnityIntegration`） |
+| `Packages/com.ayutaz.opencv-unity-native/Runtime/UnityIntegration/` | UnityEngine に依存するコード（`TextureConverter` 等）を置く別 asmdef。`Runtime/Core` / `Runtime/Interop` には置かない |
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
-| `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0） |
-| `.github/workflows/` | `ci-native.yml`（L1 + L3）、`ci-sanitizers.yml`（L2）、`build-opencv.yml`（OpenCV のビルドと artifact 公開） |
+| `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ |
+| `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する |
+| `.github/workflows/` | `ci-native.yml`（L1 + L3）、`ci-sanitizers.yml`（L2）、`build-opencv.yml`（OpenCV のビルドと artifact 公開）、`ci-unity.yml`（L4 + L5。**書かれているが CI では一度も実行されていない。**残作業は 3 つで、うち 2 つはエージェントが書ける — ランナーへの Unity 導入、アクティベーションの実装、Secrets 登録。**資格情報を登録しただけでは動かない。**現在 trigger は `workflow_dispatch` のみ） |
 
 正本となる設計文書:
 
 - `docs/roadmap.md` — **確定事項と M0〜M7 のマイルストーン定義。まずここを読む。**
 - `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md` — M0 の実装計画（タスク単位、TDD 手順つき）
 - `docs/superpowers/plans/2026-08-25-m1-opencv-build.md` — M1 の実装計画（タスク単位、TDD 手順つき）
+- `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md` — M2 の実装計画（タスク単位、TDD 手順つき）
+- `docs/abi-ownership-and-versioning.md` — `Mat` と Unity メモリの所有権契約、`OCVU_ABI_VERSION` の versioning 規約、`core`/`imgproc` API allowlist の正本
 - `docs/unity-opencv-integration-research-and-plan.md` — 競合調査、アーキテクチャ、ライセンス方針、命名方針（519 行）
 - `docs/native-backend-language-tdd-evaluation.md` — C++ / Rust の評価とテストハーネス設計
 - `docs/README.md` — 文書一覧とステータス
@@ -112,7 +119,7 @@ Unity application
 - **C ABI が唯一の native contract**。`cv::Mat*` や STL 型を境界の外へ出さない。`ocvu_mat_handle` のような opaque handle と固定サイズ型（`int32_t`、`uint64_t`、明示 struct）のみを公開する。
 - **例外を ABI の外へ伝播させない**。OpenCV / C++ 例外は status code + thread-local last-error に変換する。FFI 境界を越える unwind は未定義動作になり得る。公開 ABI 関数は原則 `OCVU_TRY_BEGIN` / `OCVU_TRY_END` で本体を囲む。**ただし `ocvu_get_last_error_status` と `ocvu_get_last_error_message` は囲んではならない**: `OCVU_TRY_BEGIN` は `clear_last_error()` を呼ぶため、エラーを報告するために存在する関数が、報告すべきエラーを読む直前に自分で消してしまう。同様に `ocvu_get_abi_version` と `ocvu_get_status_count` は `ocvu_status` を返さないので囲めない。囲まない関数は「throw し得ない実装であること」が条件であり、この一覧は `native/src/ocvu_error.h` のマクロ定義の隣にも書いてある。
 - **エラー報告経路自体が throw してはならない**。`ocvu::set_last_error` は `OCVU_TRY_END` の `catch (std::bad_alloc&)` の内側からも呼ばれる。よってアロケートせず、固定長 thread-local バッファへの bounded copy だけを行う（`noexcept` で契約を固定している）。上限を超えたメッセージは UTF-8 の文字境界で切り詰められ、`out_required_size` は常に「実際に取得できるバイト数 + NUL」を返す。
-- **ownership を仕様に明記する**。create / retain / release、borrowed / owned、pointer・stride・buffer length・alignment・lifetime をすべて binding specification 側に書く。`Mat` 所有メモリと Unity 所有 NativeArray メモリの lifetime contract は未決定事項の一つ。
+- **`ocvu_mat_handle` は常に native が所有する。Unity 所有のメモリを指す handle を返さない**（`docs/abi-ownership-and-versioning.md` §1 で確定）。Unity 側の buffer はその場でポインタ・長さ・stride を受け取って読み書きするだけで、handle にはならない。借用は 1 回の ABI 呼び出しの内側で完結する。理由は、借用 handle が buffer より長く生きたときの壊れ方が「即座には落ちず、後から無関係な場所が壊れる」形で、Windows の ASan は Unity のアロケータを見られないため CI でも検出できないからである。規約で禁じるのではなく、**表現できなくする**。buffer 引数の長さと stride は必ず検証し、`rows * stride` が渡された長さを超えるなら何も書かずに `OCVU_STATUS_INVALID_ARGUMENT` を返す（呼ぶ側を信用しない）。
 - **C ABI と C# 宣言は手書き header の無制限解析から生成しない**。レビュー可能な binding specification（`bindings/spec/`）を正本とし、そこから C ABI 宣言 / C# P/Invoke / API 対応表 / conformance test を生成する。
 - **IL2CPP / AOT を前提とする**。P/Invoke 宣言が stripping で消えないことを検証する。iOS は静的リンク + `DllImport("__Internal")`。
 - **毎フレームの細かな境界呼び出しを避ける**。必要に応じて処理をまとめた粒度の粗い API も用意する。
@@ -152,7 +159,9 @@ Unity application
 | L4 | Unity EditMode (Mono) | 1〜3 分 | M2 |
 | L5 | Unity IL2CPP Player | 5〜20 分 | M2 |
 
-**L3 のクラッシュ・ハング耐性はまだ証明されていない。** L1 / L2 には意図的にクラッシュ・ハングする `native/tests/ocvu_probe.cpp` があり、「クラッシュが赤いテストになる」ことを expect-failure テストで実証している。L3 には同等のプローブが無い。`tools/dev.ps1` は `dotnet test --blame-hang --blame-hang-timeout 60s` で時間の上限だけは与えているが、managed 側からネイティブがクラッシュ／デッドロックしたときに本当に有限時間で赤くなるかは未検証である。managed の expect-failure プローブを足すのは M2 の作業。**それまで L3 にこの耐性があると仮定しないこと。**
+**「想定時間」は roadmap 起草時の見積もりであり、実測はもっと速い。** `dev.ps1 test-unity-editmode` は約 24 秒、`dev.ps1 test-unity-player`（IL2CPP Player の実ビルド込み）は約 50 秒だった（いずれも 2026-08-27、Unity / Bee のキャッシュが温まった状態での増分実測。cold の実測はまだ無い）。両レーンとも `tests/UnityProject/` から `Packages/com.ayutaz.opencv-unity-native/` をローカル参照して動く。CI（`ci-unity.yml`）はまだ一度も走っていないので、CI 実測はまだ無い。
+
+**L3 のクラッシュ・ハング耐性は M2 Task 4 で実証済み。** `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`、kind=0 で不正アクセス、kind=1 で無限ループ。戻らない前提の関数なので `OCVU_TRY_BEGIN` では囲まない）を `tests/Managed/CvUnity.Tests.Managed/HarnessProbeTests.cs` から P/Invoke し、`tools/run-managed-probe.ps1`（`dev.ps1 test-managed-probe` 経由）が「非 0 終了かつ有限時間」を assertion する形で確かめている。実測（このマシン、2026-08-27）: segfault は `AccessViolationException` で 6 秒後に非 0 終了、hang は `--blame-hang-timeout 30s` に捕まり 36 秒後に非 0 終了・hangdump を生成。いずれも 60〜180 秒の上限内に収まった。数字は実行のたびに数秒動く（初回計測では 5 秒 / 35 秒だった）。L1 / L2 の `native/tests/ocvu_probe.cpp` が持つ expect-failure の構図（`cmake/run_expect_failure.cmake`）の L3 版であり、`cmake/run_expect_failure.cmake` 同様「非 0 で終わっただけ」では合格にせず、スタックトレース／hangdump の宛先テスト名でプローブが意図した経路に実際に到達したことまで見ている。このプローブは意図的に落ちるため通常の `dev.ps1 test` には含めない（`Category!=Probe` で除外、`StatusCodeSyncTests` 等の既存 L3 とは別枠）。数分かかるので CI 専用（`ci-native.yml` の「Run the L3 crash and hang probes」）で、ローカルでは走らない。
 
 守るべき不変条件:
 
@@ -170,7 +179,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: M1 完了、次は M2）
+## マイルストーン（現在地: M2 は 8 件中 7 件達成。未達 1 件 — 条件 7）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
@@ -178,24 +187,33 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | --- | --- |
 | **M0** | **自動 TDD ハーネスの成立（OpenCV 非依存）。** 反復速度の土台を他の何よりも先に固定する — **完了** |
 | **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
-| **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 次はここ** |
+| **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件中 7 件達成。未達は条件 7（CI で L4/L5 が一度も実行されていない。Unity 導入とアクティベーション実装が未着手で、資格情報登録だけでは動かない）** |
 | M3 | Desktop 3 platform と配布の再現性。Linux レーンでリーク検出（MSVC ASan は LSan 非対応） |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
 | M5 | binding specification と generator |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
 | M7 | Optional profiles と性能 |
 
-**M2 以降の完了条件には、native 単体テストだけでなく実際の Unity Player から C# → P/Invoke → C ABI → OpenCV を通る smoke test を含める。**
+**M2 以降の完了条件には、native 単体テストだけでなく実際の Unity Player から C# → P/Invoke → C ABI → OpenCV を通る smoke test を含める。** M2 はこれをローカルで満たした（L4 / L5 とも green）。CI 上での実行だけが残っている。
 
 ## 実装に着手するとき
 
 1. `docs/roadmap.md` で対象マイルストーンの目的・ゴール・完了条件・**非ゴール**を確認する
-2. 実装計画があればそれに従う（M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`。いずれも実施済み）。M2 の計画はまだ無いので、`superpowers:writing-plans` で先に書く
+2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は Task 8 まで完了しているが、完了条件 7 件目は上記のとおり未達）。M3 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
-M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分。Windows の compiler / runtime linkage は M1 Task 8 で決定済みなので上の「確定事項」表を見ること）: OpenCV 5.0.0 の固定期間と 5.x update policy、`Mat` と NativeArray の lifetime contract、C ABI の versioning / backward compatibility policy、初期 `core` / `imgproc` API の具体的 allowlist、ライセンス表示と SBOM の公開フロー。
+M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、ライセンス表示と SBOM の公開フロー、各 platform で必須とする Editor / Mono / IL2CPP / device test matrix。
 
-ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになった。`bindings/`（M5）と `tests/UnityProject/`（M2）はまだ無い。
+決定済みで、計画書 §12 の記述より新しいもの（**計画書より下の表と参照先を優先すること**）:
+
+| 事項 | 決定 | 決定場所 |
+| --- | --- | --- |
+| Windows の compiler / runtime linkage | 実行時ライブラリは共有する形。組み込む開発者が同梱物を選べる状態を保つ | M1 Task 8。上の「確定事項」表 |
+| `Mat` と Unity メモリの lifetime contract | **借用 handle を作らない。** handle は常に native 所有、Unity の buffer は呼び出し内で完結する借用 | `docs/abi-ownership-and-versioning.md` §1 |
+| C ABI の versioning / 後方互換 | 単一整数の `OCVU_ABI_VERSION`、C# 側は**完全一致**で検査。bump する変更としない変更を明記 | 同 §2 |
+| 初期 `core` / `imgproc` API の allowlist | Mat の create / release / clone / get_info / copy_from_buffer / copy_to_buffer と cvtColor / resize / GaussianBlur の 9 本 | 同 §3 |
+
+ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになり、`tests/UnityProject/` は M2 で実在するようになった。`bindings/`（M5 予定）だけがまだ無い。
 
 ## 変更を main へ入れるまで
 
@@ -272,7 +290,6 @@ main には squash された 1 コミットしか残らないので、**squash �
 
 - 文書の陳腐化（M0 で Critical になった経路。CI は緑だった）
 - 完了条件を満たしていないのに完了と称すること、スコープ超過
-- L3 のクラッシュ・ハング耐性（L1 / L2 にはプローブがあるが L3 には無い。M2 の作業）
 - Windows 以外のプラットフォーム、Unity Editor / Player 上の挙動（M2 以降）
 - メモリリーク（MSVC ASan は LeakSanitizer 非対応。M3 の Linux レーンの担当）
 

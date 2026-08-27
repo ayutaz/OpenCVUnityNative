@@ -157,8 +157,8 @@ API の広さを追わず、**ownership / stride / pixel format / エラー / IL
 
 **完了条件**
 
-- `ocvu_mat_*`（create / wrap / clone / query / release）と `cvtColor` / `resize` / `GaussianBlur` が C ABI にある
-- 所有権契約が L3 で明示的にテストされている — borrowed と owned の区別、二重解放、解放後アクセス、Unity 側 buffer を wrap した際の lifetime
+- `ocvu_mat_*`（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `cvtColor` / `resize` / `GaussianBlur` が C ABI にある
+- 所有権契約が L3 で明示的にテストされている — handle は常に native 所有であること、二重解放、解放後アクセス、buffer 引数の長さ・stride・NULL の検証
 - Texture2D / NativeArray からの入力と結果反映が動く
 - ABI version / OpenCV version / build features を実行時に問い合わせられる
 - vertical slice 全体が ASan レーンで clean
@@ -168,6 +168,98 @@ API の広さを追わず、**ownership / stride / pixel format / エラー / IL
 
 **非ゴール**
 Windows 以外のプラットフォーム。API の拡張。generator。
+
+**完了条件を変更した経緯（2026-08-26、M2 着手前）**
+
+当初の完了条件は `ocvu_mat_wrap`（Unity 側の buffer を handle にする関数）を挙げ、
+「Unity 側 buffer を wrap した際の lifetime」を L3 で検証することを求めていた。
+
+M2 着手前に所有権の規約を決めた結果、**その関数を作らない**ことにした
+（`docs/abi-ownership-and-versioning.md` §1）。Unity は自分の都合でメモリを捨てられ、
+借用 handle がそれより長く生きると、即座には落ちず後から無関係な場所が壊れる。Windows の
+AddressSanitizer は Unity のアロケータを見られないので、CI でも検出できない。規約で禁じても
+機械的な強制が無い以上、**借用 handle を作らなければその誤りは表現できなくなる**方を選んだ。
+
+したがって完了条件を次のように置き換えた。
+
+| 旧 | 新 |
+| --- | --- |
+| `wrap` が C ABI にある | `copy_from_buffer` / `copy_to_buffer` が C ABI にある |
+| wrap した際の lifetime を検証 | 借用 handle が存在しないこと、buffer 引数（長さ・stride・NULL）の検証 |
+| borrowed と owned の区別 | 同左。ただし区別されるのは handle（常に owned）と buffer 引数（借用は呼び出し内で完結） |
+
+**これは緩和ではない。** 検証すべき危険が消えたのではなく、危険な状態を作れなくしたので、
+検証の対象が「その状態が作られていないこと」に変わった。
+
+**実測による完了判定（2026-08-27、`milestone-complete` skill の手順で照合）**
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 1 | 9 関数（`ocvu_mat_*` 6 本 + `cvtColor` / `resize` / `GaussianBlur`）が C ABI にある | 満たす |
+| 2 | 所有権契約が L3 でテストされている（二重解放、解放後アクセス、buffer 引数の検証） | 満たす |
+| 3 | Texture2D / NativeArray からの入力と結果反映 | 満たす |
+| 4 | ABI version / OpenCV version / build features を実行時に問い合わせられる | 満たす |
+| 5 | ASan レーンが clean | 満たす |
+| 6 | Unity EditMode と Windows IL2CPP Player で同じ smoke test が通る | 満たす |
+| 7 | `ci-unity.yml` が CI 上で L4/L5 を実行する | **満たさない** |
+| 8 | ローカル参照可能な最小 UPM パッケージとして動作する | 満たす |
+
+**条件 3 は達成した（判定は 2 度動いた）。** 経緯を残す。当初は「満たす」としたが、
+レビューで「`NativeArray` を直接受ける API が無く、`ToArray()` で managed 配列へ写して
+いるのでコピー 2 回になる」と指摘され「満たさない」に下げた。次に `IntPtr` 版を足して
+再び「満たす」としたが、それも早かった — `IntPtr` は `NativeArray` ではなく、利用者側に
+`allowUnsafeCode` とバイト長の自前計算を要求する形だったからである
+（`NativeArray<T>.Length` は要素数であってバイト数ではない）。
+
+現在の根拠は次のとおり:
+
+- `Runtime/UnityIntegration/NativeArrayExtensions.cs` が `NativeArray<T>` を入力・出力の
+  両方向で受ける。利用者に `unsafe` を要求しない。バイト長は `SizeOf<T>()` を掛けて
+  こちらで算出する。
+- **利用者所有の `NativeArray` を渡すテストが L4 / L5 の両方にある**
+  （`UserOwnedNativeArray_RoundTripsWithoutGoingThroughAManagedArray`、
+  `NativeArrayLength_IsElementsNotBytes`）。以前は `TextureConverter` 内部の
+  テクスチャ生データしか無く、それは Texture2D 経路であって NativeArray 経路ではなかった。
+- `TextureConverter` は両方向ともポインタ経路で、中間の managed 配列は無い。
+- `SizeOf<T>()` を掛けるのをやめる変異、書き戻し先を 1 バイトずらす変異のいずれでも
+  L4 が赤くなることを確認済み。IL2CPP でも 9/9 通る。
+
+安全網を 1 つ外したことも記録する。`byte[]` 経路では Unity の `LoadRawTextureData` が
+バイト数不一致を例外にしていたが、ポインタ経路はそこを通らない。実際、チャンネル数の
+合わない Mat を `ToTexture` に渡すと成功が返り、テクスチャの先頭へ一部だけ書かれた
+（実測: 48 バイト中 12 バイト、例外もログも無し）。`ToTexture` に形式検査とバイト数
+一致検査を置き直して塞いだ。**安全網を外す変更をするときは、外した分を同じ層に
+置き直すこと。**
+
+**条件 7 は未達である。** `ci-unity.yml` は書かれ、ローカルでは `dev.ps1 test-unity-editmode` /
+`dev.ps1 test-unity-player` の両方が green だが、CI 上では一度も実行されていない
+（`gh run list --workflow=ci-unity.yml` は default branch に存在せず 404）。
+
+**残作業は 3 つあり、うち 2 つはエージェントが書ける。**「資格情報を登録すれば動く」は
+事実ではなかったので訂正する:
+
+1. **CI ランナーへの Unity 導入。** `ci-unity.yml` は GitHub ホストの `windows-2022` で
+   `dev.ps1 test-unity-editmode` を直接呼ぶが、このイメージに Unity は含まれない。
+   `Get-UnityEditorPath` は Unity Hub の既定の配置を決め打ちで探し、無ければ失敗する。
+   導入する action も入れていない。
+2. **ライセンスのアクティベーション実装。** `UNITY_LICENSE` / `UNITY_EMAIL` /
+   `UNITY_PASSWORD` を env に置いてあるが、`tools/` 内にそれらを読むコードは 1 行も無い
+   （`grep -rn UNITY_LICENSE tools/` の結果は 0 件）。完了条件の文言自体が
+   「アクティベーションを自動化する」を含んでいる。
+3. **GitHub Secrets への資格情報登録。** これだけがユーザーの操作である。
+
+現在この workflow の trigger は `workflow_dispatch` のみに絞ってある。push で走らせると
+成功し得ない job が全 push で赤くなり、「赤い CI は直すもの」という前提が壊れるためで、
+上の 1 と 2 が揃った時点で戻す。
+
+完了条件は「workflow ファイルが存在すること」ではなく「CI 上で L4/L5 を実行すること」
+であり、両者を取り違えないよう最初から実行の有無で判定した（M1 の条件 6 判定で同じ
+取り違えが一度起きている）。
+
+**したがって M2 は「8 件中 7 件達成」であって「完了」ではない。** 実装計画
+（[docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)）
+は Task 8 まで実施済みで、進行記録は
+`.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md` にある。
 
 ---
 

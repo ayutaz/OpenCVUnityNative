@@ -1,0 +1,137 @@
+name: ci-unity
+
+# 現時点では workflow_dispatch のみ。push / pull_request では走らせない。
+#
+# 理由は 2 つあり、どちらもこの workflow がまだ成功し得ないことに由来する:
+#   1. GitHub ホストの windows-2022 イメージに Unity は含まれず、この workflow は
+#      インストールもしていない。dev.ps1 の Get-UnityEditorPath は Unity Hub の
+#      既定の配置を決め打ちで探し、無ければ失敗する。
+#   2. UNITY_LICENSE / UNITY_EMAIL / UNITY_PASSWORD を env に置いてはあるが、
+#      それを読んでアクティベーションする処理をまだ誰も書いていない。
+#
+# push で走らせると全 push が恒常的に赤くなる。必須チェックではないので merge は
+# 止まらないが、「赤い CI は直すもの」という前提が壊れる方が高くつく。
+#
+# 上の 2 つが揃った時点で push / pull_request を戻すこと。それが M2 完了条件 7
+# （「ci-unity.yml が CI 上で L4 / L5 を実行する」）の残作業である。
+# **資格情報の登録だけでは足りない。** ランナーへの Unity 導入とアクティベーションの
+# 実装はエージェントが書ける作業として残っている。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ci-unity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editmode:
+    name: Unity EditMode (Mono)
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # third_party/opencv/<hash> をハッシュ単位でキャッシュする。ヒットすれば
+      # restore は gh からの download をスキップし、既存の木を検証するだけで
+      # 済む（tools/opencv.ps1 の Invoke-Restore を参照）。ci-native.yml /
+      # ci-sanitizers.yml と同じ手順。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v4
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
+      # ローカルと同一のコマンドを呼ぶ。CI 専用の手順は作らない。
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      - name: Build native
+        shell: pwsh
+        run: ./tools/dev.ps1 build
+
+      - name: Run EditMode tests
+        shell: pwsh
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: ./tools/dev.ps1 test-unity-editmode
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-unity-editmode
+          path: artifacts/test-results/
+          if-no-files-found: warn
+
+  player:
+    name: Unity IL2CPP Player
+    runs-on: windows-2022
+    # IL2CPP のビルドを含む。ローカル実測は Task 7 の報告を参照
+    # （cold/incremental のどちらも 90 分以内に収まっている）。
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v4
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      - name: Build native
+        shell: pwsh
+        run: ./tools/dev.ps1 build
+
+      # IL2CPP の managed code stripping が P/Invoke 宣言を削っていないかは、
+      # 実際に Player をビルドして走らせる以外に確かめる方法が無い
+      # （EditMode/Mono では再現しない）。
+      - name: Run Player tests
+        shell: pwsh
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: ./tools/dev.ps1 test-unity-player
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-unity-player
+          path: artifacts/test-results/
+          if-no-files-found: warn

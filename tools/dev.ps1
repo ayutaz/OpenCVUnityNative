@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-tools', 'test-tools-slow', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
@@ -122,6 +122,33 @@ function Build-Native {
         cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot"
     } 'configure native'
     Invoke-Checked { cmake --build --preset $Preset } 'build native'
+
+    Copy-NativePluginForUnity
+}
+
+<#
+    ビルドした DLL を UPM パッケージの Plugins へ写す。
+
+    Unity は Packages/<id>/Runtime/Plugins/x86_64/ に置かれた DLL を native plugin
+    として読む。ビルドのたびにここへ写しておかないと、Unity 側は「古い DLL のまま
+    緑」という最も紛らわしい状態になる — テストは通るのに、検証しているのは
+    今ビルドしたコードではない。だから Build-Native の末尾にぶら下げ、
+    忘れようがない位置に置く。
+
+    成果物なのでコミットしない（.gitignore 済み）。
+#>
+function Copy-NativePluginForUnity {
+    $source = Join-Path $RepoRoot 'build/windows-x64-debug/native/Debug/opencv_unity_native.dll'
+    if (-not (Test-Path -LiteralPath $source)) {
+        Write-DevFailure (@(
+            "native plugin が見つかりません: $source"
+            "先に './tools/dev.ps1 build' を実行してください。"
+        ) -join "`n")
+    }
+
+    $destDir = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/x86_64'
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+    Copy-Item -LiteralPath $source -Destination $destDir -Force
 }
 
 function Test-Native {
@@ -165,11 +192,204 @@ function Test-Managed {
         # lifecycle をネイティブ越しに回すので、ネイティブ側のデッドロックや
         # 無限ループがそのままローカルループを無限に固める。60 秒で打ち切り、
         # ハングしたテストの dump を残す。
+        #
+        # Category!=Probe: HarnessProbeTests は意図的に落ちる／固まるための
+        # プローブで、通常の実行に含めると常に赤くなる。実行は
+        # test-managed-probe (tools/run-managed-probe.ps1) が名指しで行う。
         dotnet test (Join-Path $RepoRoot 'tests/Managed/CvUnity.Managed.sln') `
+            --filter "Category!=Probe" `
             --blame-hang --blame-hang-timeout 60s `
             --logger "junit;LogFilePath=$(Join-Path $ResultsDir 'managed.xml')" `
             --logger 'console;verbosity=normal'
     } 'run managed tests (L3)'
+}
+
+# tests/UnityProject/ProjectSettings/ProjectVersion.txt の m_EditorVersion から
+# Unity Hub の既定インストール先を組み立てる。バージョンを合わせるのは
+# uloop-launch skill と同じ考え方（ProjectVersion.txt が正本）。
+function Get-UnityEditorPath {
+    $versionFile = Join-Path $RepoRoot 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+    if (-not (Test-Path -LiteralPath $versionFile)) {
+        Write-DevFailure "Unity プロジェクトの ProjectVersion.txt が見つかりません: $versionFile"
+    }
+
+    $match = Select-String -LiteralPath $versionFile -Pattern '^m_EditorVersion:\s*(\S+)' |
+        Select-Object -First 1
+    if (-not $match) {
+        Write-DevFailure "m_EditorVersion を $versionFile から読み取れませんでした。"
+    }
+    $version = $match.Matches[0].Groups[1].Value
+
+    $editorPath = "C:\Program Files\Unity\Hub\Editor\$version\Editor\Unity.exe"
+    if (-not (Test-Path -LiteralPath $editorPath)) {
+        Write-DevFailure (@(
+            "Unity Editor $version が見つかりません: $editorPath"
+            "Unity Hub でこのバージョンをインストールしてください。"
+        ) -join "`n")
+    }
+    return $editorPath
+}
+
+<#
+    Unity EditMode テスト（L4）。file: 参照で取り込んだ UPM パッケージが
+    Unity 上で実際に動くことを検証する唯一のレーンである。
+
+    -quit は付けない。-runTests は Test Runner がテスト完了後に自分で
+    Unity を終了させる仕組みで、-quit を併用すると Unity がプロジェクトを
+    開いた直後（テスト実行より先）に終了してしまい、結果 XML が一切
+    書かれない（実測: ログが "Loaded All Assemblies" の直後で止まり、
+    exit code だけが返る。計画書の元のコマンド例は -quit 付きだったが、
+    これは Task 6 で見つかった計画の欠陥である — 公式ドキュメントも
+    -runTests との併用を避けるよう明記している）。
+
+    起動には `&` ではなく Start-Process -Wait を使う。`&` だと（この環境では）
+    Unity.exe のような GUI サブシステムの実行ファイルに対して呼び出しが
+    数十 ms で返ってしまい、実際のテスト実行を待たない（実測: `&` は
+    $LASTEXITCODE も設定されないまま即座に返り、結果 XML が存在しない
+    まま次のコードへ進んだ。Start-Process -Wait -PassThru に替えると
+    Unity の実プロセス終了まで正しくブロックし、ExitCode と結果 XML の
+    両方が揃って戻ってくる）。
+
+    -quit を外しても、Unity は失敗時に終了コード 0 で戻ることがあり得る
+    という懸念（元の設計判断）自体は残る。終了コードだけを見るのではなく、
+    終了コードと結果 XML の failed カウントの両方を見る。結果 XML が
+    無いこと自体も失敗として扱う — Unity がテストを書き出す前に落ちた
+    ことを意味し、それは成功ではない。
+#>
+function Test-UnityEditMode {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $results = Join-Path $ResultsDir 'unity-editmode.xml'
+    $log     = Join-Path $ResultsDir 'unity-editmode.log'
+
+    # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
+    $unityArgs = @(
+        '-projectPath', $project,
+        '-runTests', '-testPlatform', 'EditMode',
+        '-testResults', $results, '-logFile', $log,
+        '-batchmode', '-nographics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
+
+    if (-not (Test-Path -LiteralPath $results)) {
+        Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
+    }
+    [xml]$xml = Get-Content -LiteralPath $results
+    $failed = [int]$xml.'test-run'.failed
+    $passed = [int]$xml.'test-run'.passed
+    if ($exit -ne 0 -or $failed -ne 0) {
+        Write-DevFailure "Unity EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+    }
+
+    # 0 件で緑にしない。テストが 1 つも走らなかった場合、exit code も failed も 0 に
+    # なるので、上の判定だけでは成功と見分けが付かない（実測: asmdef の
+    # defineConstraints に未定義の記号を足すとテスト assembly がコンパイル対象から
+    # 外れ、「0 passed」で exit 0 になった）。
+    #
+    # このレーンは完了条件 6 を担う唯一の証拠で、しかも CI では一度も走っていない。
+    # asmdef の改名、UNITY_INCLUDE_TESTS の扱いの変化、test-framework の解決失敗、
+    # file: 参照の破損 — どれが起きても静かに 0 件になり、緑のまま何も検証しなくなる。
+    if ($passed -lt 1) {
+        Write-DevFailure (@(
+            "Unity EditMode でテストが 1 件も実行されませんでした（passed=$passed、failed=$failed）。"
+            'テストが全部消えたか、テスト assembly がコンパイル対象から外れています。'
+            '0 件の実行は成功ではありません。'
+            "ログ: $log"
+        ) -join "`n")
+    }
+    Write-Host "==> Unity EditMode: $passed passed" -ForegroundColor Green
+}
+
+<#
+    Unity IL2CPP Player テスト（L5）。EditMode (Mono) では再現しない、
+    IL2CPP の managed code stripping が P/Invoke 宣言を削る問題を検出する
+    唯一のレーンである。link.xml の保護が効いているかは、実際に Player を
+    ビルドして走らせる以外に確かめる方法が無い。
+
+    2 回 Unity を起動する。1 回目は -executeMethod で Standalone の
+    scripting backend を IL2CPP に固定するためだけの起動で、Test-UnityEditMode
+    の注記どおり -executeMethod のときは -quit が正しい（-runTests のときは
+    付けない、というのが Task 6 で確定した規則で、今回は逆側のケースにあたる）。
+    2 回目が実際のテスト実行で、-testPlatform StandaloneWindows64 を渡すと
+    Unity は Standalone Player を実際にビルドし、その中でテストを走らせて
+    結果を回収する（IL2CPP ビルドを含むため 5〜20 分かかる）。
+
+    どちらの起動も Test-UnityEditMode と同じ理由で `&` ではなく
+    Start-Process -Wait -PassThru を使う。
+#>
+function Test-UnityPlayer {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $results = Join-Path $ResultsDir 'unity-player.xml'
+    $log     = Join-Path $ResultsDir 'unity-player.log'
+
+    # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
+    # M2 が確かめたい stripping の問題が再現しない。
+    $configureArgs = @(
+        '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+        '-executeMethod', 'BuildPlayer.ConfigureIl2cpp', '-logFile', "$log.configure"
+    )
+    $configure = Start-Process -FilePath $unity -ArgumentList $configureArgs -Wait -PassThru -NoNewWindow
+    if ($configure.ExitCode -ne 0) {
+        Write-DevFailure "IL2CPP の設定に失敗しました。ログ: $log.configure"
+    }
+
+    $unityArgs = @(
+        '-projectPath', $project,
+        '-runTests', '-testPlatform', 'StandaloneWindows64',
+        '-testResults', $results, '-logFile', $log,
+        '-batchmode', '-nographics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
+
+    if (-not (Test-Path -LiteralPath $results)) {
+        Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
+    }
+    [xml]$xml = Get-Content -LiteralPath $results
+    $failed = [int]$xml.'test-run'.failed
+    $passed = [int]$xml.'test-run'.passed
+    if ($exit -ne 0 -or $failed -ne 0) {
+        Write-DevFailure "Unity Player テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+    }
+
+    # 0 件で緑にしない。テストが 1 つも走らなかった場合、exit code も failed も 0 に
+    # なるので、上の判定だけでは成功と見分けが付かない（実測: asmdef の
+    # defineConstraints に未定義の記号を足すとテスト assembly がコンパイル対象から
+    # 外れ、「0 passed」で exit 0 になった）。
+    #
+    # このレーンは完了条件 6 を担う唯一の証拠で、しかも CI では一度も走っていない。
+    # asmdef の改名、UNITY_INCLUDE_TESTS の扱いの変化、test-framework の解決失敗、
+    # file: 参照の破損 — どれが起きても静かに 0 件になり、緑のまま何も検証しなくなる。
+    if ($passed -lt 1) {
+        Write-DevFailure (@(
+            "Unity Player でテストが 1 件も実行されませんでした（passed=$passed、failed=$failed）。"
+            'テストが全部消えたか、テスト assembly がコンパイル対象から外れています。'
+            '0 件の実行は成功ではありません。'
+            "ログ: $log"
+        ) -join "`n")
+    }
+    Write-Host "==> Unity Player (IL2CPP): $passed passed" -ForegroundColor Green
+}
+
+# CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
+# (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
+function Test-ManagedProbe {
+    Build-Native
+    if (-not (Test-Path (Join-Path $NativeOutDir 'opencv_unity_native.dll'))) {
+        throw "Native library was not found in '$NativeOutDir' after building."
+    }
+    $env:OCVU_NATIVE_DIR = $NativeOutDir
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-managed-probe.ps1')
+    } 'run L3 crash/hang probes (test-managed-probe)'
 }
 
 # 'test' は fail-fast である。Invoke-Checked が最初の失敗で throw するため、
@@ -181,8 +401,11 @@ switch ($Command) {
     'test-native'  { Reset-Results; Test-Native }
     'test-asan'    { Reset-Results; Test-Asan }
     'test-managed' { Reset-Results; Test-Managed }
+    'test-managed-probe' { Test-ManagedProbe }
     'test-tools'   { Test-Tools }
     'test-tools-slow' { Test-ToolsSlow }
+    'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
+    'test-unity-player' { Reset-Results; Test-UnityPlayer }
     'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
