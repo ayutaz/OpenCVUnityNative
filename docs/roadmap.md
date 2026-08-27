@@ -157,8 +157,13 @@ allowlist 構成の OpenCV 5.0.0 を **CI がビルドして artifact として�
 突き合わせる。**allowlist 検証（依存の集合）とは別軸である** — 依存が正しくても linkage が
 違えば今回のような欠陥になる。置き場所は `tools/verify-opencv-artifact.ps1` の隣か、
 platform 別の実装を持つ新しい入口。プラットフォームごとに読み取り方が違う
-（Windows は `DEFAULTLIB`、ELF は `readelf`、Mach-O は `otool`）ので、
-**「読み取れなかったら通す」形にしないこと** — それは M1 が繰り返した欠陥そのものである。
+（Windows は `DEFAULTLIB`、ELF は `readelf`、Mach-O は `otool`）。
+
+**認識できなかったものは失敗側に落とすこと。** 「読み取れなかったら通す」はその一形態で
+あって全部ではない。M1 が 8 回繰り返したのは「著者が列挙した形だけを見て、隣接する形が
+枠外に落ちる」欠陥であり、`tools/verify-opencv-artifact.ps1` 冒頭のコメントが denylist を
+allowlist と呼んでいた経緯としてそれを記録している。列挙を長くしても閉じない —
+次に足されるものはその一覧に載っていない。手順は `prove-a-check-works` skill にある。
 
 ---
 
@@ -292,7 +297,9 @@ Windows / macOS / Linux の native artifact が CI から再現生成され、UP
 - Git URL または tarball から導入できる UPM パッケージ
 - artifact manifest、checksums、`THIRD_PARTY_NOTICES.md`、SBOM
 - **Linux レーンでのリーク検出**（LeakSanitizer / Valgrind）— MSVC の ASan は LeakSanitizer 非対応のため、リーク検出は Linux CI が担う
-- **成果物が構成の意図どおりであることを機械的に検証する**（M1 からの持ち越し。同節「既知の欠陥」を参照）— 送った CMake flag ではなく、できた `.lib` / `.a` / `.dylib` を読んで CRT linkage・有効言語・想定外の依存を確かめ、`opencv-config.psd1` の意図と食い違ったら CI を落とす。M1 ではこの隙間から 2 件の欠陥が出て、どちらも人間が成果物を直接調べて発見した
+- **成果物の linkage・有効言語・リンク済み依存が構成の意図と一致することを機械的に検証する**（M1 からの持ち越し。M1 節の「既知の欠陥」に経緯がある）— 送った CMake flag ではなく、できた `.lib` / `.a` / `.dylib` を読んで確かめ、`opencv-config.psd1` の意図と食い違ったら CI を落とす。**`tools/verify-opencv-artifact.ps1` の allowlist 検証とは別軸である** — あちらは「どのファイルが在るか」、こちらは「そのファイルがどう作られたか」を見る。依存の集合が正しくても linkage が違えば M1 と同じ欠陥になる。
+  - **まず Windows 分を成立させ、platform を足すのと同時に同じ検査を広げる。** 読み取り方が 3 系統ある（`DEFAULTLIB` / `readelf` / `otool`）ので、3 つ同時に立ち上げると この条件だけで M3 を食う。1 つで形を決めてから広げる方が安い。
+  - **`prove-a-check-works` skill に従うこと。** 読み取れなかった場合・想定外の形だった場合に**落ちる**ことを実際に見るまで、満たしたと記録しない。M1 がこの隙間で 2 回踏んだのは 「著者が列挙した形だけを見て、隣接する形が枠外に落ちる」欠陥であり、「読み取れなかったら通す」はその一形態にすぎない。列挙を増やすのではなく、**認識できなかったものが失敗側に落ちる**形にする。
 - Unity sample と最小 API reference
 
 **非ゴール**
