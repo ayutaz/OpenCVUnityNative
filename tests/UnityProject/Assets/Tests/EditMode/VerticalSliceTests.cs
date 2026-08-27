@@ -154,12 +154,37 @@ public class VerticalSliceTests
     }
 
     [Test]
+    public void ToMat_RejectsANonRgba32Texture()
+    {
+        // ToTexture 側と対になる検査。こちらは今まで誰も触れておらず、
+        // 消しても全レーンが緑のままだった（実測）。
+        //
+        // ここが無いと沈黙して壊れる。ToMat は常に stride = width * 4 を渡し
+        // Bgra32 の Mat を作るので、1 画素あたり 4 バイト未満の形式
+        // （RGB24 など）でも native の検証（stride >= 1 行、stride * rows <= 長さ）
+        // を通り得る。通ってしまえば、渡した領域の外や隣の行を読んだ結果が
+        // そのまま Mat に入る — 例外もログも出ない。
+        var texture = new Texture2D(4, 3, TextureFormat.RGB24, false);
+        Assert.Throws<System.NotSupportedException>(
+            () => TextureConverter.ToMat(texture));
+    }
+
+    [Test]
     public void ToTexture_RejectsANonRgba32Texture()
     {
-        // 形式検査そのものを固定する。バイト数一致検査とは別物である:
-        // RGB24 の 4x3 テクスチャ（36 バイト）に 3 チャンネル Mat（36 バイト）を
-        // 渡すとバイト数は一致してしまうので、形式検査を消してもバイト数検査は
-        // 通る。M2 が RGBA32 しか扱わないことを明示的に見る。
+        // 形式検査そのものを固定する。
+        //
+        // 当初このコメントは「バイト数が一致するので形式検査だけが弾ける」と
+        // 書いていたが、実装を読み違えていた。バイト数検査は
+        // texture.width * height * 4 と計算する（形式検査を通過した後に走る
+        // 前提なので RGBA32 決め打ちでよい）ので、RGB24 の 4x3 でも 48 と算出し、
+        // 3 チャンネル Mat の 36 とは一致しない。つまりバイト数検査も弾く。
+        //
+        // それでもこのテストは形式検査を固定する。Assert.Throws<T> は型の完全一致
+        // なので、形式検査を消すと ArgumentException（バイト数検査）が飛んで
+        // NotSupportedException を期待するこの assertion が落ちるからである
+        // （実測で確認済み）。効く理由が「唯一の関門だから」ではなく
+        // 「例外の型が違うから」である点を、次に読む人のために書いておく。
         var texture = new Texture2D(4, 3, TextureFormat.RGB24, false);
         using (var mat = CvMat.Create(3, 4, CvMatType.Bgr24))
         {
