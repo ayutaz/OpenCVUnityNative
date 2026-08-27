@@ -257,6 +257,21 @@ Assert-That ($manifestSource -notmatch "platform\s*=\s*'[a-z0-9-]+'") `
 Assert-That ($manifestSource -match 'platform\s*=\s*\$Config\.Platform') `
     'the build manifest takes its platform from the configuration'
 
+# --- install ターゲット名を generator に応じて選んでいること ---
+#
+# 'INSTALL'（大文字）は Visual Studio generator のターゲット名で、Ninja には
+# 存在しない。決め打ちすると macOS / Linux のビルドが
+# 「ninja: error: unknown target 'INSTALL'」で落ちる（M3 Task 4 の CI 初回で
+# 実際に両方落ちた。configure は成功しており、ここだけが違っていた）。
+#
+# 実行時の挙動は CI でしか確かめられないので、ソースを検査する。
+$opencvSource = Get-Content -LiteralPath $opencvScript -Raw
+
+Assert-That ($opencvSource -match "Generator -like 'Visual Studio\*'") `
+    'the build step branches on the generator rather than assuming one'
+Assert-That ($opencvSource -match "--target', 'install'") `
+    'single-config generators get the lowercase install target'
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

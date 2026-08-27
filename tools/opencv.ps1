@@ -110,8 +110,24 @@ function Invoke-Build {
     }
     if ($LASTEXITCODE -ne 0) { throw "configure OpenCV failed with exit code $LASTEXITCODE" }
 
+    # install ターゲットの名前と --config の要否は generator で変わる。
+    #
+    #   Visual Studio（複数構成）: ターゲット名は 'INSTALL'、--config が要る
+    #   Ninja（単一構成）        : ターゲット名は 'install'、--config は無意味
+    #
+    # 実測（M3 Task 4 の CI 初回）: Ninja に INSTALL を渡すと
+    # 「ninja: error: unknown target 'INSTALL'」で落ちる。configure 自体は
+    # 成功していたので、ここだけが platform 間で違っていた。
+    $isMultiConfig = $Config.Toolchain.Generator -like 'Visual Studio*'
+    $buildArgs = @('--build', $buildRoot)
+    if ($isMultiConfig) {
+        $buildArgs += @('--config', $Config.Toolchain.BuildType, '--target', 'INSTALL')
+    } else {
+        $buildArgs += @('--target', 'install')
+    }
+
     Invoke-Checked {
-        cmake --build $buildRoot --config $Config.Toolchain.BuildType --target INSTALL
+        cmake @buildArgs
     } 'build and install OpenCV'
 
     $modules = Invoke-Verify

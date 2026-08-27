@@ -434,7 +434,28 @@ function Copy-NativePluginForUnity {
 
 - [ ] **Step 5: opencv.ps1 の generator 固有オプションを分岐する**
 
-`Invoke-Build` の中で `-A $Architecture` を渡している箇所を直す。
+**2 箇所ある。** どちらも Visual Studio generator 専用の指定で、Ninja では別物になる。
+
+1 つ目は `-A $Architecture`（configure 側）。2 つ目は **install ターゲットの名前**で、
+Visual Studio は `INSTALL`（大文字）、Ninja は `install`（小文字）である。`--config` も
+単一構成 generator では無意味なので付けない。
+
+```powershell
+    # install ターゲットの名前と --config の要否は generator で変わる。
+    #   Visual Studio（複数構成）: ターゲット名は 'INSTALL'、--config が要る
+    #   Ninja（単一構成）        : ターゲット名は 'install'、--config は無意味
+    $isMultiConfig = $Config.Toolchain.Generator -like 'Visual Studio*'
+    $buildArgs = @('--build', $buildRoot)
+    if ($isMultiConfig) {
+        $buildArgs += @('--config', $Config.Toolchain.BuildType, '--target', 'INSTALL')
+    } else {
+        $buildArgs += @('--target', 'install')
+    }
+
+    Invoke-Checked { cmake @buildArgs } 'build and install OpenCV'
+```
+
+configure 側:
 
 ```powershell
     # -A は Visual Studio generator 専用のオプションで、Ninja に渡すとエラーになる。
