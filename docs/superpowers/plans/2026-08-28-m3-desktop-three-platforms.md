@@ -280,8 +280,8 @@ git commit -m "feat(config): make the build configuration and its hash platform-
 **Files:**
 - Modify: `CMakePresets.json`（macOS / Linux の preset を足す）
 - Modify: `tools/dev.ps1`（preset 名を platform から導く）
-- Modify: `tools/opencv.ps1`（generator 固有オプションの分岐）
-- Test: `tools/tests/OpenCvConfig.Tests.ps1`（preset 名の整合）
+- Modify: `tools/opencv.ps1`（generator 固有オプションの分岐、**manifest の platform 決め打ち解消**）
+- Test: `tools/tests/OpenCvConfig.Tests.ps1`（preset 名の整合、manifest の検査）
 
 **Interfaces:**
 - Consumes: Task 1 の `Get-OpenCvPlatform`, `Get-OpenCvConfig`
@@ -306,7 +306,7 @@ Linux の ASan は **LeakSanitizer が既定で有効**になる。これが M3 
 #
 # preset 名を platform 名から機械的に導くので、片方だけ足して他方を忘れると
 # 「preset が無い」という実行時エラーになる。ここで先に落とす。
-$presetsPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'CMakePresets.json'
+$presetsPath = Join-Path $PSScriptRoot '../../CMakePresets.json' | Resolve-Path | Select-Object -ExpandProperty Path
 $presets = Get-Content -LiteralPath $presetsPath -Raw | ConvertFrom-Json
 $configureNames = @($presets.configurePresets | ForEach-Object { $_.name })
 
@@ -446,17 +446,54 @@ function Copy-NativePluginForUnity {
     }
 ```
 
-- [ ] **Step 6: テストが通ることを確認する**
+- [ ] **Step 6: manifest の platform 決め打ちと `$NativeOutDir` を直す**
+
+`tools/opencv.ps1` の `Write-BuildManifest` が `platform = 'windows-x64'` と
+書いている。**決め打ちにすると manifest が実物と食い違い、「成果物に何が入っているか」の
+申告が嘘になる** — Task 6 の SBOM はこの manifest から作るので、そこまで伝播する。
+
+```powershell
+        # 構成から取る。決め打ちにすると manifest が実物と食い違い、
+        # 「成果物に何が入っているか」の申告が嘘になる。
+        platform            = $Config.Platform
+```
+
+`tools/dev.ps1` の `$NativeOutDir`（L3 が native ライブラリを探す先）も
+`build/windows-x64-debug/native/Debug` と決め打ちになっている。`$Preset` を動的に
+した以上ここも動かす必要がある。**直さないと L3 が古い Windows のパスを見続ける。**
+
+```powershell
+# Ninja は単一構成なので構成名のサブディレクトリを作らない。
+$NativeOutDir = if ($IsWindows) {
+    Join-Path $RepoRoot "build/$Preset/native/Debug"
+} else {
+    Join-Path $RepoRoot "build/$Preset/native"
+}
+```
+
+検査も足す。実行時の値は CI でしか確かめられないので、ソースを見る。
+
+```powershell
+$opencvScript = Join-Path $PSScriptRoot '../opencv.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
+$manifestSource = Get-Content -LiteralPath $opencvScript -Raw
+
+Assert-That ($manifestSource -notmatch "platform\s*=\s*'[a-z0-9-]+'") `
+    'the build manifest does not hardcode a platform string'
+Assert-That ($manifestSource -match 'platform\s*=\s*\$Config\.Platform') `
+    'the build manifest takes its platform from the configuration'
+```
+
+- [ ] **Step 7: テストが通ることを確認する**
 
 Run: `pwsh -NoProfile -File tools/tests/OpenCvConfig.Tests.ps1`
 Expected: PASS。
 
-- [ ] **Step 7: preset が実在することを cmake に確かめさせる**
+- [ ] **Step 8: preset が実在することを cmake に確かめさせる**
 
 Run: `cmake --list-presets`
 Expected: 6 つの configure preset が並ぶ。
 
-- [ ] **Step 8: コミット**
+- [ ] **Step 9: コミット**
 
 ```bash
 git add CMakePresets.json tools/dev.ps1 tools/opencv.ps1 tools/tests/OpenCvConfig.Tests.ps1

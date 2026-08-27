@@ -240,6 +240,23 @@ foreach ($n in $configureNames) {
     Assert-That ($n -in $testNames) "there is a test preset for '$n'"
 }
 
+# --- manifest に platform を決め打ちしていないこと ---
+#
+# opencv.ps1 の Write-BuildManifest が platform を文字列で持っていると、
+# macOS / Linux でビルドしても windows-x64 と記録され、manifest が実物と
+# 食い違う。「成果物に何が入っているか」の申告が嘘になるので、M3 の SBOM
+# にもそのまま伝播する（M3 Task 2 のレビューで実際に見つかった）。
+#
+# 実行時の値は CI でしか確かめられないので、ここではソースを検査する。
+# 検査対象が構成から取っていることを見るのが目的で、値そのものではない。
+$opencvScript = Join-Path $PSScriptRoot '../opencv.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
+$manifestSource = Get-Content -LiteralPath $opencvScript -Raw
+
+Assert-That ($manifestSource -notmatch "platform\s*=\s*'[a-z0-9-]+'") `
+    'the build manifest does not hardcode a platform string'
+Assert-That ($manifestSource -match 'platform\s*=\s*\$Config\.Platform') `
+    'the build manifest takes its platform from the configuration'
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

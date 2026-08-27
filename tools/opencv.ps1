@@ -269,7 +269,10 @@ function Write-BuildManifest([string[]]$Modules, [System.Collections.Specialized
         opencvTag           = $Config.Tag
         configHash          = $ConfigHash
         artifactName        = $ArtifactName
-        platform            = 'windows-x64'
+        # 構成から取る。決め打ちにすると manifest が実物と食い違い、
+        # 「成果物に何が入っているか」の申告が嘘になる（M3 Task 2 のレビューで
+        # 発見。macOS / Linux でビルドしても windows-x64 と記録されていた）。
+        platform            = $Config.Platform
         generator           = $Config.Toolchain.Generator
         buildType           = $Config.Toolchain.BuildType
         cxxCompiler         = ($compiler -replace '"', '').Trim()
