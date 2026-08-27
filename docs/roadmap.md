@@ -286,10 +286,27 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 ## M3 — Desktop 3 platform と配布の再現性
 
 **目的**
-「CI から再現できる native binaries」という差別化点（計画書 §7）を、主張ではなく**検証可能な事実**にする。
+
+M1 は「構成を固定すれば同じ成果物ができる」を Windows 1 つで成立させた。M3 はそれを
+**3 platform に広げ、同時に「固定した構成が本当に守られたか」を機械が確かめる**状態にする。
+
+なぜ 2 つを同じマイルストーンでやるか。platform が増えると、ツールチェーンごとの既定値が
+こちらの指定を上書きする面が増える。M1 では Windows だけで 2 回起きた（PATH から拾われた
+アセンブラ、黙って上書きされたランタイム設定）。**広げる作業と、広げた先で同じ欠陥が
+起きていないか確かめる作業は、分けると後者が置き去りになる。**
 
 **ゴール**
-Windows / macOS / Linux の native artifact が CI から再現生成され、UPM として導入できる。
+
+次の 3 つが同時に成り立つ状態。
+
+1. Windows / macOS / Linux の native artifact が CI から生成され、それぞれ **platform を
+   含む構成ハッシュ**で識別される（現在ハッシュに platform が入っておらず、別 platform の
+   ビルドが同じハッシュを名乗れてしまう）
+2. その artifact が Git URL または tarball から UPM として導入でき、manifest / checksums /
+   third-party notices / SBOM が付く
+3. **Linux レーンがリークを検出し、成果物の linkage が構成の意図と一致することを機械が確かめる**
+   — どちらも現在は誰も見ていない。MSVC の ASan はリークを検出せず、送った CMake flag が
+   守られたかを見る仕組みも無い
 
 **完了条件**
 
