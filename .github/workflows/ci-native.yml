@@ -127,6 +127,15 @@ jobs:
         shell: pwsh
         run: ./tools/dev.ps1 test
 
+      # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
+      # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
+      # なる（M1 の H2 で同じ形を指摘済み）。
+      - name: Run the slow tools tests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/dev.ps1 test-tools-slow
+
   linux:
     name: Linux x64 (L1 + L3)
     runs-on: ubuntu-24.04
@@ -147,3 +156,12 @@ jobs:
       - name: Run all fast lanes
         shell: pwsh
         run: ./tools/dev.ps1 test
+
+      # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
+      # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
+      # なる（M1 の H2 で同じ形を指摘済み）。
+      - name: Run the slow tools tests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/dev.ps1 test-tools-slow

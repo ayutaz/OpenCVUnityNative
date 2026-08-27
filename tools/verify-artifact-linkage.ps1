@@ -43,7 +43,26 @@ if (-not (Test-Path -LiteralPath $Root)) {
     Write-VerifyFailure "artifact tree not found: $Root"
 }
 
-$config = Get-OpenCvConfig -Platform $Platform
+# **switch の default に到達できる形にしておく。**
+#
+# 素直に Get-OpenCvConfig -Platform <未知> を呼ぶと、そこで「未知の platform」
+# 例外が出て switch まで届かない。すると default 分岐（「読み取りロジックが
+# 無い platform は失敗にする」という、この検査で最も重要な安全側の既定）が
+# **一度も実行されないまま**になり、効いているかどうか誰にも分からない。
+#
+# Toolchains に登録されているが読み取りロジックを書いていない platform は
+# 実際に起こり得る — 4 つ目を足した人が opencv-config.psd1 だけ更新して
+# この検査を忘れる、というのがまさにその形である。構成の取得に失敗した場合は
+# 空の構成で先へ進め、switch に判定させる。
+$config = $null
+try {
+    $config = Get-OpenCvConfig -Platform $Platform
+}
+catch {
+    # 構成が引けない platform でも switch まで進める。実装のある platform なら
+    # 下で $config を使うので、そこで改めて落ちる。
+    $config = [pscustomobject]@{ Platform = $Platform; CMakeArgs = @() }
+}
 
 # 構成が要求している CRT linkage を読む。これが「意図」の側である。
 $wantsSharedRuntime = $config.CMakeArgs -contains '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL'
