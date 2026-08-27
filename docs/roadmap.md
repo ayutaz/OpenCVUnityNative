@@ -322,6 +322,83 @@ M1 は「構成を固定すれば同じ成果物ができる」を Windows 1 つ
 **非ゴール**
 mobile / Web。optional profile。
 
+**実測による完了判定（2026-08-28、`milestone-complete` skill の手順で照合）**
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 1 | 3 platform の CI build と、platform / architecture 別の Plugin Import Settings | **満たさない** |
+| 2 | Git URL または tarball から導入できる UPM パッケージ | **満たさない** |
+| 3 | artifact manifest、checksums、`THIRD_PARTY_NOTICES.md`、SBOM | **満たさない** |
+| 4 | Linux レーンでのリーク検出（LeakSanitizer / Valgrind） | **満たさない** |
+| 5 | 成果物の linkage・有効言語・リンク済み依存の機械的検証 | **満たさない** |
+| 6 | Unity sample と最小 API reference | 満たす |
+
+**判定の前提: このブランチは `2a98d35` までしか push されていない。** Task 1〜4（構成の
+platform 化、preset、Windows linkage 検証、CI の 3 platform 拡張）はその commit で CI を
+一度通っているが、Task 5〜7（macOS/Linux linkage 検証、配布物一式、Unity sample/API
+reference）とそれに続く 2 件の修正 commit — 計 7 commit — は**一度も CI を通っていない**。
+`ci-native.yml` と `ci-sanitizers.yml` は `pull_request` か `main` への push でしか起動せず、
+このブランチはまだ PR を出していないため（`gh run list --branch feat/m3-desktop-three-platforms
+--workflow=ci-native.yml` / `--workflow=ci-sanitizers.yml` はいずれも 0 件）。
+
+- **条件 1（満たさない）**: OpenCV artifact 自体は 3 platform とも CI で成功している
+  （`build-opencv.yml` run 33100291579、2026-08-27、windows-x64/macos-arm64/linux-x64 の
+  3 つの artifact が platform 込みのハッシュで公開された。`tools/opencv-config.psd1` /
+  `tools/OpenCvConfig.psm1` はその後変更されていないため現在の HEAD にもそのまま
+  当てはまる）。しかし **native plugin（`opencv_unity_native.dll`/`.so`/`.dylib`）は
+  Windows でしか一度もビルドされていない** — `ci-native.yml` の `macos` / `linux` job
+  （plugin の build + test を行う）が未実行のため。**Plugin Import Settings も Windows
+  分の `.meta` しか存在しない**
+  （`find Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins -type f` は
+  `x86_64/opencv_unity_native.dll` とその `.meta` の 2 件のみを返す。macOS/Linux の
+  binary も `.meta` も 0 件）。
+- **条件 2（満たさない）**: `tests/UnityProject/Packages/manifest.json` は依然として
+  `"com.ayutaz.opencv-unity-native": "file:../../../Packages/com.ayutaz.opencv-unity-native"`
+  という M2 と同じローカル参照のままである。`PackageRelease.Tests.ps1` が検証しているのは
+  `package.json` の必須フィールドと samples path の実在、`.meta` が git 追跡対象かどうかで、
+  **Git URL または tarball から実際に解決できることそのものは一度も検証されていない。**
+- **条件 3（満たさない）**: `tools/package-release.ps1` は実物の Windows artifact に対して
+  `checksums.txt` / `sbom.spdx.json` / `build-manifest.json` を正しく生成する（実行して
+  exit 0 を確認済み。`PackageRelease.Tests.ps1` は 20 assertion 全て green）。しかし
+  `THIRD_PARTY_NOTICES.md` は (a) `package-release.ps1` の出力に**含まれていない**
+  （4 つのうち 3 つしか束ねられていない）、(b) **古い構成ハッシュ `b20b4dacd9a9` を
+  17 箇所で参照したままで、Task 1 が platform をハッシュに混ぜたことで現在の Windows
+  構成ハッシュは `4785d98e9aad` になっている。** ライセンスファイルの集合自体は変わって
+  いない（両ハッシュの `etc/licenses/` は diff で完全一致を確認済み）ので内容の主張は
+  実質的に正しいが、記載されている具体的なパスは新しいハッシュでは存在しない。
+- **条件 4（満たさない）**: `ci-sanitizers.yml` の `linux-asan` job（`ASAN_OPTIONS:
+  detect_leaks=1` で `dev.ps1 test-asan` を呼ぶ）はワークフローとして存在するが、
+  **このブランチで一度も実行されていない。** ローカルにも Linux 機がないため他の手段でも
+  検証できていない。リーク検出が実際に機能するかは完全に未検証である。
+- **条件 5（満たさない）**: Windows 分は確立している——実物の artifact に対する
+  happy path と、`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` を外す変異試験の両方が
+  green（`test-tools-slow` で再確認済み）。macOS/Linux 分（`nm -u` で `.a` の未定義
+  シンボルを読む `Test-StaticArchiveLinkage`）は実装され、CI 配線の欠落
+  （Task 5 の実装者自身が報告した「`ci-native.yml` の macOS/Linux job から
+  `test-tools-slow` が呼ばれていない」問題）も commit `9264393` で修正済みだが、
+  **実際に本物の `.a` を読んで正しく合否判定できるかは一度も実行されていない**——
+  このマシンには `nm` が無く（ローカルでは「対象 0 件」「ツールが動かない」という
+  異常系しか踏めない）、CI も一度も走っていない。加えて、完了条件が明示する
+  「linkage・**有効言語**・リンク済み依存」のうち「有効言語」
+  （M1 Task 4 の ASM 混入のような、意図しない言語がビルドで有効になっていないかの
+  検証）は `tools/verify-artifact-linkage.ps1` にも `tools/verify-opencv-artifact.ps1`
+  にも専用の検査が無い（`grep -rn "ASM\|CMAKE_ASM"` は 0 件）。
+- **条件 6（満たす）**: `Samples~/BasicUsage/BasicUsage.cs` と `docs/api-reference.md`
+  が commit `19bc3c7` にある。呼び出している API（`CvMat.Create` /
+  `CvOps.GaussianBlur` / `TextureConverter.ToMat` / `ToTexture`）を実際のシグネチャと
+  突き合わせて一致を確認し、さらに `tests/UnityProject/Assets/` へ一時的にコピーして
+  `dev.ps1 test-unity-editmode` を実行——exit 0、10/10 pass（コピー無しの場合と同数）で、
+  **サンプルが実際にコンパイルを通ることを確認した**（コピーはテスト後に削除し、
+  作業ツリーが clean に戻ることも確認済み）。
+
+**したがって M3 は「6 件中 1 件達成」であって「完了」ではない。** 未達の 5 件はいずれも
+「コードが無い」のではなく「コードは書かれているが、CI（あるいはどこにも）一度も
+実行されていない」形である——このリポジトリが CI を「唯一の正本の検証結果」と位置づけて
+いる以上、実行されていないものを満たしたと記録することはできない。実装計画
+（[docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)）
+は Task 8 まで実施済みで、判定の詳細は
+`.superpowers/sdd/2026-08-28-m3-desktop-three-platforms/task-8-report.md` にある。
+
 ---
 
 ## M4 — Mobile
