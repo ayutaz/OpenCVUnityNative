@@ -96,6 +96,7 @@ $ToolsTestScriptsFast = @(
 $ToolsTestScriptsSlow = @(
     'VerifyOpenCvArtifact.Tests.ps1'
     'OpenCvRestore.Tests.ps1'
+    'VerifyArtifactLinkage.Tests.ps1'
 )
 
 function Invoke-ToolsTestList {
