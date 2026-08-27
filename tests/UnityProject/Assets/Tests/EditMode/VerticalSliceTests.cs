@@ -154,6 +154,21 @@ public class VerticalSliceTests
     }
 
     [Test]
+    public void ToTexture_RejectsANonRgba32Texture()
+    {
+        // 形式検査そのものを固定する。バイト数一致検査とは別物である:
+        // RGB24 の 4x3 テクスチャ（36 バイト）に 3 チャンネル Mat（36 バイト）を
+        // 渡すとバイト数は一致してしまうので、形式検査を消してもバイト数検査は
+        // 通る。M2 が RGBA32 しか扱わないことを明示的に見る。
+        var texture = new Texture2D(4, 3, TextureFormat.RGB24, false);
+        using (var mat = CvMat.Create(3, 4, CvMatType.Bgr24))
+        {
+            Assert.Throws<System.NotSupportedException>(
+                () => TextureConverter.ToTexture(mat, texture));
+        }
+    }
+
+    [Test]
     public void ToTexture_AcceptsAMatchingFourChannelMat()
     {
         // 上の検査が「何でも拒否する」形になっていないことの担保。

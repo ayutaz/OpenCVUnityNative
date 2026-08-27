@@ -204,19 +204,32 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 | 7 | `ci-unity.yml` が CI 上で L4/L5 を実行する | **満たさない** |
 | 8 | ローカル参照可能な最小 UPM パッケージとして動作する | 満たす |
 
-**条件 3 は達成した（当初は未達だった）。** レビューで「`NativeArray` を直接受ける API が
-無く、`ToArray()` で managed 配列へ写しているのでコピー 2 回になる」と指摘され、判定を
-一度「満たさない」に下げた。その後 `NativeMethods` と `CvMat` に `IntPtr` を受ける経路を
-足し、`TextureConverter` を両方向ともその経路に付け替えて解消した。
+**条件 3 は達成した（判定は 2 度動いた）。** 経緯を残す。当初は「満たす」としたが、
+レビューで「`NativeArray` を直接受ける API が無く、`ToArray()` で managed 配列へ写して
+いるのでコピー 2 回になる」と指摘され「満たさない」に下げた。次に `IntPtr` 版を足して
+再び「満たす」としたが、それも早かった — `IntPtr` は `NativeArray` ではなく、利用者側に
+`allowUnsafeCode` とバイト長の自前計算を要求する形だったからである
+（`NativeArray<T>.Length` は要素数であってバイト数ではない）。
 
-`Texture2D.GetRawTextureData<byte>()` が返す `NativeArray` の先頭アドレスをそのまま
-native へ渡し、戻り側もテクスチャの生データへ直接書く。中間の managed 配列は無い。
-借用は 1 回の呼び出しの内側で完結し、`docs/abi-ownership-and-versioning.md` §1 の規約を
-崩していない。
+現在の根拠は次のとおり:
 
-検証は L3（`MatPointerBufferTests`、Unity 不要）でポインタ経路そのものを固定し、
-L4 / L5 で `TextureConverter` がその経路を使っていることを見る。書き戻し先を 1 バイト
-ずらす変異を入れると EditMode が赤くなることを確認済み。IL2CPP Player でも 4/4 通る。
+- `Runtime/UnityIntegration/NativeArrayExtensions.cs` が `NativeArray<T>` を入力・出力の
+  両方向で受ける。利用者に `unsafe` を要求しない。バイト長は `SizeOf<T>()` を掛けて
+  こちらで算出する。
+- **利用者所有の `NativeArray` を渡すテストが L4 / L5 の両方にある**
+  （`UserOwnedNativeArray_RoundTripsWithoutGoingThroughAManagedArray`、
+  `NativeArrayLength_IsElementsNotBytes`）。以前は `TextureConverter` 内部の
+  テクスチャ生データしか無く、それは Texture2D 経路であって NativeArray 経路ではなかった。
+- `TextureConverter` は両方向ともポインタ経路で、中間の managed 配列は無い。
+- `SizeOf<T>()` を掛けるのをやめる変異、書き戻し先を 1 バイトずらす変異のいずれでも
+  L4 が赤くなることを確認済み。IL2CPP でも 9/9 通る。
+
+安全網を 1 つ外したことも記録する。`byte[]` 経路では Unity の `LoadRawTextureData` が
+バイト数不一致を例外にしていたが、ポインタ経路はそこを通らない。実際、チャンネル数の
+合わない Mat を `ToTexture` に渡すと成功が返り、テクスチャの先頭へ一部だけ書かれた
+（実測: 48 バイト中 12 バイト、例外もログも無し）。`ToTexture` に形式検査とバイト数
+一致検査を置き直して塞いだ。**安全網を外す変更をするときは、外した分を同じ層に
+置き直すこと。**
 
 **条件 7 は未達である。** `ci-unity.yml` は書かれ、ローカルでは `dev.ps1 test-unity-editmode` /
 `dev.ps1 test-unity-player` の両方が green だが、CI 上では一度も実行されていない

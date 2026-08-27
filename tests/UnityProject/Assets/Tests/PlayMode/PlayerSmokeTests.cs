@@ -40,6 +40,12 @@ public class PlayerSmokeTests
 
         using (var mat = TextureConverter.ToMat(texture))
         {
+            // EditMode と同じ形状検査。往復だけを見ていると、変換が形を
+            // 取り違えていても往復の対称性で打ち消されて通り得る。
+            Assert.AreEqual(4, mat.Cols);
+            Assert.AreEqual(2, mat.Rows);
+            Assert.AreEqual(4, mat.Channels);
+
             var result = new Texture2D(4, 2, TextureFormat.RGBA32, false);
             TextureConverter.ToTexture(mat, result);
 
@@ -66,6 +72,19 @@ public class PlayerSmokeTests
             CvOps.GaussianBlur(src, dst, 3, 3, 0.0, 0.0);
             Assert.AreEqual(8, dst.Cols);
             Assert.AreEqual(8, dst.Rows);
+
+            // EditMode と同じ 5 行。寸法だけを見ていると、GaussianBlur が何も
+            // せずに返っても Player は緑になる。
+            //
+            // さらにこの 2 行は、Player で byte[] 版の P/Invoke を通す唯一の
+            // 経路でもある。byte[] 版は今も public API であり、利用者は IL2CPP
+            // 上でこれを呼ぶ。stripping がその宣言を削らないことを確かめる場所は
+            // このレーンしか無い（Mono では再現しない）。
+            var before = new byte[8 * 8 * 4];
+            var after = new byte[8 * 8 * 4];
+            src.CopyTo(before, 8 * 4);
+            dst.CopyTo(after, 8 * 4);
+            CollectionAssert.AreNotEqual(before, after, "the blur must actually change pixels");
         }
         yield return null;
     }
@@ -143,6 +162,22 @@ public class PlayerSmokeTests
             var ex = Assert.Throws<System.ArgumentException>(
                 () => TextureConverter.ToTexture(gray, texture));
             StringAssert.Contains("pixel format mismatch", ex.Message);
+        }
+        yield return null;
+    }
+
+    [UnityTest]
+    public IEnumerator ToTexture_RejectsANonRgba32Texture()
+    {
+        // 形式検査そのものを固定する。バイト数一致検査とは別物である:
+        // RGB24 の 4x3 テクスチャ（36 バイト）に 3 チャンネル Mat（36 バイト）を
+        // 渡すとバイト数は一致してしまうので、形式検査を消してもバイト数検査は
+        // 通る。M2 が RGBA32 しか扱わないことを明示的に見る。
+        var texture = new Texture2D(4, 3, TextureFormat.RGB24, false);
+        using (var mat = CvMat.Create(3, 4, CvMatType.Bgr24))
+        {
+            Assert.Throws<System.NotSupportedException>(
+                () => TextureConverter.ToTexture(mat, texture));
         }
         yield return null;
     }
