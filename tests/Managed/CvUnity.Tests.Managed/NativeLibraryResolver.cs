@@ -46,7 +46,13 @@ namespace CvUnity.Tests.Managed
                     "'tools/dev.ps1 test-managed' so the native build output can be located.");
             }
 
-            var path = Path.Combine(directory, "opencv_unity_native.dll");
+            // ファイル名は platform で変わる。決め打ちにすると macOS / Linux で
+            // L3 が FileNotFoundException になる（M3 のレビューで発見）。
+            var fileName =
+                RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "opencv_unity_native.dll" :
+                RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "libopencv_unity_native.dylib" :
+                "libopencv_unity_native.so";
+            var path = Path.Combine(directory, fileName);
             if (!File.Exists(path))
             {
                 throw new FileNotFoundException(

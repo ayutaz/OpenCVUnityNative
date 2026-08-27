@@ -44,7 +44,9 @@ $mutatedTag = Get-OpenCvConfig
 $mutatedTag.Tag = '5.0.1'
 Assert-That ((Get-OpenCvConfigHash -Config $mutatedTag) -ne $hash1) 'changing the tag changes the hash'
 
-Assert-That ((Get-OpenCvArtifactName -Config $config) -eq "opencv-5.0.0-windows-x64-$hash1") 'artifact name embeds the hash'
+# 実行中の platform で組み立てる。'windows-x64' を直書きすると macOS / Linux で
+# 必ず落ち、そこで dev.ps1 test が止まって L1 も L3 も走らなくなる（M3 のレビューで発見）。
+Assert-That ((Get-OpenCvArtifactName -Config $config) -eq "opencv-5.0.0-$($config.Platform)-$hash1") 'artifact name embeds the platform and the hash'
 
 # 並び順を変えても同じハッシュになること（order-insensitive）。
 # Sort-Object を将来のリファクタで取りこぼしても検知できるよう、

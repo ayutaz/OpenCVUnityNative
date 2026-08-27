@@ -333,13 +333,14 @@ mobile / Web。optional profile。
 | 5 | 成果物の linkage・有効言語・リンク済み依存の機械的検証 | **満たさない** |
 | 6 | Unity sample と最小 API reference | 満たす |
 
-**判定の前提: このブランチは `2a98d35` までしか push されていない。** Task 1〜4（構成の
-platform 化、preset、Windows linkage 検証、CI の 3 platform 拡張）はその commit で CI を
-一度通っているが、Task 5〜7（macOS/Linux linkage 検証、配布物一式、Unity sample/API
-reference）とそれに続く 2 件の修正 commit — 計 7 commit — は**一度も CI を通っていない**。
-`ci-native.yml` と `ci-sanitizers.yml` は `pull_request` か `main` への push でしか起動せず、
-このブランチはまだ PR を出していないため（`gh run list --branch feat/m3-desktop-three-platforms
---workflow=ci-native.yml` / `--workflow=ci-sanitizers.yml` はいずれも 0 件）。
+**判定の前提: `ci-native.yml` / `ci-sanitizers.yml` は `pull_request` か `main` への push
+でしか起動せず、このブランチにはまだ PR が無い。** よって M3 が追加した macOS / Linux の
+job は一度も実行されていない。`build-opencv.yml` は push でも起動するので 3 platform の
+成果物ビルドだけは実証済みである（run 33100291579、3/3 success）。
+
+**「まだ push していない」を判定の根拠にしない。** 初版はそう書いていたが、push した
+瞬間に嘘になった。判定の理由は、一瞬で変わる状態ではなく、workflow の trigger 条件の
+ような変わらない事実に置くこと。
 
 - **条件 1（満たさない）**: OpenCV artifact 自体は 3 platform とも CI で成功している
   （`build-opencv.yml` run 33100291579、2026-08-27、windows-x64/macos-arm64/linux-x64 の
@@ -358,14 +359,16 @@ reference）とそれに続く 2 件の修正 commit — 計 7 commit — は**�
   `package.json` の必須フィールドと samples path の実在、`.meta` が git 追跡対象かどうかで、
   **Git URL または tarball から実際に解決できることそのものは一度も検証されていない。**
 - **条件 3（満たさない）**: `tools/package-release.ps1` は実物の Windows artifact に対して
-  `checksums.txt` / `sbom.spdx.json` / `build-manifest.json` を正しく生成する（実行して
-  exit 0 を確認済み。`PackageRelease.Tests.ps1` は 20 assertion 全て green）。しかし
-  `THIRD_PARTY_NOTICES.md` は (a) `package-release.ps1` の出力に**含まれていない**
-  （4 つのうち 3 つしか束ねられていない）、(b) **古い構成ハッシュ `b20b4dacd9a9` を
-  17 箇所で参照したままで、Task 1 が platform をハッシュに混ぜたことで現在の Windows
-  構成ハッシュは `4785d98e9aad` になっている。** ライセンスファイルの集合自体は変わって
-  いない（両ハッシュの `etc/licenses/` は diff で完全一致を確認済み）ので内容の主張は
-  実質的に正しいが、記載されている具体的なパスは新しいハッシュでは存在しない。
+  4 点（`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` /
+  `THIRD_PARTY_NOTICES.md`）を生成する（実行して exit 0 を確認済み）。当初 2 件の欠陥が
+  あったが `886eb6d` で解消した — 通知が束ねられていなかった件と、通知が古い構成ハッシュを
+  19 箇所で参照していた件である。後者はハッシュを書き換えるのではなく、取得方法を書いて
+  パスを `<hash>` 表記にした（値を埋め込むと構成を変えるたびに古くなるため）。
+
+  **それでも未達とするのは、これが Windows の artifact に対してしか実行されていないから
+  である。** macOS / Linux の成果物に対して `package-release.ps1` を走らせた実績が無く、
+  それらの platform では licence の配置も library の綴りも違う。条件が求めているのは
+  「3 platform の配布物」であって「Windows の配布物」ではない。
 - **条件 4（満たさない）**: `ci-sanitizers.yml` の `linux-asan` job（`ASAN_OPTIONS:
   detect_leaks=1` で `dev.ps1 test-asan` を呼ぶ）はワークフローとして存在するが、
   **このブランチで一度も実行されていない。** ローカルにも Linux 機がないため他の手段でも

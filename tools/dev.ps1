@@ -19,6 +19,14 @@ Set-StrictMode -Version Latest
 $RepoRoot      = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
 $Platform      = Get-OpenCvPlatform
+
+# native library のファイル名は platform で変わる。**1 箇所で決める** —
+# 各所に .dll と書くと、platform を足したときに書き換え漏れが起きる
+# （実測: M3 のレビューで dev.ps1 の 2 箇所と NativeLibraryResolver.cs が
+# 漏れており、macOS / Linux の job は L1 も L3 も走らずに落ちる状態だった）。
+$NativeLibraryName = if ($IsWindows) { 'opencv_unity_native.dll' }
+                     elseif ($IsMacOS) { 'libopencv_unity_native.dylib' }
+                     else { 'libopencv_unity_native.so' }
 $Preset        = "$Platform-debug"
 $AsanPreset    = "$Platform-asan"
 $ResultsDir    = Join-Path $RepoRoot 'artifacts/test-results'
@@ -154,11 +162,11 @@ function Copy-NativePluginForUnity {
     # 構成名のサブディレクトリ（Debug/）を作るが、Ninja は作らない。
     $buildDir = Join-Path $RepoRoot "build/$Preset/native"
     $source = if ($IsWindows) {
-        Join-Path $buildDir 'Debug/opencv_unity_native.dll'
+        Join-Path $buildDir "Debug/$NativeLibraryName"
     } elseif ($IsMacOS) {
-        Join-Path $buildDir 'libopencv_unity_native.dylib'
+        Join-Path $buildDir $NativeLibraryName
     } else {
-        Join-Path $buildDir 'libopencv_unity_native.so'
+        Join-Path $buildDir $NativeLibraryName
     }
 
     if (-not (Test-Path -LiteralPath $source)) {
@@ -209,7 +217,7 @@ function Test-Asan {
 
 function Test-Managed {
     Build-Native
-    if (-not (Test-Path (Join-Path $NativeOutDir 'opencv_unity_native.dll'))) {
+    if (-not (Test-Path (Join-Path $NativeOutDir $NativeLibraryName))) {
         throw "Native library was not found in '$NativeOutDir' after building."
     }
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
@@ -411,7 +419,7 @@ function Test-UnityPlayer {
 # (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
 function Test-ManagedProbe {
     Build-Native
-    if (-not (Test-Path (Join-Path $NativeOutDir 'opencv_unity_native.dll'))) {
+    if (-not (Test-Path (Join-Path $NativeOutDir $NativeLibraryName))) {
         throw "Native library was not found in '$NativeOutDir' after building."
     }
     $env:OCVU_NATIVE_DIR = $NativeOutDir
