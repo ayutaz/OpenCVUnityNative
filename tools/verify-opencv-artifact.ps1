@@ -101,11 +101,25 @@ $PermittedOpenCvModules = @(@($config.Modules) + $AcceptedTransitiveModules | So
 # （third_party/opencv/<hash>/x64/vc17/staticlib）を見て確定した集合。
 # 想像で足さない — 新しい third-party が現れたら、ライセンスを確認した上で
 # ここに追加するかどうかを人間が判断する。
+#
+# **ファイル名ではなくライブラリ名で持つ。** 命名規約が platform で違うためで、
+# 同じ zlib が Windows では zlib.lib、Unix では libzlib.a になる（実測、M3 Task 4）。
+# ファイル名で持つと同じライブラリを 2 回書くことになり、片方だけ更新される。
+# 判定側が 'lib' 接頭辞と拡張子を剥がしてからここと突き合わせる。
 $PermittedThirdPartyLibs = @(
-    'zlib.lib'          # zlib, zlib License
-    'libpng.lib'        # libpng, libpng License (Apache-2.0 互換)
-    'libjpeg-turbo.lib' # libjpeg-turbo, BSD-3-Clause / IJG / zlib のトリプルライセンス
-    'libclapack.lib'    # CLAPACK, BSD-3-Clause (University of Tennessee)。LAPACK 実装で core が使う
+    'zlib'          # zlib, zlib License
+    'libpng'        # libpng, libpng License (Apache-2.0 互換)
+    'libjpeg-turbo' # libjpeg-turbo, BSD-3-Clause / IJG / zlib のトリプルライセンス
+    'libclapack'    # CLAPACK, BSD-3-Clause (University of Tennessee)。LAPACK 実装で core が使う
+
+    # --- arm64 (Apple Silicon) の最適化実装。Windows のビルドには現れない ---
+    # KleidiCV: Arm 製の CV 最適化ライブラリ。Apache-2.0。
+    # OpenCV 5 が arm64 で既定で取り込む。
+    'kleidicv'
+    'kleidicv_hal'
+    'kleidicv_thread'
+    # Tegra HAL: OpenCV 本体に同梱される arm 向け HAL の入れ物。Apache-2.0。
+    'tegra_hal'
 )
 
 # 名前に現れたら拒否理由を具体的に説明できるもの。
@@ -326,7 +340,9 @@ foreach ($file in $files) {
     if ($ext -in $BinaryArtifactExtensions) {
         # 受け入れると決めた OpenCV module か（opencv_<name><version>.(lib|a)
         # の形で、かつ name が $PermittedOpenCvModules に入っているもの）。
-        if ($file.Name -match '^opencv_(?<name>[a-z0-9_]+?)\d*\.(lib|a)$') {
+        # Unix は 'lib' 接頭辞を付ける（libopencv_core.a）。Windows は付けない
+        # （opencv_core500.lib）。version 番号の有無も違う。
+        if ($file.Name -match '^(lib)?opencv_(?<name>[a-z0-9_]+?)\d*\.(lib|a)$') {
             $moduleName = $Matches['name']
             if ($moduleName -in $PermittedOpenCvModules) {
                 $found += $moduleName
@@ -337,7 +353,18 @@ foreach ($file in $files) {
         }
 
         # 明示的に受け入れた third-party ライブラリか。
-        if ($lower -in ($PermittedThirdPartyLibs | ForEach-Object { $_.ToLowerInvariant() })) {
+        #
+        # 名前を正規化してから突き合わせる。Windows は zlib.lib、Unix は
+        # libzlib.a と綴りが違うだけで同じライブラリなので、拡張子と
+        # 'lib' 接頭辞を落として比べる。**綴りごとに列挙しない** — 列挙は
+        # platform が増えるたびに増え、片方だけ更新される形になる。
+        #
+        # libpng / libjpeg-turbo / libclapack のように名前自体が lib で
+        # 始まるものがあるので、接頭辞を剥がした形と剥がさない形の両方で照合する。
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($lower)
+        $stripped = $stem -replace '^lib', ''
+        $permitted = @($PermittedThirdPartyLibs | ForEach-Object { $_.ToLowerInvariant() })
+        if ($stem -in $permitted -or $stripped -in $permitted) {
             continue
         }
 
