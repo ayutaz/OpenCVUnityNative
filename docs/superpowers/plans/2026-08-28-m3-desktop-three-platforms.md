@@ -544,7 +544,10 @@ Set-StrictMode -Version Latest
 
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+# $PSScriptRoot は tools/tests を指すので 2 段上がる。1 段だと tools/ に
+# なり、tools/tools/... という存在しないパスになる（隣の
+# VerifyOpenCvArtifact.Tests.ps1 と同じ書き方に揃える）。
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $verify = Join-Path $repoRoot 'tools/verify-artifact-linkage.ps1'
 $failures = @()
 
@@ -601,9 +604,15 @@ Expected: FAIL。`verify-artifact-linkage.ps1` が存在しない。
 
 `tools/verify-artifact-linkage.ps1`:
 
+**`param` ブロックの位置に注意する。** PowerShell は `param(...)` を「script の
+最初の実行文であるとき」だけパラメータ宣言として扱う（コメントと `#Requires` は
+例外）。`Set-StrictMode` を先に置くと `param(...)` が**普通の関数呼び出しとして
+解釈され、引数が束縛されない**。すると `$Root` が未設定になり、本来の失敗理由が
+StrictMode の例外に覆い隠される — 検査は「落ちてはいる」が「意図した理由で
+落ちていない」状態になる。`tools/verify-opencv-artifact.ps1` と同じ順序にする。
+
 ```powershell
 #Requires -Version 7.0
-Set-StrictMode -Version Latest
 
 <#
     ビルド済み OpenCV ツリーの linkage が、構成の意図と一致するかを検証する。
@@ -627,6 +636,8 @@ param(
     [string]$Platform
 )
 
+# param ブロックより後に置く（上の注意を参照）。
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
