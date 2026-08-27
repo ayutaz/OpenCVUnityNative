@@ -1,0 +1,178 @@
+#Requires -Version 7.0
+Set-StrictMode -Version Latest
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+<#
+    tools/package-release.ps1 が出す配布物（checksums / SBOM / manifest）を検証する。
+
+    SBOM は「成果物に何が入っているか」の申告であり、実物から機械的に組み立てる
+    契約になっている。この検査で最も重要なのは正常系ではなく異常系: 申告すべき
+    実体が無いときに、空の申告を「成功」として出してしまわないかである。
+
+    ライセンスの配置は platform で変わる（tools/verify-opencv-artifact.ps1 と
+    同じ理解）:
+      Windows      etc/licenses/<file>
+      macOS/Linux  share/licenses/opencv5/<file>
+    片方しか見ない実装は、Unix 系のビルドで SBOM が黙って空になる。この
+    マシンには macOS / Linux の実機artifactが無いので、配置だけを模した
+    合成ツリーで両方の経路を確かめる。
+#>
+
+# $PSScriptRoot は tools/tests を指すので 2 段上がる。1 段だと tools/ に
+# なり、tools/tools/... という存在しないパスになる（この誤りは計画書の
+# Step 1 サンプルに実在した。tools/tests/VerifyArtifactLinkage.Tests.ps1 と
+# 同じ書き方に揃える）。
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$script = Join-Path $repoRoot 'tools/package-release.ps1'
+$failures = @()
+
+function Assert-That([bool]$condition, [string]$what) {
+    if ($condition) { Write-Host "  PASS  $what" -ForegroundColor Green }
+    else { Write-Host "  FAIL  $what" -ForegroundColor Red; $script:failures += $what }
+}
+
+function New-TempDir([string]$prefix) {
+    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("$prefix-" + [guid]::NewGuid().ToString('n'))
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    return $dir
+}
+
+function New-SyntheticOpenCvRoot([string]$LicenseRelativeDir) {
+    $root = New-TempDir 'ocvu-sbom-root'
+    '{ "platform": "synthetic" }' | Set-Content -LiteralPath (Join-Path $root 'build-manifest.json') -Encoding utf8
+    if ($LicenseRelativeDir) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $root $LicenseRelativeDir) | Out-Null
+    }
+    return $root
+}
+
+# --- 実物に対して通ること ---
+$out = New-TempDir 'ocvu-pkg'
+try {
+    & pwsh -NoProfile -File $script -OutputDir $out | Out-Null
+    Assert-That ($LASTEXITCODE -eq 0) 'package-release exits 0'
+
+    foreach ($f in @('checksums.txt', 'sbom.spdx.json')) {
+        Assert-That (Test-Path -LiteralPath (Join-Path $out $f)) "$f is produced"
+    }
+
+    # SBOM は実物から作る。artifact が bundle している component が
+    # 全部入っていること — 片方だけ更新される状態を作らない。
+    $sbom = Get-Content -LiteralPath (Join-Path $out 'sbom.spdx.json') -Raw | ConvertFrom-Json
+    $names = @($sbom.packages | ForEach-Object { $_.name })
+    foreach ($c in @('zlib', 'libpng', 'libjpeg')) {
+        Assert-That (@($names | Where-Object { $_ -like "*$c*" }).Count -gt 0) "the SBOM lists $c"
+    }
+
+    $lines = @(Get-Content -LiteralPath (Join-Path $out 'checksums.txt'))
+    Assert-That ($lines.Count -gt 0) 'checksums.txt is not empty'
+}
+finally {
+    Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+}
+
+# --- SBOM: ライセンス配置が丸ごと無ければ失敗する ---
+$noLicenseRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir $null
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $noLicenseRoot -Platform 'windows-x64' 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'no license directory at all fails rather than emitting an empty SBOM'
+Remove-Item -Recurse -Force $noLicenseRoot, $tmp -ErrorAction SilentlyContinue
+
+# --- SBOM: Windows レイアウト（etc/licenses/）が存在するが空なら失敗する ---
+$emptyWinRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'etc/licenses'
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $emptyWinRoot -Platform 'windows-x64' 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an empty etc/licenses (Windows layout) fails rather than emitting an empty SBOM'
+Remove-Item -Recurse -Force $emptyWinRoot, $tmp -ErrorAction SilentlyContinue
+
+# --- SBOM: Unix レイアウト（share/licenses/opencv5/）が存在するが空なら失敗する ---
+#
+# ここが本題。etc/licenses/ だけを見る実装は、この場合「見つからない」の
+# 例外にすら入らず、単に別の場所を見ていて気づかない。このケースを踏まないと
+# Unix 系だけ黙って空の SBOM が出る欠陥が再発する。
+$emptyUnixRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'share/licenses/opencv5'
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $emptyUnixRoot -Platform 'linux-x64' 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an empty share/licenses/opencv5 (Unix layout) fails rather than emitting an empty SBOM'
+Remove-Item -Recurse -Force $emptyUnixRoot, $tmp -ErrorAction SilentlyContinue
+
+# --- SBOM: Unix レイアウトに中身があれば、そこから component が拾われる ---
+# （0 件を「違反なし」と誤読していないかの正常系側の裏付け）
+$populatedUnixRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'share/licenses/opencv5'
+'zlib license text' | Set-Content -LiteralPath (Join-Path $populatedUnixRoot 'share/licenses/opencv5/zlib-LICENSE') -Encoding utf8
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $populatedUnixRoot -Platform 'linux-x64' | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'a populated share/licenses/opencv5 (Unix layout) succeeds'
+if (Test-Path -LiteralPath (Join-Path $tmp 'sbom.spdx.json')) {
+    $unixSbom = Get-Content -LiteralPath (Join-Path $tmp 'sbom.spdx.json') -Raw | ConvertFrom-Json
+    $unixNames = @($unixSbom.packages | ForEach-Object { $_.name })
+    Assert-That (@($unixNames | Where-Object { $_ -like '*zlib*' }).Count -gt 0) `
+        'the Unix-layout SBOM picks up zlib from share/licenses/opencv5'
+}
+else {
+    Assert-That $false 'the Unix-layout SBOM picks up zlib from share/licenses/opencv5'
+}
+Remove-Item -Recurse -Force $populatedUnixRoot, $tmp -ErrorAction SilentlyContinue
+
+# --- checksums: native plugin が無ければ失敗する（黙って空の checksums.txt を出さない） ---
+#
+# package-release.ps1 は checksums の対象を
+# Packages/com.ayutaz.opencv-unity-native 配下の再帰走査で決める。退避先を
+# その配下に残すと、退避したはずの .dll がそのまま拾われて「無い」ことを
+# 検証できない（実測で踏んだ: 同じ Runtime/ 直下へリネームしたところ
+# checksums に残り続けた）。退避先はパッケージの外（一時ディレクトリ）にする。
+$pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+if (Test-Path -LiteralPath $pluginRoot) {
+    $backupRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-plugins-backup-" + [guid]::NewGuid().ToString('n'))
+    Move-Item -LiteralPath $pluginRoot -Destination $backupRoot
+    try {
+        $tmp = New-TempDir 'ocvu-pkg-out'
+        & pwsh -NoProfile -File $script -OutputDir $tmp 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) 'a missing native plugin fails rather than emitting an empty checksums.txt'
+        Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+    }
+    finally {
+        Move-Item -LiteralPath $backupRoot -Destination $pluginRoot
+    }
+}
+else {
+    Write-Host "  SKIP  no Plugins directory to remove ($pluginRoot)" -ForegroundColor Yellow
+}
+
+# --- UPM として解決できる形になっているか ---
+#
+# 「package.json が在る」は「導入できる」ではない。Unity が要求する必須
+# フィールドが揃っていること、samples の path が実在すること、
+# plugin の .meta が追跡されていることを見る。
+$pkgPath = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/package.json'
+$pkg = Get-Content -LiteralPath $pkgPath -Raw | ConvertFrom-Json
+
+foreach ($field in @('name', 'version', 'displayName', 'description', 'unity')) {
+    Assert-That ($null -ne $pkg.$field -and $pkg.$field -ne '') "package.json has '$field'"
+}
+Assert-That ($pkg.name -eq 'com.ayutaz.opencv-unity-native') 'package name matches the documented ID'
+
+# samples を宣言しているなら、その path が実在すること。
+# 宣言だけして中身が無いと、利用者の Package Manager に空の項目が出る。
+if ($pkg.PSObject.Properties.Name -contains 'samples') {
+    foreach ($s in $pkg.samples) {
+        $sp = Join-Path (Split-Path -Parent $pkgPath) $s.path
+        Assert-That (Test-Path -LiteralPath $sp) "declared sample path exists: $($s.path)"
+    }
+}
+
+# plugin の .meta が git に追跡されていること。
+# binary は成果物なので無視してよいが、.meta を無視すると利用者の環境で
+# 「全 platform 有効」の既定に戻り、3 つの binary が読み込みで衝突する。
+Push-Location $repoRoot
+try {
+    $tracked = @(& git ls-files 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/**/*.meta')
+    Assert-That ($tracked.Count -gt 0) 'native plugin .meta files are tracked by git'
+}
+finally { Pop-Location }
+
+if ($failures.Count -gt 0) {
+    [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
+    exit 1
+}
+Write-Host "`nall assertions passed" -ForegroundColor Green
