@@ -205,6 +205,15 @@ $InertLicenseFiles = @(
     'mscr-chi_table_LICENSE.txt'
     'zlib-LICENSE'
 )
+# Valgrind の抑制ファイル。Unix 系の install だけが置く（Windows のビルドには
+# 現れない — 実測で確認）。実行可能コードではなく、Valgrind に「この警告は
+# 既知なので無視してよい」と伝えるテキストである。M3 の Linux レーンが
+# Valgrind を使うときに読む対象でもある。
+#
+# 名前で認識する。拡張子 '.supp' だけを条件にすると、同じ拡張子の未知の
+# ファイルが将来入ってきたときに黙って通る。
+$InertValgrindFiles = @('valgrind.supp', 'valgrind_3rdparty.supp')
+
 # root 直下にある、この検証自身が書く manifest と OpenCV 本体の LICENSE。
 $InertRootFiles = @('LICENSE', 'build-manifest.json')
 
@@ -255,6 +264,9 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # 名前 allowlist が主たる門なので、場所は「licenses/ 直下であること」に
     # 緩めつつ、任意の深さは許さない。
     if ($relative -match '^(etc|share)/licenses/[^/]+$' -and $file.Name -in $InertLicenseFiles) { return $true }
+
+    # valgrind の抑制ファイル: 名前で認識する。Unix 系の install だけが置く。
+    if ($file.Name -in $InertValgrindFiles) { return $true }
 
     # cmake package file: 場所ではなく名前そのもので認識する。
     if ($file.Name -in $InertCMakePackageFiles) { return $true }
@@ -331,7 +343,12 @@ foreach ($file in $files) {
 
     # 3. inert でも binary artifact でもない、未知の種類のファイルは
     #    無条件で拒否する。
-    $violations += "  $($file.Name) — 未知の種類のファイルです（拡張子 '$ext'）。inert（header/cmake/notice）か binary artifact のどちらに区分するかを決めたうえで tools/verify-opencv-artifact.ps1 を更新してください"
+    # **相対パスを出す。** ファイル名だけだと、拒否された理由が「未知の名前」
+    # なのか「知っている名前だが想定外の場所」なのか区別できない。M3 Task 4 で
+    # 実際にこれで詰まった: macOS が zlib-LICENSE を拒否したが、それが
+    # etc/licenses/ に在るのか share/licenses/ に在るのかログから読めず、
+    # 配置を推測で直すことになった。診断は原因を名指しできなければ役に立たない。
+    $violations += "  $(Get-RelativePath $file) — 未知の種類のファイルです（拡張子 '$ext'）。inert（header/cmake/notice）か binary artifact のどちらに区分するかを決めたうえで tools/verify-opencv-artifact.ps1 を更新してください"
 }
 
 if ($violations.Count -gt 0) {
