@@ -428,14 +428,21 @@ function Test-UnityTarball {
         Push-Location (Split-Path -Parent $tgz)
         try { $listed = @(& tar -tzf (Split-Path -Leaf $tgz)) }
         finally { Pop-Location }
-        $binaries = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+        # **「何か 1 つでも入っている」で満足しない。** 今ビルドした platform の
+        # binary が入っていることを見る。dev.ps1 は $NativeLibraryName に
+        # 実行中 platform の綴りを 1 箇所で持っているので、それを使う。
+        # 「何かしら」で見ると、古い binary が Plugins に残っているだけで
+        # 通ってしまう。
+        $binaries = @($listed | Where-Object { $_ -like "*/$NativeLibraryName" })
         if ($binaries.Count -lt 1) {
+            $anyBinary = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
             Write-DevFailure (@(
-                "tarball に native plugin が 1 つも入っていません: $tgz"
-                'Runtime/Plugins/ 配下の binary が作られているか確認してください。'
+                "tarball に $NativeLibraryName が入っていません: $tgz"
+                "入っていた binary: $(if ($anyBinary) { $anyBinary -join ', ' } else { '(なし)' })"
+                'この platform 用にビルドしてから固めること。'
             ) -join "`n")
         }
-        Write-Host "==> tarball contains $($binaries.Count) native plugin binary/binaries" -ForegroundColor Green
+        Write-Host "==> tarball contains $NativeLibraryName" -ForegroundColor Green
 
         # 使い捨ての Unity プロジェクトを作る。Library/ 等は持って行かない。
         $project = Join-Path $work 'UnityProject'
