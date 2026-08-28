@@ -203,9 +203,19 @@ $junctionRoot = New-Tree $allowed
 $junctionTarget = Join-Path $temp "junction-target-$(Get-Random)"
 New-Item -ItemType Directory -Force -Path $junctionTarget | Out-Null
 Set-Content -Path (Join-Path $junctionTarget 'payload.dll') -Value 'stub'
-New-Item -ItemType Junction -Path (Join-Path $junctionRoot 'x64/vc17/staticlib/linked') -Target $junctionTarget | Out-Null
+# 同じ危険を platform ごとの手段で作る。**Windows でだけ検査する形にしない** —
+# それだと Linux / macOS でこの防御が一度も確かめられなくなる。
+# Junction は Windows 専用（Linux で New-Item -ItemType Junction は失敗する）で、
+# Unix 系の等価物は symlink である。どちらも「列挙が中へ降りていかないのに
+# 実体は外に在る」という同じ形を作る。
+$linkPath = Join-Path $junctionRoot 'x64/vc17/staticlib/linked'
+if ($IsWindows) {
+    New-Item -ItemType Junction -Path $linkPath -Target $junctionTarget | Out-Null
+} else {
+    New-Item -ItemType SymbolicLink -Path $linkPath -Target $junctionTarget | Out-Null
+}
 & pwsh -NoProfile -File $verify -Root $junctionRoot 2>&1 | Out-Null
-Assert-That ($LASTEXITCODE -ne 0) 'a reparse point (directory junction) under the tree is rejected'
+Assert-That ($LASTEXITCODE -ne 0) 'a reparse point (junction or symlink) under the tree is rejected'
 
 # レビューで「既に落ちる」と確認済みの 2 件。回帰しないよう固定する。
 $suspicious = New-Tree ($allowed + 'suspicious')
