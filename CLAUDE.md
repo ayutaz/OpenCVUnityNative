@@ -283,8 +283,8 @@ CI が赤くて直した場合、その修正差分にもレビューが要る�
 | 設定 | 値 | 意味 |
 | --- | --- | --- |
 | main の branch protection | 有効 | 直接 push は `GH006` で拒否される |
-| 必須チェック | `Windows x64 (L1 + L3)` / `Windows x64 AddressSanitizer (L2)` の **2 本のみ** | 両方 pass しないと merge できない |
-| **必須でない job** | `macOS arm64 (L1 + L3)` / `Linux x64 (L1 + L3)` / `Linux x64 ASan+LSan (L2)`（M3 で追加） | **赤でも merge できる。** 3 platform を名乗る以上これは穴であり、意図して残しているのではない — M3 でこれらが CI 上で安定して緑になったら必須に加える |
+| 必須チェック | `Windows x64 (L1 + L3)` / `Windows x64 AddressSanitizer (L2)` / `macOS arm64 (L1 + L3)` / `Linux x64 (L1 + L3)` / `Linux x64 ASan+LSan (L2)` の **5 本**（M3 完了時に 2 本から拡張） | 全部 pass しないと merge できない |
+| 必須でない job | （現在は無し） | M3 の途中までは macOS / Linux の 3 job が必須外で、**赤でも merge できる**穴があった。安定して緑になったので M3 完了時に必須へ加えた |
 | strict | 有効 | ブランチが main より古いと merge できない（`allow_update_branch` で自動更新可） |
 | 必須レビュー数 | **0** | PR は必須だが人間の承認は不要 |
 | enforce_admins | **有効** | 管理者も例外ではない。抜け道は無い |
