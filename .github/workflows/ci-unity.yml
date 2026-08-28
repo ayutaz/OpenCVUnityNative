@@ -139,7 +139,7 @@ jobs:
             -v "$PWD:/w" -w /w \
             -e GH_TOKEN \
             "$image" \
-            bash -c './tools/ci/setup-linux-container.sh \
+            bash -c 'bash ./tools/ci/setup-linux-container.sh \
                      && pwsh -NoProfile -File ./tools/opencv.ps1 restore \
                      && pwsh -NoProfile -File ./tools/dev.ps1 build'
           # コンテナは root で書くので、以降の step が読めるように直す。

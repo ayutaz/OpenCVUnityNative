@@ -54,13 +54,24 @@ jobs:
             runner: ubuntu-24.04
 
     steps:
-      # **checkout より前に置く。** git が無いと actions/checkout は REST API で
-      # アーカイブを落とす形に落ち、.git の無いツリーになる。すると
-      # `git ls-files` を使うテストが「追跡ファイル 0 件」で通ってしまう。
+      # **git だけを checkout より前に入れる。**
+      #
+      # checkout は git が無いと REST API でアーカイブを落とす形に落ち、
+      # .git の無いツリーになる。すると `git ls-files` を使うテストが
+      # 「追跡ファイル 0 件」で通ってしまう——検査が黙って無力化される形である。
+      #
+      # 残りの道具は checkout の**後**に setup-linux-container.sh が入れる。
+      # そのスクリプト自体がリポジトリの中にあるので、順序はこうなる
+      # （最初はスクリプトを checkout 前に置いてしまい、`not found` で落ちた）。
+      - name: Install git before checkout
+        if: matrix.platform == 'linux-x64'
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git ca-certificates
+      - uses: actions/checkout@v4
       - name: Set up the build container
         if: matrix.platform == 'linux-x64'
-        run: ./tools/ci/setup-linux-container.sh
-      - uses: actions/checkout@v4
+        run: bash ./tools/ci/setup-linux-container.sh
 
       # Linux はコンテナのセットアップで入るので macOS だけ。
       - name: Install Ninja
