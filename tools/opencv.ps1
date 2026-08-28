@@ -309,9 +309,35 @@ function Invoke-Verify {
 }
 
 function Write-BuildManifest([string[]]$Modules, [System.Collections.Specialized.OrderedDictionary]$DependencyVersions) {
-    $compiler = (cmake --system-information 2>$null |
+    <#
+        compiler の version を取り出す。
+
+        **接頭辞を剥ぐのではなく、version そのものを取り出す。** 以前は
+        'CMAKE_CXX_COMPILER_VERSION\s+' を消して残りを値として扱っていたが、
+        それは「行が想定どおりの形をしている」ことを前提にしていた。macOS の
+        実物は想定外で、v0.1.0 の manifest に `== 15.0.0.15000309` という値が
+        入った（先頭の `== ` が残った）。Windows と Linux は正常だったので、
+        著者が見た 2 つの形だけが通り、3 つ目が枠外に落ちた形である。
+
+        数字とドットの並びを直接拾えば、行の飾りが何であっても正しく取れる。
+        取れなかったら**失敗させる** — 壊れた値を manifest に書くくらいなら
+        止まる方がよい。manifest は「実際に何でビルドしたか」の申告であり、
+        そこに嘘が入ると manifest を持つ意味が無くなる。
+    #>
+    $compilerLine = (cmake --system-information 2>$null |
         Select-String -Pattern '^CMAKE_CXX_COMPILER_VERSION ' |
-        Select-Object -First 1) -replace '^CMAKE_CXX_COMPILER_VERSION\s+', ''
+        Select-Object -First 1)
+    if (-not $compilerLine) {
+        throw "cmake --system-information did not report CMAKE_CXX_COMPILER_VERSION"
+    }
+    $versionMatch = [regex]::Match([string]$compilerLine, '(\d+(?:\.\d+)+)')
+    if (-not $versionMatch.Success) {
+        throw @(
+            "could not parse a compiler version out of: $compilerLine"
+            'manifest に壊れた値を書くくらいなら止まる。'
+        ) -join "`n"
+    }
+    $compiler = $versionMatch.Groups[1].Value
 
     $manifest = [ordered]@{
         schema              = 1
@@ -324,7 +350,7 @@ function Write-BuildManifest([string[]]$Modules, [System.Collections.Specialized
         platform            = $Config.Platform
         generator           = $Config.Toolchain.Generator
         buildType           = $Config.Toolchain.BuildType
-        cxxCompiler         = ($compiler -replace '"', '').Trim()
+        cxxCompiler         = $compiler
         requestedModules    = @($Config.Modules)
         builtModules        = @($modules)
         cmakeArgs           = @($Config.CMakeArgs)

@@ -150,8 +150,57 @@ if (-not (Test-Path -LiteralPath $noticesSource)) {
     ) -join "`n")
     exit 1
 }
-Copy-Item -LiteralPath $noticesSource `
-          -Destination (Join-Path $OutputDir 'THIRD_PARTY_NOTICES.md') -Force
+<#
+    **通知に platform 固有のヘッダを足してから同梱する。**
+
+    リポジトリの THIRD_PARTY_NOTICES.md は 1 つで、3 platform とも同じ本文を
+    配っていた。ところが実際に入っている component は platform で違う——
+    v0.1.0 の実測では、macOS の成果物に clapack が無い（Apple の Accelerate を
+    使うため）のに、macOS の配布物は CLAPACK のライセンス全文を含んでいた。
+
+    法的には過剰開示なので危険ではない。しかし文書は「this build」を名乗って
+    いるのに build ごとに変わらず、SBOM（実物から生成され platform 差が出る）
+    と食い違う。読む人にはどちらが本当か分からない。
+
+    本文を platform ごとに書き分けるのではなく、**実物から拾った component の
+    一覧をヘッダに載せる。** 材料は SBOM と同じ $components——同じ証拠から
+    作るので、SBOM と通知が食い違いようがない。
+#>
+$noticesBody = Get-Content -LiteralPath $noticesSource -Raw
+
+$noticesHeader = @(
+    '<!-- このヘッダは tools/package-release.ps1 が配布時に生成する。'
+    '     リポジトリの THIRD_PARTY_NOTICES.md には無い。 -->'
+    ''
+    "# この配布物について（$($config.Platform)）"
+    ''
+    "- **platform**: $($config.Platform)"
+    "- **OpenCV**: $($config.Tag)"
+    "- **構成ハッシュ**: $(Get-OpenCvConfigHash -Config $config)"
+    ''
+    "この成果物のライセンスディレクトリに実際に存在した component は次の $($components.Count) 件である"
+    '（同梱の `sbom.spdx.json` と同じ証拠から機械的に拾っている）:'
+    ''
+    ($components | ForEach-Object { "- ``$_``" })
+    ''
+    '**以下の本文は 3 platform 共通で、上の一覧に無い component の節も含む。**'
+    'それらはこの platform の成果物には入っていない。本文を platform ごとに'
+    '削らないのは、削る判断そのものが間違えやすく、過剰に載せる側の誤りは'
+    '害が小さいからである。どれが実際に入っているかは上の一覧が正本になる。'
+    ''
+    '---'
+    ''
+) -join "`n"
+
+# 生成したヘッダが空でないこと。空のヘッダを黙って足すと、
+# 「platform を書いた」つもりで何も書いていない配布物ができる。
+if ($components.Count -lt 1 -or $noticesHeader -notmatch [regex]::Escape($config.Platform)) {
+    [Console]::Error.WriteLine('failed to build the platform-specific notices header')
+    exit 1
+}
+
+Set-Content -LiteralPath (Join-Path $OutputDir 'THIRD_PARTY_NOTICES.md') `
+            -Value ($noticesHeader + $noticesBody) -Encoding utf8
 
 Write-Host "==> release artifacts written to $OutputDir" -ForegroundColor Green
 exit 0

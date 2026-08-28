@@ -224,9 +224,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
+          # **ノートはファイルから読む。**
+          #
+          # 以前は --notes に長い文字列を直接書いていた。PowerShell の
+          # 二重引用符では バックスラッシュ n は改行にならない（改行は
+          # バッククォート n である）ので、Markdown のつもりで書いた改行が
+          # そのまま文字として Release ページに出る。YAML の中の PowerShell の
+          # 中の Markdown という三重のエスケープを人が正しく保つのは難しく、
+          # 間違えても CI は緑のまま通る（gh は文字列を受け取っただけで成功する）。
+          #
+          # .github/release-notes.md に出すと、差分で読めて、
+          # エスケープが 1 段も要らなくなる。
           $assets = @(Get-ChildItem assets -File)
           gh release create ${{ github.ref_name }} `
               --draft `
               --title ${{ github.ref_name }} `
-              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / build manifest / third-party notices。**platform ごとに 1 つの tarball を選んで導入する**（1 つの Unity プロジェクトが受け取れるのは 1 platform 分の binary だけ）。導入方法は README の Installing を参照。Git URL では導入できない——native plugin の binary は git の追跡外に あるため。全 asset の SHA-256 は SHA256SUMS.txt にあり、``sha256sum -c SHA256SUMS.txt`` （macOS は ``shasum -a 256 -c``）で検証できる。" `
+              --notes-file .github/release-notes.md `
               @($assets | ForEach-Object { $_.FullName })
