@@ -269,13 +269,33 @@ try {
         Assert-That (Test-Path -LiteralPath (Join-Path $bundleOut $f)) "the release bundle contains $f"
     }
 
-# 通知が構成ハッシュを埋め込んでいないこと。
-#
-# 埋め込むと構成を変えるたびに黙って古くなる。M3 で実際に起きた: Platform を
-# ハッシュに含めた結果、19 箇所の参照が一斉に死んだ（内容自体は正しいまま）。
+    <#
+        構成ハッシュの扱い。
+
+        **リポジトリの通知には焼き込まない。** 埋め込むと構成を変えるたびに
+        黙って古くなる。M3 で実際に起きた: Platform をハッシュに含めた結果、
+        19 箇所の参照が一斉に死んだ（内容自体は正しいまま）。
+
+        **配布物の通知には入っていてよい。** package-release.ps1 が実行時に
+        生きた構成から書くので、古くなりようがない。以前この検査は配布物側を
+        見ており、生成ヘッダに正しい値が入った途端に落ちた——検査が守りたい
+        性質（古くなる値を残さない）ではなく、たまたま同じ見た目のものを
+        禁じていたためである。**古くなり得る場所だけを見る**形に直した。
+
+        そのうえで、配布物側は「入っていること」と「値が現在の構成と
+        一致すること」を見る。生成しているつもりで固定値を書いてしまう
+        誤りは、これで捕まる。
+    #>
+    $repoNotices = Get-Content -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Raw
+    Assert-That ($repoNotices -notmatch '(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])') `
+        'the tracked notices do not hardcode a configuration hash'
+
     $noticesText = Get-Content -LiteralPath (Join-Path $bundleOut 'THIRD_PARTY_NOTICES.md') -Raw
-    Assert-That ($noticesText -notmatch '(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])') `
-        'the notices do not hardcode a configuration hash'
+    $liveHash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+    Assert-That ($noticesText -match [regex]::Escape($liveHash)) `
+        'the bundled notices carry the live configuration hash'
+    Assert-That ($noticesText -match [regex]::Escape((Get-OpenCvPlatform))) `
+        'the bundled notices name the platform they were built for'
 }
 finally { Remove-Item -Recurse -Force $bundleOut -ErrorAction SilentlyContinue }
 
@@ -357,6 +377,41 @@ try {
     }
 }
 finally { Remove-Item -Recurse -Force $packOut -ErrorAction SilentlyContinue }
+
+# --- リリースノート ---
+#
+# release.yml は --notes-file .github/release-notes.md を渡す。
+# **ファイルが在るだけでは足りない。** 空でも gh は成功するので、
+# 中身の無い Release ができあがる。
+#
+# 加えて、ノートは利用者が最初に読むものなので、導入できない経路
+# （Git URL）と検証方法に触れていることを見る。書き忘れると、
+# 「README を参照」と言われた先に何も無い、というこの PR で実際に
+# 起きた形を繰り返す。
+$notesPath = Join-Path $repoRoot '.github/release-notes.md'
+Assert-That (Test-Path -LiteralPath $notesPath) 'the release notes file exists'
+
+if (Test-Path -LiteralPath $notesPath) {
+    # 空ファイルでは Get-Content -Raw が $null を返す。そのまま .Trim() を
+    # 呼ぶと「null に対するメソッド呼び出し」で落ち、非 0 では終わるが
+    # 何が悪いのか読めない。理由の分かる失敗にする。
+    $notes = (Get-Content -LiteralPath $notesPath -Raw)
+    if ($null -eq $notes) { $notes = '' }
+    Assert-That ($notes.Trim().Length -gt 200) 'the release notes are not effectively empty'
+
+    foreach ($needle in @('SHA256SUMS.txt', 'Git URL', 'manifest.json')) {
+        Assert-That ($notes -match [regex]::Escape($needle)) `
+            "the release notes mention '$needle'"
+    }
+
+    # workflow が実際にこのファイルを指していること。片方だけ直しても
+    # 気づけないので、両方を突き合わせる。
+    $workflow = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/release.yml') -Raw
+    Assert-That ($workflow -match '--notes-file\s+\.github/release-notes\.md') `
+        'release.yml reads the notes from that file'
+    Assert-That ($workflow -notmatch '--notes\s+"') `
+        'release.yml does not inline the notes (escaping them by hand is where they break)'
+}
 if ($failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
     exit 1
