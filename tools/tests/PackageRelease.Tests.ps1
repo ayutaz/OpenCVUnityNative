@@ -240,6 +240,50 @@ try {
 }
 finally { Remove-Item -Recurse -Force $bundleOut -ErrorAction SilentlyContinue }
 
+
+# --- UPM tarball の形 ---
+#
+# UPM は展開後の root に package.json が来ることを期待する。package ID の
+# ディレクトリごと固めた tarball は導入できず、Unity 6000.0.82f1 は
+# "The file [<tmp>\package.json] cannot be found" で失敗する（実測）。
+#
+# release.yml と tools/dev.ps1 test-unity-tarball は同じ
+# tools/pack-upm-tarball.ps1 を通るので、ここが守られていれば配布物も守られる。
+# 逆に言うと、ここを見ていないと「配ってから気づく」ことになる。
+$packer = Join-Path $repoRoot 'tools/pack-upm-tarball.ps1'
+$packOut = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-packer-" + [guid]::NewGuid().ToString('n'))
+try {
+    $packed = & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform 'test-plat' |
+              Select-Object -Last 1
+    Assert-That ($LASTEXITCODE -eq 0) 'pack-upm-tarball exits 0'
+
+    if ($LASTEXITCODE -eq 0 -and $packed -and (Test-Path -LiteralPath $packed)) {
+        Assert-That ((Split-Path -Leaf $packed) -like '*-test-plat.tgz') `
+            'the tarball name carries the platform'
+
+        # tar の引数は相対パスにする（GNU tar は C: をホスト名と読む）。
+        Push-Location (Split-Path -Parent $packed)
+        try { $entries = @(& tar -tzf (Split-Path -Leaf $packed)) }
+        finally { Pop-Location }
+
+        Assert-That ($entries -contains 'package/package.json') `
+            'the tarball has package/package.json at its root'
+
+        # package ID のディレクトリで包んでいないこと。包むと UPM が
+        # 導入できない形に逆戻りする。
+        $wrapped = @($entries | Where-Object { $_ -like 'com.ayutaz.opencv-unity-native/*' })
+        Assert-That ($wrapped.Count -eq 0) `
+            'the tarball is not wrapped in the package-ID directory'
+
+        # asmdef が入っていること。入っていないと導入はできても何も使えない。
+        Assert-That (@($entries | Where-Object { $_ -like '*.asmdef' }).Count -gt 0) `
+            'the tarball carries the assembly definitions'
+    }
+    else {
+        Assert-That $false 'pack-upm-tarball produced a tarball'
+    }
+}
+finally { Remove-Item -Recurse -Force $packOut -ErrorAction SilentlyContinue }
 if ($failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
     exit 1

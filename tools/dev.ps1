@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
@@ -340,6 +340,118 @@ function Test-UnityEditMode {
     Write-Host "==> Unity EditMode: $passed passed" -ForegroundColor Green
 }
 
+
+<#
+    UPM tarball としての導入を、Unity に実際に解決させて確かめる（M3 完了条件 2）。
+
+    「package.json が在る」「tar が作れる」は「導入できる」ではない。UPM が
+    tarball を展開し、asmdef を解決し、native plugin を読み、その package の
+    テストが走って初めて「導入できた」と言える。だからこのレーンは、
+    リポジトリ内の file: 参照ではなく **tarball だけ** を指した使い捨ての
+    プロジェクトを作り、そこで EditMode テストを走らせる。
+
+    tests/UnityProject/ をそのまま書き換えないのは、既存の L4 が
+    「リポジトリ内の package を直接参照する」経路を担っているからで、
+    どちらか一方で他方を代替できない。file: のディレクトリ参照は
+    tarball の中身が壊れていても通ってしまう。
+
+    Library/ を持って行かないので、Unity は import からやり直す。既存の L4 より
+    かなり遅い。CI とローカルの手動確認のためのレーンで、`test` には含めない。
+#>
+function Test-UnityTarball {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-tarball-" + [guid]::NewGuid().ToString('n'))
+    New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+    try {
+        # release.yml と同じ作り方で tarball にする。作り方が違うと、
+        # ここで通ったものが配布物では通らない。
+        # release.yml と同じ script で作る。作り方が分かれると、ここで
+        # 導入できた tarball と実際に配る tarball が別物になる。
+        $upmDir = Join-Path $work 'upm'
+        $packer = Join-Path $PSScriptRoot 'pack-upm-tarball.ps1'
+        $tgz = & pwsh -NoProfile -File $packer -OutputDir $upmDir | Select-Object -Last 1
+        if ($LASTEXITCODE -ne 0 -or -not $tgz -or -not (Test-Path -LiteralPath $tgz)) {
+            Write-DevFailure "UPM tarball を作れませんでした（exit $LASTEXITCODE）"
+        }
+
+        # native plugin が本当に入ったか。入っていない tarball でも UPM の
+        # 解決自体は通るので、ここで見ないと「導入できた」の意味が変わる。
+        Push-Location (Split-Path -Parent $tgz)
+        try { $listed = @(& tar -tzf (Split-Path -Leaf $tgz)) }
+        finally { Pop-Location }
+        $binaries = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+        if ($binaries.Count -lt 1) {
+            Write-DevFailure (@(
+                "tarball に native plugin が 1 つも入っていません: $tgz"
+                'Runtime/Plugins/ 配下の binary が作られているか確認してください。'
+            ) -join "`n")
+        }
+        Write-Host "==> tarball contains $($binaries.Count) native plugin binary/binaries" -ForegroundColor Green
+
+        # 使い捨ての Unity プロジェクトを作る。Library/ 等は持って行かない。
+        $project = Join-Path $work 'UnityProject'
+        $source  = Join-Path $RepoRoot 'tests/UnityProject'
+        $skip    = @('Library', 'Temp', 'Logs', 'obj', 'Build', 'UserSettings')
+        New-Item -ItemType Directory -Force -Path $project | Out-Null
+        Get-ChildItem -LiteralPath $source -Force |
+            Where-Object { $_.Name -notin $skip } |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $project -Recurse -Force }
+
+        # 参照を tarball に差し替える。ディレクトリ参照が 1 つでも残ると、
+        # tarball が壊れていても緑になる。
+        $manifestPath = Join-Path $project 'Packages/manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw
+        $tgzUri = 'file:' + ($tgz -replace '\\', '/')
+        $manifest = $manifest -replace
+            '"com\.ayutaz\.opencv-unity-native":\s*"[^"]*"',
+            ('"com.ayutaz.opencv-unity-native": "' + $tgzUri + '"')
+        Set-Content -LiteralPath $manifestPath -Value $manifest -NoNewline -Encoding utf8
+
+        if ($manifest -notmatch [regex]::Escape($tgzUri)) {
+            Write-DevFailure "manifest.json の参照を tarball に差し替えられませんでした: $manifestPath"
+        }
+
+        $results = Join-Path $ResultsDir 'unity-tarball.xml'
+        $log     = Join-Path $ResultsDir 'unity-tarball.log'
+        $unityArgs = @(
+            '-projectPath', $project,
+            '-runTests', '-testPlatform', 'EditMode',
+            '-testResults', $results, '-logFile', $log,
+            '-batchmode', '-nographics'
+        )
+        $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+        $exit = $proc.ExitCode
+
+        if (-not (Test-Path -LiteralPath $results)) {
+            Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
+        }
+        [xml]$xml = Get-Content -LiteralPath $results
+        $failed = [int]$xml.'test-run'.failed
+        $passed = [int]$xml.'test-run'.passed
+        if ($exit -ne 0 -or $failed -ne 0) {
+            Write-DevFailure "tarball 導入後の EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+        }
+        # 0 件で緑にしない理由は Test-UnityEditMode と同じ。tarball 経路では
+        # 「UPM が解決に失敗してテストごと消える」が最も起きやすい失敗である。
+        if ($passed -lt 1) {
+            Write-DevFailure (@(
+                "tarball から導入した package のテストが 1 件も実行されませんでした（passed=$passed）。"
+                'UPM が tarball を解決できていないか、testables に入っていません。'
+                '0 件の実行は成功ではありません。'
+                "ログ: $log"
+            ) -join "`n")
+        }
+        Write-Host "==> UPM tarball install: $passed passed" -ForegroundColor Green
+    }
+    finally {
+        Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    }
+}
 <#
     Unity IL2CPP Player テスト（L5）。EditMode (Mono) では再現しない、
     IL2CPP の managed code stripping が P/Invoke 宣言を削る問題を検出する
@@ -442,6 +554,7 @@ switch ($Command) {
     'test-tools-slow' { Test-ToolsSlow }
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
+    'test-unity-tarball' { Reset-Results; Test-UnityTarball }
     'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }

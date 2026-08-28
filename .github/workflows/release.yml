@@ -79,23 +79,24 @@ jobs:
 
       # UPM が導入できる形にまとめる。package.json のあるディレクトリが
       # tarball の root に来る必要がある（npm pack と同じ構造）。
+      # tools/dev.ps1 test-unity-tarball が使うのと同じ script で作る。
+      # ここを別に書くと、ローカルで「Unity に導入できた」と確かめた tarball と、
+      # 実際に配る tarball が別物になる。
+      #
+      # 以前はこの step が直接 `tar -czf $name -C Packages <id>` を叩いていた。
+      # その形の tarball は UPM が導入できない — 展開後の root に package.json
+      # が来ないため、"The file [<tmp>\package.json] cannot be found" で失敗する。
+      # test-unity-tarball レーンを足して初めて分かった（Unity 6000.0.82f1 で実測）。
       - name: Create the UPM tarball
         shell: pwsh
-        run: |
-          $version = (Get-Content Packages/com.ayutaz.opencv-unity-native/package.json -Raw |
-                      ConvertFrom-Json).version
-          $name = "com.ayutaz.opencv-unity-native-$version-${{ matrix.platform }}.tgz"
-          # tar は 3 platform とも標準で入っている（Windows 10 以降の tar.exe を含む）。
-          tar -czf $name -C Packages com.ayutaz.opencv-unity-native
-          "tarball=$name" >> $env:GITHUB_OUTPUT
-        id: pack
+        run: ./tools/pack-upm-tarball.ps1 -OutputDir upm-out -Platform '${{ matrix.platform }}'
 
       - name: Upload the platform bundle
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.platform }}
           path: |
-            ${{ steps.pack.outputs.tarball }}
+            upm-out/
             release-out/
           if-no-files-found: error
 
