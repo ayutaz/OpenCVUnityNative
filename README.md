@@ -29,6 +29,10 @@ from a release URL today. What follows describes the intended path, and is writt
 here because `release.yml` points at it — if you are reading this after the first
 tag, the release page will have the files named below.
 
+Releases are created as drafts: tagging builds and uploads everything, and a human
+publishes it after looking at what was produced. A tag alone does not make a release
+visible.
+
 Each release carries one UPM tarball per platform:
 
 ```

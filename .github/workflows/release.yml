@@ -205,13 +205,28 @@ jobs:
           }
           Write-Host "==> SHA256SUMS.txt covers $($written.Count) assets"
 
-      - name: Publish
+      # **下書きとして作る。公開は人が押す。**
+      #
+      # tag を打った時点で外に出てしまうと、中身が違っていたときに
+      # 「消す」しかない——しかも消しても、その間に取得した人には届いた
+      # あとである。下書きなら、実物が GitHub 上に揃った状態で目で見て
+      # から公開できる。
+      #
+      # この workflow は M3 完了時点で workflow_dispatch の空撃ち
+      # （package job だけ）しか実績が無く、publish job は一度も動いて
+      # いない。初回は特に、機械の判定と人の目の両方を通す価値がある。
+      #
+      # 公開したくなったら Release ページの「Publish release」を押す。
+      # --draft を外す判断は、この workflow が何度か通って形が安定して
+      # からでよい。
+      - name: Publish as a draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
           $assets = @(Get-ChildItem assets -File)
           gh release create ${{ github.ref_name }} `
+              --draft `
               --title ${{ github.ref_name }} `
-              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / build manifest / third-party notices。導入方法は README の Installing を参照。全 asset の SHA-256 は SHA256SUMS.txt にあり、``sha256sum -c SHA256SUMS.txt`` で検証できる。" `
+              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / build manifest / third-party notices。**platform ごとに 1 つの tarball を選んで導入する**（1 つの Unity プロジェクトが受け取れるのは 1 platform 分の binary だけ）。導入方法は README の Installing を参照。Git URL では導入できない——native plugin の binary は git の追跡外に あるため。全 asset の SHA-256 は SHA256SUMS.txt にあり、``sha256sum -c SHA256SUMS.txt`` （macOS は ``shasum -a 256 -c``）で検証できる。" `
               @($assets | ForEach-Object { $_.FullName })
