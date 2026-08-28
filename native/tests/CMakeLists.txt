@@ -20,6 +20,7 @@ add_executable(ocvu_tests
     test_mat_lifecycle.cpp
     test_mat_buffer.cpp
     test_imgproc.cpp
+    test_mat_table_stability.cpp
 )
 
 # SHARED ではなく STATIC 側にリンクする（native/CMakeLists.txt の注記を参照）
