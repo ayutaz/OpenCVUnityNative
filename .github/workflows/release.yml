@@ -133,18 +133,45 @@ jobs:
           }
           Write-Host "==> all three platform bundles are present"
 
+      # Release asset の名前は Release 全体で一意でなければならない。
+      # package-release.ps1 は 3 platform とも同じ名前
+      # （checksums.txt / sbom.spdx.json / build-manifest.json /
+      # THIRD_PARTY_NOTICES.md）で出すので、そのまま渡すと衝突する。
+      # platform 名を頭に付けてから上げる。tarball は
+      # pack-upm-tarball.ps1 が既に platform 名を含めているのでそのまま。
+      - name: Stage the assets under unique names
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path assets | Out-Null
+          foreach ($dir in Get-ChildItem bundles -Directory) {
+              $platform = $dir.Name -replace '^release-', ''
+              foreach ($f in Get-ChildItem $dir.FullName -Recurse -File) {
+                  $name = if ($f.Extension -eq '.tgz') {
+                      $f.Name
+                  } else {
+                      "$platform-$($f.Name)"
+                  }
+                  Copy-Item -LiteralPath $f.FullName -Destination (Join-Path 'assets' $name) -Force
+              }
+          }
+
+          # 名前が衝突していたら、Copy-Item が黙って上書きした後になる。
+          # 数えて確かめる: 3 platform x (tarball 1 + 配布物 4) = 15。
+          $staged = @(Get-ChildItem assets -File)
+          Write-Host "==> staged $($staged.Count) assets"
+          $staged | ForEach-Object { Write-Host "    $($_.Name)" }
+          if ($staged.Count -ne 15) {
+              Write-Error "expected 15 assets (3 platforms x 5 files) but staged $($staged.Count); names collided or a file is missing"
+              exit 1
+          }
+
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          $assets = @(Get-ChildItem bundles -Recurse -File |
-                      Where-Object { $_.Extension -in '.tgz', '.json', '.txt', '.md' })
-          if ($assets.Count -eq 0) {
-              Write-Error 'no assets to publish'
-              exit 1
-          }
+          $assets = @(Get-ChildItem assets -File)
           gh release create ${{ github.ref_name }} `
               --title ${{ github.ref_name }} `
-              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / third-party notices。導入方法は README を参照。" `
+              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / build manifest / third-party notices。導入方法は README を参照。" `
               @($assets | ForEach-Object { $_.FullName })
