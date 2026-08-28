@@ -112,6 +112,16 @@ OCVU_API ocvu_status ocvu_get_status_value(int32_t index, int32_t* out_value);
  * この handle が指すメモリは常に native が確保し native が解放する。
  * Unity が所有するメモリを指す handle は存在しない
  * （docs/abi-ownership-and-versioning.md §1）。
+ *
+ * スレッドについて: **別々の handle は、別々のスレッドから同時に使ってよい。**
+ * handle の table は内部で保護されており、ある handle が指す Mat のアドレスは
+ * 他の handle の作成・解放で動かない。
+ *
+ * ただし **同じ handle** を複数のスレッドから同時に渡してはならず、他の
+ * スレッドが使っている最中に ocvu_mat_release を呼んでもならない。前者は
+ * cv::Mat 自体のデータ競合、後者は解放済みメモリへのアクセスになる。
+ * どちらも世代検査では捕まらない（規約でしか守れない。理由と経緯は
+ * docs/abi-ownership-and-versioning.md §1.5）。
  */
 typedef uint64_t ocvu_mat_handle;
 #define OCVU_MAT_HANDLE_NONE ((ocvu_mat_handle)0)
