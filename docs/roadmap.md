@@ -62,7 +62,7 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | 3 platform の UPM tarball と manifest / checksums / SBOM / third-party notices を GitHub Release へ。**M3 時点でまだ一度も実行されていない** | M3 |
+| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | 3 platform の UPM tarball と manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**M3 完了時に `workflow_dispatch` で 1 回実行済み**（run 33156465235、3 platform とも success、publish は tag でないため skip）。**tag を打った実績はまだ無い** | M3 |
 
 **CI が満たすべき制約**（ハーネスと同じ理由で、これらは M0 で確立する）
 
@@ -425,7 +425,20 @@ trigger 条件のような変わらない事実に置くこと。
   **Git URL では導入できない**ことは利用者向けに明記する必要がある。
 
   **配布そのもの（tag を打って Release を作る）はまだ行っていない。**
-  `release.yml` は一度も実行されていない。
+  ただし `release.yml` は `workflow_dispatch` で 1 回空撃ちしてある
+  （run 33156465235、2026-08-28。3 platform とも package job が success、
+  publish は tag でないため skip）。成果物を実際に落として確かめた:
+
+  | platform | tarball の中身 | 構成ハッシュ |
+  | --- | --- | --- |
+  | windows-x64 | `x86_64/opencv_unity_native.dll` + `.meta` | `4785d98e9aad` |
+  | macos-arm64 | `macOS/libopencv_unity_native.dylib` + `.meta` | `1ccdc7f9ab94` |
+  | linux-x64 | `Linux/x86_64/libopencv_unity_native.so` + `.meta` | `c4e3c491d973` |
+
+  **各 tarball は自分の platform の binary と `.meta` だけを持ち、他 platform の
+  ものが混入していない。** `.meta` を package の外へ移した変更が CI 上でも
+  意図どおり効いている。SBOM の package 数は macOS だけ 10・他は 11 で、
+  実物から生成されていることの傍証になる。
 
 - **条件 3（満たす）**: `package-release.ps1` が 4 点
   （`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` /
@@ -481,10 +494,19 @@ trigger 条件のような変わらない事実に置くこと。
 ### 残っていること
 
 完了条件はすべて満たしたが、**配布の最後の一歩（tag を打って Release を
-作る）はまだ踏んでいない。** `release.yml` は一度も実行されていないので、
-merge 後に `workflow_dispatch` で package job だけを空撃ちして中身を
-確かめ、その後に tag を打つ。publish job は tag のときしか動かないので、
-空撃ちで誤って Release を作ることはない。
+作る）はまだ踏んでいない。**
+
+空撃ちは済んでいる（run 33156465235）。3 platform とも package job が
+success で、publish job は tag でないため skip された。成果物を落として
+中身を検証した結果は条件 2 の項にある。
+
+空撃ちで 1 件直した: `checksums.txt` は package の中身（native plugin）を
+対象にしており、**配る `.tgz` 自体を含まなかった**。利用者はダウンロード
+した物を展開するまで完全性を確認できない。Release の全 asset を覆う
+`SHA256SUMS.txt` を出すようにした。
+
+**tag を打つのは人の判断に残してある。** 公開 Release は後戻りしにくく、
+M3 の完了条件でもない（配布の実行は完了条件ではなく、この節の項目である）。
 
 ---
 
