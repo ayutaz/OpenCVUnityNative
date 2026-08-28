@@ -139,15 +139,26 @@ jobs:
   linux:
     name: Linux x64 (L1 + L3)
     runs-on: ubuntu-24.04
+    # Linux はコンテナの中でビルドする。**runner のイメージで直接ビルドしない。**
+    #
+    # 共有ライブラリはビルドした環境と同じかそれより新しい glibc でしか
+    # 読み込めない。runner のイメージは GitHub の都合で上がっていくので、
+    # 上がるたびに成果物の要求が上がる。v0.1.0 で実際に踏んだ（ubuntu-24.04 で
+    # 作った .so が GLIBC_2.38 を要求し、より古い環境で DllNotFoundException）。
+    #
+    # イメージ名の正本は tools/opencv-config.psd1 の
+    # Toolchains['linux-x64'].Container で、その値は構成ハッシュに入る。
+    # ここと食い違うと tools/tests/OpenCvConfig.Tests.ps1 が落ちる。
+    container: ubuntu:22.04
     timeout-minutes: 30
     steps:
+      # **checkout より前に置く。** git が無いと actions/checkout は REST API
+      # でアーカイブを落とす形に落ち、.git の無いツリーになる。すると
+      # `git ls-files` を使うテストが「追跡ファイル 0 件」で通ってしまう。
+      - name: Set up the build container
+        run: ./tools/ci/setup-linux-container.sh
       - uses: actions/checkout@v4
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      # .NET と Ninja は setup-linux-container.sh が入れる。
       - name: Restore OpenCV
         shell: pwsh
         env:

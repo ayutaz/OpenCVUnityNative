@@ -32,6 +32,36 @@
             Generator    = 'Ninja'
             Architecture = 'x86_64'
             BuildType    = 'Release'
+
+            <#
+                Linux はこのコンテナの中でビルドする。**runner のイメージで
+                直接ビルドしない。**
+
+                共有ライブラリは、ビルドした環境と同じかそれより新しい
+                glibc / libstdc++ でしか読み込めない。古い環境で作ったものは
+                新しい環境でも動くが、逆は成立しない。
+
+                v0.1.0 でこれを踏んだ。ubuntu-24.04（glibc 2.39）でビルドした
+                .so が GLIBC_2.38 を要求し、それより古い環境で
+                `DllNotFoundException: Unable to load DLL 'opencv_unity_native'`
+                になった。**ビルドは成功し、linkage 検証も通り、配布物も
+                作れた。** 読み込めないことは Unity を実際に動かすまで
+                誰も知らなかった。公開済みの tarball も同じ状態だった。
+
+                jammy = Ubuntu 22.04 = glibc 2.35 / GLIBCXX 3.4.30。現役の
+                LTS で、利用者の環境として現実的に多い。runner の世代が
+                上がっても要求が上がらないよう、runner ではなくコンテナで
+                固定する。
+
+                **この値は構成ハッシュに入る。** ビルド環境が変われば
+                成果物も変わるので、同じハッシュのまま古い artifact が
+                再利用されないようにするためである。
+
+                上限の検査は tools/verify-plugin-portability.ps1 が行う。
+                値を変えるときは、そちらの既定値も一緒に動かすこと
+                （tools/tests/OpenCvConfig.Tests.ps1 が食い違いを検出する）。
+            #>
+            Container    = 'ubuntu:22.04'
         }
     }
 

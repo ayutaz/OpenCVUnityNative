@@ -274,6 +274,52 @@ Assert-That ($opencvSource -match "Generator -like 'Visual Studio\*'") `
 Assert-That ($opencvSource -match "--target', 'install'") `
     'single-config generators get the lowercase install target'
 
+
+# --- Linux のビルドコンテナ: 設定と workflow が一致すること ---
+#
+# イメージ名は 2 箇所に書かれる。opencv-config.psd1（構成ハッシュに入る正本）と、
+# workflow の container: 指定（GitHub Actions は job 開始前に解決するので、
+# 設定ファイルから読めない）である。
+#
+# **片方だけ動かすと、構成ハッシュが指す artifact と実際にビルドされる
+# 環境が食い違う。** ハッシュは「同じ構成なら同じ成果物」を意味するはず
+# なので、この食い違いはその前提を壊す。2 箇所に同じ事実を書かざるを得ない
+# 以上、ずれたことを機械が言う必要がある。
+$config = Get-OpenCvConfig -Platform 'linux-x64'
+$expectedImage = $config.Toolchain.Container
+Assert-That ($null -ne $expectedImage -and $expectedImage -ne '') `
+    'the linux-x64 toolchain declares a build container'
+
+if ($expectedImage) {
+    $workflows = @(
+        '.github/workflows/build-opencv.yml'
+        '.github/workflows/ci-native.yml'
+        '.github/workflows/ci-sanitizers.yml'
+        '.github/workflows/release.yml'
+    )
+    foreach ($wf in $workflows) {
+        $path = Join-Path $repoRoot $wf
+        Assert-That (Test-Path -LiteralPath $path) "workflow exists: $wf"
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+
+        $text = Get-Content -LiteralPath $path -Raw
+        Assert-That ($text -match "container:.*$([regex]::Escape($expectedImage))") `
+            "$wf uses the container declared in opencv-config.psd1 ($expectedImage)"
+
+        # 古い runner で直接ビルドしていないこと。container: を足しても
+        # 別の job が ubuntu-24.04 で .so を作っていたら意味が無い。
+        Assert-That ($text -notmatch "(?m)^\s*container:\s*ubuntu-24") `
+            "$wf does not build in a bare ubuntu-24 container"
+    }
+
+    # ci-unity は job をコンテナにできない（game-ci が docker を使うため）ので、
+    # 設定から読んで docker run する形になっている。読めていることを見る。
+    $unity = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-unity.yml') -Raw
+    Assert-That ($unity -match 'opencv-config\.psd1') `
+        'ci-unity.yml derives the build image from opencv-config.psd1'
+    Assert-That ($unity -match 'verify-plugin-portability') `
+        'ci-unity.yml verifies the plugin portability before running Unity'
+}
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
