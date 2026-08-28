@@ -169,20 +169,37 @@ function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
         # 再配置種別に現れるので readelf で読める。
         $wantsPic = $config.CMakeArgs -contains '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
         if ($wantsPic) {
-            $relocs = & readelf --relocs $sample.FullName 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-VerifyFailure "readelf failed on $($sample.Name); cannot determine relocation types"
+            # **1 つだけ見ない。** 最初のライブラリだけを調べると、それがたまたま
+            # 再配置を持たない小さなモジュールだったときに誤検出する（実測: CI の
+            # Linux job が「痕跡が無い」で落ちたが、原因は指定が無視されたのではなく
+            # 標本の選び方だった）。
+            #
+            # 位置独立の指定はプロジェクト全体に効くので、**どれか 1 つにでも痕跡が
+            # あれば守られている**。逆に全部を調べて 1 つも無ければ、指定が
+            # 無視されたと言ってよい。
+            $inspected = 0
+            $withPic = 0
+            foreach ($lib in $libs) {
+                $relocs = & readelf --relocs $lib.FullName 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-VerifyFailure "readelf failed on $($lib.Name); cannot determine relocation types"
+                }
+                $inspected++
+                if ($relocs -match 'GOTPCREL|PLT32|GOTOFF') { $withPic++ }
             }
-            # PIC でビルドされた x86-64 のコードは GOT/PLT 経由の再配置を持つ。
-            # 非 PIC なら絶対アドレス再配置しか現れない。
-            if ($relocs -notmatch 'GOTPCREL|PLT32|GOTOFF') {
+
+            if ($inspected -eq 0) {
+                Write-VerifyFailure 'no archive could be inspected for relocation types'
+            }
+            if ($withPic -eq 0) {
                 Write-VerifyFailure (@(
-                    "the archive carries no position-independent relocations"
+                    "none of the $inspected archives carries a position-independent relocation"
                     "configured: -DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-                    "実際の成果物にはその痕跡が無い。指定が無視された可能性がある。"
+                    '指定が無視された可能性がある。1 つでも痕跡があれば守られていると'
+                    '判断するので、全部に無いのは構成と食い違う。'
                 ) -join "`n")
             }
-            Write-Host "==> position-independent code confirmed in the artifact" -ForegroundColor Green
+            Write-Host "==> position-independent code confirmed ($withPic of $inspected archives)" -ForegroundColor Green
         }
     }
 
