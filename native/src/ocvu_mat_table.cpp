@@ -1,5 +1,6 @@
 #include "ocvu_mat_table.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -76,6 +77,12 @@ cv::Mat* mat_table_get(ocvu_mat_handle handle) {
     Slot& slot = t.slots[index];
     if (!slot.occupied || slot.generation != handle_generation(handle)) { return nullptr; }
     return slot.mat.get();
+}
+
+size_t mat_table_slot_count() {
+    Table& t = table();
+    std::lock_guard<std::mutex> lock(t.mutex);
+    return t.slots.size();
 }
 
 bool mat_table_release(ocvu_mat_handle handle) {

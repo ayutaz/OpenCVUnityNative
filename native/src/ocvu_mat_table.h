@@ -1,6 +1,8 @@
 #ifndef OCVU_MAT_TABLE_H
 #define OCVU_MAT_TABLE_H
 
+#include <cstddef>
+
 #include <opencv2/core.hpp>
 
 #include "opencv_unity_native.h"
@@ -27,6 +29,19 @@ ocvu_mat_handle mat_table_acquire(cv::Mat mat);
  * （native/tests/test_mat_table_stability.cpp が固定している）。
  */
 cv::Mat* mat_table_get(ocvu_mat_handle handle);
+
+/*
+ * table が確保した slot の総数を返す（テスト用）。
+ *
+ * 解放しても減らない — 索引は free list に戻って再利用されるだけである。
+ * つまりこの値が増えたことは、内部の配列が実際に伸びたことを意味する。
+ *
+ * これが要る理由: test_mat_table_stability は「たくさん作れば配列が伸びる
+ * だろう」という前提で書かれていた。前提が崩れても（例えば他のテストが
+ * 大量の索引を free list に残すようになっても）テストは緑のまま、
+ * 何も検証しなくなる。伸びたことを数えれば、前提ではなく実測になる。
+ */
+size_t mat_table_slot_count();
 
 /* 解放する。handle が無効なら false を返す（二重解放の検出）。 */
 bool mat_table_release(ocvu_mat_handle handle);
