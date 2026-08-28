@@ -114,8 +114,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Set up the build container
         run: bash ./tools/ci/setup-linux-container.sh
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
       - name: Restore OpenCV
         shell: pwsh
         env:
