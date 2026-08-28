@@ -97,6 +97,10 @@ $ForbiddenUndefinedSymbolPrefixes = @(
     @{ Prefix = 'gst_';      Library = 'libgstreamer' }
 )
 
+# $PlatformLabel は switch の case と**同じ綴りの platform 名**を受け取る
+# （'linux-x64' / 'macos-arm64'）。表示用の別名（'Linux' など）を渡すと、
+# 下の platform 別分岐が一致せず黙って素通りする — 恒真な検査を足すのと同じ
+# ことになる（実際に一度そう書いた）。
 function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
     $libs = @(Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Filter '*.a' |
               Where-Object { $_.Name -like 'libopencv_*' })
@@ -124,6 +128,61 @@ function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
             if ($syms -match [regex]::Escape($rule.Prefix)) {
                 $violations += "$($lib.Name): references an undefined '$($rule.Prefix)*' symbol, which points at $($rule.Library) (excluded by the configuration)"
             }
+        }
+    }
+
+    # --- 構成が指定した platform 固有の意図を、成果物から読む ---
+    #
+    # 上の未定義シンボル検査だけでは足りない。この構成には videoio が無く
+    # FFmpeg / GStreamer を呼ぶコードが存在しないので、探しているシンボルは
+    # **原理的に現れない** — つまりあの判定は恒真である（実測で確認）。
+    # 0 件を失敗にする防御は正しいが、その先が何も判別していなかった。
+    #
+    # Windows 側は DEFAULTLIB を読んで CRT linkage を判別している。同じ性質の
+    # 検査を Unix 側にも置く: PlatformCMakeArgs が送っている指定が、実際に
+    # 守られたかを成果物から確かめる。これが roadmap の条件 5 が言う
+    # 「送った CMake flag ではなく、できたバイナリを読む」である。
+    $sample = $libs[0]
+
+    if ($PlatformLabel -eq 'macos-arm64') {
+        # -DCMAKE_OSX_ARCHITECTURES=arm64 が守られたか。指定が無視されると
+        # universal binary や x86_64 になり得て、成果物の中身が構成から読めなくなる。
+        $arch = & lipo -info $sample.FullName 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-VerifyFailure "lipo failed on $($sample.Name); cannot determine the architecture"
+        }
+        $wantsArm64 = $config.CMakeArgs -contains '-DCMAKE_OSX_ARCHITECTURES=arm64'
+        $isArm64Only = ($arch -match 'arm64') -and ($arch -notmatch 'x86_64')
+        if ($wantsArm64 -and -not $isArm64Only) {
+            Write-VerifyFailure (@(
+                "architecture does not match the configuration"
+                "  configured: arm64 only"
+                "  actual    : $arch"
+            ) -join "`n")
+        }
+        Write-Host "==> architecture matches the configuration (arm64)" -ForegroundColor Green
+    }
+
+    if ($PlatformLabel -eq 'linux-x64') {
+        # -DCMAKE_POSITION_INDEPENDENT_CODE=ON が守られたか。無視されると
+        # 共有ライブラリへ取り込むときに relocation エラーになる。ELF の
+        # 再配置種別に現れるので readelf で読める。
+        $wantsPic = $config.CMakeArgs -contains '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
+        if ($wantsPic) {
+            $relocs = & readelf --relocs $sample.FullName 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-VerifyFailure "readelf failed on $($sample.Name); cannot determine relocation types"
+            }
+            # PIC でビルドされた x86-64 のコードは GOT/PLT 経由の再配置を持つ。
+            # 非 PIC なら絶対アドレス再配置しか現れない。
+            if ($relocs -notmatch 'GOTPCREL|PLT32|GOTOFF') {
+                Write-VerifyFailure (@(
+                    "the archive carries no position-independent relocations"
+                    "configured: -DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+                    "実際の成果物にはその痕跡が無い。指定が無視された可能性がある。"
+                ) -join "`n")
+            }
+            Write-Host "==> position-independent code confirmed in the artifact" -ForegroundColor Green
         }
     }
 
@@ -181,13 +240,38 @@ switch ($Platform) {
             ) -join "`n")
         }
 
+        # --- 有効言語: ASM が勝手に enable されていないか ---
+        #
+        # M1 Task 4 の欠陥をここで捕まえる。OpenCV の CMakeLists は
+        # check_language(ASM) で PATH 上のアセンブラを探し、見つけると
+        # enable_language(ASM) する。GNU 言語が 1 つでも有効になると CMake は
+        # 静的ライブラリの命名規約をプロジェクト全体で GNU 側（libX.a）へ倒す。
+        #
+        # つまり **MSVC のビルドに .a が現れることが、ASM が有効化された証拠**
+        # である。opencv-config.psd1 は -DCMAKE_ASM_COMPILER=NOTFOUND で
+        # 「送る側」を固定しているが、それが守られたかは成果物からしか読めない。
+        # roadmap の条件 5 が「有効言語」を名指ししているのはこの経路である。
+        $gnuStyle = @(Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Filter '*.a')
+        if ($gnuStyle.Count -gt 0) {
+            Write-VerifyFailure (@(
+                "GNU-style static libraries found in an MSVC build ($($gnuStyle.Count) file(s)):"
+                ($gnuStyle | Select-Object -First 5 | ForEach-Object { "  $($_.Name)" })
+                ''
+                'MSVC の構成で libX.a が出るのは、CMake が GNU 言語（多くは ASM）を'
+                '有効化して命名規約をプロジェクト全体で倒したときである。'
+                'opencv-config.psd1 の -DCMAKE_ASM_COMPILER=NOTFOUND が効いていない。'
+                'M1 Task 4 で実際に起きた欠陥である。'
+            ) -join "`n")
+        }
+
         Write-Host "==> $($libs.Count) libraries match the configured runtime linkage" -ForegroundColor Green
+        Write-Host "==> no GNU-style archives; the assembler stayed disabled" -ForegroundColor Green
     }
     'linux-x64' {
-        Test-StaticArchiveLinkage -Root $Root -PlatformLabel 'Linux'
+        Test-StaticArchiveLinkage -Root $Root -PlatformLabel 'linux-x64'
     }
     'macos-arm64' {
-        Test-StaticArchiveLinkage -Root $Root -PlatformLabel 'macOS'
+        Test-StaticArchiveLinkage -Root $Root -PlatformLabel 'macos-arm64'
     }
     default {
         # 未対応 platform を黙って通さない。4 つ目の platform が増えたときの
