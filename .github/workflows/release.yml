@@ -165,6 +165,46 @@ jobs:
               exit 1
           }
 
+          <#
+              **配る物そのもののチェックサムを出す。**
+
+              package-release.ps1 が出す checksums.txt は package の中身
+              （native plugin）を対象にしており、**tarball 自体は含まない**。
+              つまり利用者は .tgz をダウンロードしても、展開するまで完全性を
+              確認できない。ダウンロードした物を検証できないなら、
+              チェックサムを配る意味が半分になる。
+
+              Release の全 asset を 1 つの SHA256SUMS.txt にまとめる。
+              sha256sum / shasum -a 256 -c がそのまま食える形式にするので、
+              利用者は Release ページから 2 つ落として 1 コマンドで検証できる。
+
+              自分自身は含めない（含めると内容が確定しない）。
+          #>
+          $sums = $staged |
+              Sort-Object Name |
+              ForEach-Object {
+                  $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()
+                  "$hash  $($_.Name)"
+              }
+          # **改行は LF を明示する。** Set-Content は Windows で CRLF を書き、
+          # sha256sum -c はファイル名の末尾に付いた CR をファイル名の一部として
+          # 扱うので、15 件すべてが "No such file or directory" になる
+          # （実測。生成物は 15 行あり、workflow の行数検査も通るのに、
+          # 利用者が使う道具では 1 件も検証できない状態だった）。
+          [IO.File]::WriteAllText(
+              (Join-Path $PWD 'assets/SHA256SUMS.txt'),
+              (($sums -join "`n") + "`n"))
+
+          # 15 行きっかりであること。1 行でも欠けたら、その asset は検証でき
+          # ないまま配られる。
+          $written = @(Get-Content -LiteralPath 'assets/SHA256SUMS.txt' |
+                       Where-Object { $_.Trim() -ne '' })
+          if ($written.Count -ne $staged.Count) {
+              Write-Error "SHA256SUMS.txt has $($written.Count) lines but there are $($staged.Count) assets"
+              exit 1
+          }
+          Write-Host "==> SHA256SUMS.txt covers $($written.Count) assets"
+
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -173,5 +213,5 @@ jobs:
           $assets = @(Get-ChildItem assets -File)
           gh release create ${{ github.ref_name }} `
               --title ${{ github.ref_name }} `
-              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / build manifest / third-party notices。導入方法は README を参照。" `
+              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / build manifest / third-party notices。導入方法は README の Installing を参照。全 asset の SHA-256 は SHA256SUMS.txt にあり、``sha256sum -c SHA256SUMS.txt`` で検証できる。" `
               @($assets | ForEach-Object { $_.FullName })

@@ -52,6 +52,23 @@ beside your project, and point the package manifest at it:
 A relative path is resolved from the `Packages` folder; an absolute path also
 works. Unity 6000.x is required — 2022 LTS is not supported.
 
+### Verifying what you downloaded
+
+Every release also carries `SHA256SUMS.txt`, listing the SHA-256 of every asset in
+that release. Download it alongside the files you took and check them in one go:
+
+```sh
+sha256sum -c SHA256SUMS.txt        # Linux
+shasum -a 256 -c SHA256SUMS.txt    # macOS
+```
+
+Files you did not download are reported as missing; that is expected. The line for
+each file you did take must say `OK`.
+
+Note that the per-platform `<platform>-checksums.txt` covers the files **inside**
+the package, so it is only useful after extracting. `SHA256SUMS.txt` covers the
+downloadable assets themselves.
+
 ### Why not a Git URL
 
 **A Git URL will not work, and this is deliberate.** The native plugin binaries
