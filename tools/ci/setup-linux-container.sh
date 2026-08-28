@@ -72,6 +72,18 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubc
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends gh
 
+# checkout したファイルは runner の UID で、コンテナは root で走る。git は
+# その食い違いを "detected dubious ownership" として拒否するので、この
+# ワークスペースを信頼する設定を入れる。
+#
+# **黙って握りつぶすのではなく、必要な場所だけを許す。** git が拒否するのは
+# 正しい振る舞いで、無効化するのはコンテナの中という限られた文脈だからである。
+#
+# 入れないと `gh` や `git ls-files` が落ちる。実測: opencv.ps1 restore が
+# "failed to determine base repo: detected dubious ownership" で止まった。
+echo "==> trust the workspace"
+git config --global --add safe.directory "$(pwd)"
+
 # 入ったことを確かめる。**足りないまま先に進めない。** ここで止めれば
 # 「cmake が無いのでビルドが空振りした」を後段で読み解かずに済む。
 echo "==> versions"
