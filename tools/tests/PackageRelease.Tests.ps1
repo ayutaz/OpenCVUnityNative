@@ -161,32 +161,38 @@ if ($pkg.PSObject.Properties.Name -contains 'samples') {
     }
 }
 
-# plugin の .meta が 3 platform 分そろい、それぞれ自分の platform だけを
-# 有効にしていること。
-#
-# binary は成果物なので git から無視してよいが、.meta を無視すると利用者の
-# 環境で「全 platform 有効」の既定に戻り、3 つの binary が読み込みで衝突する。
-#
-# **以前ここは「.meta が 1 つ以上追跡されている」しか見ていなかった。**
-# コメントは 3 platform の衝突を心配しているのに、検査は Windows 分 1 つで
-# 満足する。実際 macOS / Linux の .meta は 1 つも存在しないまま通っていた。
-# 「著者が列挙した形だけを見て、隣接する形が枠外に落ちる」という、この
-# リポジトリが繰り返している欠陥そのものである。数えるのをやめ、
-# **要求する 3 つを名指しして**、中身まで見る形にした。
-$pluginBase = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+<#
+    Plugin Import Settings（.meta）が 3 platform 分そろい、それぞれ自分の
+    platform だけを有効にしていること。
+
+    **正本は tools/plugin-meta/<platform>/ にある。** package の
+    Runtime/Plugins/ ではない。binary の無い platform の .meta をそこに置くと、
+    Unity から見て「asset の無い孤児」になり、mutable な package では実際に
+    削除される（dev.ps1 test-unity-editmode を Windows で 1 回走らせるだけで
+    macOS / Linux の .meta が消えることを実測した）。dev.ps1 の
+    Copy-NativePluginForUnity が、そのとき作った binary の分だけを写す。
+
+    **以前この検査は「.meta が 1 つ以上追跡されている」しか見ていなかった。**
+    コメントは 3 platform の衝突を心配しているのに、検査は Windows 分 1 つで
+    満足する。実際 macOS / Linux の .meta は 1 つも存在しないまま通っていた。
+    「著者が列挙した形だけを見て、隣接する形が枠外に落ちる」という、この
+    リポジトリが繰り返している欠陥そのものである。数えるのをやめ、
+    **要求する 3 つを名指しして**、中身まで見る形にした。
+#>
+$metaBase = 'tools/plugin-meta'
 $pluginMetas = @(
-    @{ Platform = 'windows-x64'; Key = 'Win64'
-       Meta = "$pluginBase/x86_64/opencv_unity_native.dll.meta" }
-    @{ Platform = 'macos-arm64'; Key = 'OSXUniversal'
-       Meta = "$pluginBase/macOS/libopencv_unity_native.dylib.meta" }
-    @{ Platform = 'linux-x64';   Key = 'Linux64'
-       Meta = "$pluginBase/Linux/x86_64/libopencv_unity_native.so.meta" }
+    @{ Platform = 'windows-x64'; Key = 'Win64';        EditorOS = 'Windows'
+       Meta = "$metaBase/windows-x64/x86_64/opencv_unity_native.dll.meta" }
+    @{ Platform = 'macos-arm64'; Key = 'OSXUniversal'; EditorOS = 'OSX'
+       Meta = "$metaBase/macos-arm64/macOS/libopencv_unity_native.dylib.meta" }
+    @{ Platform = 'linux-x64';   Key = 'Linux64';      EditorOS = 'Linux'
+       Meta = "$metaBase/linux-x64/Linux/x86_64/libopencv_unity_native.so.meta" }
 )
-$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64')
+$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win')
 
 Push-Location $repoRoot
 try {
-    $tracked = @(& git ls-files "$pluginBase/**/*.meta")
+    $tracked = @(& git ls-files "$metaBase/**/*.meta")
     foreach ($entry in $pluginMetas) {
         Assert-That ($tracked -contains $entry.Meta) `
             "$($entry.Platform): the plugin .meta is tracked by git ($($entry.Meta))"
@@ -197,12 +203,26 @@ try {
         # 中身の検査は continue で飛ばされ、FAIL が 1 件も出なかった。
         Assert-That (Test-Path -LiteralPath $entry.Meta) `
             "$($entry.Platform): the plugin .meta exists on disk ($($entry.Meta))"
+
         if (-not (Test-Path -LiteralPath $entry.Meta)) { continue }
         $metaText = Get-Content -LiteralPath $entry.Meta -Raw
 
         # Any を有効にすると、その binary が全 platform に配られる。
         Assert-That ($metaText -match '(?m)^\s*Any:\s+enabled:\s*0\b') `
             "$($entry.Platform): the Any platform is disabled"
+
+        <#
+            **Editor を見る。** 以前この検査は Player 側の 3 キーしか見て
+            おらず、`.so` の .meta に `Editor: OS: Windows` と書いても
+            3 件全部 PASS した。**守りたい性質そのもの——「Windows の
+            Editor が .so を読もうとしないこと」——が枠外に落ちていた。**
+            これも「著者が列挙した形だけを見る」欠陥の再発である。
+        #>
+        $editor = [regex]::Match($metaText, '(?m)^\s*Editor:\s+enabled:\s*(\d)([\s\S]*?)(?=^\s{4}\w+:)')
+        Assert-That ($editor.Success -and $editor.Groups[1].Value -eq '1') `
+            "$($entry.Platform): the Editor platform is enabled"
+        Assert-That ($editor.Success -and $editor.Groups[2].Value -match "OS:\s*$($entry.EditorOS)\b") `
+            "$($entry.Platform): the Editor entry is limited to OS $($entry.EditorOS)"
 
         # 自分の platform だけが 1、他は 0。
         foreach ($key in $allPlatformKeys) {
@@ -211,6 +231,25 @@ try {
             Assert-That ($m.Success -and $m.Groups[1].Value -eq $want) `
                 "$($entry.Platform): $key is enabled=$want"
         }
+    }
+
+    <#
+        **正本とコピー先が一致していること。** dev.ps1 の
+        Copy-NativePluginForUnity が持つ platform → ディレクトリの対応と、
+        ここに書いた path は独立に書かれている。片方を変えてももう片方は
+        気づかないので、実行中の platform について実際に突き合わせる。
+    #>
+    Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
+    $thisPlatform = Get-OpenCvPlatform
+    $thisEntry = $pluginMetas | Where-Object { $_.Platform -eq $thisPlatform }
+    if ($thisEntry) {
+        $relative = $thisEntry.Meta -replace "^$([regex]::Escape($metaBase))/$thisPlatform/", ''
+        $placed = Join-Path $repoRoot "Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/$relative"
+        Assert-That (Test-Path -LiteralPath $placed) `
+            "the built package carries this platform's .meta at the path dev.ps1 uses ($relative)"
+    }
+    else {
+        Write-Host "  SKIP  no .meta entry for the running platform ($thisPlatform)" -ForegroundColor Yellow
     }
 }
 finally { Pop-Location }

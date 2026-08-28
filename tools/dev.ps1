@@ -182,9 +182,49 @@ function Copy-NativePluginForUnity {
         'macos-arm64' { 'macOS' }
         'linux-x64'   { 'Linux/x86_64' }
     }
-    $destDir = Join-Path $RepoRoot "Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/$pluginDir"
+    $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+    $destDir = Join-Path $pluginRoot $pluginDir
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
     Copy-Item -LiteralPath $source -Destination $destDir -Force
+
+    <#
+        Plugin Import Settings（.meta）も一緒に置く。
+
+        **binary と .meta は必ず同時に現れなければならない。** 片方だけだと
+        Unity が壊れた状態を見る:
+
+        - .meta が無い binary → Unity が既定の設定を作る。既定は「全 platform
+          有効」で、3 つの binary が読み込みで衝突する
+        - binary が無い .meta → Unity から見ると「asset の無い孤児」で、
+          mutable な package では**実際に削除される**。追跡していた頃は
+          dev.ps1 test-unity-editmode を 1 回走らせるだけで、macOS / Linux の
+          .meta が working tree から消えた（実測）
+
+        だから .meta の正本は tools/plugin-meta/<platform>/ に置き、Plugins/ は
+        丸ごと成果物にした（.gitignore 済み）。ここは Runtime/Plugins を根とした
+        鏡像なので、そのままコピーすればフォルダの .meta も含めて揃う。
+    #>
+    $metaSource = Join-Path $PSScriptRoot "plugin-meta/$Platform"
+    if (-not (Test-Path -LiteralPath $metaSource)) {
+        Write-DevFailure (@(
+            "Plugin Import Settings が見つかりません: $metaSource"
+            'platform を足したときは tools/plugin-meta/<platform>/ も足すこと。'
+            '.meta の無い binary は Unity で「全 platform 有効」の既定になり、'
+            '複数 platform の binary が読み込みで衝突する。'
+        ) -join "`n")
+    }
+    Copy-Item -Path (Join-Path $metaSource '*') -Destination $pluginRoot -Recurse -Force
+
+    # 置いたつもりで置けていない状態を作らない。binary の隣に .meta があること
+    # を確かめる（コピー元の構造が変わっても気づける）。
+    $expectedMeta = Join-Path $destDir "$NativeLibraryName.meta"
+    if (-not (Test-Path -LiteralPath $expectedMeta)) {
+        Write-DevFailure (@(
+            "binary の隣に .meta がありません: $expectedMeta"
+            "コピー元: $metaSource"
+            'tools/plugin-meta/<platform>/ は Runtime/Plugins を根とした鏡像である必要がある。'
+        ) -join "`n")
+    }
 }
 
 function Test-Native {
