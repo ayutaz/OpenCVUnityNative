@@ -161,13 +161,57 @@ if ($pkg.PSObject.Properties.Name -contains 'samples') {
     }
 }
 
-# plugin の .meta が git に追跡されていること。
-# binary は成果物なので無視してよいが、.meta を無視すると利用者の環境で
-# 「全 platform 有効」の既定に戻り、3 つの binary が読み込みで衝突する。
+# plugin の .meta が 3 platform 分そろい、それぞれ自分の platform だけを
+# 有効にしていること。
+#
+# binary は成果物なので git から無視してよいが、.meta を無視すると利用者の
+# 環境で「全 platform 有効」の既定に戻り、3 つの binary が読み込みで衝突する。
+#
+# **以前ここは「.meta が 1 つ以上追跡されている」しか見ていなかった。**
+# コメントは 3 platform の衝突を心配しているのに、検査は Windows 分 1 つで
+# 満足する。実際 macOS / Linux の .meta は 1 つも存在しないまま通っていた。
+# 「著者が列挙した形だけを見て、隣接する形が枠外に落ちる」という、この
+# リポジトリが繰り返している欠陥そのものである。数えるのをやめ、
+# **要求する 3 つを名指しして**、中身まで見る形にした。
+$pluginBase = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+$pluginMetas = @(
+    @{ Platform = 'windows-x64'; Key = 'Win64'
+       Meta = "$pluginBase/x86_64/opencv_unity_native.dll.meta" }
+    @{ Platform = 'macos-arm64'; Key = 'OSXUniversal'
+       Meta = "$pluginBase/macOS/libopencv_unity_native.dylib.meta" }
+    @{ Platform = 'linux-x64';   Key = 'Linux64'
+       Meta = "$pluginBase/Linux/x86_64/libopencv_unity_native.so.meta" }
+)
+$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64')
+
 Push-Location $repoRoot
 try {
-    $tracked = @(& git ls-files 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/**/*.meta')
-    Assert-That ($tracked.Count -gt 0) 'native plugin .meta files are tracked by git'
+    $tracked = @(& git ls-files "$pluginBase/**/*.meta")
+    foreach ($entry in $pluginMetas) {
+        Assert-That ($tracked -contains $entry.Meta) `
+            "$($entry.Platform): the plugin .meta is tracked by git ($($entry.Meta))"
+
+        # 追跡されていても working tree に無ければ、以降の中身の検査は
+        # 「1 つも見なかった」まま素通りする。実測で踏んだ: .meta を消しても
+        # git ls-files は追跡を報告し続けるので、上の tracked 検査は通り、
+        # 中身の検査は continue で飛ばされ、FAIL が 1 件も出なかった。
+        Assert-That (Test-Path -LiteralPath $entry.Meta) `
+            "$($entry.Platform): the plugin .meta exists on disk ($($entry.Meta))"
+        if (-not (Test-Path -LiteralPath $entry.Meta)) { continue }
+        $metaText = Get-Content -LiteralPath $entry.Meta -Raw
+
+        # Any を有効にすると、その binary が全 platform に配られる。
+        Assert-That ($metaText -match '(?m)^\s*Any:\s+enabled:\s*0\b') `
+            "$($entry.Platform): the Any platform is disabled"
+
+        # 自分の platform だけが 1、他は 0。
+        foreach ($key in $allPlatformKeys) {
+            $want = if ($key -eq $entry.Key) { '1' } else { '0' }
+            $m = [regex]::Match($metaText, "(?m)^\s*$key`:\s+enabled:\s*(\d)")
+            Assert-That ($m.Success -and $m.Groups[1].Value -eq $want) `
+                "$($entry.Platform): $key is enabled=$want"
+        }
+    }
 }
 finally { Pop-Location }
 
