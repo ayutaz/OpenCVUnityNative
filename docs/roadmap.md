@@ -353,11 +353,26 @@ job は一度も実行されていない。`build-opencv.yml` は push でも起
   （`find Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins -type f` は
   `x86_64/opencv_unity_native.dll` とその `.meta` の 2 件のみを返す。macOS/Linux の
   binary も `.meta` も 0 件）。
-- **条件 2（満たさない）**: `tests/UnityProject/Packages/manifest.json` は依然として
-  `"com.ayutaz.opencv-unity-native": "file:../../../Packages/com.ayutaz.opencv-unity-native"`
-  という M2 と同じローカル参照のままである。`PackageRelease.Tests.ps1` が検証しているのは
-  `package.json` の必須フィールドと samples path の実在、`.meta` が git 追跡対象かどうかで、
-  **Git URL または tarball から実際に解決できることそのものは一度も検証されていない。**
+- **条件 2（満たさない → 仕組みは用意、CI 待ち）**: 当初は「未検証」と書いていたが、
+  正確には**現在の構成では成立し得ない**状態だった。native plugin の binary は
+  `.gitignore` で追跡から外してあるので、Git URL で参照した利用者に届くのは `.meta`
+  だけで、実体が 1 つも入らない（レビュー H1）。
+
+  配布形態を **GitHub Release** に決めた（2026-08-28、ユーザー判断）。binary を
+  git にコミットすると 3 platform 分を毎ビルド積むことになり履歴が永久に膨らむ。
+  Release asset なら履歴を汚さずに中身を配れる。
+
+  `.github/workflows/release.yml` を追加した。tag を打つと 3 platform で
+  plugin をビルドし、**linkage 検証を通してから** UPM tarball と配布物 4 点を
+  Release に上げる。3 platform が揃わない Release は公開しない（`fail-fast: false`
+  で 1 つ落ちても他が進むので、公開前に数える）。
+
+  ローカルで tarball の中身を確認した: package 名のディレクトリが root に来て、
+  `package.json` と plugin binary の両方が入る（`.gitignore` は git の追跡を
+  決めるだけで tar には効かない）。
+
+  **未達のままとするのは、tag を打った実績が無いからである。** workflow を書いた
+  ことと、Release から導入できることは別である。
 - **条件 3（満たさない）**: `tools/package-release.ps1` は実物の Windows artifact に対して
   4 点（`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` /
   `THIRD_PARTY_NOTICES.md`）を生成する（実行して exit 0 を確認済み）。当初 2 件の欠陥が
