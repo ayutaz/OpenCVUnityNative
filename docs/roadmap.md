@@ -59,10 +59,10 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | `ci-sanitizers.yml` | push / PR | ASan / UBSan レーン | M0 |
 | `build-opencv.yml` | 手動 + 構成変更時 | allowlist 構成の OpenCV をビルドし artifact 公開 | M1 |
 | `ci-unity.yml` | PR / nightly | Unity EditMode (L4) + IL2CPP Player (L5) | M2 |
-| `ci-desktop-matrix.yml` | push / PR | Windows / macOS / Linux マトリクス、Linux で LSan / Valgrind | M3 |
+| ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag | 全 platform artifact、manifest、checksums、SBOM | M3 |
+| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | 3 platform の UPM tarball と manifest / checksums / SBOM / third-party notices を GitHub Release へ。**M3 時点でまだ一度も実行されていない** | M3 |
 
 **CI が満たすべき制約**（ハーネスと同じ理由で、これらは M0 で確立する）
 
