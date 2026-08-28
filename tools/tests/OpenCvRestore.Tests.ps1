@@ -177,6 +177,13 @@ Write-Host '== case D: the "gh missing" failure must not render as a crash eithe
 #
 # どちらも「著者の環境ではこう見える」形に依存していた。文字列比較をやめて、
 # 各ディレクトリに gh の実体があるかどうかで決める。PATH の書式に依存しない。
+# PATH の区切り文字は platform で違う（Windows は ';'、Unix 系は ':'）。
+# 決め打ちにすると Unix で PATH 全体が 1 要素になり、gh を含むディレクトリを
+# 除去できない — 実測: macOS / Linux の CI で「gh がまだ 1〜2 個見える」と
+# 前提チェックが落ちた。.NET が platform ごとの正しい文字を持っているので
+# それを使う（自分で分岐を書くと 3 つ目の platform で同じことが起きる）。
+$PathSeparator = [System.IO.Path]::PathSeparator
+
 function Test-DirectoryHasGh([string]$dir) {
     if (-not $dir) { return $false }
     foreach ($name in @('gh.exe', 'gh.cmd', 'gh.bat', 'gh')) {
@@ -185,7 +192,7 @@ function Test-DirectoryHasGh([string]$dir) {
     return $false
 }
 
-$ghDirs = @(($env:PATH -split ';') | Where-Object { Test-DirectoryHasGh $_ })
+$ghDirs = @(($env:PATH -split $PathSeparator) | Where-Object { Test-DirectoryHasGh $_ })
 if ($ghDirs.Count -eq 0 -and -not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host '  SKIP  case D: gh is not resolvable on this machine, cannot test its absence meaningfully' -ForegroundColor Yellow
 }
@@ -195,7 +202,7 @@ else {
     try {
         (Get-Content -LiteralPath $configPath) -replace "'-DWITH_TIFF=OFF'", "'-DWITH_TIFF=OFF'`n        '-DOCVU_PROBE_D=1'" |
             Set-Content -LiteralPath $configPath
-        $env:PATH = ($originalPath -split ';' | Where-Object { $_ -and -not (Test-DirectoryHasGh $_) }) -join ';'
+        $env:PATH = ($originalPath -split $PathSeparator | Where-Object { $_ -and -not (Test-DirectoryHasGh $_) }) -join $PathSeparator
 
         # 前提が成立したことを確かめてから本題に入る。ここが崩れたまま先に進むと、
         # 別の失敗経路を「gh が無い場合」として検査してしまう。
