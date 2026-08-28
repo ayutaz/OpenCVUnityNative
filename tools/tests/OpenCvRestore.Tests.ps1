@@ -127,10 +127,20 @@ foreach ($shapeName in $dangerousShapes.Keys) {
 # （Invoke-Verify）まで通らなければ present と言ってはならない。
 # ============================================================
 Write-Host '== case B: an interrupted-looking partial tree must be re-downloaded ==' -ForegroundColor Cyan
-Remove-Item -Recurse -Force (Join-Path $openCvRoot 'x64') -ErrorAction SilentlyContinue
+# ライブラリの置き場は platform で違う（Windows は x64/vc17/staticlib、
+# Unix 系は lib）。決め打ちにすると、消す対象が存在せず「壊れた木」を作れない
+# まま restore が「既に正常」と判断して何もせず、その後の存在確認だけが落ちる
+# —— つまり**自己修復を一度も検証しないまま赤くなる**（実測: macOS / Linux の CI）。
+$libDirRelative = if ($IsWindows) { 'x64/vc17/staticlib' } else { 'lib' }
+$libDirRoot = ($libDirRelative -split '/')[0]
+
+Remove-Item -Recurse -Force (Join-Path $openCvRoot $libDirRoot) -ErrorAction SilentlyContinue
+Assert-That (-not (Test-Path -LiteralPath (Join-Path $openCvRoot $libDirRelative))) `
+    'case B: the library directory was actually removed before restore ran'
+
 $resultB = Invoke-RestoreProcess
 Assert-That ($resultB.ExitCode -eq 0) 'case B: restore succeeds after self-healing a tree with missing files'
-Assert-That (Test-Path -LiteralPath (Join-Path $openCvRoot 'x64/vc17/staticlib')) 'case B: the re-downloaded tree has its files back'
+Assert-That (Test-Path -LiteralPath (Join-Path $openCvRoot $libDirRelative)) 'case B: the re-downloaded tree has its files back'
 
 # ============================================================
 # ケース C: 存在しない artifact を要求させ、失敗の見え方を見る。
