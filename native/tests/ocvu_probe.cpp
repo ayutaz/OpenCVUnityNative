@@ -45,11 +45,11 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // NOTE: この "leak" モードは現在どこからも呼ばれていない。CMake も
-    // tools/dev.ps1 も CI も登録していない。MSVC の ASan には
-    // LeakSanitizer が無く、リーク検出は M3 の Linux レーンに送ったため。
-    // 「動いているリーク検出」と読まないこと。M3 で Linux 用の
-    // expect-failure テストを足すときの土台として残してある。
+    // LeakSanitizer が動いている環境でのみ意味を持つ。native/tests/CMakeLists.txt
+    // が MSVC 以外の ASan ビルドで harness.leak_is_detected として登録する
+    // （MSVC の ASan は LeakSanitizer を含まないので、そこでは登録されない）。
+    //
+    // 意図的に解放しない。free する経路を足すとこのプローブは無意味になる。
     if (std::strcmp(mode, "leak") == 0) {
         int* p = new int[64];
         p[0] = 1;

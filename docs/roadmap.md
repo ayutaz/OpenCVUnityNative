@@ -369,10 +369,20 @@ job は一度も実行されていない。`build-opencv.yml` は push でも起
   である。** macOS / Linux の成果物に対して `package-release.ps1` を走らせた実績が無く、
   それらの platform では licence の配置も library の綴りも違う。条件が求めているのは
   「3 platform の配布物」であって「Windows の配布物」ではない。
-- **条件 4（満たさない）**: `ci-sanitizers.yml` の `linux-asan` job（`ASAN_OPTIONS:
-  detect_leaks=1` で `dev.ps1 test-asan` を呼ぶ）はワークフローとして存在するが、
-  **このブランチで一度も実行されていない。** ローカルにも Linux 機がないため他の手段でも
-  検証できていない。リーク検出が実際に機能するかは完全に未検証である。
+- **条件 4（満たさない → 対応済み、CI 待ち）**: `ci-sanitizers.yml` の `linux-asan` job は
+  `ASAN_OPTIONS: detect_leaks=1` で `dev.ps1 test-asan` を呼び、配線自体は正しい。
+  しかし当初は **緑になっても何も言えない形**だった — ASan ビルドで登録される
+  expect-failure テストが use-after-free だけで、リークのものが無かったからである。
+  `native/tests/ocvu_probe.cpp` に leak モードは置いてあったが、CMake も CI も
+  登録していなかった（そのことはコメントに明記してあった）。
+
+  `native/tests/CMakeLists.txt` に `harness.leak_is_detected` を足した。**MSVC では
+  登録しない** — MSVC の ASan は LeakSanitizer を含まず、リークしてもプローブが 0 で
+  終了して「落ちなかった」で赤くなるためである。regex は「リークが報告されたこと」まで
+  見る（非 0 終了だけでは別の理由で落ちたのと区別できない）。
+
+  **未達のままとするのは、この Linux レーンが一度も実行されていないからである。**
+  登録したことと、検出が働くことは別である。
 - **条件 5（満たさない）**: Windows 分は確立している——実物の artifact に対する
   happy path と、`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL` を外す変異試験の両方が
   green（`test-tools-slow` で再確認済み）。macOS/Linux 分（`nm -u` で `.a` の未定義
