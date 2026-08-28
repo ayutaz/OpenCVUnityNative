@@ -24,14 +24,11 @@ Windows, macOS and Linux first, then Android and iOS, then Web/Wasm. Unity 6000.
 
 ## Installing
 
-**Not published yet.** No release has been tagged, so there is nothing to install
-from a release URL today. What follows describes the intended path, and is written
-here because `release.yml` points at it — if you are reading this after the first
-tag, the release page will have the files named below.
-
-Releases are created as drafts: tagging builds and uploads everything, and a human
-publishes it after looking at what was produced. A tag alone does not make a release
-visible.
+Releases live at
+[github.com/ayutaz/OpenCVUnityNative/releases](https://github.com/ayutaz/OpenCVUnityNative/releases).
+The current version is **v0.1.0** — desktop only, and deliberately small: `Mat`
+lifecycle plus `cvtColor` / `resize` / `GaussianBlur`. Mobile and Web are not
+supported yet.
 
 Each release carries one UPM tarball per platform:
 
@@ -87,6 +84,13 @@ Each tarball contains the binary for **one** platform. If you build for more tha
 one, take the corresponding tarball on each build machine. A single package
 holding all three is not published, because it would ship two unusable binaries
 to every consumer.
+
+### How releases are made
+
+Tagging `v*` builds all three platforms, verifies the linkage of what was built,
+packages it, and creates a **draft** release. A human looks at what was produced and
+publishes it. A tag alone does not make a release visible — that is deliberate, so a
+release that is wrong can be discarded before anyone has it.
 
 ## Requirements
 
