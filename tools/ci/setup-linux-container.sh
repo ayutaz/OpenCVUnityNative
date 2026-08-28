@@ -37,7 +37,6 @@ apt-get update -qq
 echo "==> base toolchain"
 apt-get install -y -qq --no-install-recommends \
     build-essential \
-    cmake \
     ninja-build \
     git \
     curl \
@@ -47,6 +46,26 @@ apt-get install -y -qq --no-install-recommends \
     unzip \
     zip \
     python3
+
+# cmake は **Ubuntu の apt では古すぎる。** jammy が配るのは 3.22.1 で、
+# このリポジトリの CMakePresets.json は 3.25 以上を要る
+# （README の Requirements にも 3.25+ と書いてある）。
+#
+# 実測: 3.22.1 のまま走らせると
+#   CMake Error: Could not read presets: Unrecognized "version" field
+# で止まる。preset の schema 版が読めないという意味である。
+#
+# Kitware の公式リポジトリから現行版を入れる。cmake はビルドの道具であって
+# 成果物にリンクされないので、新しくても glibc の要求は上がらない——
+# コンテナを使う目的（古い環境で動く .so を作る）と矛盾しない。
+echo "==> cmake from Kitware"
+source /etc/os-release
+wget -qO- https://apt.kitware.com/keys/kitware-archive-latest.asc \
+    | gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ ${VERSION_CODENAME} main" \
+    > /etc/apt/sources.list.d/kitware.list
+apt-get update -qq
+apt-get install -y -qq --no-install-recommends cmake
 
 # PowerShell 7 と .NET 8 SDK は Microsoft のリポジトリから入れる。
 # dev.ps1 / opencv.ps1 が pwsh で、L3 が .NET 8 を要る。
@@ -99,6 +118,16 @@ done
 
 # glibc の版も出しておく。成果物がどこまで遡れるかを決めるのはこれである。
 printf '    %-8s %s\n' 'glibc' "$(ldd --version | head -1)"
+
+# cmake の版が足りているか。**入っただけでは足りない**——古い cmake は
+# preset を読めずに落ちる。ここで見れば、後段の分かりにくいエラーを
+# 読み解かずに済む。
+required_cmake=3.25
+have_cmake=$(cmake --version | head -1 | grep -oE '[0-9]+[.][0-9]+' | head -1)
+if [ "$(printf '%s\n%s\n' "$required_cmake" "$have_cmake" | sort -V | head -1)" != "$required_cmake" ]; then
+    echo "cmake $have_cmake is older than the required $required_cmake" >&2
+    exit 1
+fi
 
 if [ "$missing" -ne 0 ]; then
     echo "required tools are missing; refusing to continue" >&2
