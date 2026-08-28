@@ -95,6 +95,43 @@ foreach ($p in @('linux-x64', 'macos-arm64')) {
     Remove-Item -Recurse -Force $withLib -ErrorAction SilentlyContinue
 }
 
+
+# --- Linux / macOS: アセンブルされた object が入っていたら失敗にする ---
+#
+# roadmap の条件 5 が求める「有効言語」の検査。archive のメンバ名に
+# `*.S.o` が現れたら、-DCMAKE_ASM_COMPILER=NOTFOUND が守られていない。
+#
+# **この負の経路は ar がある環境でしか踏めない。** Windows のこのマシンには
+# 無いので、実際に確かめるのは CI の macOS / Linux job（test-tools-slow）で
+# ある。ここで SKIP と出たら「確かめていない」であって「合格」ではない。
+$hasAr = $null -ne (Get-Command ar -ErrorAction SilentlyContinue)
+if ($hasAr) {
+    foreach ($p in @('linux-x64', 'macos-arm64')) {
+        $asmRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-asm-$p-" + [guid]::NewGuid().ToString('n'))
+        $libDir = Join-Path $asmRoot 'lib'
+        New-Item -ItemType Directory -Force -Path $libDir | Out-Null
+
+        # ar はメンバの中身を検証しないので、名前だけ本物に似せた object を
+        # 詰めた archive を作れる。狙っているのは「メンバ名を読む」経路である。
+        Push-Location $libDir
+        try {
+            Set-Content -LiteralPath 'jsimd_arm.S.o' -Value 'placeholder' -NoNewline
+            & ar rcs 'libopencv_core.a' 'jsimd_arm.S.o' 2>&1 | Out-Null
+            Remove-Item -LiteralPath 'jsimd_arm.S.o' -Force
+        }
+        finally { Pop-Location }
+
+        $out = & pwsh -NoProfile -File $verify -Root $asmRoot -Platform $p 2>&1
+        Assert-That ($LASTEXITCODE -ne 0) `
+            "a $p archive containing an assembled object fails"
+        Assert-That (($out -join "`n") -match 'assembler was enabled') `
+            "a $p archive containing an assembled object fails for the right reason"
+        Remove-Item -Recurse -Force $asmRoot -ErrorAction SilentlyContinue
+    }
+}
+else {
+    Write-Host '  SKIP  ar is not available; the assembled-object path was NOT verified here' -ForegroundColor Yellow
+}
 if ($failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
     exit 1

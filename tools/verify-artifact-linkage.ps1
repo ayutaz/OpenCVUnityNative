@@ -111,6 +111,51 @@ function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
         ) -join "`n")
     }
 
+    <#
+        --- 有効言語: アセンブラが勝手に有効化されていないか（Unix 側）---
+
+        roadmap の条件 5 は「linkage・**有効言語**・リンク済み依存」の 3 つを
+        求めている。Windows 側は「MSVC のビルドに .a が現れたら GNU 言語が
+        有効化された証拠」で判別できるが、Unix では .a が正常な形なので
+        同じ手が使えない。**この分岐には長らく有効言語の検査が無かった。**
+
+        代わりに archive の**メンバ名**を読む。CMake は object file を元ソースの
+        拡張子込みで名付けるので、ASM が有効なら `foo.S.o` のようなメンバが
+        現れる。opencv-config.psd1 は全 platform 共通で
+        -DCMAKE_ASM_COMPILER=NOTFOUND を送っているから、1 つでも出れば
+        その指定が守られていない。
+
+        これは「送った flag」ではなく「できた成果物」を読んでいる。
+        check_language(ASM) は PATH 上のアセンブラを拾うので、runner の
+        中身が変わると成果物が変わる。M1 Task 4 が Windows で踏んだのが
+        まさにこれで、同じことが Unix 側で起きても今までは誰も見ていなかった。
+    #>
+    $assembled = @()
+    foreach ($lib in $libs) {
+        $members = & ar t $lib.FullName 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-VerifyFailure (@(
+                "ar failed on $($lib.Name); cannot determine which languages were enabled"
+                ($members -join "`n")
+            ) -join "`n")
+        }
+        foreach ($member in $members) {
+            if ($member -match '\.(S|s|asm)\.o$') {
+                $assembled += "$($lib.Name): $member"
+            }
+        }
+    }
+    if ($assembled.Count -gt 0) {
+        Write-VerifyFailure (@(
+            "assembled objects are present ($($assembled.Count)); the assembler was enabled"
+            ($assembled | Select-Object -First 10 | ForEach-Object { "  $_" })
+            'configured: -DCMAKE_ASM_COMPILER=NOTFOUND'
+            'CMake の check_language(ASM) が PATH 上のアセンブラを拾うと、'
+            'runner の中身次第で成果物が変わる。構成の意図と食い違う。'
+        ) -join "`n")
+    }
+    Write-Host "==> no assembled objects in $($libs.Count) archives; the assembler stayed disabled" -ForegroundColor Green
+
     $violations = @()
     foreach ($lib in $libs) {
         # nm が無い、または対象ファイルを読めない場合はここで非 0 終了する
