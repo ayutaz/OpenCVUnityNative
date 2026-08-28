@@ -351,33 +351,24 @@ function Test-UnityEditMode {
     $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
     $exit = $proc.ExitCode
 
-    if (-not (Test-Path -LiteralPath $results)) {
-        Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
-    }
-    [xml]$xml = Get-Content -LiteralPath $results
-    $failed = [int]$xml.'test-run'.failed
-    $passed = [int]$xml.'test-run'.passed
-    if ($exit -ne 0 -or $failed -ne 0) {
-        Write-DevFailure "Unity EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+    if ($exit -ne 0) {
+        Write-DevFailure "Unity EditMode が exit $exit で終了しました。`nログ: $log"
     }
 
-    # 0 件で緑にしない。テストが 1 つも走らなかった場合、exit code も failed も 0 に
-    # なるので、上の判定だけでは成功と見分けが付かない（実測: asmdef の
-    # defineConstraints に未定義の記号を足すとテスト assembly がコンパイル対象から
-    # 外れ、「0 passed」で exit 0 になった）。
-    #
-    # このレーンは完了条件 6 を担う唯一の証拠で、しかも CI では一度も走っていない。
-    # asmdef の改名、UNITY_INCLUDE_TESTS の扱いの変化、test-framework の解決失敗、
-    # file: 参照の破損 — どれが起きても静かに 0 件になり、緑のまま何も検証しなくなる。
-    if ($passed -lt 1) {
-        Write-DevFailure (@(
-            "Unity EditMode でテストが 1 件も実行されませんでした（passed=$passed、failed=$failed）。"
-            'テストが全部消えたか、テスト assembly がコンパイル対象から外れています。'
-            '0 件の実行は成功ではありません。'
-            "ログ: $log"
-        ) -join "`n")
-    }
-    Write-Host "==> Unity EditMode: $passed passed" -ForegroundColor Green
+    <#
+        合否の判定は tools/assert-unity-results.ps1 に出してある。
+
+        **CI では Unity を起動するのが game-ci の action で、この関数では
+        ない**（理由は .github/workflows/ci-unity.yml の冒頭にある）。
+        起動の仕方が分かれても、**判定だけは同じコードを通す** — ここが
+        分かれると、ローカルで赤くなるものが CI で緑になり得る。
+
+        「0 件で緑にしない」もその script が持っている。理由はそちらに書いた。
+    #>
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
+            -ResultsPath $results -Lane 'editmode' -LogPath $log
+    } 'assert the editmode results'
 }
 
 
@@ -605,33 +596,24 @@ function Test-UnityPlayer {
     $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
     $exit = $proc.ExitCode
 
-    if (-not (Test-Path -LiteralPath $results)) {
-        Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
-    }
-    [xml]$xml = Get-Content -LiteralPath $results
-    $failed = [int]$xml.'test-run'.failed
-    $passed = [int]$xml.'test-run'.passed
-    if ($exit -ne 0 -or $failed -ne 0) {
-        Write-DevFailure "Unity Player テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+    if ($exit -ne 0) {
+        Write-DevFailure "Unity Player が exit $exit で終了しました。`nログ: $log"
     }
 
-    # 0 件で緑にしない。テストが 1 つも走らなかった場合、exit code も failed も 0 に
-    # なるので、上の判定だけでは成功と見分けが付かない（実測: asmdef の
-    # defineConstraints に未定義の記号を足すとテスト assembly がコンパイル対象から
-    # 外れ、「0 passed」で exit 0 になった）。
-    #
-    # このレーンは完了条件 6 を担う唯一の証拠で、しかも CI では一度も走っていない。
-    # asmdef の改名、UNITY_INCLUDE_TESTS の扱いの変化、test-framework の解決失敗、
-    # file: 参照の破損 — どれが起きても静かに 0 件になり、緑のまま何も検証しなくなる。
-    if ($passed -lt 1) {
-        Write-DevFailure (@(
-            "Unity Player でテストが 1 件も実行されませんでした（passed=$passed、failed=$failed）。"
-            'テストが全部消えたか、テスト assembly がコンパイル対象から外れています。'
-            '0 件の実行は成功ではありません。'
-            "ログ: $log"
-        ) -join "`n")
-    }
-    Write-Host "==> Unity Player (IL2CPP): $passed passed" -ForegroundColor Green
+    <#
+        合否の判定は tools/assert-unity-results.ps1 に出してある。
+
+        **CI では Unity を起動するのが game-ci の action で、この関数では
+        ない**（理由は .github/workflows/ci-unity.yml の冒頭にある）。
+        起動の仕方が分かれても、**判定だけは同じコードを通す** — ここが
+        分かれると、ローカルで赤くなるものが CI で緑になり得る。
+
+        「0 件で緑にしない」もその script が持っている。理由はそちらに書いた。
+    #>
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
+            -ResultsPath $results -Lane 'player' -LogPath $log
+    } 'assert the player results'
 }
 
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する

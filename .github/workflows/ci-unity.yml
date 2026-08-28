@@ -1,27 +1,49 @@
 name: ci-unity
 
-# 現時点では workflow_dispatch のみ。push / pull_request では走らせない。
+# L4（Unity EditMode）と L5（IL2CPP Player）を CI で実行する。
+# M2 完了条件 7 がこの workflow の実行そのものを求めている。
 #
-# 理由は 2 つあり、どちらもこの workflow がまだ成功し得ないことに由来する:
-#   1. GitHub ホストの windows-2022 イメージに Unity は含まれず、この workflow は
-#      インストールもしていない。dev.ps1 の Get-UnityEditorPath は Unity Hub の
-#      既定の配置を決め打ちで探し、無ければ失敗する。
-#   2. UNITY_LICENSE / UNITY_EMAIL / UNITY_PASSWORD を env に置いてはあるが、
-#      それを読んでアクティベーションする処理をまだ誰も書いていない。
+# ## なぜ ubuntu で、なぜ game-ci なのか
 #
-# push で走らせると全 push が恒常的に赤くなる。必須チェックではないので merge は
-# 止まらないが、「赤い CI は直すもの」という前提が壊れる方が高くつく。
+# ローカルのレーンは Windows で `tools/dev.ps1` が Unity を直接起動する。
+# CI で同じ形にするには runner に Unity を入れる必要があるが、GitHub ホストの
+# `windows-2022` に Unity は含まれない。
 #
-# 上の 2 つが揃った時点で push / pull_request を戻すこと。それが M2 完了条件 7
-# （「ci-unity.yml が CI 上で L4 / L5 を実行する」）の残作業である。
-# **資格情報の登録だけでは足りない。** ランナーへの Unity 導入とアクティベーションの
-# 実装はエージェントが書ける作業として残っている。
+# Unity を CI で動かす標準的な方法は game-ci である。**ただし game-ci の
+# Windows イメージは Windows Server 2019 向けで、`windows-2022` では
+# 「container operating system does not match the host operating system」で
+# 落ちる**（game-ci/unity-builder#542、game-ci/docker#213）。`windows-2019` は
+# GitHub 側で提供が終わっている。したがって Windows ホストでこの道は無い。
+#
+# game-ci が主として支えるのは Linux なので、このレーンは ubuntu で走らせる。
+# 帰結として **L5 は Windows ではなく Linux の IL2CPP Player になる。**
+# L5 が捕まえたいのは managed code stripping が P/Invoke 宣言を消す問題で、
+# これは IL2CPP 全体の性質であり Windows 固有ではない。Windows の IL2CPP
+# Player はローカルのレーン（`dev.ps1 test-unity-player`）が引き続き担う。
+#
+# ## 「CI はローカルと同一のコマンドを呼ぶ」との関係
+#
+# この workflow は `tools/dev.ps1` で Unity を起動しない。game-ci の action が
+# 起動する。不変条件との食い違いなので、隠さず書く。
+#
+# 代わりに **合否の判定は `tools/assert-unity-results.ps1` に出し、ローカルと
+# CI の両方がそれを通る。** 起動の仕方が分かれても、判定が分かれなければ
+# 「ローカルで赤いものが CI で緑になる」は起きない。とくに「0 件で緑にしない」
+# はこの script が持っており、両方に効く。
+#
+# native plugin のビルドと OpenCV の取得は従来どおり `dev.ps1` / `opencv.ps1`
+# を呼ぶ。ここは分けていない。
+
 on:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
   actions: read
+  checks: write   # game-ci が結果を check run として出す
 
 # 同じコミットに対して push と pull_request の両方が走らないようにする。
 #
@@ -37,70 +59,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  editmode:
-    name: Unity EditMode (Mono)
-    runs-on: windows-2022
-    timeout-minutes: 45
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # third_party/opencv/<hash> をハッシュ単位でキャッシュする。ヒットすれば
-      # restore は gh からの download をスキップし、既存の木を検証するだけで
-      # 済む（tools/opencv.ps1 の Invoke-Restore を参照）。ci-native.yml /
-      # ci-sanitizers.yml と同じ手順。
-      - name: Resolve OpenCV config hash
-        id: opencv-config
-        shell: pwsh
-        run: |
-          Import-Module ./tools/OpenCvConfig.psm1 -Force
-          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
-          "config-hash=$hash" >> $env:GITHUB_OUTPUT
-
-      - name: Cache OpenCV
-        uses: actions/cache@v4
-        with:
-          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
-          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
-
-      # ローカルと同一のコマンドを呼ぶ。CI 専用の手順は作らない。
-      - name: Restore OpenCV
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./tools/opencv.ps1 restore
-
-      - name: Build native
-        shell: pwsh
-        run: ./tools/dev.ps1 build
-
-      - name: Run EditMode tests
-        shell: pwsh
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-        run: ./tools/dev.ps1 test-unity-editmode
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-unity-editmode
-          path: artifacts/test-results/
-          if-no-files-found: warn
-
-  player:
-    name: Unity IL2CPP Player
-    runs-on: windows-2022
-    # IL2CPP のビルドを含む。ローカル実測は Task 7 の報告を参照
-    # （cold/incremental のどちらも 90 分以内に収まっている）。
+  unity:
+    name: Unity ${{ matrix.lane }} (Linux)
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # L4: Mono の Editor 上で走る。IL2CPP は要らないので base で足りる。
+          - lane: EditMode
+            testMode: EditMode
+            imageFlavour: base
+          # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
+          # scripting backend と stripping level は ProjectSettings に
+          # コミットしてあるので（scriptingBackend.Standalone: 1、
+          # managedStrippingLevel.Standalone: 2）、ここで設定する必要はない。
+          - lane: Standalone
+            testMode: Standalone
+            # Linux の IL2CPP Player を作るので、その道具が入ったイメージが要る。
+            # base では IL2CPP のビルドができない。
+            imageFlavour: linux-il2cpp
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # **Unity のバージョンを workflow に直書きしない。** 直書きすると
+      # ProjectVersion.txt と二重管理になり、片方だけ上げたときに気づけない
+      # （このリポジトリが繰り返している「2 箇所に同じ事実を書く」欠陥）。
+      # game-ci に渡すイメージ名もここから組み立てる。
+      - name: Resolve the Unity version
+        id: unity
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+          $m = Select-String -LiteralPath $file -Pattern '^m_EditorVersion:\s*(\S+)' |
+               Select-Object -First 1
+          if (-not $m) {
+              Write-Error "could not read m_EditorVersion from $file"
+              exit 1
+          }
+          $version = $m.Matches[0].Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "image=unityci/editor:ubuntu-$version-${{ matrix.imageFlavour }}-3" >> $env:GITHUB_OUTPUT
+          Write-Host "==> Unity $version / ubuntu-$version-${{ matrix.imageFlavour }}-3"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Resolve OpenCV config hash
         id: opencv-config
@@ -122,25 +134,68 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tools/opencv.ps1 restore
 
-      - name: Build native
+      # native plugin を先に作る。Unity が読むのは Linux の .so で、
+      # dev.ps1 が binary と .meta を Runtime/Plugins/Linux/x86_64/ へ置く。
+      # game-ci はワークスペースをコンテナに mount するので、ここで置いた
+      # ものがそのまま見える。
+      - name: Build the native plugin
         shell: pwsh
         run: ./tools/dev.ps1 build
 
-      # IL2CPP の managed code stripping が P/Invoke 宣言を削っていないかは、
-      # 実際に Player をビルドして走らせる以外に確かめる方法が無い
-      # （EditMode/Mono では再現しない）。
-      - name: Run Player tests
+      # 置けたことを Unity より先に確かめる。plugin が無いまま Unity を
+      # 走らせると、失敗が「テストが落ちた」ではなく「DllNotFoundException」
+      # として出て、原因が 1 段遠くなる。
+      - name: Check that the plugin and its import settings are in place
         shell: pwsh
+        run: |
+          $dir = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/Linux/x86_64'
+          foreach ($f in @("$dir/libopencv_unity_native.so", "$dir/libopencv_unity_native.so.meta")) {
+              if (-not (Test-Path -LiteralPath $f)) {
+                  Write-Error "missing: $f"
+                  exit 1
+              }
+              Write-Host "==> present: $f"
+          }
+
+      - name: Run ${{ matrix.lane }} tests
+        uses: game-ci/unity-test-runner@v4
+        id: tests
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-        run: ./tools/dev.ps1 test-unity-player
+        with:
+          projectPath: tests/UnityProject
+          unityVersion: ${{ steps.unity.outputs.version }}
+          customImage: ${{ steps.unity.outputs.image }}
+          testMode: ${{ matrix.testMode }}
+          artifactsPath: artifacts/unity-${{ matrix.lane }}
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          # 既定の checkName は lane 間で衝突するので分ける。
+          checkName: ${{ matrix.lane }} results
+
+      # **game-ci が緑でも、ここで独立に判定する。**
+      #
+      # 「0 件で緑にしない」はこのリポジトリの不変条件で、ローカルのレーンは
+      # それを持っている。CI 側だけ持たないと、テストが全部消えたときに
+      # ローカルは赤・CI は緑という最も紛らわしい状態になる。
+      # ローカルと同じ script を通す。
+      - name: Assert the results
+        if: always()
+        shell: pwsh
+        run: |
+          $xml = Get-ChildItem -Path 'artifacts/unity-${{ matrix.lane }}' -Filter '*.xml' -Recurse -File |
+                 Select-Object -First 1
+          if (-not $xml) {
+              Write-Error 'no test result XML was produced under artifacts/unity-${{ matrix.lane }}'
+              exit 1
+          }
+          ./tools/assert-unity-results.ps1 -ResultsPath $xml.FullName -Lane '${{ matrix.lane }}'
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-unity-player
-          path: artifacts/test-results/
+          name: test-results-unity-${{ matrix.lane }}
+          path: artifacts/unity-${{ matrix.lane }}
           if-no-files-found: warn
