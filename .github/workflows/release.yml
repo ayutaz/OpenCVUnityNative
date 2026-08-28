@@ -1,0 +1,177 @@
+name: release
+
+# tag を打つと 3 platform 分の配布物を作って GitHub Release に上げる。
+#
+# **なぜ Release で配るか。** native plugin の binary は git の追跡から外して
+# ある（`.gitignore`）。追跡すると 3 platform 分を毎ビルドコミットすることになり、
+# 履歴が永久に膨らむ。しかしそのままでは Git URL で参照した利用者に `.meta` しか
+# 届かず、UPM として導入しても中身が無い（M3 のレビュー H1）。
+#
+# tarball を Release asset として配れば、binary を履歴に入れずに「導入できる」を
+# 成立させられる。利用者は Release の URL を UPM に渡す。
+#
+# workflow_dispatch も残す。tag を打つ前に成果物の中身を確認できる方が、
+# 「出してから気づく」より安い。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # Release の作成に要る
+  actions: read     # gh run download に要る
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false   # 1 platform の失敗で他を巻き込まない
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+          - platform: macos-arm64
+            runner: macos-14
+          - platform: linux-x64
+            runner: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        if: matrix.platform != 'windows-x64'
+        shell: pwsh
+        run: |
+          if ($IsMacOS) { brew install ninja }
+          else { sudo apt-get update; sudo apt-get install -y ninja-build }
+
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      # plugin binary をこの platform 向けにビルドする。package-release.ps1 は
+      # Packages/ 配下に置かれた binary を checksums に入れるので、先に要る。
+      - name: Build the native plugin
+        shell: pwsh
+        run: ./tools/dev.ps1 build
+
+      # 成果物が構成の意図どおりかを、配る前に確かめる。ここを通っていない
+      # binary は配布しない。
+      - name: Verify the artifact linkage
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $root = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+          ./tools/verify-artifact-linkage.ps1 -Root $root
+
+      - name: Build the release bundle
+        shell: pwsh
+        run: ./tools/package-release.ps1 -OutputDir release-out
+
+      # UPM が導入できる形にまとめる。package.json のあるディレクトリが
+      # tarball の root に来る必要がある（npm pack と同じ構造）。
+      # tools/dev.ps1 test-unity-tarball が使うのと同じ script で作る。
+      # ここを別に書くと、ローカルで「Unity に導入できた」と確かめた tarball と、
+      # 実際に配る tarball が別物になる。
+      #
+      # 以前はこの step が直接 `tar -czf $name -C Packages <id>` を叩いていた。
+      # その形の tarball は UPM が導入できない — 展開後の root に package.json
+      # が来ないため、"The file [<tmp>\package.json] cannot be found" で失敗する。
+      # test-unity-tarball レーンを足して初めて分かった（Unity 6000.0.82f1 で実測）。
+      - name: Create the UPM tarball
+        shell: pwsh
+        run: ./tools/pack-upm-tarball.ps1 -OutputDir upm-out -Platform '${{ matrix.platform }}'
+
+      - name: Upload the platform bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            upm-out/
+            release-out/
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    runs-on: ubuntu-24.04
+    needs: package
+    timeout-minutes: 15
+    # tag を打ったときだけ公開する。workflow_dispatch は成果物の確認用なので、
+    # Release は作らない（誤って空の Release を作らないため）。
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download every platform bundle
+        uses: actions/download-artifact@v4
+        with:
+          path: bundles
+
+      # 3 platform 分が揃っていることを確かめてから公開する。1 つでも欠けた
+      # Release を出すと、利用者はその platform だけ導入できない状態になる。
+      # fail-fast: false にしてあるぶん、ここで数えないと欠けたまま出る。
+      - name: Check that all three platforms are present
+        shell: pwsh
+        run: |
+          $expected = @('windows-x64', 'macos-arm64', 'linux-x64')
+          $missing = @($expected | Where-Object {
+              -not (Test-Path "bundles/release-$_")
+          })
+          if ($missing.Count -gt 0) {
+              Write-Error "missing platform bundle(s): $($missing -join ', ')"
+              exit 1
+          }
+          Write-Host "==> all three platform bundles are present"
+
+      # Release asset の名前は Release 全体で一意でなければならない。
+      # package-release.ps1 は 3 platform とも同じ名前
+      # （checksums.txt / sbom.spdx.json / build-manifest.json /
+      # THIRD_PARTY_NOTICES.md）で出すので、そのまま渡すと衝突する。
+      # platform 名を頭に付けてから上げる。tarball は
+      # pack-upm-tarball.ps1 が既に platform 名を含めているのでそのまま。
+      - name: Stage the assets under unique names
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path assets | Out-Null
+          foreach ($dir in Get-ChildItem bundles -Directory) {
+              $platform = $dir.Name -replace '^release-', ''
+              foreach ($f in Get-ChildItem $dir.FullName -Recurse -File) {
+                  $name = if ($f.Extension -eq '.tgz') {
+                      $f.Name
+                  } else {
+                      "$platform-$($f.Name)"
+                  }
+                  Copy-Item -LiteralPath $f.FullName -Destination (Join-Path 'assets' $name) -Force
+              }
+          }
+
+          # 名前が衝突していたら、Copy-Item が黙って上書きした後になる。
+          # 数えて確かめる: 3 platform x (tarball 1 + 配布物 4) = 15。
+          $staged = @(Get-ChildItem assets -File)
+          Write-Host "==> staged $($staged.Count) assets"
+          $staged | ForEach-Object { Write-Host "    $($_.Name)" }
+          if ($staged.Count -ne 15) {
+              Write-Error "expected 15 assets (3 platforms x 5 files) but staged $($staged.Count); names collided or a file is missing"
+              exit 1
+          }
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $assets = @(Get-ChildItem assets -File)
+          gh release create ${{ github.ref_name }} `
+              --title ${{ github.ref_name }} `
+              --notes "3 platform 分の UPM tarball と、それぞれの checksums / SBOM / build manifest / third-party notices。導入方法は README を参照。" `
+              @($assets | ForEach-Object { $_.FullName })

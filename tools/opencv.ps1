@@ -77,11 +77,18 @@ function Invoke-Build {
     }
     finally { Pop-Location }
 
+    # -A は Visual Studio generator 専用のオプションで、Ninja に渡すとエラーになる。
+    # アーキテクチャは macOS では CMAKE_OSX_ARCHITECTURES（PlatformCMakeArgs）、
+    # Linux ではネイティブ既定で決まる。
+    $generatorArgs = @('-G', $Config.Toolchain.Generator)
+    if ($Config.Toolchain.Generator -like 'Visual Studio*') {
+        $generatorArgs += @('-A', $Config.Toolchain.Architecture)
+    }
+
     $cmakeArgs = @(
         '-S', $sourceRoot
         '-B', $buildRoot
-        '-G', $Config.Toolchain.Generator
-        '-A', $Config.Toolchain.Architecture
+    ) + $generatorArgs + @(
         "-DCMAKE_BUILD_TYPE=$($Config.Toolchain.BuildType)"
         "-DCMAKE_INSTALL_PREFIX=$OpenCvRoot"
         "-DBUILD_LIST=$($Config.Modules -join ',')"
@@ -103,8 +110,24 @@ function Invoke-Build {
     }
     if ($LASTEXITCODE -ne 0) { throw "configure OpenCV failed with exit code $LASTEXITCODE" }
 
+    # install ターゲットの名前と --config の要否は generator で変わる。
+    #
+    #   Visual Studio（複数構成）: ターゲット名は 'INSTALL'、--config が要る
+    #   Ninja（単一構成）        : ターゲット名は 'install'、--config は無意味
+    #
+    # 実測（M3 Task 4 の CI 初回）: Ninja に INSTALL を渡すと
+    # 「ninja: error: unknown target 'INSTALL'」で落ちる。configure 自体は
+    # 成功していたので、ここだけが platform 間で違っていた。
+    $isMultiConfig = $Config.Toolchain.Generator -like 'Visual Studio*'
+    $buildArgs = @('--build', $buildRoot)
+    if ($isMultiConfig) {
+        $buildArgs += @('--config', $Config.Toolchain.BuildType, '--target', 'INSTALL')
+    } else {
+        $buildArgs += @('--target', 'install')
+    }
+
     Invoke-Checked {
-        cmake --build $buildRoot --config $Config.Toolchain.BuildType --target INSTALL
+        cmake @buildArgs
     } 'build and install OpenCV'
 
     $modules = Invoke-Verify
@@ -188,7 +211,40 @@ function Invoke-Restore {
     $succeeded = $false
     try {
         Write-Host "==> download artifact '$ArtifactName'" -ForegroundColor Cyan
-        & gh run download --name $ArtifactName --dir $OpenCvRoot 2>&1 | Write-Host
+        # **実行 ID を指定して 1 つだけ取る。**
+        #
+        # `gh run download --name <名前>` は名前だけを指定すると、その名前を持つ
+        # artifact を**すべての実行から**取ってきて同じディレクトリへ展開しようと
+        # する。同じ構成で build を複数回走らせると同名の artifact が増えるので
+        # （実測: 6 個）、2 つ目の展開で「The file exists」になって失敗する。
+        #
+        # 構成ハッシュが同じなら中身も同じはずなので、どれを取っても等価である。
+        # 最新の成功した実行のものを選ぶ。
+        # 該当する実行を 1 つ選ぶ。**先に受けてから property を読む** —
+        # 空の結果に対して (...).databaseId と書くと StrictMode が
+        # 「property が無い」で落ち、下の分かりやすいエラーに到達しない
+        # （実測: artifact が存在しない構成で restore すると、意図した案内では
+        # なく PowerShell の内部例外が出ていた）。
+        $candidates = @(& gh run list --workflow=build-opencv.yml --status=success `
+                            --limit 20 --json databaseId,createdAt `
+                        | ConvertFrom-Json |
+                        Where-Object {
+                            $arts = & gh api "repos/:owner/:repo/actions/runs/$($_.databaseId)/artifacts" `
+                                        --jq '.artifacts[].name' 2>$null
+                            $arts -contains $ArtifactName
+                        })
+        $runId = if ($candidates.Count -gt 0) { $candidates[0].databaseId } else { $null }
+
+        if (-not $runId) {
+            Write-RestoreFailure (@(
+                "artifact '$ArtifactName' を持つ成功した実行が見つかりません。"
+                ''
+                'この構成でまだビルドしていないか、artifact が失効しています。'
+                '  gh workflow run build-opencv.yml'
+            ) -join "`n")
+        }
+
+        & gh run download $runId --name $ArtifactName --dir $OpenCvRoot 2>&1 | Write-Host
 
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $manifestPath)) {
             Write-RestoreFailure (@(
@@ -262,7 +318,10 @@ function Write-BuildManifest([string[]]$Modules, [System.Collections.Specialized
         opencvTag           = $Config.Tag
         configHash          = $ConfigHash
         artifactName        = $ArtifactName
-        platform            = 'windows-x64'
+        # 構成から取る。決め打ちにすると manifest が実物と食い違い、
+        # 「成果物に何が入っているか」の申告が嘘になる（M3 Task 2 のレビューで
+        # 発見。macOS / Linux でビルドしても windows-x64 と記録されていた）。
+        platform            = $Config.Platform
         generator           = $Config.Toolchain.Generator
         buildType           = $Config.Toolchain.BuildType
         cxxCompiler         = ($compiler -replace '"', '').Trim()

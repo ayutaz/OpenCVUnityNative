@@ -5,8 +5,19 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <IsPackable>false</IsPackable>
-    <!-- ネイティブ DLL は x64。テストホストも x64 に固定する。 -->
-    <PlatformTarget>x64</PlatformTarget>
+    <!--
+      テストホストのアーキテクチャは、ロードするネイティブライブラリに合わせる。
+
+      M0 の時点では x64 固定でよかった（Windows x64 しか無かった）。M3 で
+      macOS arm64 の runner が加わり、そこでは x64 の dotnet host が存在せず
+      「Could not find 'dotnet' host for the 'X64' architecture」で L3 が
+      走らずに落ちる（実測、CI の macOS job）。
+
+      AnyCPU にすると実行中のプロセスのアーキテクチャに従うので、Windows x64
+      では x64、Apple Silicon では arm64 のホストが選ばれ、どちらもその platform
+      向けにビルドされたネイティブライブラリと一致する。
+    -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
     <RootNamespace>CvUnity.Tests.Managed</RootNamespace>
     <AssemblyName>CvUnity.Tests.Managed</AssemblyName>
   </PropertyGroup>

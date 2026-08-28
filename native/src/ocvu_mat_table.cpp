@@ -1,14 +1,23 @@
 #include "ocvu_mat_table.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <vector>
 
 namespace ocvu {
 namespace {
 
+/*
+ * Mat を値ではなく間接で持つ。slots は vector なので、伸びるときに要素ごと
+ * 引っ越す。値で持つと、その引っ越しで mat_table_get が過去に返した
+ * ポインタが全部ぶら下がる — 壊れるのは create した側ではなく、
+ * まったく無関係な handle を使っている側である。unique_ptr にすると
+ * 動くのはポインタだけで、Mat 本体のアドレスは固定される。
+ */
 struct Slot {
-    cv::Mat mat;
+    std::unique_ptr<cv::Mat> mat;
     uint32_t generation = 1;  // 1 から始める。世代 0 の handle は作らない
     bool occupied = false;
 };
@@ -51,7 +60,7 @@ ocvu_mat_handle mat_table_acquire(cv::Mat mat) {
     }
 
     Slot& slot = t.slots[index];
-    slot.mat = std::move(mat);
+    slot.mat = std::make_unique<cv::Mat>(std::move(mat));
     slot.occupied = true;
     return make_handle(index, slot.generation);
 }
@@ -67,7 +76,13 @@ cv::Mat* mat_table_get(ocvu_mat_handle handle) {
 
     Slot& slot = t.slots[index];
     if (!slot.occupied || slot.generation != handle_generation(handle)) { return nullptr; }
-    return &slot.mat;
+    return slot.mat.get();
+}
+
+size_t mat_table_slot_capacity() {
+    Table& t = table();
+    std::lock_guard<std::mutex> lock(t.mutex);
+    return t.slots.capacity();
 }
 
 bool mat_table_release(ocvu_mat_handle handle) {
@@ -82,7 +97,7 @@ bool mat_table_release(ocvu_mat_handle handle) {
     Slot& slot = t.slots[index];
     if (!slot.occupied || slot.generation != handle_generation(handle)) { return false; }
 
-    slot.mat.release();
+    slot.mat.reset();
     slot.occupied = false;
     // 世代を進めることで、この索引の古い handle は以後すべて無効になる。
     // 一周して衝突するのは 2^32 回の解放後であり、実用上到達しない。

@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test', 'clean')]
+    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
     [string]$Command = 'test'
 )
 
@@ -17,10 +17,28 @@ Set-StrictMode -Version Latest
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $RepoRoot      = Split-Path -Parent $PSScriptRoot
-$Preset        = 'windows-x64-debug'
-$AsanPreset    = 'windows-x64-asan'
-$NativeOutDir  = Join-Path $RepoRoot "build/$Preset/native/Debug"
+Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
+$Platform      = Get-OpenCvPlatform
+
+# native library のファイル名は platform で変わる。**1 箇所で決める** —
+# 各所に .dll と書くと、platform を足したときに書き換え漏れが起きる
+# （実測: M3 のレビューで dev.ps1 の 2 箇所と NativeLibraryResolver.cs が
+# 漏れており、macOS / Linux の job は L1 も L3 も走らずに落ちる状態だった）。
+$NativeLibraryName = if ($IsWindows) { 'opencv_unity_native.dll' }
+                     elseif ($IsMacOS) { 'libopencv_unity_native.dylib' }
+                     else { 'libopencv_unity_native.so' }
+$Preset        = "$Platform-debug"
+$AsanPreset    = "$Platform-asan"
 $ResultsDir    = Join-Path $RepoRoot 'artifacts/test-results'
+
+# L3 (P/Invoke) が読む native ライブラリの出力先。Visual Studio generator は
+# 構成名のサブディレクトリ（Debug/）を作るが、Ninja（macOS / Linux）は単一構成
+# generator なので作らない。Copy-NativePluginForUnity の $source 判定と同じ形。
+$NativeOutDir  = if ($IsWindows) {
+    Join-Path $RepoRoot "build/$Preset/native/Debug"
+} else {
+    Join-Path $RepoRoot "build/$Preset/native"
+}
 
 function Invoke-Checked([scriptblock]$Action, [string]$What) {
     Write-Host "==> $What" -ForegroundColor Cyan
@@ -86,6 +104,8 @@ $ToolsTestScriptsFast = @(
 $ToolsTestScriptsSlow = @(
     'VerifyOpenCvArtifact.Tests.ps1'
     'OpenCvRestore.Tests.ps1'
+    'VerifyArtifactLinkage.Tests.ps1'
+    'PackageRelease.Tests.ps1'
 )
 
 function Invoke-ToolsTestList {
@@ -138,7 +158,17 @@ function Build-Native {
     成果物なのでコミットしない（.gitignore 済み）。
 #>
 function Copy-NativePluginForUnity {
-    $source = Join-Path $RepoRoot 'build/windows-x64-debug/native/Debug/opencv_unity_native.dll'
+    # 出力ファイル名と配置は platform ごとに違う。Visual Studio generator は
+    # 構成名のサブディレクトリ（Debug/）を作るが、Ninja は作らない。
+    $buildDir = Join-Path $RepoRoot "build/$Preset/native"
+    $source = if ($IsWindows) {
+        Join-Path $buildDir "Debug/$NativeLibraryName"
+    } elseif ($IsMacOS) {
+        Join-Path $buildDir $NativeLibraryName
+    } else {
+        Join-Path $buildDir $NativeLibraryName
+    }
+
     if (-not (Test-Path -LiteralPath $source)) {
         Write-DevFailure (@(
             "native plugin が見つかりません: $source"
@@ -146,9 +176,55 @@ function Copy-NativePluginForUnity {
         ) -join "`n")
     }
 
-    $destDir = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/x86_64'
+    # Unity の native plugin 置き場も platform ごとに分かれる。
+    $pluginDir = switch ($Platform) {
+        'windows-x64' { 'x86_64' }
+        'macos-arm64' { 'macOS' }
+        'linux-x64'   { 'Linux/x86_64' }
+    }
+    $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+    $destDir = Join-Path $pluginRoot $pluginDir
     New-Item -ItemType Directory -Force -Path $destDir | Out-Null
     Copy-Item -LiteralPath $source -Destination $destDir -Force
+
+    <#
+        Plugin Import Settings（.meta）も一緒に置く。
+
+        **binary と .meta は必ず同時に現れなければならない。** 片方だけだと
+        Unity が壊れた状態を見る:
+
+        - .meta が無い binary → Unity が既定の設定を作る。既定は「全 platform
+          有効」で、3 つの binary が読み込みで衝突する
+        - binary が無い .meta → Unity から見ると「asset の無い孤児」で、
+          mutable な package では**実際に削除される**。追跡していた頃は
+          dev.ps1 test-unity-editmode を 1 回走らせるだけで、macOS / Linux の
+          .meta が working tree から消えた（実測）
+
+        だから .meta の正本は tools/plugin-meta/<platform>/ に置き、Plugins/ は
+        丸ごと成果物にした（.gitignore 済み）。ここは Runtime/Plugins を根とした
+        鏡像なので、そのままコピーすればフォルダの .meta も含めて揃う。
+    #>
+    $metaSource = Join-Path $PSScriptRoot "plugin-meta/$Platform"
+    if (-not (Test-Path -LiteralPath $metaSource)) {
+        Write-DevFailure (@(
+            "Plugin Import Settings が見つかりません: $metaSource"
+            'platform を足したときは tools/plugin-meta/<platform>/ も足すこと。'
+            '.meta の無い binary は Unity で「全 platform 有効」の既定になり、'
+            '複数 platform の binary が読み込みで衝突する。'
+        ) -join "`n")
+    }
+    Copy-Item -Path (Join-Path $metaSource '*') -Destination $pluginRoot -Recurse -Force
+
+    # 置いたつもりで置けていない状態を作らない。binary の隣に .meta があること
+    # を確かめる（コピー元の構造が変わっても気づける）。
+    $expectedMeta = Join-Path $destDir "$NativeLibraryName.meta"
+    if (-not (Test-Path -LiteralPath $expectedMeta)) {
+        Write-DevFailure (@(
+            "binary の隣に .meta がありません: $expectedMeta"
+            "コピー元: $metaSource"
+            'tools/plugin-meta/<platform>/ は Runtime/Plugins を根とした鏡像である必要がある。'
+        ) -join "`n")
+    }
 }
 
 function Test-Native {
@@ -181,7 +257,7 @@ function Test-Asan {
 
 function Test-Managed {
     Build-Native
-    if (-not (Test-Path (Join-Path $NativeOutDir 'opencv_unity_native.dll'))) {
+    if (-not (Test-Path (Join-Path $NativeOutDir $NativeLibraryName))) {
         throw "Native library was not found in '$NativeOutDir' after building."
     }
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
@@ -304,6 +380,185 @@ function Test-UnityEditMode {
     Write-Host "==> Unity EditMode: $passed passed" -ForegroundColor Green
 }
 
+
+<#
+    UPM tarball としての導入を、Unity に実際に解決させて確かめる（M3 完了条件 2）。
+
+    「package.json が在る」「tar が作れる」は「導入できる」ではない。UPM が
+    tarball を展開し、asmdef を解決し、native plugin を読み、その package の
+    テストが走って初めて「導入できた」と言える。だからこのレーンは、
+    リポジトリ内の file: 参照ではなく **tarball だけ** を指した使い捨ての
+    プロジェクトを作り、そこで EditMode テストを走らせる。
+
+    tests/UnityProject/ をそのまま書き換えないのは、既存の L4 が
+    「リポジトリ内の package を直接参照する」経路を担っているからで、
+    どちらか一方で他方を代替できない。file: のディレクトリ参照は
+    tarball の中身が壊れていても通ってしまう。
+
+    Library/ を持って行かないので、Unity は import からやり直す。既存の L4 より
+    かなり遅い。CI とローカルの手動確認のためのレーンで、`test` には含めない。
+#>
+function Test-UnityTarball {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $work = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-tarball-" + [guid]::NewGuid().ToString('n'))
+    New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+    try {
+        # release.yml と同じ作り方で tarball にする。作り方が違うと、
+        # ここで通ったものが配布物では通らない。
+        # release.yml と同じ script で作る。作り方が分かれると、ここで
+        # 導入できた tarball と実際に配る tarball が別物になる。
+        $upmDir = Join-Path $work 'upm'
+        $packer = Join-Path $PSScriptRoot 'pack-upm-tarball.ps1'
+        # platform を渡す。packer がその platform の binary の実在を確かめるので、
+        # 「何か 1 つでも入っている」ではなく「意図した binary が入っている」に
+        # なる。
+        $tgz = & pwsh -NoProfile -File $packer -OutputDir $upmDir -Platform $Platform |
+               Select-Object -Last 1
+        if ($LASTEXITCODE -ne 0 -or -not $tgz -or -not (Test-Path -LiteralPath $tgz)) {
+            Write-DevFailure "UPM tarball を作れませんでした（exit $LASTEXITCODE）"
+        }
+
+        # native plugin が本当に入ったか。入っていない tarball でも UPM の
+        # 解決自体は通るので、ここで見ないと「導入できた」の意味が変わる。
+        Push-Location (Split-Path -Parent $tgz)
+        try { $listed = @(& tar -tzf (Split-Path -Leaf $tgz)) }
+        finally { Pop-Location }
+        # **「何か 1 つでも入っている」で満足しない。** 今ビルドした platform の
+        # binary が入っていることを見る。dev.ps1 は $NativeLibraryName に
+        # 実行中 platform の綴りを 1 箇所で持っているので、それを使う。
+        # 「何かしら」で見ると、古い binary が Plugins に残っているだけで
+        # 通ってしまう。
+        $binaries = @($listed | Where-Object { $_ -like "*/$NativeLibraryName" })
+        if ($binaries.Count -lt 1) {
+            $anyBinary = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+            Write-DevFailure (@(
+                "tarball に $NativeLibraryName が入っていません: $tgz"
+                "入っていた binary: $(if ($anyBinary) { $anyBinary -join ', ' } else { '(なし)' })"
+                'この platform 用にビルドしてから固めること。'
+            ) -join "`n")
+        }
+        Write-Host "==> tarball contains $NativeLibraryName" -ForegroundColor Green
+
+        # 使い捨ての Unity プロジェクトを作る。Library/ 等は持って行かない。
+        $project = Join-Path $work 'UnityProject'
+        $source  = Join-Path $RepoRoot 'tests/UnityProject'
+        $skip    = @('Library', 'Temp', 'Logs', 'obj', 'Build', 'UserSettings')
+        New-Item -ItemType Directory -Force -Path $project | Out-Null
+        Get-ChildItem -LiteralPath $source -Force |
+            Where-Object { $_.Name -notin $skip } |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $project -Recurse -Force }
+
+        <#
+            参照を tarball に差し替える。ディレクトリ参照が 1 つでも残ると、
+            tarball が壊れていても緑になる。
+
+            **manifest.json だけでは足りない。** packages-lock.json は
+            `"version": "file:../../../Packages/com.ayutaz.opencv-unity-native"`
+            を固定して持っており、これを持って行くと UPM がそちらで解決し得る。
+            レーンが避けようとしているディレクトリ参照そのものが lock に
+            残っている。消してから解決させる。
+        #>
+        $lockPath = Join-Path $project 'Packages/packages-lock.json'
+        if (Test-Path -LiteralPath $lockPath) { Remove-Item -LiteralPath $lockPath -Force }
+
+        $manifestPath = Join-Path $project 'Packages/manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw
+        $tgzUri = 'file:' + ($tgz -replace '\\', '/')
+        $manifest = $manifest -replace
+            '"com\.ayutaz\.opencv-unity-native":\s*"[^"]*"',
+            ('"com.ayutaz.opencv-unity-native": "' + $tgzUri + '"')
+        Set-Content -LiteralPath $manifestPath -Value $manifest -NoNewline -Encoding utf8
+
+        if ($manifest -notmatch [regex]::Escape($tgzUri)) {
+            Write-DevFailure "manifest.json の参照を tarball に差し替えられませんでした: $manifestPath"
+        }
+
+        $results = Join-Path $ResultsDir 'unity-tarball.xml'
+        $log     = Join-Path $ResultsDir 'unity-tarball.log'
+        $unityArgs = @(
+            '-projectPath', $project,
+            '-runTests', '-testPlatform', 'EditMode',
+            '-testResults', $results, '-logFile', $log,
+            '-batchmode', '-nographics'
+        )
+        <#
+            タイムアウトを付ける。CLAUDE.md の不変条件「テストは必ずタイムアウト
+            付きサブプロセスで実行し」に従う。
+
+            このレーンは Library/ をゼロから作るぶん最も固まりやすい。
+            ハングしたまま待ち続けると、開発ループが止まったのか進んでいるのか
+            区別できなくなる——「クラッシュは赤いテストでなければならない」の
+            ハング版である。実測は約 3 分なので、その 5 倍を上限にする。
+        #>
+        $timeoutMs = 15 * 60 * 1000
+        $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -PassThru -NoNewWindow
+        if (-not $proc.WaitForExit($timeoutMs)) {
+            try { $proc.Kill($true) } catch { }
+            Write-DevFailure (@(
+                "Unity が $($timeoutMs / 60000) 分で終わらなかったので打ち切りました。"
+                'ハングは緑にも赤にもならないので、明示的に失敗させる。'
+                "ログ: $log"
+            ) -join "`n")
+        }
+        $exit = $proc.ExitCode
+
+        if (-not (Test-Path -LiteralPath $results)) {
+            Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
+        }
+        [xml]$xml = Get-Content -LiteralPath $results
+        $failed = [int]$xml.'test-run'.failed
+        $passed = [int]$xml.'test-run'.passed
+        if ($exit -ne 0 -or $failed -ne 0) {
+            Write-DevFailure "tarball 導入後の EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
+        }
+        # 0 件で緑にしない理由は Test-UnityEditMode と同じ。tarball 経路では
+        # 「UPM が解決に失敗してテストごと消える」が最も起きやすい失敗である。
+        if ($passed -lt 1) {
+            Write-DevFailure (@(
+                "tarball から導入した package のテストが 1 件も実行されませんでした（passed=$passed）。"
+                'UPM が package を解決できていないか、テスト assembly がコンパイル対象から'
+                '外れています。0 件の実行は成功ではありません。'
+                "ログ: $log"
+            ) -join "`n")
+        }
+
+        <#
+            **テストが通ったことは、tarball で解決された証拠にならない。**
+            テストは tests/UnityProject/Assets/Tests/ にあってパッケージの中には
+            無いので、ディレクトリ参照で解決されても同じ数だけ通る。
+            上の lock 削除が効かなかった場合、緑のまま何も証明しない。
+
+            UPM が解決後に書き戻す packages-lock.json を読んで、参照が本当に
+            tarball だったかを見る。ここまでやって初めて「tarball から導入
+            できた」と言える。
+        #>
+        if (-not (Test-Path -LiteralPath $lockPath)) {
+            Write-DevFailure (@(
+                "UPM が packages-lock.json を書き戻しませんでした: $lockPath"
+                'どの参照で解決されたかを確かめられないので、合格にしない。'
+            ) -join "`n")
+        }
+        $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+        $entry = $lock.dependencies.'com.ayutaz.opencv-unity-native'
+        if (-not $entry -or $entry.version -notlike '*.tgz') {
+            Write-DevFailure (@(
+                'UPM は tarball ではない参照で解決しました。このレーンは何も証明していません。'
+                "解決された参照: $(if ($entry) { $entry.version } else { '(項目なし)' })"
+                "期待: .tgz で終わる file: 参照"
+                "ログ: $log"
+            ) -join "`n")
+        }
+        Write-Host "==> UPM tarball install: $passed passed (resolved from $($entry.version))" -ForegroundColor Green
+    }
+    finally {
+        Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    }
+}
 <#
     Unity IL2CPP Player テスト（L5）。EditMode (Mono) では再現しない、
     IL2CPP の managed code stripping が P/Invoke 宣言を削る問題を検出する
@@ -383,7 +638,7 @@ function Test-UnityPlayer {
 # (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
 function Test-ManagedProbe {
     Build-Native
-    if (-not (Test-Path (Join-Path $NativeOutDir 'opencv_unity_native.dll'))) {
+    if (-not (Test-Path (Join-Path $NativeOutDir $NativeLibraryName))) {
         throw "Native library was not found in '$NativeOutDir' after building."
     }
     $env:OCVU_NATIVE_DIR = $NativeOutDir
@@ -406,6 +661,7 @@ switch ($Command) {
     'test-tools-slow' { Test-ToolsSlow }
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
+    'test-unity-tarball' { Reset-Results; Test-UnityTarball }
     'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }

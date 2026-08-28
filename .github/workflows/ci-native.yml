@@ -105,3 +105,63 @@ jobs:
           name: test-results-windows
           path: artifacts/test-results/
           if-no-files-found: warn
+
+  macos:
+    name: macOS arm64 (L1 + L3)
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install Ninja
+        run: brew install ninja
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+      - name: Run all fast lanes
+        shell: pwsh
+        run: ./tools/dev.ps1 test
+
+      # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
+      # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
+      # なる（M1 の H2 で同じ形を指摘済み）。
+      - name: Run the slow tools tests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/dev.ps1 test-tools-slow
+
+  linux:
+    name: Linux x64 (L1 + L3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+      - name: Run all fast lanes
+        shell: pwsh
+        run: ./tools/dev.ps1 test
+
+      # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
+      # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
+      # なる（M1 の H2 で同じ形を指摘済み）。
+      - name: Run the slow tools tests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/dev.ps1 test-tools-slow

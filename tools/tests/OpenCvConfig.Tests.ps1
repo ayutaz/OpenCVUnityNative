@@ -2,6 +2,7 @@
 # Pester を使わず素の assert で書く。依存を増やさないため。
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
@@ -43,7 +44,9 @@ $mutatedTag = Get-OpenCvConfig
 $mutatedTag.Tag = '5.0.1'
 Assert-That ((Get-OpenCvConfigHash -Config $mutatedTag) -ne $hash1) 'changing the tag changes the hash'
 
-Assert-That ((Get-OpenCvArtifactName -Config $config) -eq "opencv-5.0.0-windows-x64-$hash1") 'artifact name embeds the hash'
+# 実行中の platform で組み立てる。'windows-x64' を直書きすると macOS / Linux で
+# 必ず落ち、そこで dev.ps1 test が止まって L1 も L3 も走らなくなる（M3 のレビューで発見）。
+Assert-That ((Get-OpenCvArtifactName -Config $config) -eq "opencv-5.0.0-$($config.Platform)-$hash1") 'artifact name embeds the platform and the hash'
 
 # 並び順を変えても同じハッシュになること（order-insensitive）。
 # Sort-Object を将来のリファクタで取りこぼしても検知できるよう、
@@ -152,6 +155,124 @@ Assert-That ($fromPrefixed.Count -eq $fromPlain.Count) '前置の有無で抽出
 foreach ($key in $fromPlain.Keys) {
     Assert-That ($fromPrefixed[$key] -eq $fromPlain[$key]) "前置の有無で $key のバージョンが一致する"
 }
+
+# --- platform ごとに構成とハッシュが分かれる ---
+#
+# 現在ハッシュに platform が入っておらず、macOS でビルドしても Windows と同じ
+# ハッシュを名乗れてしまう。M1 が「古い成果物が黙って再利用されない」ために
+# 作った仕組みの穴なので、platform が違えば必ず違うハッシュになることを固定する。
+$platforms = @('windows-x64', 'macos-arm64', 'linux-x64')
+$hashes = @{}
+foreach ($p in $platforms) {
+    $cfg = Get-OpenCvConfig -Platform $p
+    Assert-That ($cfg.Platform -eq $p) "Get-OpenCvConfig -Platform $p returns that platform"
+    Assert-That ($null -ne $cfg.Toolchain.Generator) "$p has a generator"
+    $hashes[$p] = Get-OpenCvConfigHash -Config $cfg
+}
+
+Assert-That (($hashes.Values | Sort-Object -Unique).Count -eq $platforms.Count) `
+    'every platform produces a distinct config hash'
+
+foreach ($p in $platforms) {
+    $name = Get-OpenCvArtifactName -Config (Get-OpenCvConfig -Platform $p)
+    Assert-That ($name -eq "opencv-5.0.0-$p-$($hashes[$p])") `
+        "the artifact name for $p embeds that platform and its hash"
+}
+
+# 実行中の platform を既定にする。引数なしの呼び出しが壊れないこと。
+$current = Get-OpenCvPlatform
+Assert-That ($current -in $platforms) "Get-OpenCvPlatform returns a known platform (saw '$current')"
+Assert-That ((Get-OpenCvConfig).Platform -eq $current) 'Get-OpenCvConfig defaults to the running platform'
+
+# 未知の platform は黙って通さない。認識できなかったものは失敗側に落とす。
+$rejected = $false
+try { Get-OpenCvConfig -Platform 'solaris-sparc' | Out-Null }
+catch { $rejected = $true }
+Assert-That $rejected 'an unknown platform is rejected rather than silently defaulted'
+
+# --- psd1 に新しい top-level キーを足すとハッシュが動く ---
+#
+# Get-OpenCvConfig がキーを名指しで列挙すると、psd1 に足したキーが構成に
+# 入らず「構成を変えたのにハッシュが動かない」状態になる。M1 の H3 は
+# Get-OpenCvConfigHash について同じ欠陥を閉じたが、列挙を Get-OpenCvConfig へ
+# 移すと 1 段上で再発する（M3 Task 1 の初回実装が実際にそうなっていた:
+# ContribTag を足してもハッシュが 4785d98e9aad のまま動かなかった）。
+#
+# 実ファイルを一時的に書き換えて確かめる。読み取り専用の検査では、
+# 「列挙している実装」と「していない実装」を区別できない。
+$configPath = Join-Path $PSScriptRoot '../opencv-config.psd1' | Resolve-Path | Select-Object -ExpandProperty Path
+$backup = Get-Content -LiteralPath $configPath -Raw
+try {
+    $baseline = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'windows-x64')
+
+    # 将来ありうる top-level キーを足す（contrib の tag など）
+    ($backup -replace "(?m)^(\s*)Tag = '5\.0\.0'", "`$1Tag = '5.0.0'`n`$1OcvuHashProbeKey = 'probe'") |
+        Set-Content -LiteralPath $configPath -NoNewline
+
+    $withNewKey = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'windows-x64')
+    Assert-That ($withNewKey -ne $baseline) `
+        'adding a new top-level key to opencv-config.psd1 changes the hash'
+}
+finally {
+    Set-Content -LiteralPath $configPath -Value $backup -NoNewline
+    # 復元できたことを確かめる。ここが崩れると以降のテストが嘘の値で走る。
+    $restored = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'windows-x64')
+    Assert-That ($restored -eq $baseline) 'opencv-config.psd1 is restored to its original content'
+}
+
+# --- CMakePresets に全 platform 分が在り、名前が platform と一致する ---
+#
+# preset 名を platform 名から機械的に導くので、片方だけ足して他方を忘れると
+# 「preset が無い」という実行時エラーになる。ここで先に落とす。
+$presetsPath = Join-Path $repoRoot 'CMakePresets.json'
+$presets = Get-Content -LiteralPath $presetsPath -Raw | ConvertFrom-Json
+$configureNames = @($presets.configurePresets | ForEach-Object { $_.name })
+
+foreach ($p in @('windows-x64', 'macos-arm64', 'linux-x64')) {
+    Assert-That ("$p-debug" -in $configureNames) "CMakePresets has a configure preset '$p-debug'"
+    Assert-That ("$p-asan" -in $configureNames) "CMakePresets has a configure preset '$p-asan'"
+}
+
+# build / test preset も同数あること。configure だけ足して build を忘れると
+# cmake --build --preset が失敗する。
+$buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
+$testNames = @($presets.testPresets | ForEach-Object { $_.name })
+foreach ($n in $configureNames) {
+    Assert-That ($n -in $buildNames) "there is a build preset for '$n'"
+    Assert-That ($n -in $testNames) "there is a test preset for '$n'"
+}
+
+# --- manifest に platform を決め打ちしていないこと ---
+#
+# opencv.ps1 の Write-BuildManifest が platform を文字列で持っていると、
+# macOS / Linux でビルドしても windows-x64 と記録され、manifest が実物と
+# 食い違う。「成果物に何が入っているか」の申告が嘘になるので、M3 の SBOM
+# にもそのまま伝播する（M3 Task 2 のレビューで実際に見つかった）。
+#
+# 実行時の値は CI でしか確かめられないので、ここではソースを検査する。
+# 検査対象が構成から取っていることを見るのが目的で、値そのものではない。
+$opencvScript = Join-Path $PSScriptRoot '../opencv.ps1' | Resolve-Path | Select-Object -ExpandProperty Path
+$manifestSource = Get-Content -LiteralPath $opencvScript -Raw
+
+Assert-That ($manifestSource -notmatch "platform\s*=\s*'[a-z0-9-]+'") `
+    'the build manifest does not hardcode a platform string'
+Assert-That ($manifestSource -match 'platform\s*=\s*\$Config\.Platform') `
+    'the build manifest takes its platform from the configuration'
+
+# --- install ターゲット名を generator に応じて選んでいること ---
+#
+# 'INSTALL'（大文字）は Visual Studio generator のターゲット名で、Ninja には
+# 存在しない。決め打ちすると macOS / Linux のビルドが
+# 「ninja: error: unknown target 'INSTALL'」で落ちる（M3 Task 4 の CI 初回で
+# 実際に両方落ちた。configure は成功しており、ここだけが違っていた）。
+#
+# 実行時の挙動は CI でしか確かめられないので、ソースを検査する。
+$opencvSource = Get-Content -LiteralPath $opencvScript -Raw
+
+Assert-That ($opencvSource -match "Generator -like 'Visual Studio\*'") `
+    'the build step branches on the generator rather than assuming one'
+Assert-That ($opencvSource -match "--target', 'install'") `
+    'single-config generators get the lowercase install target'
 
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red

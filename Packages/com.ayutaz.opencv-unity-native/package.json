@@ -5,5 +5,12 @@
   "description": "OpenCV 5 for Unity through a project-owned C ABI. Apache-2.0.",
   "unity": "6000.0",
   "license": "Apache-2.0",
-  "keywords": ["opencv", "computer-vision", "native"]
+  "keywords": ["opencv", "computer-vision", "native"],
+  "samples": [
+    {
+      "displayName": "Basic Usage",
+      "description": "Texture2D を OpenCV で処理して書き戻す最小の例",
+      "path": "Samples~/BasicUsage"
+    }
+  ]
 }

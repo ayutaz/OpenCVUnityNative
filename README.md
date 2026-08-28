@@ -2,7 +2,7 @@
 
 OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible native UPM package.
 
-> **Status: early development (M0/M1 complete; M2 meets 7 of its 8 completion criteria).** One remains unmet: criterion 7 asks CI to run the Unity lanes. `ci-unity.yml` exists but has never run, and registering credentials alone will not make it work — the GitHub-hosted runner has no Unity and no step installing one, and nothing reads `UNITY_LICENSE` yet. The automated test harness (native GoogleTest lane, AddressSanitizer lane, managed P/Invoke contract lane, and — new in M2 — a Unity EditMode lane and a Windows IL2CPP Player lane) exists and passes locally, linked against a reproducible OpenCV 5.0.0 build that CI produces and publishes as an artifact. The C ABI now exposes a `Mat` lifecycle (create/release/clone/get_info/copy_from_buffer/copy_to_buffer) and three `imgproc` calls (cvtColor/resize/GaussianBlur) in addition to the M0 version/build-information/debug surface — 18 functions total. `Texture2D` round-trips through OpenCV and back with the same result in both Unity Editor (Mono) and a Windows IL2CPP Player build. The one unmet criterion is CI execution of those Unity lanes (`ci-unity.yml` exists but has never run — no Unity license is registered in this repo's GitHub Secrets yet, which is a step only a repo owner can take). Nothing beyond Windows x64 is in scope yet.
+> **Status: early development (M0/M1 complete; M2 meets 7 of its 8 completion criteria; M3 meets 1 of its 6).** M2's unmet criterion: CI never runs the Unity lanes (`ci-unity.yml` exists but has never executed, and registering credentials alone won't fix it — the GitHub-hosted runner has no Unity installed and nothing reads `UNITY_LICENSE` yet). The automated test harness (native GoogleTest lane, AddressSanitizer lane, managed P/Invoke contract lane, a Unity EditMode lane, and a Windows IL2CPP Player lane) exists and passes locally, linked against a reproducible OpenCV 5.0.0 build that CI produces and publishes as an artifact for Windows, macOS and Linux. The C ABI exposes a `Mat` lifecycle (create/release/clone/get_info/copy_from_buffer/copy_to_buffer) and three `imgproc` calls (cvtColor/resize/GaussianBlur) in addition to the M0 version/build-information/debug surface — 18 functions total. `Texture2D` round-trips through OpenCV and back with the same result in both Unity Editor (Mono) and a Windows IL2CPP Player build. M3 (three-platform desktop support) has all its work implemented and committed, but only the Unity sample and API reference criterion is actually verified — the other five (three-platform native-plugin CI build and Plugin Import Settings, Git URL/tarball installability, a complete release bundle, Linux leak detection, and machine-checked linkage on macOS/Linux) exist as code that has never run in CI on this branch, because the commits implementing them haven't been pushed past the last commit CI validated. Nothing beyond Windows x64 has an actual compiled plugin yet.
 
 ## What this is
 
@@ -21,6 +21,51 @@ Reimplementing OpenCV algorithms. Hand-wrapping the entire OpenCV API up front. 
 ## Planned platforms
 
 Windows, macOS and Linux first, then Android and iOS, then Web/Wasm. Unity 6000.x only.
+
+## Installing
+
+**Not published yet.** No release has been tagged, so there is nothing to install
+from a release URL today. What follows describes the intended path, and is written
+here because `release.yml` points at it — if you are reading this after the first
+tag, the release page will have the files named below.
+
+Each release carries one UPM tarball per platform:
+
+```
+com.ayutaz.opencv-unity-native-<version>-windows-x64.tgz
+com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
+```
+
+Download the one matching the platform you build on, put it somewhere inside or
+beside your project, and point the package manifest at it:
+
+```jsonc
+// Packages/manifest.json
+{
+  "dependencies": {
+    "com.ayutaz.opencv-unity-native": "file:../ThirdParty/com.ayutaz.opencv-unity-native-0.1.0-windows-x64.tgz"
+  }
+}
+```
+
+A relative path is resolved from the `Packages` folder; an absolute path also
+works. Unity 6000.x is required — 2022 LTS is not supported.
+
+### Why not a Git URL
+
+**A Git URL will not work, and this is deliberate.** The native plugin binaries
+(`.dll` / `.dylib` / `.so`) are not tracked in git — keeping three platforms'
+binaries in history would grow it without bound. A Git URL reference therefore
+delivers the C# code and the Plugin Import Settings but no actual libraries, and
+every `DllImport` fails at runtime. Use the release tarball.
+
+### One tarball per platform
+
+Each tarball contains the binary for **one** platform. If you build for more than
+one, take the corresponding tarball on each build machine. A single package
+holding all three is not published, because it would ship two unusable binaries
+to every consumer.
 
 ## Requirements
 

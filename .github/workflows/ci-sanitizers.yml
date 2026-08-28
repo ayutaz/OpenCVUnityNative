@@ -82,3 +82,24 @@ jobs:
           name: test-results-asan-windows
           path: artifacts/test-results/
           if-no-files-found: warn
+
+  linux-asan:
+    name: Linux x64 ASan+LSan (L2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+      # LeakSanitizer は Linux の ASan に含まれる。Windows の MSVC ASan には
+      # 無いので、リーク検出はこのレーンだけが担う。
+      - name: Run the sanitizer lane
+        shell: pwsh
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+        run: ./tools/dev.ps1 test-asan

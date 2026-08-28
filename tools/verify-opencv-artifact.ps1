@@ -101,11 +101,25 @@ $PermittedOpenCvModules = @(@($config.Modules) + $AcceptedTransitiveModules | So
 # （third_party/opencv/<hash>/x64/vc17/staticlib）を見て確定した集合。
 # 想像で足さない — 新しい third-party が現れたら、ライセンスを確認した上で
 # ここに追加するかどうかを人間が判断する。
+#
+# **ファイル名ではなくライブラリ名で持つ。** 命名規約が platform で違うためで、
+# 同じ zlib が Windows では zlib.lib、Unix では libzlib.a になる（実測、M3 Task 4）。
+# ファイル名で持つと同じライブラリを 2 回書くことになり、片方だけ更新される。
+# 判定側が 'lib' 接頭辞と拡張子を剥がしてからここと突き合わせる。
 $PermittedThirdPartyLibs = @(
-    'zlib.lib'          # zlib, zlib License
-    'libpng.lib'        # libpng, libpng License (Apache-2.0 互換)
-    'libjpeg-turbo.lib' # libjpeg-turbo, BSD-3-Clause / IJG / zlib のトリプルライセンス
-    'libclapack.lib'    # CLAPACK, BSD-3-Clause (University of Tennessee)。LAPACK 実装で core が使う
+    'zlib'          # zlib, zlib License
+    'libpng'        # libpng, libpng License (Apache-2.0 互換)
+    'libjpeg-turbo' # libjpeg-turbo, BSD-3-Clause / IJG / zlib のトリプルライセンス
+    'libclapack'    # CLAPACK, BSD-3-Clause (University of Tennessee)。LAPACK 実装で core が使う
+
+    # --- arm64 (Apple Silicon) の最適化実装。Windows のビルドには現れない ---
+    # KleidiCV: Arm 製の CV 最適化ライブラリ。Apache-2.0。
+    # OpenCV 5 が arm64 で既定で取り込む。
+    'kleidicv'
+    'kleidicv_hal'
+    'kleidicv_thread'
+    # Tegra HAL: OpenCV 本体に同梱される arm 向け HAL の入れ物。Apache-2.0。
+    'tegra_hal'
 )
 
 # 名前に現れたら拒否理由を具体的に説明できるもの。
@@ -205,6 +219,15 @@ $InertLicenseFiles = @(
     'mscr-chi_table_LICENSE.txt'
     'zlib-LICENSE'
 )
+# Valgrind の抑制ファイル。Unix 系の install だけが置く（Windows のビルドには
+# 現れない — 実測で確認）。実行可能コードではなく、Valgrind に「この警告は
+# 既知なので無視してよい」と伝えるテキストである。M3 の Linux レーンが
+# Valgrind を使うときに読む対象でもある。
+#
+# 名前で認識する。拡張子 '.supp' だけを条件にすると、同じ拡張子の未知の
+# ファイルが将来入ってきたときに黙って通る。
+$InertValgrindFiles = @('valgrind.supp', 'valgrind_3rdparty.supp')
+
 # root 直下にある、この検証自身が書く manifest と OpenCV 本体の LICENSE。
 $InertRootFiles = @('LICENSE', 'build-manifest.json')
 
@@ -234,7 +257,14 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # （実測: このツリーの include/ 直下は opencv2 のみ）、そこに限定すれば
     # 「OpenCV が置いたものである」ことを積極的に認識したことになる。
     # include/ 直下や include/<別名>/ に来たものは分類されず reject される。
-    if ($relative -like 'include/opencv2/*' -and $ext -in @('.h', '.hpp')) { return $true }
+    #
+    # **配置は platform で変わる。** Windows の install は include/opencv2/ に置くが、
+    # Unix 系（macOS / Linux）は include/opencv4/opencv2/ に置く（M3 Task 4 の CI で
+    # 実測: macOS の全 header が「未知」として拒否された）。**片方を決め打ちにすると、
+    # 正しい成果物を拒否するか、逆に緩めすぎて由来を見なくなる。** どちらの配置でも
+    # 「opencv2/ の下に在ること」は共通なので、そこを条件にする。
+    # include/ 直下や opencv2/ を経由しないものは分類されず reject される。
+    if ($relative -match '^include/(opencv[0-9]*/)?opencv2/' -and $ext -in @('.h', '.hpp')) { return $true }
 
     # notice/text: etc/licenses/ 配下の、名前そのものを allowlist にした
     # ファイルだけ。拡張子や場所だけでは判定しない — $InertLicenseFiles を見よ。
@@ -243,7 +273,22 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # よく、etc/foo/bar/zlib-LICENSE も通った。名前 allowlist が主たる門に
     # なった後も、コメントは「etc/licenses/ 配下の」と書いているのに実装は
     # そう読んでいなかった（再レビュー F8）。
-    if ($relative -like 'etc/licenses/*' -and $file.Name -in $InertLicenseFiles) { return $true }
+    #
+    # license の配置も platform で変わる（Unix 系は share/licenses/ に置く）。
+    # 名前 allowlist が主たる門なので、場所は「licenses/ 直下であること」に
+    # 緩めつつ、任意の深さは許さない。
+    #
+    # 実測した配置（M3 Task 4 の CI）:
+    #   Windows      etc/licenses/<name>
+    #   macOS/Linux  share/licenses/opencv5/<name>
+    #
+    # Unix 系はパッケージ名のディレクトリを 1 階層挟む。任意の深さを許すと
+    # 「licenses という語がどこかに在れば通る」になってしまうので、
+    # 0 段か 1 段だけに限る。名前 allowlist は変わらず主たる門である。
+    if ($relative -match '^(etc|share)/licenses/([^/]+/)?[^/]+$' -and $file.Name -in $InertLicenseFiles) { return $true }
+
+    # valgrind の抑制ファイル: 名前で認識する。Unix 系の install だけが置く。
+    if ($file.Name -in $InertValgrindFiles) { return $true }
 
     # cmake package file: 場所ではなく名前そのもので認識する。
     if ($file.Name -in $InertCMakePackageFiles) { return $true }
@@ -295,7 +340,9 @@ foreach ($file in $files) {
     if ($ext -in $BinaryArtifactExtensions) {
         # 受け入れると決めた OpenCV module か（opencv_<name><version>.(lib|a)
         # の形で、かつ name が $PermittedOpenCvModules に入っているもの）。
-        if ($file.Name -match '^opencv_(?<name>[a-z0-9_]+?)\d*\.(lib|a)$') {
+        # Unix は 'lib' 接頭辞を付ける（libopencv_core.a）。Windows は付けない
+        # （opencv_core500.lib）。version 番号の有無も違う。
+        if ($file.Name -match '^(lib)?opencv_(?<name>[a-z0-9_]+?)\d*\.(lib|a)$') {
             $moduleName = $Matches['name']
             if ($moduleName -in $PermittedOpenCvModules) {
                 $found += $moduleName
@@ -306,7 +353,18 @@ foreach ($file in $files) {
         }
 
         # 明示的に受け入れた third-party ライブラリか。
-        if ($lower -in ($PermittedThirdPartyLibs | ForEach-Object { $_.ToLowerInvariant() })) {
+        #
+        # 名前を正規化してから突き合わせる。Windows は zlib.lib、Unix は
+        # libzlib.a と綴りが違うだけで同じライブラリなので、拡張子と
+        # 'lib' 接頭辞を落として比べる。**綴りごとに列挙しない** — 列挙は
+        # platform が増えるたびに増え、片方だけ更新される形になる。
+        #
+        # libpng / libjpeg-turbo / libclapack のように名前自体が lib で
+        # 始まるものがあるので、接頭辞を剥がした形と剥がさない形の両方で照合する。
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($lower)
+        $stripped = $stem -replace '^lib', ''
+        $permitted = @($PermittedThirdPartyLibs | ForEach-Object { $_.ToLowerInvariant() })
+        if ($stem -in $permitted -or $stripped -in $permitted) {
             continue
         }
 
@@ -320,7 +378,12 @@ foreach ($file in $files) {
 
     # 3. inert でも binary artifact でもない、未知の種類のファイルは
     #    無条件で拒否する。
-    $violations += "  $($file.Name) — 未知の種類のファイルです（拡張子 '$ext'）。inert（header/cmake/notice）か binary artifact のどちらに区分するかを決めたうえで tools/verify-opencv-artifact.ps1 を更新してください"
+    # **相対パスを出す。** ファイル名だけだと、拒否された理由が「未知の名前」
+    # なのか「知っている名前だが想定外の場所」なのか区別できない。M3 Task 4 で
+    # 実際にこれで詰まった: macOS が zlib-LICENSE を拒否したが、それが
+    # etc/licenses/ に在るのか share/licenses/ に在るのかログから読めず、
+    # 配置を推測で直すことになった。診断は原因を名指しできなければ役に立たない。
+    $violations += "  $(Get-RelativePath $file) — 未知の種類のファイルです（拡張子 '$ext'）。inert（header/cmake/notice）か binary artifact のどちらに区分するかを決めたうえで tools/verify-opencv-artifact.ps1 を更新してください"
 }
 
 if ($violations.Count -gt 0) {

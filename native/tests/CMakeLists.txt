@@ -20,6 +20,7 @@ add_executable(ocvu_tests
     test_mat_lifecycle.cpp
     test_mat_buffer.cpp
     test_imgproc.cpp
+    test_mat_table_stability.cpp
 )
 
 # SHARED ではなく STATIC 側にリンクする（native/CMakeLists.txt の注記を参照）
@@ -92,4 +93,18 @@ if(OCVU_ENABLE_ASAN)
     # プローブが 0 で終了してしまうため登録しない。
     ocvu_add_expect_failure_test(harness.use_after_free_is_detected
         use-after-free 60 "heap-use-after-free")
+
+    # リーク検出。**Windows では登録しない。**
+    #
+    # MSVC の ASan は LeakSanitizer を含まないので、リークしても probe は 0 で
+    # 終了し、expect-failure テストが「落ちなかった」で赤くなる。リーク検出は
+    # M3 の Linux レーンが担うと roadmap で決めてある。
+    #
+    # regex は「リークが報告されたこと」まで見る。単に非 0 で終わっただけでは、
+    # 別の理由で落ちたのか区別できない（cmake/run_expect_failure.cmake が
+    # L1/L2 の他のプローブに課しているのと同じ規律）。
+    if(NOT MSVC)
+        ocvu_add_expect_failure_test(harness.leak_is_detected
+            leak 60 "detected memory leaks")
+    endif()
 endif()

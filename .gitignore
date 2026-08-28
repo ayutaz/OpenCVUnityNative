@@ -12,7 +12,22 @@ artifacts/
 # 個人設定は共有しない（hook 定義の .claude/settings.json は共有する）
 .claude/settings.local.json
 
-# Unity の native plugin 置き場。dev.ps1 build がビルド成果物を写す（成果物なので追跡しない）
+# Unity の native plugin 置き場。dev.ps1 build がビルド成果物（.dll/.dylib/.so）を
+# 写すので、それらは追跡しない。ただし .meta は Unity の import 設定そのもの
+# （どの platform 向けかを PluginImporter が記録する）であり、無いと利用者の
+# 環境で「全 platform 有効」の既定に戻り、3 つの binary が読み込みで衝突する
+# （M3 Task 6）。ディレクトリ丸ごとの ignore はしない。
+# Runtime/Plugins/ は丸ごと成果物である。binary だけでなく .meta も追跡しない。
+#
+# **.meta を追跡していたら、Unity がそれを消した。** binary の無い platform の
+# .meta は Unity から見ると「asset の無い孤児」で、mutable な package
+# （リポジトリ内の file: 参照）では実際に削除される。dev.ps1
+# test-unity-editmode を Windows で 1 回走らせるだけで、追跡済みの macOS /
+# Linux の .meta が working tree から消えることを実測した。
+#
+# .meta の正本は tools/plugin-meta/<platform>/ にあり、dev.ps1 の
+# Copy-NativePluginForUnity が、そのとき作った binary の分だけをここへ写す。
+# 孤児が生じないので Unity は何も消さない。
 Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/
 
 # tests/UnityProject は Unity が起動のたびに生成するキャッシュ・ローカル成果物を持つ。

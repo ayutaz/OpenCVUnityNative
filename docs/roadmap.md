@@ -59,10 +59,10 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | `ci-sanitizers.yml` | push / PR | ASan / UBSan レーン | M0 |
 | `build-opencv.yml` | 手動 + 構成変更時 | allowlist 構成の OpenCV をビルドし artifact 公開 | M1 |
 | `ci-unity.yml` | PR / nightly | Unity EditMode (L4) + IL2CPP Player (L5) | M2 |
-| `ci-desktop-matrix.yml` | push / PR | Windows / macOS / Linux マトリクス、Linux で LSan / Valgrind | M3 |
+| ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag | 全 platform artifact、manifest、checksums、SBOM | M3 |
+| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | 3 platform の UPM tarball と manifest / checksums / SBOM / third-party notices を GitHub Release へ。**M3 時点でまだ一度も実行されていない** | M3 |
 
 **CI が満たすべき制約**（ハーネスと同じ理由で、これらは M0 で確立する）
 
@@ -286,10 +286,27 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 ## M3 — Desktop 3 platform と配布の再現性
 
 **目的**
-「CI から再現できる native binaries」という差別化点（計画書 §7）を、主張ではなく**検証可能な事実**にする。
+
+M1 は「構成を固定すれば同じ成果物ができる」を Windows 1 つで成立させた。M3 はそれを
+**3 platform に広げ、同時に「固定した構成が本当に守られたか」を機械が確かめる**状態にする。
+
+なぜ 2 つを同じマイルストーンでやるか。platform が増えると、ツールチェーンごとの既定値が
+こちらの指定を上書きする面が増える。M1 では Windows だけで 2 回起きた（PATH から拾われた
+アセンブラ、黙って上書きされたランタイム設定）。**広げる作業と、広げた先で同じ欠陥が
+起きていないか確かめる作業は、分けると後者が置き去りになる。**
 
 **ゴール**
-Windows / macOS / Linux の native artifact が CI から再現生成され、UPM として導入できる。
+
+次の 3 つが同時に成り立つ状態。
+
+1. Windows / macOS / Linux の native artifact が CI から生成され、それぞれ **platform を
+   含む構成ハッシュ**で識別される（現在ハッシュに platform が入っておらず、別 platform の
+   ビルドが同じハッシュを名乗れてしまう）
+2. その artifact が Git URL または tarball から UPM として導入でき、manifest / checksums /
+   third-party notices / SBOM が付く
+3. **Linux レーンがリークを検出し、成果物の linkage が構成の意図と一致することを機械が確かめる**
+   — どちらも現在は誰も見ていない。MSVC の ASan はリークを検出せず、送った CMake flag が
+   守られたかを見る仕組みも無い
 
 **完了条件**
 
@@ -304,6 +321,170 @@ Windows / macOS / Linux の native artifact が CI から再現生成され、UP
 
 **非ゴール**
 mobile / Web。optional profile。
+
+**実測による完了判定（2026-08-28 更新、`milestone-complete` skill の手順で照合）**
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 1 | 3 platform の CI build と、platform / architecture 別の Plugin Import Settings | **満たす**（留保あり。下記） |
+| 2 | Git URL または tarball から導入できる UPM パッケージ | **満たす**（tarball 側。Git URL 側は成立し得ない。下記） |
+| 3 | artifact manifest、checksums、`THIRD_PARTY_NOTICES.md`、SBOM | **満たす** |
+| 4 | Linux レーンでのリーク検出（LeakSanitizer / Valgrind） | **満たす** |
+| 5 | 成果物の linkage・有効言語・リンク済み依存の機械的検証 | **満たす** |
+| 6 | Unity sample と最小 API reference | **満たす** |
+
+初版の判定は「6 件中 1 件」だった。理由はコードの欠落ではなく、実装した
+commit が一度も CI を通っていなかったことである（`ci-native.yml` /
+`ci-sanitizers.yml` は `pull_request` か `main` への push でしか起動しない）。
+PR #8 を出して 3 platform で実行し、そこで**実際に 3 件の欠陥が出た**ので、
+それらを直したうえで再判定した。
+
+**「まだ push していない」を判定の根拠にしない。** 初版はそう書いていたが、
+push した瞬間に嘘になった。判定の理由は、一瞬で変わる状態ではなく、workflow の
+trigger 条件のような変わらない事実に置くこと。
+
+### CI が実際に見つけたもの（3 件）
+
+この 3 件はいずれも**ローカルでは緑だった**。M3 を「CI に通す」だけの作業と
+見なしていたら、そのまま配っていた。
+
+1. **handle table の use-after-free。** L3 の
+   `ImgprocTests.Resize_MapsWidthToColsAndHeightToRows` が Windows で 1 度だけ
+   `Expected: 2, Actual: 1` を出した。table は `slots` を
+   `std::vector<Slot>` で持ち、`Slot` が `cv::Mat` を**値で**抱えていたので、
+   `mat_table_get` が返すのは配列内部を指すポインタだった。別スレッドの
+   `ocvu_mat_create` で配列が伸びると、先に解決したポインタが全部ぶら下がる。
+
+   **壊れるのは create した側ではなく、無関係な handle を使っている側である。**
+   2 つのスレッドがそれぞれ自分の `Mat` だけを触るという、契約上まったく
+   正しい使い方で壊れる。xUnit はテストクラスを並列に走らせるので、`resize` の
+   書き込みが旧バッファへ、直後の `get_info` が引っ越し後の `Mat` へ向かい、
+   `1x1` のまま残った `dst` を読んでいた。
+
+   `Slot` を `std::unique_ptr<cv::Mat>` にして直し、
+   `native/tests/test_mat_table_stability.cpp` で固定した（handle を 1 つ
+   解決してから 1024 個作り、同じ handle を解決し直してアドレスが一致することを
+   見る。単体で決定的に落ちるので、並列実行のタイミング頼みにならない）。
+   **ローカル 3 回と直前 3 回の CI が緑だった。フレークとして再実行していたら
+   残っていた。** 契約自体が未文書だったので
+   [§1.5](./abi-ownership-and-versioning.md) を追加した。
+
+2. **配布 tarball が UPM で導入できない。** `release.yml` は
+   `tar -czf $name -C Packages com.ayutaz.opencv-unity-native` で固めていた。
+   この形は package ID のディレクトリごと包むので、UPM が展開後の root に
+   `package.json` を見つけられず
+   `The file [<tmp>\package.json] cannot be found` で失敗する。
+   **tag を打っていたら 3 platform 分の「導入できない」tarball を配っていた。**
+
+3. **Release asset 名の衝突。** `package-release.ps1` は 3 platform とも同じ
+   名前（`checksums.txt` 等）で出すので、そのまま `gh release create` に
+   渡すと衝突する。platform 名を頭に付け、staging 後に 15 件
+   （3 platform × 5 ファイル）を数えて確かめる形にした。
+
+### 条件ごとの根拠
+
+- **条件 1（満たす。留保あり）**: `ci-native.yml` の 3 job（Windows /
+  macOS / Linux）が commit `95fe30e` で揃って green になり、native plugin が
+  3 platform でビルドされた。Plugin Import Settings は macOS
+  （`libopencv_unity_native.dylib`、`OSXUniversal` / ARM64）と Linux
+  （`libopencv_unity_native.so`、`Linux64` / x86_64）の `.meta` を追加した。
+  どちらも `Any` を無効にし、自分の platform だけを有効にしてある。
+
+  検査も直した。`PackageRelease.Tests.ps1` は「`.meta` が 1 つ以上追跡されて
+  いる」しか見ておらず、**コメントは 3 platform の衝突を心配しているのに、
+  Windows 分 1 つで満足していた。** 3 つを名指しし、中身まで見る形にした。
+  壊して確かめた（`.meta` を消す / `Any` を有効にする / 他 platform も
+  有効にする → いずれも FAIL。戻すと pass）。最初の 1 つは初版で素通りした
+  ——`git ls-files` は追跡を報告し続けるので tracked 検査は通り、中身の検査は
+  `continue` で飛ばされていた。存在検査を足して塞いだ。
+
+  **留保: macOS / Linux の `.meta` は、その platform の binary が実際に
+  置かれた状態で Unity に読ませたことがない。** CI の macOS / Linux job は
+  plugin をビルドするが Unity を起動しない（Unity の CI 導入は M2 の条件 7
+  として未達）。形式は Unity 自身が生成した Windows 分の `.meta` に
+  合わせてあるが、実測ではない。
+
+- **条件 2（満たす。tarball 側のみ）**: `dev.ps1 test-unity-tarball` を
+  追加し、**tarball だけを指した使い捨ての Unity プロジェクト**で
+  EditMode テストを走らせる。実測（このマシン、Unity 6000.0.82f1）:
+  tarball に native plugin 1 件、UPM が解決し 10/10 pass。
+
+  既存の L4 はリポジトリ内の `file:` **ディレクトリ**参照なので、tarball の
+  中身が壊れていても通る。どちらか一方で他方を代替できない——実際、この
+  レーンを足して初めて上記の欠陥 2 が見つかった。
+
+  作り方は `tools/pack-upm-tarball.ps1` に集約し、`release.yml` と
+  このレーンの**両方**が通る。分けて書くと、導入を確かめた tarball と
+  実際に配る tarball が別物になる。形の検査は
+  `PackageRelease.Tests.ps1` にもあり、CI が 3 platform で走らせる
+  （packer を昔の形に戻すと落ちることを確認済み）。
+
+  **Git URL 側は、この構成では成立し得ない。** native plugin の binary は
+  `.gitignore` で追跡から外してあるので、Git URL で参照した利用者に届くのは
+  `.meta` だけで実体が入らない。完了条件は「または」なので満たすが、
+  **Git URL では導入できない**ことは利用者向けに明記する必要がある。
+
+  **配布そのもの（tag を打って Release を作る）はまだ行っていない。**
+  `release.yml` は一度も実行されていない。
+
+- **条件 3（満たす）**: `package-release.ps1` が 4 点
+  （`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` /
+  `THIRD_PARTY_NOTICES.md`）を実物から生成する。`PackageRelease.Tests.ps1` が
+  それを検証し、**`test-tools-slow` として 3 platform の CI で走る**。
+  初版の未達理由は「Windows でしか実行されていない」だったが、macOS /
+  Linux job でも green になったことで解消した。
+
+- **条件 4（満たす）**: Linux の ASan レーンがリークを検出する。CI 実測
+  （`Linux x64 ASan+LSan (L2)`）:
+
+      Test #2: harness.probe_ok ..................... Passed
+      Test #3: harness.segfault_is_detected ......... Passed
+      Test #4: harness.hang_is_detected ............. Passed
+      Test #5: harness.use_after_free_is_detected ... Passed
+      Test #6: harness.leak_is_detected ............. Passed
+      100% tests passed
+
+  対照として Windows は 4 件で、`harness.leak_is_detected` は登録されない
+  （MSVC の ASan は LeakSanitizer を含まないので、リークしてもプローブが 0 で
+  終了し「落ちなかった」で赤くなる）。**expect-failure テストなので、通過は
+  「意図的にリークするコードを走らせ、LeakSanitizer が検出し、報告文言まで
+  一致した」ことを意味する。** M1 以来「Windows の ASan では見つけられない」と
+  記録してきたものが、初めて検出可能になった。
+
+- **条件 5（満たす）**: 3 platform とも、**実物の artifact に対して**
+  `verify-artifact-linkage.ps1` が CI で走り green になった
+  （`VerifyArtifactLinkage.Tests.ps1` 経由、`test-tools-slow`）。
+
+  完了条件が明示する 3 項目のうち、**「有効言語」は Unix 分岐に無かった。**
+  Windows は「MSVC のビルドに `.a` が現れたら GNU 言語が有効化された証拠」で
+  判別できるが、Unix では `.a` が正常な形なので同じ手が使えず、そのまま
+  欠けていた。archive の**メンバ名**を読む形で足した——CMake は object を
+  元ソースの拡張子込みで名付けるので、ASM が有効なら `foo.S.o` が現れる。
+  送った flag ではなく、できた archive を読んでいる。
+
+  両方向とも実ツールで確認した: 実物の macOS / Linux archive では
+  検査が通り、`jsimd_arm.S.o` を詰めた合成 archive では
+  「落ちること」と「落ちる理由が正しいこと」の両方が CI で確認された
+  （このマシンには `ar` が無いので、ローカルでは SKIP と表示される。
+  SKIP は「確かめていない」であって「合格」ではない）。
+
+  位置独立コードの検査も直した。**最初の 1 本しか見ておらず**、たまたま
+  再配置を持たない archive が先頭に来ると偽陽性になっていた（CI の Linux が
+  実際にこれで落ちた）。全 archive を走査する形にした。
+
+- **条件 6（満たす）**: `Samples~/BasicUsage/BasicUsage.cs` と
+  `docs/api-reference.md` が commit `19bc3c7` にある。呼び出している API を
+  実際のシグネチャと突き合わせ、`tests/UnityProject/Assets/` へ一時的に
+  コピーして `dev.ps1 test-unity-editmode` を実行——exit 0、10/10 pass で
+  **サンプルが実際にコンパイルを通ることを確認した**。
+
+### 残っていること
+
+完了条件はすべて満たしたが、**配布の最後の一歩（tag を打って Release を
+作る）はまだ踏んでいない。** `release.yml` は一度も実行されていないので、
+merge 後に `workflow_dispatch` で package job だけを空撃ちして中身を
+確かめ、その後に tag を打つ。publish job は tag のときしか動かないので、
+空撃ちで誤って Release を作ることはない。
 
 ---
 
