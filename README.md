@@ -22,6 +22,51 @@ Reimplementing OpenCV algorithms. Hand-wrapping the entire OpenCV API up front. 
 
 Windows, macOS and Linux first, then Android and iOS, then Web/Wasm. Unity 6000.x only.
 
+## Installing
+
+**Not published yet.** No release has been tagged, so there is nothing to install
+from a release URL today. What follows describes the intended path, and is written
+here because `release.yml` points at it — if you are reading this after the first
+tag, the release page will have the files named below.
+
+Each release carries one UPM tarball per platform:
+
+```
+com.ayutaz.opencv-unity-native-<version>-windows-x64.tgz
+com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
+```
+
+Download the one matching the platform you build on, put it somewhere inside or
+beside your project, and point the package manifest at it:
+
+```jsonc
+// Packages/manifest.json
+{
+  "dependencies": {
+    "com.ayutaz.opencv-unity-native": "file:../ThirdParty/com.ayutaz.opencv-unity-native-0.1.0-windows-x64.tgz"
+  }
+}
+```
+
+A relative path is resolved from the `Packages` folder; an absolute path also
+works. Unity 6000.x is required — 2022 LTS is not supported.
+
+### Why not a Git URL
+
+**A Git URL will not work, and this is deliberate.** The native plugin binaries
+(`.dll` / `.dylib` / `.so`) are not tracked in git — keeping three platforms'
+binaries in history would grow it without bound. A Git URL reference therefore
+delivers the C# code and the Plugin Import Settings but no actual libraries, and
+every `DllImport` fails at runtime. Use the release tarball.
+
+### One tarball per platform
+
+Each tarball contains the binary for **one** platform. If you build for more than
+one, take the corresponding tarball on each build machine. A single package
+holding all three is not published, because it would ship two unusable binaries
+to every consumer.
+
 ## Requirements
 
 - Visual Studio 2022 with the C++ desktop workload

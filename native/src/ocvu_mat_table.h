@@ -31,17 +31,19 @@ ocvu_mat_handle mat_table_acquire(cv::Mat mat);
 cv::Mat* mat_table_get(ocvu_mat_handle handle);
 
 /*
- * table が確保した slot の総数を返す（テスト用）。
+ * table の内部配列が確保している容量を返す（テスト用）。
  *
- * 解放しても減らない — 索引は free list に戻って再利用されるだけである。
- * つまりこの値が増えたことは、内部の配列が実際に伸びたことを意味する。
+ * **要素数ではなく容量である。** 容量が増えることは、std::vector が
+ * 再配置を行った——つまり既存の要素を新しい記憶域へ移した——ことと同値で
+ * ある。要素数の増加では足りない: 容量に余りがあれば、要素を足しても
+ * 既存の要素は 1 つも動かない。
  *
- * これが要る理由: test_mat_table_stability は「たくさん作れば配列が伸びる
- * だろう」という前提で書かれていた。前提が崩れても（例えば他のテストが
- * 大量の索引を free list に残すようになっても）テストは緑のまま、
- * 何も検証しなくなる。伸びたことを数えれば、前提ではなく実測になる。
+ * これが要る理由: test_mat_table_stability が固定しようとしている不変条件は
+ * 「再配置が起きても Mat のアドレスが動かないこと」である。再配置が
+ * 起きなければ、そのテストはバグが再発していても通る。「1024 個作れば
+ * 再配置されるだろう」を前提にせず、起きたことを測る。
  */
-size_t mat_table_slot_count();
+size_t mat_table_slot_capacity();
 
 /* 解放する。handle が無効なら false を返す（二重解放の検出）。 */
 bool mat_table_release(ocvu_mat_handle handle);

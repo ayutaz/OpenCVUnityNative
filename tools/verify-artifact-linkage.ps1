@@ -102,6 +102,21 @@ $ForbiddenUndefinedSymbolPrefixes = @(
 # 下の platform 別分岐が一致せず黙って素通りする — 恒真な検査を足すのと同じ
 # ことになる（実際に一度そう書いた）。
 function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
+    <#
+        **`libopencv_*` に絞っている。** bundled されている 3rdparty
+        （libzlib.a / liblibpng.a など）は見ていない。
+
+        絞る理由は、判定に使っている材料が OpenCV 自身のビルド設定を前提に
+        しているからである（未定義シンボルの allowlist は OpenCV の module 構成、
+        architecture と位置独立の指定は OpenCV へ渡した flag）。3rdparty は
+        それぞれ独自の CMake を持ち、指定の効き方が違い得る。
+
+        **これは既知の穴である。** `-DCMAKE_POSITION_INDEPENDENT_CODE=ON` は
+        3rdparty にも効くべき指定で、そちらだけ漏れると共有ライブラリへ
+        リンクするときに落ちる——つまりこの検査が通っても、その失敗は防げない。
+        絞りを外すなら、3rdparty ごとの期待値を決めてからにする必要がある
+        （でないと「読めなかったら通す」か「誤検出で赤くなる」のどちらかになる）。
+    #>
     $libs = @(Get-ChildItem -LiteralPath $Root -Recurse -Force -File -Filter '*.a' |
               Where-Object { $_.Name -like 'libopencv_*' })
     if ($libs.Count -eq 0) {
@@ -187,25 +202,40 @@ function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
     # 検査を Unix 側にも置く: PlatformCMakeArgs が送っている指定が、実際に
     # 守られたかを成果物から確かめる。これが roadmap の条件 5 が言う
     # 「送った CMake flag ではなく、できたバイナリを読む」である。
-    $sample = $libs[0]
-
     if ($PlatformLabel -eq 'macos-arm64') {
-        # -DCMAKE_OSX_ARCHITECTURES=arm64 が守られたか。指定が無視されると
-        # universal binary や x86_64 になり得て、成果物の中身が構成から読めなくなる。
-        $arch = & lipo -info $sample.FullName 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-VerifyFailure "lipo failed on $($sample.Name); cannot determine the architecture"
-        }
+        <#
+            -DCMAKE_OSX_ARCHITECTURES=arm64 が守られたか。指定が無視されると
+            universal binary や x86_64 になり得て、成果物の中身が構成から
+            読めなくなる。
+
+            **1 本だけ見ない。** 位置独立コードの検査を全走査に直したときと
+            同じ理由である。architecture は全 object に現れるので実害は
+            そちらより小さいが、「先頭がたまたま代表的でない」可能性は
+            同じように存在する。こちらは**全部が arm64 のみ**であることを
+            求める（architecture は 1 本でも違えば構成違反なので、
+            位置独立コードの「1 本でもあれば」とは向きが逆になる）。
+        #>
         $wantsArm64 = $config.CMakeArgs -contains '-DCMAKE_OSX_ARCHITECTURES=arm64'
-        $isArm64Only = ($arch -match 'arm64') -and ($arch -notmatch 'x86_64')
-        if ($wantsArm64 -and -not $isArm64Only) {
-            Write-VerifyFailure (@(
-                "architecture does not match the configuration"
-                "  configured: arm64 only"
-                "  actual    : $arch"
-            ) -join "`n")
+        if ($wantsArm64) {
+            $wrongArch = @()
+            foreach ($lib in $libs) {
+                $arch = & lipo -info $lib.FullName 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-VerifyFailure "lipo failed on $($lib.Name); cannot determine the architecture"
+                }
+                if (-not (($arch -match 'arm64') -and ($arch -notmatch 'x86_64'))) {
+                    $wrongArch += "$($lib.Name): $arch"
+                }
+            }
+            if ($wrongArch.Count -gt 0) {
+                Write-VerifyFailure (@(
+                    "architecture does not match the configuration ($($wrongArch.Count) of $($libs.Count) archives)"
+                    "  configured: arm64 only"
+                    ($wrongArch | Select-Object -First 5 | ForEach-Object { "  $_" })
+                ) -join "`n")
+            }
+            Write-Host "==> architecture matches the configuration (arm64, $($libs.Count) archives)" -ForegroundColor Green
         }
-        Write-Host "==> architecture matches the configuration (arm64)" -ForegroundColor Green
     }
 
     if ($PlatformLabel -eq 'linux-x64') {
@@ -230,7 +260,23 @@ function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
                     Write-VerifyFailure "readelf failed on $($lib.Name); cannot determine relocation types"
                 }
                 $inspected++
-                if ($relocs -match 'GOTPCREL|PLT32|GOTOFF') { $withPic++ }
+                <#
+                    **PLT32 と GOTOFF を判定材料から外した。**
+
+                    R_X86_64_PLT32 は外部関数呼び出しに対して**非 PIC ビルドでも**
+                    現代の GCC / clang が既定で出す。これを合格材料に含めると
+                    判定はほぼ恒真になり、「通った」ことの意味がほとんど無くなる。
+
+                    位置独立かどうかを実際に分けるのは、外部データ参照を
+                    GOT 経由にするかどうかである。位置独立なら GOTPCREL 系、
+                    そうでなければ絶対アドレス（R_X86_64_32S 等）が出る。
+
+                    この絞り込みは、以前ここを「1 本だけ見る」から「全部見る」に
+                    直したときの反省でもある。あのときは偽陽性を消すために
+                    **合格条件を緩める**方向へ直してしまい、テストを 1 行も
+                    足さなかった。緩めた側の意味は誰も確かめていなかった。
+                #>
+                if ($relocs -match 'GOTPCREL') { $withPic++ }
             }
 
             if ($inspected -eq 0) {
@@ -244,6 +290,18 @@ function Test-StaticArchiveLinkage([string]$Root, [string]$PlatformLabel) {
                     '判断するので、全部に無いのは構成と食い違う。'
                 ) -join "`n")
             }
+            <#
+                **この検査が捕まえないもの。** 「1 つでもあれば合格」なので、
+                指定が全体に無視された場合（全滅）は捕まえるが、一部の
+                archive だけ位置独立から漏れた場合（まだら）は捕まえない。
+
+                厳しくするなら「再配置を持つのに位置独立のものが 1 つも無い
+                archive」を違反とする形が考えられるが、位置独立なコードでも
+                データ節には絶対再配置が出るため誤検出が出やすい。全滅を
+                確実に捕まえる側を優先し、まだらは捕まえないと決めた。
+                内訳を出しているのは、その前提が崩れたときに気づけるように
+                するためである（$withPic が急に減ったら見に行く手がかりになる）。
+            #>
             Write-Host "==> position-independent code confirmed ($withPic of $inspected archives)" -ForegroundColor Green
         }
     }

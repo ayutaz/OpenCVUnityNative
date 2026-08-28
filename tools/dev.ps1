@@ -374,7 +374,11 @@ function Test-UnityTarball {
         # 導入できた tarball と実際に配る tarball が別物になる。
         $upmDir = Join-Path $work 'upm'
         $packer = Join-Path $PSScriptRoot 'pack-upm-tarball.ps1'
-        $tgz = & pwsh -NoProfile -File $packer -OutputDir $upmDir | Select-Object -Last 1
+        # platform を渡す。packer がその platform の binary の実在を確かめるので、
+        # 「何か 1 つでも入っている」ではなく「意図した binary が入っている」に
+        # なる。
+        $tgz = & pwsh -NoProfile -File $packer -OutputDir $upmDir -Platform $Platform |
+               Select-Object -Last 1
         if ($LASTEXITCODE -ne 0 -or -not $tgz -or -not (Test-Path -LiteralPath $tgz)) {
             Write-DevFailure "UPM tarball を作れませんでした（exit $LASTEXITCODE）"
         }
@@ -402,8 +406,19 @@ function Test-UnityTarball {
             Where-Object { $_.Name -notin $skip } |
             ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $project -Recurse -Force }
 
-        # 参照を tarball に差し替える。ディレクトリ参照が 1 つでも残ると、
-        # tarball が壊れていても緑になる。
+        <#
+            参照を tarball に差し替える。ディレクトリ参照が 1 つでも残ると、
+            tarball が壊れていても緑になる。
+
+            **manifest.json だけでは足りない。** packages-lock.json は
+            `"version": "file:../../../Packages/com.ayutaz.opencv-unity-native"`
+            を固定して持っており、これを持って行くと UPM がそちらで解決し得る。
+            レーンが避けようとしているディレクトリ参照そのものが lock に
+            残っている。消してから解決させる。
+        #>
+        $lockPath = Join-Path $project 'Packages/packages-lock.json'
+        if (Test-Path -LiteralPath $lockPath) { Remove-Item -LiteralPath $lockPath -Force }
+
         $manifestPath = Join-Path $project 'Packages/manifest.json'
         $manifest = Get-Content -LiteralPath $manifestPath -Raw
         $tgzUri = 'file:' + ($tgz -replace '\\', '/')
@@ -424,7 +439,25 @@ function Test-UnityTarball {
             '-testResults', $results, '-logFile', $log,
             '-batchmode', '-nographics'
         )
-        $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+        <#
+            タイムアウトを付ける。CLAUDE.md の不変条件「テストは必ずタイムアウト
+            付きサブプロセスで実行し」に従う。
+
+            このレーンは Library/ をゼロから作るぶん最も固まりやすい。
+            ハングしたまま待ち続けると、開発ループが止まったのか進んでいるのか
+            区別できなくなる——「クラッシュは赤いテストでなければならない」の
+            ハング版である。実測は約 3 分なので、その 5 倍を上限にする。
+        #>
+        $timeoutMs = 15 * 60 * 1000
+        $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -PassThru -NoNewWindow
+        if (-not $proc.WaitForExit($timeoutMs)) {
+            try { $proc.Kill($true) } catch { }
+            Write-DevFailure (@(
+                "Unity が $($timeoutMs / 60000) 分で終わらなかったので打ち切りました。"
+                'ハングは緑にも赤にもならないので、明示的に失敗させる。'
+                "ログ: $log"
+            ) -join "`n")
+        }
         $exit = $proc.ExitCode
 
         if (-not (Test-Path -LiteralPath $results)) {
@@ -441,12 +474,39 @@ function Test-UnityTarball {
         if ($passed -lt 1) {
             Write-DevFailure (@(
                 "tarball から導入した package のテストが 1 件も実行されませんでした（passed=$passed）。"
-                'UPM が tarball を解決できていないか、testables に入っていません。'
-                '0 件の実行は成功ではありません。'
+                'UPM が package を解決できていないか、テスト assembly がコンパイル対象から'
+                '外れています。0 件の実行は成功ではありません。'
                 "ログ: $log"
             ) -join "`n")
         }
-        Write-Host "==> UPM tarball install: $passed passed" -ForegroundColor Green
+
+        <#
+            **テストが通ったことは、tarball で解決された証拠にならない。**
+            テストは tests/UnityProject/Assets/Tests/ にあってパッケージの中には
+            無いので、ディレクトリ参照で解決されても同じ数だけ通る。
+            上の lock 削除が効かなかった場合、緑のまま何も証明しない。
+
+            UPM が解決後に書き戻す packages-lock.json を読んで、参照が本当に
+            tarball だったかを見る。ここまでやって初めて「tarball から導入
+            できた」と言える。
+        #>
+        if (-not (Test-Path -LiteralPath $lockPath)) {
+            Write-DevFailure (@(
+                "UPM が packages-lock.json を書き戻しませんでした: $lockPath"
+                'どの参照で解決されたかを確かめられないので、合格にしない。'
+            ) -join "`n")
+        }
+        $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+        $entry = $lock.dependencies.'com.ayutaz.opencv-unity-native'
+        if (-not $entry -or $entry.version -notlike '*.tgz') {
+            Write-DevFailure (@(
+                'UPM は tarball ではない参照で解決しました。このレーンは何も証明していません。'
+                "解決された参照: $(if ($entry) { $entry.version } else { '(項目なし)' })"
+                "期待: .tgz で終わる file: 参照"
+                "ログ: $log"
+            ) -join "`n")
+        }
+        Write-Host "==> UPM tarball install: $passed passed (resolved from $($entry.version))" -ForegroundColor Green
     }
     finally {
         Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

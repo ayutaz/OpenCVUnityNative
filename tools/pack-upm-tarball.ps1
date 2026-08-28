@@ -18,6 +18,8 @@
 
     npm pack が作るのと同じく、中身を `package/` の下に入れる。
 #>
+#Requires -Version 7.0
+
 [CmdletBinding()]
 param(
     # tarball の出力先ディレクトリ。無ければ作る。
@@ -52,6 +54,54 @@ $name = if ($Platform) {
     "com.ayutaz.opencv-unity-native-$version.tgz"
 }
 $tarballPath = Join-Path $outFull $name
+
+<#
+    -Platform を渡されたなら、その platform の binary が実際に入っていることを
+    確かめる。
+
+    **これが無いと、-Platform は名前を変えるだけになる。** Windows 上で
+    `-Platform macos-arm64` を実行すると、中身は Windows の .dll だけなのに
+    「macOS 用」と名乗る tarball が、エラーも警告も無しに出来上がる。
+
+    現在の release.yml では起きない——matrix の各 job が新規 checkout し、
+    そのランナー上でビルドするので、Runtime/Plugins にはその platform の
+    binary しか物理的に存在しない。だがそれは **release.yml の job 構成が
+    たまたまそうなっている**だけで、この script 自身の保証ではない。
+    job 構成が変わった瞬間に、中身の違う tarball を配ることになる。
+#>
+if ($Platform) {
+    $expected = switch ($Platform) {
+        'windows-x64' { 'Runtime/Plugins/x86_64/opencv_unity_native.dll' }
+        'macos-arm64' { 'Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
+        'linux-x64'   { 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so' }
+        default {
+            # 知らない platform 名を黙って通さない。名前だけ付いた tarball が
+            # 出来るのを防ぐ。
+            [Console]::Error.WriteLine(@(
+                "unknown platform '$Platform'."
+                "この script は windows-x64 / macos-arm64 / linux-x64 のみを知っている。"
+                'platform を足すときは、対応する binary の位置もここに足すこと。'
+            ) -join "`n")
+            exit 1
+        }
+    }
+
+    $expectedFull = Join-Path $packageDir $expected
+    if (-not (Test-Path -LiteralPath $expectedFull)) {
+        $present = @(Get-ChildItem -LiteralPath (Join-Path $packageDir 'Runtime/Plugins') `
+                        -Recurse -File -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Extension -in '.dll', '.dylib', '.so' } |
+                     ForEach-Object { $_.Name })
+        [Console]::Error.WriteLine(@(
+            "platform '$Platform' の binary がパッケージに入っていません: $expected"
+            "入っていた binary: $(if ($present) { $present -join ', ' } else { '(なし)' })"
+            'この platform 用としてビルドしてから固めること。名前だけ付け替えた'
+            'tarball を配ると、利用者はその platform で読み込みに失敗する。'
+        ) -join "`n")
+        exit 1
+    }
+    Write-Host "==> $Platform binary present: $expected" -ForegroundColor Green
+}
 
 # 使い捨ての staging に package/ として置き直す。
 $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-upm-" + [guid]::NewGuid().ToString('n'))

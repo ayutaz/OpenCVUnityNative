@@ -253,12 +253,34 @@ finally { Remove-Item -Recurse -Force $bundleOut -ErrorAction SilentlyContinue }
 $packer = Join-Path $repoRoot 'tools/pack-upm-tarball.ps1'
 $packOut = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-packer-" + [guid]::NewGuid().ToString('n'))
 try {
-    $packed = & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform 'test-plat' |
+    # 実行中の platform を渡す。この platform の binary はビルド済みのはずで、
+    # packer はそれを確かめてから固める。
+    Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
+    $thisPlatform = Get-OpenCvPlatform
+
+    $packed = & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $thisPlatform |
               Select-Object -Last 1
     Assert-That ($LASTEXITCODE -eq 0) 'pack-upm-tarball exits 0'
 
-    if ($LASTEXITCODE -eq 0 -and $packed -and (Test-Path -LiteralPath $packed)) {
-        Assert-That ((Split-Path -Leaf $packed) -like '*-test-plat.tgz') `
+    <#
+        -Platform が名前を変えるだけになっていないこと。
+
+        中身を確かめずに名前だけ付け替えられると、「macOS 用」と名乗る
+        Windows の .dll 入り tarball が警告も無しに出来る。現在の release.yml
+        では matrix の各 job が新規 checkout するので起きないが、それは
+        job 構成がたまたまそうなっているだけで、packer 自身の保証ではない。
+    #>
+    $otherPlatform = if ($thisPlatform -eq 'windows-x64') { 'macos-arm64' } else { 'windows-x64' }
+    & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $otherPlatform 2>&1 | Out-Null
+    Assert-That ($LASTEXITCODE -ne 0) `
+        "packing as '$otherPlatform' fails when that platform's binary is absent"
+
+    # 知らない platform を黙って通さない。4 つ目を足すときの安全網。
+    & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform 'solaris-sparc' 2>&1 | Out-Null
+    Assert-That ($LASTEXITCODE -ne 0) 'packing for an unknown platform fails'
+
+    if ($packed -and (Test-Path -LiteralPath $packed)) {
+        Assert-That ((Split-Path -Leaf $packed) -like "*-$thisPlatform.tgz") `
             'the tarball name carries the platform'
 
         # tar の引数は相対パスにする（GNU tar は C: をホスト名と読む）。
@@ -278,6 +300,18 @@ try {
         # asmdef が入っていること。入っていないと導入はできても何も使えない。
         Assert-That (@($entries | Where-Object { $_ -like '*.asmdef' }).Count -gt 0) `
             'the tarball carries the assembly definitions'
+
+        <#
+            native binary が入っていること。
+
+            **これは dev.ps1 test-unity-tarball 側にもあるが、あちらは CI で
+            走らない**（runner に Unity が無い）。CI が実際に走らせるのは
+            この節だけなので、ここに無いと「binary の入っていない tarball を
+            配る」経路を CI では誰も見ていないことになる。
+        #>
+        $tarBinaries = @($entries | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+        Assert-That ($tarBinaries.Count -gt 0) `
+            'the tarball carries at least one native plugin binary'
     }
     else {
         Assert-That $false 'pack-upm-tarball produced a tarball'

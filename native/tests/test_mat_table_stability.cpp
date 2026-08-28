@@ -34,12 +34,15 @@ TEST(MatTableStability, ResolvedPointerSurvivesTableGrowth) {
      * 索引を先に消費するので、成長を確実にするには多めに握る必要がある。
      *
      * **「1024 なら足りるだろう」で終わらせない。** 足りなくなったときに
-     * 誰も気づけないからである。例えば将来どこかのテストが 2000 個の Mat を
-     * 同時に握るようになると、free list に十分な索引が残り、この test は
-     * 配列を 1 度も伸ばさないまま緑になる —— 何も検証していない状態で。
-     * 前提にせず、伸びたことを数える。
+     * 誰も気づけないからである。この test が固定しようとしているのは
+     * 「**再配置が起きても** Mat のアドレスが動かないこと」なので、
+     * 再配置が起きなければバグが再発していても通ってしまう。
+     *
+     * 再配置が起きない道は 2 つある。(a) free list に十分な索引が残って
+     * いて emplace_back に到達しない、(b) 到達しても容量に余りがあって
+     * 既存要素が動かない。**容量**を測れば両方まとめて捕まる。
      */
-    const size_t slots_before = ocvu::mat_table_slot_count();
+    const size_t capacity_before = ocvu::mat_table_slot_capacity();
 
     std::vector<ocvu_mat_handle> held;
     for (int i = 0; i < 1024; ++i) {
@@ -48,10 +51,12 @@ TEST(MatTableStability, ResolvedPointerSurvivesTableGrowth) {
         held.push_back(h);
     }
 
-    const size_t slots_after = ocvu::mat_table_slot_count();
-    ASSERT_GT(slots_after, slots_before)
-        << "table が 1 度も伸びなかったので、この test は何も検証していない。"
-           "確保する数を増やすか、free list に索引を残しているテストを見直すこと。";
+    const size_t capacity_after = ocvu::mat_table_slot_capacity();
+    ASSERT_GT(capacity_after, capacity_before)
+        << "table の内部配列が 1 度も再配置されなかったので、この test は"
+           "何も検証していない（容量 " << capacity_before << " のまま）。"
+           "確保する数を増やすか、先に走るテストが容量を伸ばし切っていないか"
+           "確かめること。";
 
     cv::Mat* after = ocvu::mat_table_get(first);
     EXPECT_EQ(before, after)

@@ -79,10 +79,10 @@ cv::Mat* mat_table_get(ocvu_mat_handle handle) {
     return slot.mat.get();
 }
 
-size_t mat_table_slot_count() {
+size_t mat_table_slot_capacity() {
     Table& t = table();
     std::lock_guard<std::mutex> lock(t.mutex);
-    return t.slots.size();
+    return t.slots.capacity();
 }
 
 bool mat_table_release(ocvu_mat_handle handle) {

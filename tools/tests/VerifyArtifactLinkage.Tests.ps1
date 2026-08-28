@@ -82,10 +82,20 @@ foreach ($p in @('linux-x64', 'macos-arm64')) {
 
 # --- Linux / macOS: 検査対象は見つかるが読み取れない場合も失敗にする ---
 #
-# nm はこの Windows マシンに存在しない。これを逆手に取り、「ライブラリは見つかるが
-# 読み取りツールが実行できない」経路が黙って通らないことを実際に確かめる
-# （このマシンでは検証できない otool -L / readelf -d 相当の成功経路とは別に、
-# この失敗経路はここで確認できる）。
+# 読み取りツール（ar / nm / readelf / lipo）はこの Windows マシンに 1 つも
+# 存在しない。これを逆手に取り、「ライブラリは見つかるが読み取りツールが
+# 実行できない」経路が黙って通らないことを実際に確かめる。
+#
+# **どのツールで落ちるかは検査の順序で決まる。** 現在は有効言語の検査
+# （ar t）が先に走るので、実際に踏んでいるのは ar の不在である。順序を
+# 変えれば nm になる。ここで見たいのは「どれで落ちたか」ではなく
+# 「読めなかったときに通らないこと」なので、どちらでも成立する。
+#
+# PowerShell は $ErrorActionPreference = 'Stop' の下でネイティブコマンド
+# 未検出を終了エラーとして投げ、verify-artifact-linkage.ps1 はこれを
+# 捕まえないので、未捕捉例外がスクリプトを止めて非 0 で終わる。
+# メッセージは Write-VerifyFailure の整形されたものではなく生の例外だが、
+# **通らないことが目的なので合格判定は変わらない**。
 foreach ($p in @('linux-x64', 'macos-arm64')) {
     $withLib = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-lib-$p-" + [guid]::NewGuid().ToString('n'))
     New-Item -ItemType Directory -Force -Path (Join-Path $withLib 'lib') | Out-Null
