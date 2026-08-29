@@ -106,10 +106,30 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tools/opencv.ps1 restore
 
-      - name: Build native
+      # **配布するライブラリだけをビルドする。**
+      #
+      # CodeQL の C++ 解析は「実際にコンパイルされたもの」を見る。つまり
+      # **`paths-ignore` は C++ には効かない**——設定で除外しても、
+      # コンパイルされていれば解析対象に入る（実測: build/ を ignore に
+      # 書いても GoogleTest の指摘 5 件が消えなかった）。
+      #
+      # `dev.ps1 build` はテストも含めて全部ビルドするので、FetchContent が
+      # 落としてくる GoogleTest がコンパイルされ、その指摘が出ていた。
+      # **他人のコードの指摘は直せない。直せないものが並ぶと本物が埋もれる。**
+      #
+      # 配布する `opencv_unity_native` だけを作れば、native/src の全ソースは
+      # 解析されつつ GoogleTest は入らない。テスト側（native/tests）は
+      # 解析されなくなるが、そこは配らないコードで、意図的に落ちる
+      # プローブを含む——critical として毎回報告される種類のものである。
+      - name: Build the shipped library only
         if: matrix.language == 'c-cpp'
         shell: pwsh
-        run: ./tools/dev.ps1 build
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $root = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+          $preset = "$(Get-OpenCvPlatform)-debug"
+          cmake --preset $preset "-DOCVU_OPENCV_ROOT=$root"
+          cmake --build --preset $preset --target opencv_unity_native
 
       - name: Build managed
         if: matrix.language == 'csharp'
