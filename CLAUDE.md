@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 最後まで残っていた条件 7（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、**ランナーへの Unity 導入とアクティベーションを game-ci に任せ、Linux で走らせることで満たした**（`==> [EditMode] 10 passed` / `==> [Standalone] 10 passed`）。L5 は `UnityLinker --rule-set=Aggressive` を通した実物の IL2CPP Player で、stripping が有効な状態で P/Invoke が生き残ることを CI が実証している。
 
-**CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。**理由として「game-ci は Windows ランナーでは使えない」と書いていたが、2026-08-29 にその根拠が崩れた** —— 挙げていた 2 つの issue は、このリポジトリが使っていない別 action のものだった。**動く根拠も動かない根拠もこちらでは持っておらず、一度も試していない。** 経緯と現状の障害は `docs/roadmap.md`「担当が無かった制約」の Windows IL2CPP の節に 1 箇所だけ書いてある。試すのは M4 の担当。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
+**CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。**理由として「game-ci は Windows ランナーでは使えない」と書いていたが、2026-08-29 にその根拠が崩れた** —— 挙げていた 2 つの issue のうち 1 つは使っていない別 action のもので、もう 1 つは使っているイメージ群の**別系統（Windows 版）**についてだった。**動く根拠も動かない根拠もこちらでは持っておらず、一度も試していない。** 経緯と現状の障害は `docs/roadmap.md`「担当が無かった制約」の Windows IL2CPP の節に 1 箇所だけ書いてある。試すのは M4 の担当。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
 
 **この作業が公開済み v0.1.0 の欠陥を暴いた。** ubuntu-24.04 でビルドした Linux の `.so` が GLIBC_2.38 を要求しており、それより古い環境では `DllNotFoundException` になっていた。ビルドも linkage 検証も配布物生成も通っていたので、**Unity を実際に動かすまで誰も知らなかった**。Linux のビルドを `ubuntu:22.04` コンテナへ移して 2.34 に下げ、`tools/verify-plugin-portability.ps1` がビルド時点で上限を見るようにした。判定の詳細は `docs/roadmap.md` の M2 / M3 節にある。
 
@@ -155,7 +155,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | --- | --- |
 | native backend 実装言語 | **C++**（Rust spike は不要になった） |
 | UPM package ID | **`com.ayutaz.opencv-unity-native`** |
-| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.0.82f1 の 1 版だけで、その版は 2026-10 にサポートが終わる** —— M3.5 で 6.3 LTS へ載せ替える（`docs/roadmap.md` の「差別化の穴」#4） |
+| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.0.82f1 の 1 版だけで、その版は 2026-10 に通常サポートが終わる** —— M3.5 で 6.3 LTS へ載せ替える（`docs/roadmap.md` の「差別化の穴」#4） |
 | C# ターゲット | netstandard2.1 / C# 9 |
 | OpenCV 入手 | allowlist 構成で CI がビルドし artifact 配布。**ローカルではビルドしない** |
 | CI/CD | public OSS のため GitHub Actions を全面活用。重い検証はすべて CI |
