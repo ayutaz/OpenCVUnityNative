@@ -42,7 +42,7 @@ nightly は「誰も push していない間に壊れること」だけを見る
 実測時間も想定より速い（`CLAUDE.md` の開発コマンド表を参照。ローカル Windows で
 EditMode 約 27 秒、IL2CPP Player 約 54 秒。いずれもキャッシュが温まった状態）。
 **ただしこの 2 つは Unity 6000.0.82f1・EditMode 10 件のときの値で、M3.5 で
-6000.3.16f1・EditMode 15 件になった後は取り直していない**（通ることは実測した ——
+6000.3.16f1・EditMode 16 件になった後は取り直していない**（通ることは実測した ——
 下の M3.5 節の判定表）。
 
 ### CI/CD 戦略
@@ -723,7 +723,7 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 | # | 穴 | なぜ差別化に効くか | 担当 |
 | --- | --- | --- | --- |
-| 1 | ~~**1 つの package に 1 platform 分の binary しか入らない**~~ **M3.5 で解消** | Unity は同じ package ID を 1 つしか導入できない。「エディタは Windows、実機は Android」が表現できなかった | **M3.5 完了**。全部入り tarball（`com.ayutaz.opencv-unity-native.tgz`）が配る正になり、Desktop 3 platform が同居した状態で `test-unity-tarball` が 15 passed |
+| 1 | ~~**1 つの package に 1 platform 分の binary しか入らない**~~ **M3.5 で解消** | Unity は同じ package ID を 1 つしか導入できない。「エディタは Windows、実機は Android」が表現できなかった | **M3.5 完了**。全部入り tarball（`com.ayutaz.opencv-unity-native.tgz`）が配る正になり、Desktop 3 platform が同居した状態で `test-unity-tarball` が 16 passed |
 | 2 | ~~画像を encode / decode できない~~ **M3.5 で解消** | 比較した競合はいずれも画像の入出力を持つ（そちらはファイル経路まで含む）。**ここに「モジュールはリンク済みで、足りないのは ABI 関数だけ」と書いていたのは誤りで、実際は `imgcodecs` をリンクしていなかった**（下記 M5 節） | **M3.5 完了**（M5 から前倒し）。component を足し、`ocvu_imencode` / `ocvu_imdecode` を出した |
 | 3 | OpenUPM に載っていない | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **M3.5（(c) が未了）**。(a) 版番号なしの asset 名と (b) 容量の検査は済んだ。**残るのは登録申請だけで、それは新しい asset 名を含む Release を公開した後になる**（[登録の準備](./openupm-registration.md)） |
 | 4 | 検証している Unity が 1 版だけ | **M3.5 でその 1 版を 6000.0.82f1 → 6000.3.16f1 に載せ替えた**（6000.0 LTS の通常サポートが 2026-10 に終わるため。6.3 LTS は 2027-12 まで）。**版が 1 つしかないこと自体は変わっていない** | **M3.5 完了**（載せ替えのみ。複数版の検証は担当なし） |
@@ -833,11 +833,11 @@ Asset Store での配布。
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
 | 1 | 全 platform の binary を 1 つに収めた tarball を `release.yml` が作る | **満たす（留保あり）**。`tools/assemble-plugins.ps1` と `pack-upm-tarball.ps1 -AllPlatforms` はローカルで実測（3 binary が同梱されていることを、作った archive の中を数えて確認）。**`release.yml` 側の配線は未実行** —— tag も `workflow_dispatch` も走らせていない |
-| 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 15 passed`（2026-08-30、このマシン）。**このレーンはどの workflow にも入っていない**（ローカル専用。M3 から変わっていない） |
+| 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 16 passed`（2026-08-30、このマシン）。**このレーンはどの workflow にも入っていない**（ローカル専用。M3 から変わっていない） |
 | 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たす（留保あり）**。`PluginGatingTests`（EditMode 5 件）が `PluginImporter` に `.meta` の解釈を問う。**実測したのは Windows（ローカル）だけで、Linux は `ci-unity.yml` が同じ検査を走らせるがこのブランチはまだ CI を通していない。macOS は依然として未実測**（下記） |
 | 4 | OpenUPM へ登録できる形にする | **(a)(b) は満たす、(c) は未了**。(a) asset 名から版番号を落とした（`com.ayutaz.opencv-unity-native.tgz`）。(b) `pack-upm-tarball.ps1 -MaxBytes`（既定 512 MB）が上限を見る —— 全部入りの実測は 8.4 MB。(c) 登録申請は、新しい asset 名を含む Release を公開した後になる（[登録の準備](./openupm-registration.md)。**OpenUPM 側の受理はこの条件に含めない**） |
 | 5 | `imgcodecs` を C ABI に出す（メモリ上の byte 列） | **満たす**。`ocvu_imencode` / `ocvu_imdecode`（公開 ABI 18 → 20 本、allowlist は 9 → 11 本）。L1 8 ケース / L3 8 ケース、C# は `CvCodecs`。**着手して初めて `imgcodecs` がリンクされていなかったことが分かった**（下記） |
-| 6 | Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る | **満たす**。`6000.3.16f1` で L4 が 15 passed、L5（IL2CPP Player）が 10 passed（2026-08-30、このマシン）。`package.json` の `unity` も `6000.3` にした。**L5 は最初に落ちた** —— 6.3 のエディタに IL2CPP モジュールが無く `Currently selected scripting backend (IL2CPP) is not installed` で Player のビルドが止まったので、Hub の CLI で入れてから通した |
+| 6 | Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る | **満たす**。`6000.3.16f1` で L4 が 16 passed、L5（IL2CPP Player）が 10 passed（2026-08-30、このマシン）。`package.json` の `unity` も `6000.3` にした。**L5 は最初に落ちた** —— 6.3 のエディタに IL2CPP モジュールが無く `Currently selected scripting backend (IL2CPP) is not installed` で Player のビルドが止まったので、Hub の CLI で入れてから通した |
 
 **したがって M3.5 は 6 件中 5 件である。** 残るのは条件 4 の (c)（OpenUPM 登録申請）で、
 **公開済みの Release が要るので PR の中では閉じない。**
@@ -851,7 +851,7 @@ merge 可否の判定ではない。
 
 - **壊しても素通りしていた。** macOS の `.dylib` の `.meta` を Windows でも有効になるよう
   壊すと、**従来の EditMode（10 件）は 10 passed のまま緑だった。** 同じ壊し方で
-  `PluginGatingTests` は 15 件中 3 件が落ちる。**同居させただけでは取り違えを見つけられず、
+  `PluginGatingTests` は 16 件中 3 件が落ちる。**同居させただけでは取り違えを見つけられず、
   「どう振り分けられたか」を Unity 自身に問うて初めて見える。**
 - **`PluginImporter.GetCompatibleWithEditor()` は 3 つとも `true` を返す。** `.meta` は
   3 platform いずれもエディタを有効にしたうえで OS の下位設定で振り分けるので、

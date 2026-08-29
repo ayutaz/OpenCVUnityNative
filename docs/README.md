@@ -54,7 +54,7 @@ M3（Desktop 3 platform と配布の再現性）は、roadmap の完了条件 6 
 
 M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完了条件 6 件のうち **OpenUPM への登録申請を除いて満たしました**。**ただしこのブランチはまだ CI に通していません** —— 以下の数字はすべてこのマシン（Windows）での 2026-08-30 のローカル実測です。
 
-配る正は **3 platform 分の binary が 1 つに入った `com.ayutaz.opencv-unity-native.tgz`** になりました（版番号を含まない名前。OpenUPM の `githubReleaseAssetName` が安定した接頭辞で asset を選ぶためです）。platform ごとの tarball も補助として引き続き出します。その全部入りを使い捨ての Unity プロジェクトに導入して **15/15 pass**（EditMode が 10 件から 15 件に増えたのは `PluginGatingTests` を足したためです）。**この tarball のレーンはどの CI workflow でも走りません** —— ローカルだけです。
+配る正は **3 platform 分の binary が 1 つに入った `com.ayutaz.opencv-unity-native.tgz`** になりました（版番号を含まない名前。OpenUPM の `githubReleaseAssetName` が安定した接頭辞で asset を選ぶためです）。platform ごとの tarball も補助として引き続き出します。その全部入りを使い捨ての Unity プロジェクトに導入して **15/15 pass**（EditMode が 10 件から 16 件に増えたのは `PluginGatingTests` を足したためです）。**この tarball のレーンはどの CI workflow でも走りません** —— ローカルだけです。
 
 `PluginGatingTests` は `PluginImporter` に問う形で「自分の platform 向けがちょうど 1 つ」「`Any` が立っていない」「他 platform の Standalone で有効になっていない」を見ます。**macOS の `.meta` を「Windows でも有効」に壊すと 3 件落ちます** —— 壊しても 10/10 で素通りしていた M3 までの状態から変わりました。もう 1 つ記録に値するのは、**`GetCompatibleWithEditor()` が 3 つとも true を返す**ことです。`.meta` は Editor を 3 platform とも有効にしたうえで、その下の `settings: OS:` で振り分けているので、**そのフラグだけを見る検査は常に true で無感**です。振り分けを見るには `GetEditorData("OS")` を読む必要があります（最初にそう書かずに落とし、直しました）。
 
@@ -62,6 +62,6 @@ M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完�
 
 `imgcodecs` は **M3.5 で初めてリンクされました**。それまで `cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` だけで、リポジトリ内の複数箇所にあった「モジュールはリンク済み」という記述は**誤り**でした。誤解の出どころも記録しておきます: `tools/opencv-config.psd1` の `Modules` には `imgcodecs` が入っているので **OpenCV 自体はそれを含めてビルドされており**、`ocvu_get_build_information()` も `To be built: … imgcodecs …` と報告します。**「OpenCV に入っている」と「このプラグインがリンクしている」は別です。** 気づいたのは CMake を読んだからではなく、実装を書いた時点で `cv::imencode` / `cv::imdecode` が未解決の外部シンボルになったからです。C ABI に `ocvu_imencode` / `ocvu_imdecode` が加わり、公開 ABI は 18 本から 20 本、allowlist は 9 本から 11 本になりました。**扱うのはメモリ上の byte 列だけで、ファイルパスは受けません**（理由は [所有権と versioning](./abi-ownership-and-versioning.md) §1.6）。
 
-検証する Unity は 6000.0 から **6000.3 LTS（6000.3.16f1）** へ載せ替えました（6000.0 の通常サポートが 2026-10 に終わるためです）。6.3 で EditMode 15 件、IL2CPP Player 10 件が通っています —— **IL2CPP モジュールは Hub の CLI で先に入れる必要がありました**（入っていない状態では Player のビルドが「Currently selected scripting backend (IL2CPP) is not installed」で落ちます）。OpenUPM への登録は**準備済みで、まだ提出していません**（新しい名前の asset が付いた公開済みリリースが 1 つ要るためで、受理されるかどうかは範囲外です。詳細は [OpenUPM への登録](./openupm-registration.md)）。詳細は roadmap の M3.5 節にあります。
+検証する Unity は 6000.0 から **6000.3 LTS（6000.3.16f1）** へ載せ替えました（6000.0 の通常サポートが 2026-10 に終わるためです）。6.3 で EditMode 16 件、IL2CPP Player 10 件が通っています —— **IL2CPP モジュールは Hub の CLI で先に入れる必要がありました**（入っていない状態では Player のビルドが「Currently selected scripting backend (IL2CPP) is not installed」で落ちます）。OpenUPM への登録は**準備済みで、まだ提出していません**（新しい名前の asset が付いた公開済みリリースが 1 つ要るためで、受理されるかどうかは範囲外です。詳細は [OpenUPM への登録](./openupm-registration.md)）。詳細は roadmap の M3.5 節にあります。
 
 本文中の「推奨」「目標」「案」のうち、まだ実装されていない部分は依然として設計提案であり、実装済み機能や動作確認結果ではありません。両者の区別は各文書内の記述を見て判断してください。競合製品のバージョンや対応状況は変わるため、実装開始時と公開前に再確認します。
