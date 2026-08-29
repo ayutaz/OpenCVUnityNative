@@ -15,6 +15,7 @@ set(OCVU_SOURCES
     src/ocvu_mat.cpp
     src/ocvu_mat_buffer.cpp
     src/ocvu_imgproc.cpp
+    src/ocvu_imgcodecs.cpp
 )
 
 add_library(opencv_unity_native SHARED ${OCVU_SOURCES})
