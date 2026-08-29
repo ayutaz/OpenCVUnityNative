@@ -53,6 +53,10 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          # 読む範囲を自分が責任を持つコードに絞る。理由は設定ファイルにある
+          # （build/ に FetchContent の GoogleTest が入り、他人のコードの
+          # 指摘で本物が埋もれるため）。
+          config-file: ./.github/codeql/codeql-config.yml
           # security-and-quality は既定より広い。誤検出も増えるが、
           # **この層は静かに壊れるので広く見る側に倒す。**
           queries: security-and-quality
