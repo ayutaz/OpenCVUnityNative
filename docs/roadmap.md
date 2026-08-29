@@ -892,7 +892,7 @@ tar -xzf /tmp/ocvu/*linux-x64.tgz   -C /tmp/ocvu/linux
 残るもう 1 つは条件 4 の (c)（OpenUPM 登録申請）で、
 **公開済みの Release が要るので PR の中では閉じない。**
 
-**CI は 2026-08-29 に 14 本すべて green になり、PR #34 として main に入った**（`41cda19`）。
+**CI は 2026-08-29 に green になり、PR #34 として main に入った**（`41cda19`。必須 13 本 + PR にだけ出る CodeQL の集約で 14 本）。
 Unity のレーンは **CI 上でも `==> [EditMode] 16 passed` / `==> [Standalone] 10 passed`**
 （run 33264535794、Linux、6000.3.16f1）。上の判定のうち条件 5・6 は CI でも確定した。
 
@@ -1206,7 +1206,7 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               v
                                                      M3.5 配布の形と最小の穴
                         （全部入り package / OpenUPM / 画像入出力 / Unity 6.3 LTS）
-                              （6 件中 5 件。OpenUPM の登録申請だけが残る）
+                （6 件中 4 件。条件 3 は満たすが未実証、条件 4 は OpenUPM 登録が未提出）
                                                               |
                                                               v
                                                           M4 Mobile

@@ -200,7 +200,10 @@ EXPECT_EQ(ocvu_imencode(src, nullptr, nullptr, 0, &needed), OCVU_STATUS_NULL_POI
 EXPECT_EQ(needed, 0) << "失敗時は 0 を書くこと";
 ```
 
-代入を消して**落ちること**を確認する（M3.5 の実測では 9 件が落ちた）。
+代入を消して**落ちること**を確認する。M3.5 の実測では **L1 が 2 件落ちた**
+（`Imgcodecs.EncodeRejectsInvalidArguments` と `EncodeRejectsUnknownExtension`。
+その中の assertion は 7 つ）。**L3 は 44/44 のまま通った** —— L3 は失敗経路で
+status しか見ていないからで、**この規則を守らせているのは L1 だけである。**
 
 **L1 には境界を必ず入れる。** `buffer_size = needed - 1` で呼び、`BUFFER_TOO_SMALL`
 が返ること、かつ **buffer が呼び出し前と 1 バイトも変わっていないこと**を見る
