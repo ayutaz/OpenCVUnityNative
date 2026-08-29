@@ -30,6 +30,17 @@ jobs:
   package:
     name: Package ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
+    # Linux はコンテナの中でビルドする。**runner のイメージで直接ビルドしない。**
+    #
+    # 共有ライブラリはビルドした環境と同じかそれより新しい glibc でしか
+    # 読み込めない。runner のイメージは GitHub の都合で上がっていくので、
+    # 上がるたびに成果物の要求が上がる。v0.1.0 で実際に踏んだ（ubuntu-24.04 で
+    # 作った .so が GLIBC_2.38 を要求し、より古い環境で DllNotFoundException）。
+    #
+    # イメージ名の正本は tools/opencv-config.psd1 の
+    # Toolchains['linux-x64'].Container で、その値は構成ハッシュに入る。
+    # ここと食い違うと tools/tests/OpenCvConfig.Tests.ps1 が落ちる。
+    container: ${{ matrix.platform == 'linux-x64' && 'ubuntu:22.04' || '' }}
     timeout-minutes: 60
     strategy:
       fail-fast: false   # 1 platform の失敗で他を巻き込まない
@@ -43,14 +54,30 @@ jobs:
             runner: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Ninja
-        if: matrix.platform != 'windows-x64'
-        shell: pwsh
+      # **git だけを checkout より前に入れる。**
+      #
+      # checkout は git が無いと REST API でアーカイブを落とす形に落ち、
+      # .git の無いツリーになる。すると `git ls-files` を使うテストが
+      # 「追跡ファイル 0 件」で通ってしまう——検査が黙って無力化される形である。
+      #
+      # 残りの道具は checkout の**後**に setup-linux-container.sh が入れる。
+      # そのスクリプト自体がリポジトリの中にあるので、順序はこうなる
+      # （最初はスクリプトを checkout 前に置いてしまい、`not found` で落ちた）。
+      - name: Install git before checkout
+        if: matrix.platform == 'linux-x64'
         run: |
-          if ($IsMacOS) { brew install ninja }
-          else { sudo apt-get update; sudo apt-get install -y ninja-build }
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git ca-certificates
+      - uses: actions/checkout@v4
+      - name: Set up the build container
+        if: matrix.platform == 'linux-x64'
+        run: bash ./tools/ci/setup-linux-container.sh
+
+      # Linux はコンテナのセットアップで入るので macOS だけ。
+      - name: Install Ninja
+        if: matrix.platform == 'macos-arm64'
+        shell: pwsh
+        run: brew install ninja
 
       - name: Restore OpenCV
         shell: pwsh

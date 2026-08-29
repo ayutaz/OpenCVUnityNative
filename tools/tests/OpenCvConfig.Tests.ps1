@@ -274,6 +274,86 @@ Assert-That ($opencvSource -match "Generator -like 'Visual Studio\*'") `
 Assert-That ($opencvSource -match "--target', 'install'") `
     'single-config generators get the lowercase install target'
 
+
+# --- Linux のビルドコンテナ: 設定と workflow が一致すること ---
+#
+# イメージ名は 2 箇所に書かれる。opencv-config.psd1（構成ハッシュに入る正本）と、
+# workflow の container: 指定（GitHub Actions は job 開始前に解決するので、
+# 設定ファイルから読めない）である。
+#
+# **片方だけ動かすと、構成ハッシュが指す artifact と実際にビルドされる
+# 環境が食い違う。** ハッシュは「同じ構成なら同じ成果物」を意味するはず
+# なので、この食い違いはその前提を壊す。2 箇所に同じ事実を書かざるを得ない
+# 以上、ずれたことを機械が言う必要がある。
+$config = Get-OpenCvConfig -Platform 'linux-x64'
+$expectedImage = $config.Toolchain.Container
+Assert-That ($null -ne $expectedImage -and $expectedImage -ne '') `
+    'the linux-x64 toolchain declares a build container'
+
+if ($expectedImage) {
+    $workflows = @(
+        '.github/workflows/build-opencv.yml'
+        '.github/workflows/ci-native.yml'
+        '.github/workflows/ci-sanitizers.yml'
+        '.github/workflows/release.yml'
+    )
+    foreach ($wf in $workflows) {
+        $path = Join-Path $repoRoot $wf
+        Assert-That (Test-Path -LiteralPath $path) "workflow exists: $wf"
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+
+        $text = Get-Content -LiteralPath $path -Raw
+        Assert-That ($text -match "container:.*$([regex]::Escape($expectedImage))") `
+            "$wf uses the container declared in opencv-config.psd1 ($expectedImage)"
+
+        # 古い runner で直接ビルドしていないこと。container: を足しても
+        # 別の job が ubuntu-24.04 で .so を作っていたら意味が無い。
+        Assert-That ($text -notmatch "(?m)^\s*container:\s*ubuntu-24") `
+            "$wf does not build in a bare ubuntu-24 container"
+    }
+
+    # ci-unity は job をコンテナにできない（game-ci が docker を使うため）ので、
+    # 設定から読んで docker run する形になっている。読めていることを見る。
+    $unity = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-unity.yml') -Raw
+    Assert-That ($unity -match 'opencv-config\.psd1') `
+        'ci-unity.yml derives the build image from opencv-config.psd1'
+    Assert-That ($unity -match 'verify-plugin-portability') `
+        'ci-unity.yml verifies the plugin portability before running Unity'
+}
+
+# --- コンテナで走る job に sudo を残さない ---
+#
+# コンテナは root で走るので sudo は入っていない。`sudo apt-get ...` を
+# 残すと `sudo: not found` で落ちる。**実測で踏んだ**: Linux をコンテナ化
+# したとき、ci-sanitizers の Ninja 導入 step を消し忘れて exit 127 になった。
+#
+# 「コンテナ化したときに一緒に消すべきもの」は目で追うと漏れる。job が
+# container: を持つなら、その job の run: に sudo が無いことを機械が見る。
+$workflowDir = Join-Path $repoRoot '.github/workflows'
+foreach ($wf in Get-ChildItem -LiteralPath $workflowDir -Filter '*.yml' -File) {
+    $lines = Get-Content -LiteralPath $wf.FullName
+
+    # job ごとに、container: を持つ範囲を求める。YAML パーサを持ち込まずに
+    # 済ませたいので、インデントで区切る（job は 2 スペース、その中身は 4 以上）。
+    $jobStarts = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^  [A-Za-z0-9_-]+:\s*$') { $jobStarts += $i }
+    }
+
+    for ($j = 0; $j -lt $jobStarts.Count; $j++) {
+        $from = $jobStarts[$j]
+        $to = if ($j + 1 -lt $jobStarts.Count) { $jobStarts[$j + 1] - 1 } else { $lines.Count - 1 }
+        $body = $lines[$from..$to]
+
+        $hasContainer = @($body | Where-Object { $_ -match '^\s{4}container:' }).Count -gt 0
+        if (-not $hasContainer) { continue }
+
+        $jobName = ($lines[$from] -replace '^\s+|:\s*$', '')
+        $sudoLines = @($body | Where-Object { $_ -match '(^|\s)sudo\s' })
+        Assert-That ($sudoLines.Count -eq 0) `
+            "$($wf.Name) job '$jobName' runs in a container and does not use sudo"
+    }
+}
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

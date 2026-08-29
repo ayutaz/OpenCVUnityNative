@@ -221,7 +221,7 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 | 4 | ABI version / OpenCV version / build features を実行時に問い合わせられる | 満たす |
 | 5 | ASan レーンが clean | 満たす |
 | 6 | Unity EditMode と Windows IL2CPP Player で同じ smoke test が通る | 満たす |
-| 7 | `ci-unity.yml` が CI 上で L4/L5 を実行する | **満たさない** |
+| 7 | `ci-unity.yml` が CI 上で L4/L5 を実行する | **満たす**（2026-08-29。Linux + game-ci） |
 | 8 | ローカル参照可能な最小 UPM パッケージとして動作する | 満たす |
 
 **条件 3 は達成した（判定は 2 度動いた）。** 経緯を残す。当初は「満たす」としたが、
@@ -251,32 +251,63 @@ AddressSanitizer は Unity のアロケータを見られないので、CI で�
 一致検査を置き直して塞いだ。**安全網を外す変更をするときは、外した分を同じ層に
 置き直すこと。**
 
-**条件 7 は未達である。** `ci-unity.yml` は書かれ、ローカルでは `dev.ps1 test-unity-editmode` /
-`dev.ps1 test-unity-player` の両方が green だが、CI 上では一度も実行されていない
-（`gh run list --workflow=ci-unity.yml` は default branch に存在せず 404）。
+**条件 7 は満たした（2026-08-29）。** `ci-unity.yml` が CI 上で L4 と L5 を実行し、
+両方 green になった。
 
-**残作業は 3 つあり、うち 2 つはエージェントが書ける。**「資格情報を登録すれば動く」は
-事実ではなかったので訂正する:
+    ==> libopencv_unity_native.so: GLIBC<=2.34 (ceiling 2.35)
+    ==> [EditMode]   10 passed
+    ==> [Standalone] 10 passed
 
-1. **CI ランナーへの Unity 導入。** `ci-unity.yml` は GitHub ホストの `windows-2022` で
-   `dev.ps1 test-unity-editmode` を直接呼ぶが、このイメージに Unity は含まれない。
-   `Get-UnityEditorPath` は Unity Hub の既定の配置を決め打ちで探し、無ければ失敗する。
-   導入する action も入れていない。
-2. **ライセンスのアクティベーション実装。** `UNITY_LICENSE` / `UNITY_EMAIL` /
-   `UNITY_PASSWORD` を env に置いてあるが、`tools/` 内にそれらを読むコードは 1 行も無い
-   （`grep -rn UNITY_LICENSE tools/` の結果は 0 件）。完了条件の文言自体が
-   「アクティベーションを自動化する」を含んでいる。
-3. **GitHub Secrets への資格情報登録。** これだけがユーザーの操作である。
+L5 は本物である。`UnityLinker --rule-set=Aggressive` が走り、`il2cpp --convert-to-cpp`
+で実際に IL2CPP Player がビルドされ、その上でテストが通っている。**stripping が
+有効な状態で P/Invoke 宣言が生き残ることを、CI が実証した。**
 
-現在この workflow の trigger は `workflow_dispatch` のみに絞ってある。push で走らせると
-成功し得ない job が全 push で赤くなり、「赤い CI は直すもの」という前提が壊れるためで、
-上の 1 と 2 が揃った時点で戻す。
+### どうやって成立させたか
 
-完了条件は「workflow ファイルが存在すること」ではなく「CI 上で L4/L5 を実行すること」
-であり、両者を取り違えないよう最初から実行の有無で判定した（M1 の条件 6 判定で同じ
-取り違えが一度起きている）。
+残っていた 3 つのうち、資格情報の登録（ユーザーの操作）が済んだあと、
+残り 2 つを実装した。
 
-**したがって M2 は「8 件中 7 件達成」であって「完了」ではない。** 実装計画
+- **ランナーへの Unity 導入とアクティベーション**: game-ci に任せた。
+  **ただし Windows では成立しない** — game-ci の Windows イメージは
+  Windows Server 2019 向けで、`windows-2022` では
+  「container operating system does not match the host operating system」で
+  落ちる（game-ci/unity-builder#542、game-ci/docker#213）。`windows-2019` は
+  GitHub 側で提供が終わっている。game-ci が主として支えるのは Linux なので、
+  このレーンは ubuntu で走らせる。
+- **帰結として L5 は Windows ではなく Linux の IL2CPP Player である。**
+  L5 が捕まえたいのは stripping が P/Invoke 宣言を消す問題で、これは IL2CPP
+  全体の性質であり Windows 固有ではない。Windows の IL2CPP Player は
+  ローカルのレーン（`dev.ps1 test-unity-player`）が引き続き担う。
+
+### この作業が暴いたもの
+
+**CI で Unity を動かして初めて、公開済み v0.1.0 の Linux 版が壊れていることが
+分かった。**
+
+    DllNotFoundException : Unable to load DLL 'opencv_unity_native'
+
+ubuntu-24.04（glibc 2.39）でビルドした `.so` が GLIBC_2.38 を要求しており、
+それより古い環境では読み込めなかった。**ビルドは成功し、linkage 検証も通り、
+配布物も作れていた。** 読み込めないことは、Unity を実際に動かすまで誰も
+知らなかった。「3 platform でビルドできた」と「3 platform で動く」を
+取り違えていた。
+
+直したものは M3 節の「配布」に書いた。要点は 2 つ:
+
+- Linux のビルドを `ubuntu:22.04` のコンテナに移した（要求は 2.38 → 2.34 に
+  下がった）。コンテナ名は構成ハッシュに入るので、環境が変われば artifact も
+  別物として扱われる
+- `tools/verify-plugin-portability.ps1` が、要求する GLIBC / GLIBCXX の上限を
+  ビルドの時点で見る。`readelf` に頼らないので Windows の開発機でも動く
+
+**「CI はローカルと同一のコマンドを呼ぶ」との食い違いも記録しておく。**
+この workflow は `dev.ps1` で Unity を起動せず、game-ci の action が起動する。
+代わりに合否の判定を `tools/assert-unity-results.ps1` に出し、ローカルと CI の
+両方がそれを通る。起動の仕方が分かれても判定が分かれなければ、「ローカルで
+赤いものが CI で緑になる」は起きない。とくに「0 件で緑にしない」はこの
+script が持っている。
+
+**したがって M2 は完了である（8 件中 8 件）。** 実装計画
 （[docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)）
 は Task 8 まで実施済みで、進行記録は
 `.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md` にある。

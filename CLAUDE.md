@@ -6,7 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **M0（自動 TDD ハーネス）と M1（OpenCV 5.0.0 の再現可能ビルド）は完了している。** ビルドシステム、C ABI の骨格、テストレーン 3 本（L1 / L2 / L3）に加え、CI がビルドし artifact 配布する allowlist 構成の OpenCV 5.0.0 が全レーンにリンクされた状態で、ローカルでも CI でも green になる。
 
-**M2（Windows vertical slice）は、8 件の完了条件のうち 7 件を満たしている。残る 1 件は未達で、M2 を完了と称さない。** `Mat` のライフサイクル（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `imgproc` 3 関数（cvtColor / resize / GaussianBlur）が C ABI にあり、所有権契約（二重解放・解放後アクセス・buffer の長さ/stride/NULL 検証）が L3 でテストされ、Unity Editor (Mono) と Windows IL2CPP Player の両方で同じ smoke test が通る。未達は 1 件。**条件 7**（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、workflow ファイルは在るが 一度も実行されていない。残作業は 3 つで、うち 2 つはエージェントが書ける: (a) CI ランナーへの Unity 導入（GitHub ホストの windows-2022 に Unity は含まれない）、(b) ライセンスのアクティベーション実装（`UNITY_LICENSE` 等を env に置いてあるが、読むコードが無い）、(c) GitHub Secrets への資格情報登録（これだけがユーザーの操作）。**資格情報を登録しただけでは動かない。** 現在 trigger は `workflow_dispatch` のみに絞ってある（push で走らせると恒常的に赤くなるため）。 判定の詳細は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md` の実装計画と、その進行記録（`.superpowers/sdd/2026-08-26-m2-windows-vertical-slice/progress.md`）にある。
+**M2（Windows vertical slice）は完了した（8 件中 8 件、2026-08-29）。** `Mat` のライフサイクル（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `imgproc` 3 関数（cvtColor / resize / GaussianBlur）が C ABI にあり、所有権契約（二重解放・解放後アクセス・buffer の長さ/stride/NULL 検証）が L3 でテストされ、Unity Editor (Mono) と IL2CPP Player の両方で同じ smoke test が通る。
+
+最後まで残っていた条件 7（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、**ランナーへの Unity 導入とアクティベーションを game-ci に任せ、Linux で走らせることで満たした**（`==> [EditMode] 10 passed` / `==> [Standalone] 10 passed`）。L5 は `UnityLinker --rule-set=Aggressive` を通した実物の IL2CPP Player で、stripping が有効な状態で P/Invoke が生き残ることを CI が実証している。
+
+**game-ci は Windows ランナーでは使えない** — Windows イメージが Windows Server 2019 向けで、`windows-2022` では OS 不一致で落ちる（game-ci/unity-builder#542）。`windows-2019` は提供終了。そのため **CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
+
+**この作業が公開済み v0.1.0 の欠陥を暴いた。** ubuntu-24.04 でビルドした Linux の `.so` が GLIBC_2.38 を要求しており、それより古い環境では `DllNotFoundException` になっていた。ビルドも linkage 検証も配布物生成も通っていたので、**Unity を実際に動かすまで誰も知らなかった**。Linux のビルドを `ubuntu:22.04` コンテナへ移して 2.34 に下げ、`tools/verify-plugin-portability.ps1` がビルド時点で上限を見るようにした。判定の詳細は `docs/roadmap.md` の M2 / M3 節にある。
 
 **M3（Desktop 3 platform と配布の再現性）は、6 件の完了条件をすべて満たした。ただし配布の最後の一歩——tag を打って Release を作ること——はまだ踏んでいない。** 3 platform（Windows / macOS / Linux）で native plugin がビルドされ、L1 / L3 と `test-tools-slow` が CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されている。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認済み。
 
@@ -73,6 +79,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tools/opencv.ps1` | OpenCV の `restore` / `build` / `verify` / `status` / `clean` の入口 |
 | `tools/verify-opencv-artifact.ps1` | ビルド済み OpenCV ツリーに対する依存 allowlist の検証（denylist ではない） |
 | `tools/verify-artifact-linkage.ps1` | 成果物の linkage が構成の意図と一致するかの検証（M3 Task 3/5。送った CMake flag ではなく `.lib`/`.a` を読む）。Windows は `DEFAULTLIB`、macOS/Linux は `nm -u`（リンク済み依存）・`lipo`/`readelf`（linkage）・`ar t` のメンバ名（**有効言語**——`foo.S.o` が出たらアセンブラが有効化された）で判定。**3 platform とも実物の artifact に対して CI で green。** 負の経路（アセンブル済み object を詰めた合成 archive）も macOS/Linux の CI で落ちることを確認済み。このマシンには `nm`/`ar` が無いのでローカルでは SKIP と出る——SKIP は「確かめていない」であって「合格」ではない |
+| `tools/verify-plugin-portability.ps1` | Linux plugin が要求する GLIBC / GLIBCXX の上限検査。**readelf に頼らず ELF を直接読む**ので Windows の開発機でも動く（道具が無いから検査できない、という穴を作らない）。上限は「支える最も古い環境」= Ubuntu 22.04（glibc 2.35）|
+| `tools/ci/setup-linux-container.sh` | Linux のビルドコンテナに道具を入れる。cmake は Kitware から（jammy の apt は 3.22.1 で古すぎる）。git の safe.directory も設定する（コンテナは root、ファイルは runner の UID）|
+| `tools/assert-unity-results.ps1` | Unity のテスト結果 XML の判定。**ローカルと CI の両方がここを通る** —— CI では game-ci が Unity を起動するので起動の仕方は分かれるが、判定は分けない。「0 件で緑にしない」もここが持つ |
 | `tools/pack-upm-tarball.ps1` | UPM tarball を作る唯一の入口。`release.yml` と `dev.ps1 test-unity-tarball` の**両方**がここを通る（作り方が分かれると、導入を確かめた tarball と実際に配る tarball が別物になる）。中身は npm と同じく `package/` の下に入れる — package ID のディレクトリごと固めると UPM が 展開後の root に `package.json` を見つけられず導入に失敗する（M3 で実測） |
 | `tools/package-release.ps1` | 配布物一式（`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` / `THIRD_PARTY_NOTICES.md` の 4 点）を実物の artifact から生成する（M3 Task 6。手で書かない）。**`THIRD_PARTY_NOTICES.md` はここに含まれない** |
 | `third_party/opencv/<hash>/` | 展開先（gitignore 済み）。`build-manifest.json` に実測の構成が入る |
@@ -85,7 +94,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
 | `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ |
 | `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する（M3 時点でも変わらず。Git URL / tarball 導入は未検証） |
-| `.github/workflows/` | `ci-native.yml`（L1 + L3。M3 で `macos`/`linux` job を追加し、両方に `test-tools-slow` も配線済み）、`ci-sanitizers.yml`（L2。M3 で `linux-asan` job を追加）、`build-opencv.yml`（OpenCV のビルドと artifact 公開。M3 で 3 platform の matrix 化）、`ci-unity.yml`（L4 + L5。**書かれているが CI では一度も実行されていない。**残作業は 3 つで、うち 2 つはエージェントが書ける — ランナーへの Unity 導入、アクティベーションの実装、Secrets 登録。**資格情報を登録しただけでは動かない。**現在 trigger は `workflow_dispatch` のみ）。M3 で追加された macOS/Linux job と `linux-asan` job は PR #8 で実行され、**3 platform とも green**。`release.yml`（tag で 3 platform 分の UPM tarball と配布物 + `SHA256SUMS.txt` を GitHub Release へ。**v0.1.0 で実行済み**——`--draft` で下書きを作り、点検してから人が公開する。tag を打っただけでは外から見えない。ノートは `.github/release-notes.md` から読む（YAML の中の PowerShell の中の Markdown という三重のエスケープを避けるため）） |
+| `.github/workflows/` | `ci-native.yml`（L1 + L3。M3 で `macos`/`linux` job を追加し、両方に `test-tools-slow` も配線済み）、`ci-sanitizers.yml`（L2。M3 で `linux-asan` job を追加）、`build-opencv.yml`（OpenCV のビルドと artifact 公開。M3 で 3 platform の matrix 化）、`ci-unity.yml`（L4 + L5。**CI で実行され green**——2026-08-29。game-ci でランナーへの Unity 導入とアクティベーションを行い、**ubuntu で走らせる**。game-ci の Windows イメージは Server 2019 向けで `windows-2022` では OS 不一致で落ちるため。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。trigger は pull_request / push / workflow_dispatch）。M3 で追加された macOS/Linux job と `linux-asan` job は PR #8 で実行され、**3 platform とも green**。`release.yml`（tag で 3 platform 分の UPM tarball と配布物 + `SHA256SUMS.txt` を GitHub Release へ。**v0.1.0 で実行済み**——`--draft` で下書きを作り、点検してから人が公開する。tag を打っただけでは外から見えない。ノートは `.github/release-notes.md` から読む（YAML の中の PowerShell の中の Markdown という三重のエスケープを避けるため）） |
 
 正本となる設計文書:
 
@@ -196,7 +205,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: M2 は 8 件中 7 件達成・未達 1 件 — 条件 7。M3 は 6 件すべて達成。ただし tag を打った Release はまだ無い — 詳細は roadmap の M3 節）
+## マイルストーン（現在地: M2・M3 とも完了。v0.1.0 を公開済み。次は M4 — 詳細は roadmap）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
@@ -204,7 +213,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | --- | --- |
 | **M0** | **自動 TDD ハーネスの成立（OpenCV 非依存）。** 反復速度の土台を他の何よりも先に固定する — **完了** |
 | **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
-| **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件中 7 件達成。未達は条件 7（CI で L4/L5 が一度も実行されていない。Unity 導入とアクティベーション実装が未着手で、資格情報登録だけでは動かない）** |
+| **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件すべて達成。最後の条件 7（CI で L4/L5）は game-ci + Linux で満たした。その過程で、公開済み Linux 版が古い環境で読み込めない欠陥が判明し修正** |
 | **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。残るは tag を打って Release を作ること** |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
 | M5 | binding specification と generator |
