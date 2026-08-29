@@ -39,9 +39,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Cache CMake FetchContent (googletest)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/windows-x64-asan/_deps
           key: fetchcontent-asan-windows-${{ hashFiles('native/tests/CMakeLists.txt') }}
@@ -58,7 +58,7 @@ jobs:
           "config-hash=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Cache OpenCV
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
           key: opencv-${{ steps.opencv-config.outputs.config-hash }}
@@ -76,7 +76,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-asan-windows
           path: artifacts/test-results/
@@ -111,7 +111,7 @@ jobs:
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends git ca-certificates
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up the build container
         run: bash ./tools/ci/setup-linux-container.sh
       - name: Restore OpenCV
