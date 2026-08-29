@@ -258,7 +258,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件すべて達成。最後の条件 7（CI で L4/L5）は game-ci + Linux で満たした。その過程で、公開済み Linux 版が古い環境で読み込めない欠陥が判明し修正** |
 | **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。配布まで踏み、v0.1.0 と、Linux の欠陥を直した v0.1.1 を公開済み** |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
-| M5 | binding specification と generator |
+| M5 | binding specification と generator。**`imgcodecs` を C ABI に出すのもここ**（モジュールは既にリンク済みで notice も揃っており、足りないのは呼ぶ関数だけ。2026-08-29 に完了条件へ追加） |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
 | M7 | Optional profiles と性能 |
 
@@ -400,9 +400,12 @@ CodeQL まで見る。それでも次は緑のまま通過する。
   「ファイルが存在する」は「CI で実行された」ではない —— M2 の条件 7 を
   そう判定したのと同じ基準を、こちらにも当てる
 - **macOS 上の Unity の挙動**（CI の macOS job は plugin をビルドするが Unity を
-  起動しない。Linux 分は M2 の条件 7 で実測できるようになった）
+  起動しない。Linux 分は M2 の条件 7 で実測できるようになった）。
+  **どのマイルストーンの担当でもない** —— `docs/roadmap.md` の
+  「どのマイルストーンにも属していない制約」
 - **Windows の IL2CPP Player**（game-ci が Windows ランナーで動かないため、
-  CI の L5 は Linux。Windows 版はローカルのレーンだけが担う）
+  CI の L5 は Linux。Windows 版はローカルのレーンだけが担う）。
+  **これも担当なし** —— 同上
 - mobile / Web（M4 / M6 の担当。まだ何も無い）
 - **「ビルドできた」と「動く」の差。** v0.1.0 でこれを踏んだ——3 platform とも
   ビルドが成功し linkage 検証も配布物生成も通ったのに、Linux の成果物は
