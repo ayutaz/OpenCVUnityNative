@@ -232,7 +232,43 @@ if ($AllPlatforms) {
 
     Test-PluginTreeContents -ExpectedBinaries @($PlatformBinaries.Values) -What '全部入り'
 
-    Write-Host "==> all three platform binaries present, no extras" -ForegroundColor Green
+    <#
+        **binary に対応する .meta が在ることも見る。**
+
+        assemble-plugins.ps1 は対で運ぶことを確かめるが、packer は assemble を
+        経由せずにも呼べる（ローカルのレーン、テスト）。ここが archive を作る
+        最後の門なので、ここでも見る。
+
+        **.meta の無い binary を配ると、Unity はそれをどの platform でも
+        有効な plugin として扱う** —— 全部入りではそれが取り違えになる。
+    #>
+    $missingMeta = @()
+    foreach ($rel in $PlatformBinaries.Values) {
+        if (-not (Test-Path -LiteralPath (Join-Path $packageDir "$rel.meta"))) {
+            $missingMeta += "$rel.meta"
+        }
+    }
+    # ディレクトリの .meta も要る。無いと Unity がフォルダを import できない。
+    foreach ($rel in @('Runtime/Plugins/x86_64.meta',
+                       'Runtime/Plugins/macOS.meta',
+                       'Runtime/Plugins/Linux.meta',
+                       'Runtime/Plugins/Linux/x86_64.meta')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $packageDir $rel))) {
+            $missingMeta += $rel
+        }
+    }
+    if ($missingMeta.Count -gt 0) {
+        [Console]::Error.WriteLine(@(
+            '全部入りに必要な .meta が揃っていません:'
+            ($missingMeta | ForEach-Object { "  - $_" })
+            '**.meta の無い binary は、Unity がどの platform でも有効な plugin として'
+            '扱う** —— 全部入りではそれが取り違えになる。'
+            'tools/plugin-meta/<platform>/ から対で置くこと。'
+        ) -join "`n")
+        exit 1
+    }
+
+    Write-Host "==> all three platform binaries present with their metas, no extras" -ForegroundColor Green
 }
 
 # 使い捨ての staging に package/ として置き直す。

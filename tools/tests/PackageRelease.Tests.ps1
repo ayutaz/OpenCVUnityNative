@@ -415,7 +415,20 @@ try {
         'Linux/x86_64/libopencv_unity_native.so'
     )
 
-    # 元から在るものは触らない。作った分だけ後で消す。
+    <#
+        **binary だけでなく `.meta` も揃える。**
+
+        `dev.ps1 build` が置くのは実行中 platform の分だけなので、CI の
+        Windows / macOS runner では他 platform の `.meta` が存在しない
+        （`tools/plugin-meta/` は windows 2 / macos 2 / linux 3 ファイル）。
+        binary だけを placeholder で補うと、archive の `.meta` が 2 つに
+        なって「7 つ在ること」が成り立たない。
+
+        **著者のローカルでこれが見えなかったのは、全部入りのレーンを走らせた
+        残骸として 3 platform 分の `.meta` が残っていたためである。**
+        木の状態に頼らず、正本（`tools/plugin-meta/`）から揃える —— 本番で
+        `assemble-plugins.ps1` がしているのと同じことをする。
+    #>
     $created = @()
     foreach ($rel in $allBinaries) {
         $full = Join-Path $pluginRoot $rel
@@ -423,6 +436,19 @@ try {
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $full) | Out-Null
             Set-Content -LiteralPath $full -Value 'placeholder for the packer check' -NoNewline
             $created += $full
+        }
+    }
+
+    $metaSourceRoot = Join-Path $repoRoot 'tools/plugin-meta'
+    foreach ($platformDir in @(Get-ChildItem -LiteralPath $metaSourceRoot -Directory)) {
+        foreach ($meta in @(Get-ChildItem -LiteralPath $platformDir.FullName -Recurse -File)) {
+            $rel = [System.IO.Path]::GetRelativePath($platformDir.FullName, $meta.FullName)
+            $full = Join-Path $pluginRoot $rel
+            if (-not (Test-Path -LiteralPath $full)) {
+                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $full) | Out-Null
+                Copy-Item -LiteralPath $meta.FullName -Destination $full -Force
+                $created += $full
+            }
         }
     }
 
@@ -445,10 +471,12 @@ try {
             Assert-That ($packedBins.Count -eq 3) `
                 "the all-in-one archive carries three binaries (saw $($packedBins.Count))"
 
+            # **>= ではなく = で見る。** 「3 つ以上」だと、7 つ在るべきところが
+            # 4 つでも通ってしまう。この archive の中身は一覧そのものが契約である。
             $packedMetas = @($allEntries |
                 Where-Object { $_ -like 'package/Runtime/Plugins/*' -and $_ -like '*.meta' })
-            Assert-That ($packedMetas.Count -ge 3) `
-                "the all-in-one archive carries the plugin metas (saw $($packedMetas.Count))"
+            Assert-That ($packedMetas.Count -eq 7) `
+                "the all-in-one archive carries all seven plugin metas (saw $($packedMetas.Count): $($packedMetas -join ', '))"
         }
 
         # 負 1: binary が 1 つ欠けたら止まる。

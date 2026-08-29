@@ -834,12 +834,27 @@ Asset Store での配布。
 | --- | --- | --- |
 | 1 | 全 platform の binary を 1 つに収めた tarball を `release.yml` が作る | **満たす（留保あり）**。`tools/assemble-plugins.ps1` と `pack-upm-tarball.ps1 -AllPlatforms` はローカルで実測（3 binary が同梱されていることを、作った archive の中を数えて確認）。**`release.yml` 側の配線は未実行** —— tag も `workflow_dispatch` も走らせていない |
 | 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 16 passed`（2026-08-30、このマシン）。**このレーンはどの workflow にも入っていない**（ローカル専用。M3 から変わっていない） |
-| 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たす（留保あり）**。`PluginGatingTests`（EditMode 5 件）が `PluginImporter` に `.meta` の解釈を問う。**実測したのは Windows（ローカル）だけで、Linux は `ci-unity.yml` が同じ検査を走らせるがこのブランチはまだ CI を通していない。macOS は依然として未実測**（下記） |
+| 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たすが未実証**。`PluginGatingTests`（EditMode 6 件）が `PluginImporter` に `.meta` の解釈を問い、**3 platform 同居の状態では壊すと 16 中 3 件が落ちる**ことをローカルで確認した。**しかし自動で走る唯一の場所（`ci-unity.yml`）には 1 platform 分の binary しか無く、そこでは 6 件が無条件に緑になる** —— 取り違えが起こりうる状況が CI では一度も成立しない。`OCVU_EXPECT_ALL_PLATFORMS` を立てて 3 つを要求するのは `dev.ps1 test-unity-tarball` だけで、**そのレーンはどの workflow にも入っていない**。詳細は下記 |
 | 4 | OpenUPM へ登録できる形にする | **(a)(b) は満たす、(c) は未了**。(a) asset 名から版番号を落とした（`com.ayutaz.opencv-unity-native.tgz`）。(b) `pack-upm-tarball.ps1 -MaxBytes`（既定 512 MB）が上限を見る —— 全部入りの実測は 8.4 MB。(c) 登録申請は、新しい asset 名を含む Release を公開した後になる（[登録の準備](./openupm-registration.md)。**OpenUPM 側の受理はこの条件に含めない**） |
 | 5 | `imgcodecs` を C ABI に出す（メモリ上の byte 列） | **満たす**。`ocvu_imencode` / `ocvu_imdecode`（公開 ABI 18 → 20 本、allowlist は 9 → 11 本）。L1 8 ケース / L3 8 ケース、C# は `CvCodecs`。**着手して初めて `imgcodecs` がリンクされていなかったことが分かった**（下記） |
 | 6 | Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る | **満たす**。`6000.3.16f1` で L4 が 16 passed、L5（IL2CPP Player）が 10 passed（2026-08-30、このマシン）。`package.json` の `unity` も `6000.3` にした。**L5 は最初に落ちた** —— 6.3 のエディタに IL2CPP モジュールが無く `Currently selected scripting backend (IL2CPP) is not installed` で Player のビルドが止まったので、Hub の CLI で入れてから通した |
 
-**したがって M3.5 は 6 件中 5 件である。** 残るのは条件 4 の (c)（OpenUPM 登録申請）で、
+**したがって M3.5 は 6 件中 4 件を満たし、1 件が「満たすが未実証」、1 件が部分達成である。**
+
+**条件 3 を「満たす」に数えない理由を明記する。** 検査は書いたし、3 platform
+同居の状態で壊すと落ちることも確かめた。だが**自動で走る場所ではその状況が
+成立しない**ので、検査があることと検査されていることが一致していない。
+これは M2 の条件 7 に当てたのと同じ基準である ——「ファイルが存在する」は
+「CI で実行された」ではない。手作業でしか成立しない証拠を「実測で満たした」と
+数えると、その基準が一貫しなくなる。
+
+**閉じるには `ci-unity.yml` で 3 platform を組む必要がある。** Linux の CI は
+自分の `.so` しかビルドしないので、他 2 つを公開済み release から取って
+`assemble-plugins.ps1` に食わせ、`OCVU_EXPECT_ALL_PLATFORMS` を立てることになる。
+**このブランチではやっていない** —— 必須チェックに公開済み release への依存を
+持ち込む判断が要るためで、それは別に決める。
+
+残るもう 1 つは条件 4 の (c)（OpenUPM 登録申請）で、
 **公開済みの Release が要るので PR の中では閉じない。**
 
 **このブランチはまだ CI を 1 度も通していない。** M3 で「ローカルでは緑だった欠陥が
@@ -1115,8 +1130,15 @@ currently not supported"。**ただしこれは package を対象にしたテス
 `.meta` の形式は Unity 自身が生成した Windows 分に合わせてあり、**Linux 分は M2 の
 条件 7 で実測に変わった**（`ci-unity.yml` が Linux の Unity を動かし、`.so` とその
 `.meta` が実際に読み込まれて EditMode / IL2CPP Player の両方で通った）。
-**macOS だけが実測でないまま残っている** —— CI の macOS job は plugin をビルドするが
-Unity を起動しない。
+**macOS 上で Unity を動かしたことは一度も無い** —— CI の macOS job は plugin を
+ビルドするが Unity を起動しない。
+
+**ただし M3.5 で状況が 2 つ動いた。** (1) macOS の `.meta` は、実物の dylib と
+同居した package を Unity（Windows）に読ませて `PluginImporter` に解釈を問うた
+ので、**書式が Unity に理解されることは確かめた**。(2) その一方で、macOS の
+binary と `.meta` は**全利用者が導入する全部入りの package に入る**ように
+なったので、**外したときの影響が大きくなった**。残っているのは
+「macOS 上で動く Unity がそれをどう扱うか」である。
 
 **M4 で自然に埋まる。** iOS のビルドには macOS runner が要るので、そこで初めて
 macOS 上で Unity を動かすことになる。**「ついでに埋まる」に任せず M4 の完了条件に

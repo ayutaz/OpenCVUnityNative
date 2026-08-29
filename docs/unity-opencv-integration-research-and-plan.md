@@ -564,7 +564,7 @@ using CvUnity;
 using var source = CvMat.Create(height, width, CvMatType.Bgra32);
 source.CopyFrom(bgraPixels, stride);
 using var gray = CvMat.Create(height, width, CvMatType.Gray8);
-CvOps.CvtColor(source, gray, CvOps.Bgra2Bgr);
+CvOps.CvtColor(source, gray, CvOps.Bgr2Gray);
 ```
 
 避ける名前:
