@@ -1,0 +1,96 @@
+name: codeql
+
+# C++ と C# を CodeQL に読ませる。public repository なので無料である。
+#
+# **なぜ要るか。** このプロジェクトの危険な層は FFI 境界で、そこは
+# 「即座には落ちず、後から無関係な場所が壊れる」欠陥が出る場所である。
+# M2 で実際に整数の桁あふれによる境界検査の抜けを踏み、M3 では handle table の
+# use-after-free を踏んだ。どちらも**書いた本人には見えず、CI の緑を素通り
+# した**（後者は 1 度だけ落ちたテストから辿った）。
+#
+# CodeQL は sanitizer とは別の見方をする。sanitizer は「実際に踏んだ経路」を
+# 見るが、CodeQL は経路を実行せずに探す。テストが通らない経路の欠陥は
+# sanitizer には見えない。
+#
+# **これは L1/L2/L3 の代わりではない。** 重なっていないので、どちらかで
+# 他方を代替できない。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 週 1 回。CodeQL のクエリ自体が更新されるので、コードが変わらなくても
+    # 新しい指摘が出ることがある。
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write   # 結果を Security タブへ出すのに要る
+
+concurrency:
+  group: codeql-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: c-cpp
+          - language: csharp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality は既定より広い。誤検出も増えるが、
+          # **この層は静かに壊れるので広く見る側に倒す。**
+          queries: security-and-quality
+
+      # C++ は実際にビルドしないと解析できない。OpenCV の取得と native の
+      # ビルドは通常のレーンと同じ入口（opencv.ps1 / dev.ps1）を通す。
+      #
+      # Linux のビルドは ubuntu:22.04 のコンテナで行うのが本筋だが、CodeQL の
+      # action は job のコンテナ内で動かせない（自前の runner 外部を使う）ので、
+      # ここは runner 上で直接ビルドする。**解析が目的で、ここで作った .so は
+      # 配らない**ので、glibc の要求が上がっても害は無い。
+      - name: Set up .NET
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Ninja
+        if: matrix.language == 'c-cpp'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build
+
+      - name: Restore OpenCV
+        if: matrix.language == 'c-cpp'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      - name: Build native
+        if: matrix.language == 'c-cpp'
+        shell: pwsh
+        run: ./tools/dev.ps1 build
+
+      - name: Build managed
+        if: matrix.language == 'csharp'
+        run: dotnet build tests/Managed/CvUnity.Tests.Managed/CvUnity.Tests.Managed.csproj -c Debug
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}

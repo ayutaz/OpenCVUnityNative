@@ -354,6 +354,39 @@ foreach ($wf in Get-ChildItem -LiteralPath $workflowDir -Filter '*.yml' -File) {
             "$($wf.Name) job '$jobName' runs in a container and does not use sudo"
     }
 }
+
+# --- 説明のつもりのコメントが、道具の指示文にならないこと ---
+#
+# shellcheck は行頭が `# shellcheck ` のコメントを**指示文**として読む。
+# 説明を書くつもりでその形にすると、続きが指示として解釈されて
+# SC1072 / SC1073 の構文エラーになる。
+#
+# **同じ誤りを 2 回踏んだ** —— 1 度目は説明そのもの、2 度目はその説明を
+# 説明する行である。目で読んでも「コメントだから安全」に見えるので、
+# 機械に見させる。
+#
+# 有効な指示文（disable= / enable= / source= など）は通す。禁じたいのは
+# 「指示文の形をした散文」だけである。
+$workflowDir = Join-Path $repoRoot '.github/workflows'
+$directivePattern = '^\s*#\s*shellcheck\s+(?!(disable|enable|source|shell|external-sources)=)'
+
+foreach ($wf in Get-ChildItem -LiteralPath $workflowDir -Filter '*.yml' -File) {
+    $bad = @(Get-Content -LiteralPath $wf.FullName |
+             Where-Object { $_ -match $directivePattern })
+    Assert-That ($bad.Count -eq 0) `
+        "$($wf.Name) has no prose comment that shellcheck would read as a directive"
+    if ($bad.Count -gt 0) { $bad | ForEach-Object { Write-Host "      $_" } }
+}
+
+# 同じ形の罠は .sh 側にもある。
+foreach ($sh in @(& git ls-files '*.sh')) {
+    $path = Join-Path $repoRoot $sh
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    $bad = @(Get-Content -LiteralPath $path |
+             Where-Object { $_ -match $directivePattern })
+    Assert-That ($bad.Count -eq 0) `
+        "$sh has no prose comment that shellcheck would read as a directive"
+}
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

@@ -1,0 +1,165 @@
+name: nightly
+
+# 誰も push していない間に壊れることを見つける。
+#
+# ## なぜ要るか
+#
+# このリポジトリの CI は push と pull_request でしか動かない。つまり
+# **手を止めている間に外側が変わって壊れても、次に誰かが触るまで分からない。**
+#
+# 実際にその種類の欠陥を踏んだ。v0.1.0 の Linux プラグインは runner イメージ
+# （ubuntu-24.04, glibc 2.39）でビルドしていたため GLIBC_2.38 を要求し、
+# それより古い環境で読み込めなかった。runner イメージは GitHub の都合で
+# 上がっていくので、**こちらが何も変えなくても成果物の要求が上がる。**
+# 今はコンテナで固定したが、固定が効かなくなったことに気づく仕組みが要る。
+#
+# ほかにも、こちらの変更なしに壊れうるものがある:
+#   - runner イメージの更新（道具の版が変わる）
+#   - apt / Kitware / Microsoft のリポジトリの内容変化
+#   - game-ci の Docker イメージの更新
+#   - Unity のライセンスの期限切れ
+#   - OpenCV artifact の保持期限切れ（gh run download が失効する）
+#
+# ## なぜ既存の workflow を schedule で呼ばないのか
+#
+# 呼んでいる。`workflow_call` ではなく `workflow_dispatch` を叩く形にすると
+# 実行の履歴が分かれて追いにくいので、ここでは**同じ入口（tools/）を直接
+# 呼ぶ最小のレーン**を持つ。壊れたときに「nightly が赤い」だけで、
+# どのレーンのどの段階かがこの workflow の中で読める。
+
+on:
+  schedule:
+    # 毎日 04:00 UTC（日本時間の昼過ぎ）。人が見られる時間に結果が出る方が、
+    # 気づいてから直すまでが短い。
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  # 成果物が「支える予定の環境」で読み込めるままか。**ここが今回踏んだ欠陥の
+  # 再発を捕まえる場所である。**
+  portability:
+    name: Linux artifact portability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: ubuntu:22.04
+
+    steps:
+      - name: Install git before checkout
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: Set up the build container
+        run: bash ./tools/ci/setup-linux-container.sh
+
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      - name: Build the native plugin
+        shell: pwsh
+        run: ./tools/dev.ps1 build
+
+      # 上限を超えていないか。コンテナの中身が変わって glibc が上がったら、
+      # ここが赤くなる。
+      - name: Verify portability
+        shell: pwsh
+        run: ./tools/verify-plugin-portability.ps1
+
+  # 3 platform の速いレーンを毎日通す。runner イメージの更新で壊れたことに
+  # 気づくのが目的なので、重いレーン（sanitizer / Unity）は含めない——
+  # それらは PR で回る。
+  lanes:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2022
+          - name: macOS arm64
+            runner: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Ninja
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      - name: Run all fast lanes
+        shell: pwsh
+        run: ./tools/dev.ps1 test
+
+  # **OpenCV artifact がまだ取得できるか。** GitHub の artifact には保持期限が
+  # あり、切れると `opencv.ps1 restore` が失敗して全レーンが止まる。切れる前に
+  # 気づきたい——「ある朝、誰も何も変えていないのに CI が全部赤い」を避ける。
+  artifact-availability:
+    name: OpenCV artifact is still fetchable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check every platform's artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+
+          $missing = @()
+          foreach ($platform in @('windows-x64', 'macos-arm64', 'linux-x64')) {
+              $config = Get-OpenCvConfig -Platform $platform
+              $hash = Get-OpenCvConfigHash -Config $config
+              $name = "opencv-$($config.Tag)-$platform-$hash"
+
+              $found = & gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts?per_page=100" `
+                          --jq ".artifacts[] | select(.name == `"$name`" and .expired == false) | .name" 2>$null |
+                       Select-Object -First 1
+              if ($found) {
+                  Write-Host "==> $name is available"
+              } else {
+                  $missing += $name
+              }
+          }
+
+          if ($missing.Count -gt 0) {
+              Write-Error (@(
+                  "these OpenCV artifacts are gone or expired:"
+                  ($missing | ForEach-Object { "  $_" })
+                  'restore が失敗する前に build-opencv.yml を回すこと。'
+              ) -join "`n")
+              exit 1
+          }

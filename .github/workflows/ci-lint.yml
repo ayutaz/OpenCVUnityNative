@@ -1,0 +1,199 @@
+name: ci-lint
+
+# workflow / shell / PowerShell を機械に読ませる。
+#
+# **なぜ足したか。** M2 の条件 7 を満たす作業で、Linux をコンテナ化したときに
+# 7 回失敗した。うち 3 つは書き方の誤りで、どれも実行する前に分かるものだった:
+#
+#   - 挿入位置を間違えて Windows の job に Linux 用の step を入れた
+#   - コンテナで走る job に sudo を残した（コンテナは root なので sudo が無い）
+#   - `run:` に置いたスクリプトの実行ビットを立てていなかった
+#
+# CI を 1 周（10〜20 分）回して初めて分かる、という形にしていた。**静的に
+# 読めば分かるものを、実行して確かめていた**わけである。この workflow は
+# そこを埋める。
+#
+# ここは速い。数分で終わるので、重いレーンより先に落ちる。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-lint-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: Workflows (actionlint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # actionlint は workflow の YAML を構文・式・shell まで見る。
+      # `${{ }}` の型、runner ラベルの綴り、`run:` の中の shell 構文まで
+      # 読むので、上に挙げた種類の誤りが実行前に出る。
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
+
+  shellcheck:
+    name: Shell scripts (shellcheck)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # hook（.claude/hooks/*.sh）と CI のセットアップスクリプトが対象。
+      # hook は毎回のツール呼び出しで走るので、壊れると開発ループが止まる。
+      - name: Run shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          files=$(git ls-files '*.sh')
+          if [ -z "$files" ]; then
+              echo "no shell scripts found — the glob is wrong, not the repo" >&2
+              exit 1
+          fi
+          echo "checking:"
+          # 1 行ずつ字下げして出す。sed に通すと SC2001（単純な置換なら
+          # 変数展開を使え）になる。ここは表示だけなので、読みながら
+          # 出す形にすればパイプごと要らなくなる。
+          # ファイル名に空白は無い前提で語分割に頼る（下の実行と同じ理由）。
+          # shellcheck disable=SC2086
+          printf '  %s\n' $files
+          # 重大度: error と warning を落とす。
+          #
+          # **注意: 行頭が「番犬の名前 + 空白」で始まるコメントは、その道具の
+          # 指示文として読まれる。** 説明を書くつもりで書いた行が指示文と
+          # 解釈され、SC1072 / SC1073 の構文エラーになった（実測。2 回踏んだ
+          # ——1 度目は説明そのもの、2 度目はその説明を説明する行）。
+          # だからこの段落では、その名前を行頭に置いていない。
+          #
+          # ファイル名に空白は無い前提で語分割に頼る。git ls-files の出力を
+          # そのまま渡すので、SC2086 は意図どおりである。
+          # shellcheck disable=SC2086
+          shellcheck --severity=warning $files
+
+  powershell:
+    name: PowerShell (PSScriptAnalyzer)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # tools/ の大半は PowerShell である。ここが壊れるとビルドも配布も
+      # 止まるのに、これまで機械に読ませていなかった。
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+          Import-Module PSScriptAnalyzer
+
+          $files = @(& git ls-files '*.ps1' '*.psm1' '*.psd1')
+          if ($files.Count -eq 0) {
+              Write-Error 'no PowerShell files found — the glob is wrong, not the repo'
+              exit 1
+          }
+          Write-Host "checking $($files.Count) files"
+
+          # Error だけを落とす。Warning まで落とすと、このリポジトリの
+          # 書き方（Write-Host を出力に使う等）と噛み合わずに常時赤くなる。
+          # **噛み合わない検査は無効化されるので、最初から通る幅にする。**
+          # **-Path は 1 つずつ渡す。** 配列を渡すと
+          # "Cannot convert 'System.Object[]' to the type 'System.String'" に
+          # なる（実測）。まとめて渡せるつもりで書いていた。
+          $results = @(
+              foreach ($f in $files) {
+                  Invoke-ScriptAnalyzer -Path $f -Severity Error
+              }
+          )
+
+          if ($results.Count -gt 0) {
+              $results | ForEach-Object {
+                  Write-Host "$($_.ScriptName):$($_.Line) [$($_.RuleName)] $($_.Message)"
+              }
+              Write-Error "PSScriptAnalyzer reported $($results.Count) error(s)"
+              exit 1
+          }
+          Write-Host '==> no errors' -ForegroundColor Green
+
+  links:
+    name: Documentation links
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # 文書は相互参照が多く、**リンク切れは CI が構造的に見逃す種類**である
+      # （CLAUDE.md が「CI が保証していないこと」の筆頭に挙げる文書の陳腐化の
+      # 一形態）。リポジトリ内のリンクだけを見る——外部 URL は相手側の都合で
+      # 落ちるので、赤くなっても直しようがない。
+      - name: Check repository-relative links
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+          $broken = @()
+          $checked = 0
+          foreach ($md in @(& git ls-files '*.md')) {
+              $dir = Split-Path -Parent $md
+
+              <#
+                  **コードブロックの中は見ない。** この repository の実装計画は
+                  README や script の中身を丸ごと引用しており、その中のリンクは
+                  「その文書から見た相対パス」ではない。実測: 除外しないと
+                  6 件が壊れていると報告され、全部コードブロックの中だった。
+
+                  誤検出を出す検査は、そのうち無視されるようになる。無視される
+                  検査は無いのと同じなので、最初から出さない形にする。
+              #>
+              $inFence = $false
+              $body = @(
+                  foreach ($line in (Get-Content -LiteralPath $md)) {
+                      if ($line.TrimStart().StartsWith('```')) { $inFence = -not $inFence; continue }
+                      if (-not $inFence) { $line }
+                  }
+              )
+              $text = $body -join "`n"
+
+              foreach ($m in [regex]::Matches($text, '\]\(([^)#][^)]*)\)')) {
+                  $target = $m.Groups[1].Value
+                  if ($target -match '^(https?:|mailto:)') { continue }
+                  $target = ($target -split '#')[0]
+                  if (-not $target) { continue }
+                  $checked++
+                  $path = if ($dir) { Join-Path $dir $target } else { $target }
+                  if (-not (Test-Path -LiteralPath $path)) {
+                      $broken += "$md -> $target"
+                  }
+              }
+          }
+
+          # 0 件を「壊れていない」と読まない。1 つも見なかったなら、
+          # 走査そのものが効いていない。
+          if ($checked -eq 0) {
+              Write-Error 'no repository-relative links were examined; the scan is not working'
+              exit 1
+          }
+          Write-Host "checked $checked repository-relative links"
+
+          if ($broken.Count -gt 0) {
+              $broken | ForEach-Object { Write-Host "  broken: $_" }
+              Write-Error "$($broken.Count) broken link(s)"
+              exit 1
+          }
+          Write-Host '==> all resolve' -ForegroundColor Green

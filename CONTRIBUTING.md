@@ -1,0 +1,65 @@
+# Contributing
+
+This is a personal open-source project. Issues and pull requests are welcome; there
+is no commitment on response time.
+
+## Before you start
+
+Read [`CLAUDE.md`](CLAUDE.md). It is written for AI agents working in this
+repository, but it is also the most accurate description of how the project is
+built, what the invariants are, and why. The design documents under
+[`docs/`](docs/) are in Japanese.
+
+The two things worth knowing up front:
+
+- **The C ABI is the only native contract.** No C++ or STL types cross the boundary.
+  Opaque handles, fixed-size types, explicit ownership, exceptions converted to
+  status codes.
+- **`Runtime/Interop` and `Runtime/Core` must not reference `UnityEngine`.** This is
+  what keeps the P/Invoke tests runnable without Unity, and it is enforced by a
+  netstandard2.1 shim project that fails to build if it is violated.
+
+## Getting a working tree
+
+Requires PowerShell 7+, CMake 3.25+, the .NET 8 SDK, a C++ toolchain, and the
+`gh` CLI (authenticated). OpenCV is **not** built locally.
+
+```powershell
+./tools/opencv.ps1 restore   # fetch the pinned OpenCV artifact CI published
+./tools/dev.ps1 test         # tools tests + L1 (GoogleTest) + L3 (P/Invoke)
+```
+
+`./tools/dev.ps1` is the only entry point for local development. Everything else
+(`test-asan`, `test-unity-editmode`, `test-unity-player`, `test-unity-tarball`)
+hangs off it. See [README](README.md#development) for the full list.
+
+## What a change needs
+
+- **Tests first.** This project is built test-first, and the tests are expected to
+  fail before the implementation exists.
+- **Prove your check works.** If you add or change a test, an assertion, a
+  verification script or a CI gate, **break the thing it guards and watch it fail.**
+  A check that has only ever been observed passing has not been shown to work. This
+  is written up in `.claude/skills/prove-a-check-works/`.
+- **Adding an ABI function** has a specific order — header, implementation, L1
+  contract test, P/Invoke declaration, L3 test, status table sync. See
+  `.claude/skills/add-abi-function/`.
+- **Do not put milestone-specific rules in hooks.** Conditions that expire become
+  stale in exactly the way the documents do.
+
+## What CI will check
+
+Every pull request runs, across Windows / macOS / Linux: the contract tests, the
+P/Invoke tests, the sanitizer lanes (with LeakSanitizer on Linux), artifact linkage
+and portability verification, and — on Linux — Unity EditMode and a real IL2CPP
+player. Workflows, shell scripts and PowerShell are linted; CodeQL analyses the C++
+and C#.
+
+**CI is the authority on mergeability.** A green local run is an approximation kept
+for speed.
+
+## What CI does not check
+
+Documentation going stale, scope creep, and claiming a milestone is complete when it
+is not — none of these turn CI red. They are the reviewer's job, and historically
+they are where the serious problems in this repository have come from.
