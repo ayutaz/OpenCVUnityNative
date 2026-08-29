@@ -727,6 +727,12 @@ binding specification から C ABI 宣言 / C# P/Invoke / API 対応表 / confor
 
 - spec を正本として生成物が作られ、golden test で一致が検証される
 - `geometry` / `calib` / `features` / `objdetect` などを**利用例に基づいて**追加する
+- **`imgcodecs` を C ABI に出す（画像ファイルの読み書き）。** モジュール自体は
+  `tools/opencv-config.psd1` の `Modules` に入っていて**すでにバイナリにリンクされており**、
+  `THIRD_PARTY_NOTICES.md` に zlib / libpng / libjpeg-turbo のライセンス全文もある。
+  計画書 §8.2 が求めた「必要性と notice を確認したうえで opt-in」は済んでいる。
+  **足りないのは呼ぶための ABI 関数だけである** —— 詳細は下記「どのマイルストーンにも
+  属していない制約」にある
 - API 対応表を生成し、「OpenCV 全対応」という曖昧な表現を使わない
 - 生成された P/Invoke が IL2CPP stripping を生き延びることを L5 で確認する
 
@@ -761,13 +767,69 @@ threads profile（別 profile として後続）。
 「小さな標準 build + opt-in profile」（計画書 §7）を、方針から**実際の配布形態**にする。
 
 **ゴール**
-DNN / contrib / codec / videoio が opt-in profile として追加でき、低コピー経路が評価済みになる。
+DNN / contrib / 動画 codec / videoio が opt-in profile として追加でき、低コピー経路が評価済みになる。
+
+**`imgcodecs` はここに含まれない。** 標準ビルドに既に入っており（`Modules`）、
+bundle される zlib / libpng / libjpeg-turbo の notice も揃っているので、
+opt-in profile として足すものではない。**残っているのは C ABI に出すことだけ**で、
+それは M5 の担当である。ここで扱う「codec」は動画のそれ（FFmpeg / GStreamer を
+引き込む videoio 系）を指す。
 
 **完了条件**
 
 - profile ごとの native artifact、manifest、third-party notices
 - RenderTexture / native texture pointer / AsyncGPUReadback を使う低コピー経路の評価
 - package size、startup time、frame time、allocation の benchmark を公開
+
+---
+
+## どのマイルストーンにも属していない制約
+
+**M0〜M3 を完了し v0.1.1 を配ったあとで「できないこと」を数え直したときに見つかった。**
+どれも留保として本文には書かれていたが、**解消する担当がどこにも無かった。**
+留保は「誰かがいずれ拾う」と読まれるので、拾う予定が無いなら無いと書く。
+
+### 解決: 画像ファイルの読み書き（M5 の完了条件に加えた、2026-08-29）
+
+**「バイナリには入っているが、呼ぶ関数が無く、誰の担当でもない」状態だった。**
+`imgcodecs` は標準ビルドに入っていて notice も揃っているのに、M5 の完了条件は
+`geometry` / `calib` / `features` / `objdetect` を名指しして `imgcodecs` を挙げず、
+M7 の「codec」は**まだ入っていないものを profile として足す**話だった。両方の
+枠の外に落ちていた。M5 の完了条件に加えて解決した。
+
+**これは実用上いちばん大きい欠落である。** 画像を読み書きできないので、この
+パッケージ単体では何も入出力できない（今できるのは Unity の `Texture2D` /
+`NativeArray` を経由した受け渡しだけ）。**M5 は M4 の後**という順序は「生成する
+コードの形を実機の制約で確定してから」という理由から来ているので、これより早く
+要るなら M5 を分割するか、M4 の前に小さなマイルストーンを挟むことになる。
+**その判断はまだしていない。**
+
+### 担当なし: Windows の IL2CPP Player を CI で回す
+
+M2 の完了条件 6 は「Unity EditMode と **Windows** IL2CPP Player で同じ smoke test が
+通る」で、**ローカル実測で満たした**。条件 7（CI で L4 / L5 を実行する）は game-ci を
+使って **Linux** で満たした。したがって **Windows の IL2CPP Player は、今もローカルの
+`dev.ps1 test-unity-player` だけが担っている。**
+
+理由は記録してある（game-ci の Windows イメージが Windows Server 2019 向けで
+`windows-2022` では OS 不一致で落ちる。`windows-2019` は提供終了）。
+**記録してあるのは理由だけで、いつ誰がどう解決するかは M4 以降のどこにも無い。**
+
+やるとすれば self-hosted runner を立てるか、game-ci を使わずに `windows-2022` へ
+Unity を直接入れてライセンスを通すことになる。**どちらも調べていない。**
+
+### 担当なし: macOS の Plugin Import Settings を Unity で実測する
+
+`.meta` の形式は Unity 自身が生成した Windows 分に合わせてあり、**Linux 分は M2 の
+条件 7 で実測に変わった**（`ci-unity.yml` が Linux の Unity を動かし、`.so` とその
+`.meta` が実際に読み込まれて EditMode / IL2CPP Player の両方で通った）。
+**macOS だけが実測でないまま残っている** —— CI の macOS job は plugin をビルドするが
+Unity を起動しない。
+
+同じ作り方の `.meta` が Linux の実機で通ったことで妥当性は上がったが、**それは
+macOS で確かめたことにはならない。** 解決するには CI の macOS で Unity を動かす
+必要があり、game-ci が Linux で使っている container の手が macOS runner でそのまま
+使えるかは**調べていない。**
 
 ---
 
