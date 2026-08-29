@@ -94,7 +94,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # **Unity のバージョンを workflow に直書きしない。** 直書きすると
       # ProjectVersion.txt と二重管理になり、片方だけ上げたときに気づけない

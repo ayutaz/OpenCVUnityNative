@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Cache CMake FetchContent (googletest)
         uses: actions/cache@v4
         with:
@@ -111,7 +111,7 @@ jobs:
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends git ca-certificates
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up the build container
         run: bash ./tools/ci/setup-linux-container.sh
       - name: Restore OpenCV

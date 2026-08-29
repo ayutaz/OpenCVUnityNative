@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # actionlint は workflow の YAML を構文・式・shell まで見る。
       # `${{ }}` の型、runner ラベルの綴り、`run:` の中の shell 構文まで
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # hook（.claude/hooks/*.sh）と CI のセットアップスクリプトが対象。
       # hook は毎回のツール呼び出しで走るので、壊れると開発ループが止まる。
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # tools/ の大半は PowerShell である。ここが壊れるとビルドも配布も
       # 止まるのに、これまで機械に読ませていなかった。
@@ -134,7 +134,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 文書は相互参照が多く、**リンク切れは CI が構造的に見逃す種類**である
       # （CLAUDE.md が「CI が保証していないこと」の筆頭に挙げる文書の陳腐化の
