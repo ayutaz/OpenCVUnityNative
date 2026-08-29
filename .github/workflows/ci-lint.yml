@@ -64,7 +64,16 @@ jobs:
           fi
           echo "checking:"
           echo "$files" | sed 's/^/  /'
-          # shellcheck 自身の重大度: error と warning は落とす。
+          # 重大度: error と warning を落とす。
+          #
+          # **この行のコメントを `# shellcheck ...` で始めてはいけない。**
+          # shellcheck はその形を「指示文」として読むので、日本語が続くと
+          # SC1072 / SC1073 の構文エラーになる（実測。actionlint がこの
+          # workflow 自身の run: を読んで見つけた）。
+          #
+          # ファイル名に空白は無い前提で語分割に頼る。git ls-files の出力を
+          # そのまま渡すので、SC2086 は意図どおりである。
+          # shellcheck disable=SC2086
           shellcheck --severity=warning $files
 
   powershell:
@@ -96,7 +105,14 @@ jobs:
           # Error だけを落とす。Warning まで落とすと、このリポジトリの
           # 書き方（Write-Host を出力に使う等）と噛み合わずに常時赤くなる。
           # **噛み合わない検査は無効化されるので、最初から通る幅にする。**
-          $results = @(Invoke-ScriptAnalyzer -Path $files -Severity Error)
+          # **-Path は 1 つずつ渡す。** 配列を渡すと
+          # "Cannot convert 'System.Object[]' to the type 'System.String'" に
+          # なる（実測）。まとめて渡せるつもりで書いていた。
+          $results = @(
+              foreach ($f in $files) {
+                  Invoke-ScriptAnalyzer -Path $f -Severity Error
+              }
+          )
 
           if ($results.Count -gt 0) {
               $results | ForEach-Object {

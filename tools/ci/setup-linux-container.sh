@@ -82,7 +82,10 @@ apt-get install -y -qq --no-install-recommends powershell dotnet-sdk-8.0
 
 # gh CLI は opencv.ps1 restore が artifact を落とすのに使う。
 echo "==> gh cli"
-mkdir -p -m 755 /etc/apt/keyrings
+# mkdir -p に -m を付けると、権限が最深のディレクトリにしか効かない
+# （shellcheck SC2174）。作ってから明示的に設定する。
+mkdir -p /etc/apt/keyrings
+chmod 755 /etc/apt/keyrings
 wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null
 chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
