@@ -1,6 +1,6 @@
 # Unity 向け OpenCV 統合の競合調査と初期計画
 
-- 調査基準日: **2026-08-25**（§3 と §4.6 のみ **2026-08-29** に取り直した。それ以外の節の数字は 08-25 のまま）
+- 調査基準日: **2026-08-25**（§3 と §4.6 のみ **2026-08-29** に取り直し、§4.6 の配布と OpenUPM、§8.3 の `imgcodecs` は **2026-08-30**（M3.5）に更新した。それ以外の節の数字は 08-25 のまま）
 - 対象プロジェクト: **OpenCV Unity Native**（仮称）
 - 対象リポジトリ: `OpenCVUnityNative`
 - 想定ライセンス: **Apache License 2.0**
@@ -172,11 +172,11 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 2026-08-29 時点の対応範囲。**機能の総数で競わない**方針（§7）は変えないが、
 **何が無いかを数えずに「競わない」と言うのは、単に知らないのと区別がつかない。**
 
-| 種別 | OpenCV for Unity | 本案（v0.1.1） |
+| 種別 | OpenCV for Unity | 本案（M3.5 時点。**まだリリースしていない** —— 公開済みの最新は v0.1.1） |
 | --- | --- | --- |
-| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | 5（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features`）。うち C ABI に出ているのは `core` と `imgproc` の一部だけ |
+| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 5（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features`）。**プラグインがリンクしているのはそのうち 3 つ**（`core` / `imgproc` / `imgcodecs`）で、C ABI に出ているのはさらにその一部（`Mat` 6 本 + imgproc 3 本 + encode / decode 2 本） |
 | platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | Windows / macOS / Linux |
-| 配布 | Asset Store から 1 つ入れれば全 platform | **platform ごとに別の tarball**（[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目） |
+| 配布 | Asset Store から 1 つ入れれば全 platform | **1 つの tarball に Desktop 3 platform 分**（M3.5 で解消。[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目）。**モバイルはまだ入らない**（M4） |
 | カメラ | `WebCamTexture` の補助クラス群、WebGPU 対応の非同期読み出し | 無し（`Texture2D` のみ） |
 | 推論 | OpenCV DNN と Unity Sentis を切り替える `MultiBackendDnn` | 無し |
 | サンプル | 多数 | 1 つ（`Samples~/BasicUsage`） |
@@ -190,7 +190,9 @@ M7 で判断する。
 #### 配布経路: OpenUPM
 
 OSS の Unity パッケージは [OpenUPM](https://openupm.com/) 経由で探されることが多い。
-**本案は登録していない。**
+**本案はまだ登録していない**（申請には公開済みのリリースが 1 つ要るので、次の版のあとに
+なる）。**登録できる形にする作業は M3.5 で終わっている** —— 下記の 2 つの制約はどちらも
+満たした。手順と残りの条件は [OpenUPM への登録](./openupm-registration.md) にある。
 
 登録の障害になると考えていたのは「binary を git の追跡外に置いている」点だが、
 [OpenUPM のドキュメント](https://openupm.com/docs/adding-upm-package.html)には
@@ -199,22 +201,33 @@ GitHub Release に付いた `.tgz` をそのまま公開する**経路が用意�
 本案はすでに tag から Release を作り tarball を添付しているので、**この形は使える**。
 
 **OpenUPM の側は、複数の asset があっても困らない。** `githubReleaseAssetName` に
-名前のパターンを書けば、その 1 つを選んで公開できる。**困るのは利用者である** ——
+名前のパターンを書けば、その 1 つを選んで公開できる。**困るのは利用者だった** ——
 platform ごとの tarball のうち 1 つを選んで公開すれば、`openupm add` で入るのは
-その platform 分の binary だけになる。**[ロードマップ](./roadmap.md)「差別化の穴」の
-1 件目がそのまま現れる**ので、先にそちらを解く。
+その platform 分の binary だけになる。**この前提は M3.5（2026-08-30）で消えた** ——
+全部入りの tarball を正にしたので、`githubReleaseAssetName` が選ぶ 1 つに
+Desktop 3 platform 分が入る。
 
-実装時に効く細かい制約が 2 つある。**パッケージは 512 MB 未満**であること ——
-ただし現状これは効かない。**実際に配った v0.1.1 の tarball は 3 platform 合計で
+実装時に効く細かい制約が 2 つあった。**どちらも M3.5（2026-08-30）で満たした。**
+
+**(1) パッケージは 512 MB 未満であること。** `tools/pack-upm-tarball.ps1` が固めたあとの
+バイト数を見て、超えていれば落とす（`-MaxBytes`。既定は 512 MB）。**上限を引数にしたのは、
+落ちるところを見られるようにするためである** —— 既定値のままでは現状の配布物が上限まで
+大きく余裕があり、この検査が働くところを誰も確かめられない。**検査は packer に置いた**
+（呼ぶ側が `release.yml` と `dev.ps1 test-unity-tarball` の 2 つあり、片方に置くと
+もう片方が素通しする）。**全部入りの tarball は 8.4 MB**（2026-08-30 実測）なので、
+**効いてくるのは DNN や contrib を含む profile を配る段階（M7）である。**
+
+**(2) 版番号を含まない安定した接頭辞の asset 名。** 全部入りの名前を
+`com.ayutaz.opencv-unity-native.tgz` にした（版番号なし）。platform ごとの tarball は
+`…-<version>-<platform>.tgz` のままで、OpenUPM が見るのは全部入りの 1 つだけである。
+
+内訳の実測は次のとおり。**実際に配った v0.1.1 の tarball は 3 platform 合計で
 8.0 MB** である（2026-08-29 に Release の asset サイズを実測: linux-x64 3,639,983 /
-macos-arm64 1,931,691 / windows-x64 2,472,421 バイト）。全部入りにしても同じ桁で、
-上限まで 60 倍以上ある。**効いてくるのは DNN や contrib を含む profile を配る段階**
-（M7）である。**モバイルを足した後の値は測っていない** —— iOS は静的リンクなので
-共有ライブラリと同じ桁とは限らず、Android で何 architecture を積むかも未定
-（[ロードマップ](./roadmap.md)「差別化の穴」#8）。そして
-`githubReleaseAssetName` は**版番号を含まない安定した接頭辞**を想定しており、
-本案の tarball 名は現在 `com.ayutaz.opencv-unity-native-<version>-<platform>.tgz`
-という版番号入りである。
+macos-arm64 1,931,691 / windows-x64 2,472,421 バイト）。**全部入りは 8.4 MB**
+（2026-08-30 実測）で、どちらも上限まで 60 倍以上ある。**モバイルを足した後の値は
+測っていない** —— iOS は静的リンクなので共有ライブラリと同じ桁とは限らず、
+Android で何 architecture を積むかも未定
+（[ロードマップ](./roadmap.md)「差別化の穴」#8）。
 
 ## 5. 自作 OSS の価値
 
@@ -356,7 +369,7 @@ Unity は Web native plug-in について、Unity に同梱された Emscripten 
 6. **CI から再現できる各プラットフォームの native binaries**
 7. **Texture2D / NativeArray 等との低コピー連携**
 8. **サポート API、platform、build feature、第三者ライセンスの機械可読 manifest**
-9. **小さな標準 build と、contrib / DNN / codec 等の opt-in build profile**
+9. **小さな標準 build と、contrib / DNN / 動画 codec 等の opt-in build profile**（画像の codec = `imgcodecs` は M3.5 で標準 build に入った。ここで言う codec は動画のそれである）
 10. **将来の Web / Wasm 対応**
 
 OpenCV for Unity には、完成度、対応機種、サンプル、商用サポートでは当面及ばない。比較軸を「機能の総数」ではなく「OpenCV 5、OSS、C++ に近いモジュール、ABI の透明性、再現可能なビルド」に置く。
@@ -389,7 +402,7 @@ OpenCV の CMake には、FFmpeg、GStreamer、JPEG、PNG、TIFF、WebP、OpenEX
 
 - 初期 vertical slice は `core` と `imgproc` を中心にし、Unity の Texture / buffer を入力に使う。
 - `videoio` と FFmpeg/GStreamer は初期標準 build から外す。
-- `imgcodecs` は必要性と libjpeg/libpng 等の notice を確認した後に opt-in で追加する。
+- `imgcodecs` は**標準 build に入れた**（M3.5、2026-08-30）。notice は既に `THIRD_PARTY_NOTICES.md` に揃っており、C ABI に出したのはメモリ上の byte 列を相手にする `imencode` / `imdecode` の 2 本である。**それ以前は「モジュールはリンク済み」と書かれていたが、実際には `cmake/FindOpenCvUnityDeps.cmake` が `core` と `imgproc` しかリンクしていなかった** —— OpenCV 側がその module を含めてビルドされていることと、こちらのプラグインがリンクしていることは別である。
 - DNN、contrib、Tesseract、OpenEXR、GPU backend は個別 profile として後から追加する。
 - CMake configure summary を保存し、期待していない dependency が有効なら CI を失敗させる。
 - native artifact ごとに OpenCV tag、contrib tag、compiler、toolchain、CMake flags、依存 version、hash を manifest 化する。
@@ -407,6 +420,12 @@ artifacts/<platform>/sbom.spdx.json
 ## 9. 初期ロードマップ
 
 各段階の完了条件には、native 単体テストだけでなく、実際の Unity Player から C# -> P/Invoke -> C ABI -> OpenCV を通る smoke test を含める。
+
+**この節は起草時（2026-08-25）のロードマップであり、実際に実行された計画は
+[ロードマップ](./roadmap.md) の M0〜M7 である。** そのまま残してあるのは経緯の記録の
+ためで、現在地の判断には使わないこと。特に Phase 0 の「Rust spike」は**実施していない**
+—— C++ を選ぶ判断が spike 無しで確定した（理由は
+[Native backend 実装言語の評価](./native-backend-language-tdd-evaluation.md)）。
 
 ### Phase 0: 方針・互換性契約
 
@@ -462,6 +481,13 @@ artifacts/<platform>/sbom.spdx.json
 - package size、startup time、frame time、allocation を benchmark として公開する。
 
 ## 10. 想定ディレクトリ構成
+
+**これは起草時（2026-08-25）の想定であり、実物とは違う。** 実際の配置は
+`CLAUDE.md` の「ファイル配置」の表が正本である。主な違い: `Runtime/` の下は
+`Interop` / `Core` / `UnityIntegration` の 3 つで **`ImgProc/` は作らなかった**
+（`CvOps` と `CvCodecs` は `Core` にある）。package の下の `Tests/` と
+`Documentation~/` も無い（テストは `tests/` 以下、文書は `docs/` 以下）。
+`bindings/` は M5 の予定でまだ存在しない。
 
 ```text
 OpenCVUnityNative/
@@ -527,13 +553,18 @@ OpenCVUnityNative/
 
 例:
 
+**この例は起草時（2026-08-25）の案であり、実装された API とは違う。** 実物は
+[API リファレンス](./api-reference.md) にある。`CvMat.Wrap` は **M2 で意図的に捨てた**
+（借用 handle を作らない決定。[所有権と versioning](./abi-ownership-and-versioning.md) §1）。
+実装された形はこうなる:
+
 ```csharp
 using CvUnity;
-using CvUnity.ImgProc;
 
-using var source = CvMat.Wrap(rgbaPixels, width, height, CvPixelFormat.Rgba32);
-using var gray = CvMat.Create(height, width, CvType.UInt8C1);
-Cv.ImgProc.CvtColor(source, gray, ColorConversion.RgbaToGray);
+using var source = CvMat.Create(height, width, CvMatType.Bgra32);
+source.CopyFrom(bgraPixels, stride);
+using var gray = CvMat.Create(height, width, CvMatType.Gray8);
+CvOps.CvtColor(source, gray, CvOps.Bgr2Gray);
 ```
 
 避ける名前:
@@ -545,6 +576,9 @@ Cv.ImgProc.CvtColor(source, gray, ColorConversion.RgbaToGray);
 公開前には GitHub、UPM ecosystem、NuGet、ドメイン、商標の最新状況を別途確認する。
 
 ## 12. 初回実装前に決めること
+
+**このうち決まったものは `CLAUDE.md` の「決定済みで、計画書 §12 の記述より新しいもの」の
+表にある。以下は起草時の一覧をそのまま残したものである。**
 
 - 対応する最小 Unity 6 version と、Unity 2022 LTS を初期対象に含めるか。
 - 最初の package ID と公開 organization。

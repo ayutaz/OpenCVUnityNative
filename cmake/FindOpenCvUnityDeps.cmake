@@ -32,7 +32,7 @@ set(OpenCV_STATIC ON)
 
 set(OpenCV_DIR "${OCVU_OPENCV_ROOT}" CACHE PATH "" FORCE)
 find_package(OpenCV ${OCVU_OPENCV_REQUIRED_VERSION} EXACT REQUIRED
-    COMPONENTS core imgproc
+    COMPONENTS core imgproc imgcodecs
     NO_DEFAULT_PATH
     PATHS "${OCVU_OPENCV_ROOT}")
 

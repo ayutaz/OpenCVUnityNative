@@ -1,6 +1,7 @@
 # C ABI の所有権と versioning
 
-**状態: 確定（2026-08-26、M2 着手前）。** `docs/unity-opencv-integration-research-and-plan.md` §12 が
+**状態: 確定（2026-08-26、M2 着手前）。その後、M3 で §1.5（スレッドの規約）、M3.5 で
+§1.6（blob の規約）と §3.5（allowlist の追加）を足した。** `docs/unity-opencv-integration-research-and-plan.md` §12 が
 未決定として挙げていた 3 件のうち、M2 が必要とする分をここで決める。
 
 M2 の目的は API の広さではなく契約の正しさである。ここで決めた規約は M5 の generator が
@@ -182,6 +183,77 @@ Actual: 1` を出した。xUnit がテストクラスを並列に走らせるた
 代わりに、**解放済み handle の再利用は世代検査で捕まる**（`OCVU_STATUS_INVALID_HANDLE`）。
 捕まらないのは「解放と使用が本当に同時に起きた」場合だけである。
 
+## 1.6. 呼ぶ側が大きさを知り得ない出力（blob）の規約
+
+**決定（2026-08-30、M3.5）。** `ocvu_imencode` が、**出力の大きさを呼ぶ側が事前に
+計算できない最初の ABI 関数**である。それまで出力は 2 種類しかなかった —— native が
+所有する handle（§1）と、呼ぶ側が形から大きさを決められる buffer（`stride * rows`。
+§3 の検証規約）。符号化された画像はどちらでもない: 大きさは中身と codec が決めるので、
+`Mat` の形からは導けない。
+
+### 決定
+
+**出力の所有権は最初から最後まで呼ぶ側にある。** 必要量を問い合わせ、呼ぶ側が確保し、
+native はそこへ書くだけで、戻った後は一切保持しない。
+
+| 選ばなかった形 | 理由 |
+| --- | --- |
+| **native が確保した blob を handle で返し、`ocvu_blob_release` で解放させる** | §1 に無い**第 3 の所有権**（native が確保して呼ぶ側が解放を指示する）が増える。解放漏れという新しい壊れ方を、規約でしか防げない形で持ち込むことになる |
+| native 側で確保した領域へのポインタを返し、次の呼び出しまで有効とする | 「次の呼び出しまで」はスレッドを跨いだ瞬間に守れない。§1.5 の「別々の handle を別々のスレッドから」と両立しない |
+
+### 2 回呼びの作法
+
+1. 1 回目: `buffer = NULL` / `buffer_size = 0`。`out_required_size` に必要バイト数が入り、
+   戻り値は `OCVU_STATUS_BUFFER_TOO_SMALL`。**これは失敗ではない**（§2 のとおり
+   `OCVU_STATUS_OK` と `OCVU_STATUS_BUFFER_TOO_SMALL` だけが成功側である。C# の
+   `CvNative.IsFailure` がこの形）
+2. 呼ぶ側がその大きさの領域を確保する
+3. 2 回目: その領域を渡す。成功時、`out_required_size` には**実際に書いたバイト数**が入る
+
+**新しい作法ではない。** last-error message / OpenCV version / build information の取得が
+既に同じ形である。新しいのは、これが**診断用の文字列ではなく画像データそのもの**に
+適用される点だけである。
+
+規約として固定すること:
+
+- **`out_required_size` は必須**（NULL なら `OCVU_STATUS_NULL_POINTER`）。これが無いと
+  呼ぶ側は 2 回目の大きさを決められないので、省略可能にしてはならない。
+  **関数の入口で 0 を書く** —— 失敗経路で古い値が残っていると、呼ぶ側はそれを
+  必要量として読む
+- **足りないときは 1 バイトも書かない。** 部分的に書くと、呼ぶ側は途中まで正しい
+  buffer を掴むことになり、壊れ方が分かりにくくなる（§3 の buffer 検証と同じ思想）
+- **`buffer_size > 0` なのに `buffer` が NULL は、書く前に断る**（`OCVU_STATUS_NULL_POINTER`）。
+  「長さがあるのに領域が無い」は呼ぶ側の取り違えである
+- **`int32_t` に収まらない出力は表現しない**（`OCVU_STATUS_INVALID_ARGUMENT`）。
+  ABI が `int32_t` で大きさを返す以上、収まらないものは切り詰めずに断る
+
+### blob の検証は buffer の検証とは別形である
+
+`native/src/ocvu_mat_buffer.cpp` の `validate()` は画像の行（`length` / `stride` / `rows` の
+整合）を見るが、**符号化された blob には行も stride も無い。** 見るのは長さと NULL だけで
+ある。§3 の「`stride * rows` を計算してはならない」という桁あふれの注意は、blob には
+そもそも当てはまらない —— 掛け算が無いからである。**同じ関数を使い回さないこと。**
+
+### 入力の blob は §1 の借用そのものである
+
+`ocvu_imdecode` の `data` は、`ocvu_mat_copy_from_buffer` の `src` とまったく同じ扱いで
+ある: **この呼び出しの内側でだけ読み、戻った時点で借用は終わる。** 実装は呼ぶ側の
+メモリをその場で `cv::Mat` の view で包むが、`cv::imdecode` は自前のメモリに結果を作るので、
+関数を抜ける前に view は用済みになる。`length` は 1 以上 `INT32_MAX` 以下（`cv::Mat` の
+列数が `int` のため）。**画像として解釈できない byte 列は `OCVU_STATUS_OPENCV_ERROR` で
+断り、メモリは壊さない。**
+
+### ファイルパスを受けない
+
+**この決定は所有権とは別の理由による。** (1) Windows の文字コードの扱いが境界に増える。
+(2) **Android では `StreamingAssets` が APK の中にあり、パスでは開けない** —— モバイルへ
+進む前提（M4）と噛み合わない。ファイルを開くのは呼ぶ側の仕事とし、ABI が受けるのは
+メモリ上の byte 列だけにする。
+
+### ABI version は上げていない
+
+関数を足しただけなので `OCVU_ABI_VERSION` は 1 のままである（§2「bump しない変更」）。
+
 ## 2. C ABI の versioning と後方互換
 
 ### 決定
@@ -220,9 +292,10 @@ status 表の同期は `StatusCodeSyncTests` が見ている。**この 2 つを
 
 ---
 
-## 3. 初期 API の allowlist
+## 3. API の allowlist（M2 で確定、M3.5 で追加）
 
 M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わないのが M2 の目的である。
+**M3.5 で 2 本足したので、現在の allowlist は §3.5 を含めて 11 本である。**
 
 ### Mat のライフサイクル
 
@@ -264,10 +337,35 @@ M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わな�
 存在する。M2 の完了条件「ABI version / OpenCV version / build features を実行時に
 問い合わせられる」はこれで満たされている。
 
-### M2 で作らないもの
+### 3.5 imgcodecs（M3.5 で追加）
 
-`Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、`imgcodecs` の読み書き、
-`WebCamTexture` 連携。いずれも契約が固まってから足す。
+| 関数 | 内容 |
+| --- | --- |
+| `ocvu_imencode` | `Mat` を画像形式に符号化して呼ぶ側の buffer へ書く。**2 回呼び**（§1.6）|
+| `ocvu_imdecode` | 符号化された byte 列を復号して owned handle に入れる。入力は呼び出し内で完結する借用 |
+
+**これで allowlist は 11 本になった**（M2 の 9 本 + この 2 本）。**扱うのはメモリ上の
+byte 列だけで、ファイルパスは受けない**（理由は §1.6）。
+
+**`imgcodecs` は M3.5 で初めてリンクされた。** それ以前の
+`cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` だけで、リポジトリ内の
+複数箇所にあった「モジュールはリンク済みで、足りないのは呼ぶ関数だけ」という記述は
+**誤りだった**。誤解の出どころも記録しておく: `tools/opencv-config.psd1` の `Modules` には
+`imgcodecs` が入っているので **OpenCV 自体はそれを含めてビルドされており**、
+`ocvu_get_build_information()` も `To be built: … imgcodecs …` と報告する。
+**「OpenCV に入っている」と「このプラグインがリンクしている」は別である。**
+気づいたのは CMake を読んだからではなく、実装を書いた時点で `cv::imencode` /
+`cv::imdecode` が未解決の外部シンボル（`LNK2019`）になったからである —— linker が
+証拠を出した。**component を足しただけではサイズが 1 バイトも変わらなかった** ——
+静的リンクは参照された object しか取り込まない。増えたのは関数を書いてからで、
+Windows の debug ビルドで 8,831,488 → 10,177,536 バイト（+1.35 MB。2026-08-30 実測）。
+
+### まだ作らないもの
+
+`Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、**`imgcodecs` の
+ファイルパス経路**、`WebCamTexture` 連携。いずれも契約が固まってから足す。
+**メモリ上の byte 列の encode / decode は M3.5 で足した（§3.5）。ファイルパスを
+受けない判断の理由は §1.6 にある。**
 
 ---
 
@@ -275,4 +373,5 @@ M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わな�
 
 - `CLAUDE.md` — 「アーキテクチャの中核」の不変条件。この文書はその具体化である
 - `docs/roadmap.md` — M2 の目的・ゴール・完了条件（上記 §1 の食い違いに従って更新済み）
+- `docs/api-reference.md` — この文書が決めた契約の、利用者向けの現れ方（C ABI 11 本と C# 公開 API）
 - `.claude/skills/add-abi-function/SKILL.md` — 関数を 1 本足すときの TDD 順序

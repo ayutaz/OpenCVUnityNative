@@ -25,7 +25,21 @@ param(
     # Unix どちらの配置でも確かめられるよう、明示的に上書きできるようにする
     # （tools/verify-artifact-linkage.ps1 の -Root と同じ考え方）。
     [string]$Root,
-    [string]$Platform
+    [string]$Platform,
+
+    <#
+        checksums.txt だけを出す。
+
+        **全部入りの package 用である。** SBOM と build-manifest は復元済みの
+        OpenCV artifact（= 実行中 platform のもの）から作るので、3 platform を
+        束ねる job には元が無い。**統合版を捏造せずに、出せるものだけ出す。**
+
+        checksums.txt は package を走査して作るので、3 platform 分の binary が
+        置かれていればそのまま 3 行になる。SBOM / build-manifest /
+        THIRD_PARTY_NOTICES は platform ごとの物が Release に付くので、
+        全部入りの中身の説明はそちらが担う。
+    #>
+    [switch]$ChecksumsOnly
 )
 
 # param ブロックより後に置く。Set-StrictMode を先に置くと param(...) が
@@ -40,19 +54,69 @@ Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
-if (-not $Platform) { $Platform = Get-OpenCvPlatform }
-$config = Get-OpenCvConfig -Platform $Platform
-if (-not $Root) { $Root = Get-OpenCvRoot -Config $config }
+New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-if (-not (Test-Path -LiteralPath $Root)) {
+<#
+    **-ChecksumsOnly は復元済みの OpenCV artifact を要求しない。**
+
+    checksums.txt は package を走査して作るだけで、OpenCV のツリーを一度も
+    読まない。ところが以前はこの script が無条件に Get-OpenCvRoot の実在を
+    要求していたので、**OpenCV を復元しない job から呼ぶと必ず落ちた** ——
+    まさに release.yml の publish job がそれである（3 つの artifact を束ねる
+    だけで、opencv.ps1 restore を走らせない）。tag を打った瞬間に Release が
+    作られずに終わる形だった。
+
+    SBOM の生成も同じ理由でここより後ろに置く。全部入り用に「統合 SBOM」を
+    出してしまうと、**1 つの platform の OpenCV 構成を名乗る偽の申告**になる
+    （workflow のコメントが「捏造しない」と書いている当のもの）。
+#>
+if (-not $ChecksumsOnly) {
+    if (-not $Platform) { $Platform = Get-OpenCvPlatform }
+    $config = Get-OpenCvConfig -Platform $Platform
+    if (-not $Root) { $Root = Get-OpenCvRoot -Config $config }
+
+    if (-not (Test-Path -LiteralPath $Root)) {
+        [Console]::Error.WriteLine(@(
+            "OpenCV artifact not found at $Root"
+            "先に './tools/opencv.ps1 restore' を実行してください。"
+        ) -join "`n")
+        exit 1
+    }
+}
+
+
+<#
+    **checksums を先に作る。** これは package を走査するだけで、復元済みの
+    OpenCV artifact を一度も読まない。以降の SBOM / build manifest /
+    notices はすべて $Root（= その platform の OpenCV ツリー）に依存するので、
+    順序を逆にすると -ChecksumsOnly が「OpenCV を復元していない job」から
+    呼べなくなる —— それがまさに release.yml の publish job である
+    （3 つの artifact を束ねるだけで opencv.ps1 restore を走らせない）。
+#>
+# --- checksums ---
+$pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native'
+$lines = @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File |
+    Where-Object { $_.Extension -in @('.dll', '.dylib', '.so') } |
+    ForEach-Object {
+        $h = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $rel = $_.FullName.Substring($pluginRoot.Length).TrimStart('\', '/') -replace '\\', '/'
+        "$h  $rel"
+    })
+
+if ($lines.Count -eq 0) {
     [Console]::Error.WriteLine(@(
-        "OpenCV artifact not found at $Root"
-        "先に './tools/opencv.ps1 restore' を実行してください。"
+        "no native plugin found under $pluginRoot"
+        "先に './tools/dev.ps1 build' を実行してください。"
+        '空の checksums.txt を出さない — 「検証すべきものが無い」を成功にしない。'
     ) -join "`n")
     exit 1
 }
+$lines | Set-Content -LiteralPath (Join-Path $OutputDir 'checksums.txt') -Encoding utf8
 
-New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+if ($ChecksumsOnly) {
+    Write-Host "==> checksums.txt only ($($lines.Count) binaries)" -ForegroundColor Green
+    return
+}
 
 # --- SBOM: 実物のライセンス一覧から component を拾う ---
 $licenseDirs = @(@(
@@ -109,25 +173,6 @@ $sbom = [ordered]@{
 $sbom | ConvertTo-Json -Depth 10 |
     Set-Content -LiteralPath (Join-Path $OutputDir 'sbom.spdx.json') -Encoding utf8
 
-# --- checksums ---
-$pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native'
-$lines = @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File |
-    Where-Object { $_.Extension -in @('.dll', '.dylib', '.so') } |
-    ForEach-Object {
-        $h = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        $rel = $_.FullName.Substring($pluginRoot.Length).TrimStart('\', '/') -replace '\\', '/'
-        "$h  $rel"
-    })
-
-if ($lines.Count -eq 0) {
-    [Console]::Error.WriteLine(@(
-        "no native plugin found under $pluginRoot"
-        "先に './tools/dev.ps1 build' を実行してください。"
-        '空の checksums.txt を出さない — 「検証すべきものが無い」を成功にしない。'
-    ) -join "`n")
-    exit 1
-}
-$lines | Set-Content -LiteralPath (Join-Path $OutputDir 'checksums.txt') -Encoding utf8
 
 # --- build manifest ---
 $manifestSource = Join-Path $Root 'build-manifest.json'

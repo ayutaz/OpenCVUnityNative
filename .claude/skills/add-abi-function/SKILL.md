@@ -18,6 +18,9 @@ ABI 関数を 1 本足す作業は 5〜7 ファイルにまたがる。順序を
 
 1. **所有権は誰にあるか。** 呼び出し側が確保したバッファに書くのか、native が
    確保して handle を返すのか。返す場合、解放する関数は何か。
+   **呼び出し側が確保する場合、その大きさを呼び出し側が知り得るか。** 知り得ないなら
+   2 回呼び（`BUFFER_TOO_SMALL` + `out_required_size`）にする —— 下の
+   「出力の大きさを呼び出し側が知り得ないなら」を読む。
 2. **失敗し得るか。** 失敗するなら `ocvu_status` を返す。失敗し得ないなら
    `int32_t` などを直接返してよいが、その根拠をコメントに書く。
 3. **境界に出る型は固定サイズか。** `int32_t`、`uint64_t`、明示 struct、
@@ -78,6 +81,14 @@ C++ 例外が `extern "C"` 関数を抜けて FFI 境界を越えると未定義
 `OCVU_TRY_BEGIN` は入口で last-error を消し、`OCVU_TRY_END` は例外を
 status code と thread-local last-error に変換する。
 
+**シグネチャは `extern "C" ocvu_status ocvu_名前(` までを 1 物理行に置く。**
+`.claude/hooks/check-exception-barrier.sh` の awk は、戻り値・関数名・`(` が同じ行に
+あることを前提に関数を認識する。戻り値と名前の間で折り返すと関数だと認識できないので、
+hook は「シグネチャが折り返されていて認識できません」と指摘する（**囲ってあっても
+指摘する** —— 黙って素通しにすると、出力が「囲われている」場合と区別できず、
+指摘が出ないことが証拠にならなくなるためである）。引数側の改行は問題ない。
+ヘッダの宣言は対象外なので、そちらは折り返してよい。
+
 **囲ってはならない関数がある。** `ocvu_get_last_error_status` と
 `ocvu_get_last_error_message` は、`OCVU_TRY_BEGIN` が `clear_last_error()` を
 呼ぶため、報告すべきエラーを読む直前に自分で消してしまう。`ocvu_status` を
@@ -135,6 +146,74 @@ doc コメント）。
 検証を足したり変えたりしたら、`prove-a-check-works` skill の手順で、境界条件を
 1 つ緩めてテストが実際に赤くなることを確認してから戻すこと。
 
+**出力の大きさを呼び出し側が知り得ないなら（M3.5 で確立した規約）**
+
+上の buffer 規約は、**大きさを呼ぶ側が知っている**ことを前提にしている（画像の行は
+`rows` と `stride` で決まる）。符号化した画像のように**呼んでみるまで大きさが決まらない**
+出力はこの形に乗らない。その場合は
+`(uint8_t* buffer, int32_t buffer_size, int32_t* out_required_size)` の **2 回呼び**に
+する。参照実装は `native/src/ocvu_imgcodecs.cpp` の `ocvu_imencode`。
+
+1 回目は `buffer = NULL` / `buffer_size = 0` で呼び、`out_required_size` に必要
+バイト数を受け取る。戻り値は `OCVU_STATUS_BUFFER_TOO_SMALL` で、**これは失敗では
+なく問い合わせの正常な答えである。** 2 回目にその大きさの buffer を渡す。
+`ocvu_get_last_error_message` と `ocvu_get_opencv_version` が既に同じ形をしているので、
+新しい idiom ではない。
+
+**native が確保した blob を handle で返す形は採らない。**
+`docs/abi-ownership-and-versioning.md` §1 が持つ所有権は「native 所有の handle」と
+「呼び出しの内側で完結する借用」の 2 種類だけである。そこへ「native が確保して呼ぶ側が
+別の関数で解放する blob」を足すと、解放し忘れと二重解放という壊れ方が 1 種類増える。
+**出力の所有権は最初から最後まで呼ぶ側にある。**
+
+検証の順序（`native/src/ocvu_imgcodecs.cpp` の `ocvu_imencode`）:
+
+1. `out_required_size` が NULL → `OCVU_STATUS_NULL_POINTER`。**これを最初に見る。**
+   無いと呼ぶ側は 2 回目の大きさを決められないので、他のどの引数より先に断る
+2. 通ったら**何よりも先に `*out_required_size = 0` を書く。** どの経路で返っても、
+   呼ぶ側が読む値が未初期化のままにならないようにする
+3. 他の入力（`ext` の NULL・空文字列など）→ `NULL_POINTER` / `INVALID_ARGUMENT`
+4. `buffer_size` が負 → `OCVU_STATUS_INVALID_ARGUMENT`
+5. `buffer_size > 0` なのに `buffer` が NULL → `OCVU_STATUS_NULL_POINTER`。
+   **`buffer == NULL` かつ `buffer_size == 0` は正常な問い合わせなので通す。**
+   「buffer が NULL なら常に拒否」と書くと 1 回目が呼べなくなる
+6. handle が無効 → `OCVU_STATUS_INVALID_HANDLE`
+7. 生成した結果が `INT32_MAX` を超える → `OCVU_STATUS_INVALID_ARGUMENT`。
+   `int32_t` に入らない大きさは ABI で表現できないので、切り詰めずに断る
+8. `buffer_size < needed` → `*out_required_size` に必要量を入れてから
+   `OCVU_STATUS_BUFFER_TOO_SMALL` を返す。**buffer には 1 バイトも書かない。**
+   部分的に書くと、呼ぶ側は途中まで正しい buffer を掴むことになり、壊れ方が
+   「その場では気づけない」形になる
+
+**L1 には境界を必ず入れる。** `buffer_size = needed - 1` で呼び、`BUFFER_TOO_SMALL`
+が返ること、かつ **buffer が呼び出し前と 1 バイトも変わっていないこと**を見る
+（`native/tests/test_imgcodecs.cpp` の `EncodeRejectsTooSmallBufferWithoutWriting`。
+0xAB で埋めて全バイトを照合している）。「何も書かない」は、書かれていないことを
+見る検査でしか確かめられない。
+
+**C# 側は 2 回呼びを隠す**（`Runtime/Core/CvCodecs.cs` の `Encode`）。1 回目の
+`BufferTooSmall` **だけ**を通し、**それ以外の status はそこで投げる** —— 無効な
+handle も扱えない拡張子もサイズ問い合わせの段で判明するので、空配列を返して呼ぶ側に
+気づかせない形にしない。1 回目が `OK` を返すのも契約違反なので、そこも例外にする
+（0 バイトの出力は「成功」ではない）。返す配列は必要量ちょうどの長さにし、大きめに
+確保した buffer をそのまま返さない。
+
+**文字列引数は UTF-8 の NUL 終端 byte 列として自分で渡す。** `ext` のような引数を
+`string` のまま marshaller に任せると、境界の文字コード変換が既定の CharSet に
+依存する（Mono と IL2CPP で違い得る）。C# 側で `Encoding.UTF8` して NUL を足し、
+`byte[]` として渡す（`CvCodecs` の `ToNulTerminatedUtf8`）。
+
+**ファイルパスを ABI に出さない。** `ocvu_imencode` / `ocvu_imdecode` が受けるのは
+メモリ上の byte 列だけである。理由は 2 つある: (a) Windows ではパスの文字コードが
+呼ぶ側のコードページに依存する、(b) Android の StreamingAssets は APK の中にあり、
+そもそもパスでは開けない。ファイルを開くのは呼ぶ側（C# の `File.ReadAllBytes`、
+`UnityWebRequest`）の仕事にする。**この 2 本を「画像ファイルの読み書き」と説明しない。**
+
+**新しいモジュールの公開 API は新しいクラスに置く。** `CvOps` は imgproc に範囲を
+限っているので、imgcodecs は `CvCodecs` という別クラスにした。1 つのクラスに全
+モジュールを詰めると、この plugin がどの OpenCV モジュールをリンクしているかが
+C# 側から読み取れなくなる。
+
 ### 4. L1 を緑にする
 
 ```
@@ -154,7 +233,7 @@ internal static extern int ocvu_example(int value, out int outResult);
 
 公開 API を出すなら `Runtime/Core/` に薄いラッパを書く。**この 2 フォルダは
 `UnityEngine` を参照してはならない。** 参照した瞬間に netstandard2.1 shim の
-ビルドが落ち、Unity を起動しない L3 レーン（約 20 秒）が失われる。
+ビルドが落ち、Unity を起動しない L3 レーンが失われる。
 UnityEngine に依存するコードは `Runtime/UnityIntegration/`（別 asmdef）へ置く。
 
 ### 6. L3 テストを書く
@@ -170,7 +249,7 @@ pwsh tools/dev.ps1 test-managed
 ### 7. 両レーンと sanitizer
 
 ```
-pwsh tools/dev.ps1 test        # L1 + L3、約 20 秒
+pwsh tools/dev.ps1 test        # tools の速いテスト + L1 + L3（所要時間は CLAUDE.md の表）
 ```
 
 **メモリを触る関数を足したなら ASan まで回す:**
@@ -180,7 +259,8 @@ pwsh tools/dev.ps1 test-asan   # L2
 ```
 
 MSVC の ASan に LeakSanitizer は含まれないので、リークはここでは出ない。
-リーク検出は M3 の Linux レーンの担当である。
+リーク検出は `ci-sanitizers.yml` の Linux ASan+LSan job だけが担う。ローカルでも
+Windows の CI でも出ないので、**リークするコードは PR を出すまで緑に見える。**
 
 ### 8. コミット
 
@@ -195,6 +275,8 @@ MSVC の ASan に LeakSanitizer は含まれないので、リークはここで
 | L1 は緑だが L3 で `EntryPointNotFoundException` | ヘッダに宣言したが `.cpp` に定義がない、または名前が違う |
 | L3 でスタックが壊れる | `CallingConvention.Cdecl` の付け忘れ、または型幅の不一致 |
 | フックが例外バリアの囲い忘れを指摘する | `OCVU_TRY_BEGIN` / `OCVU_TRY_END` を書いていない |
+| `cv::` の関数だけがリンクエラー（`LNK2019` / undefined reference） | そのモジュールが `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` に無い。**「OpenCV がそのモジュールを含んでビルドされている」と「この plugin がそれをリンクしている」は別である** —— `tools/opencv-config.psd1` の `Modules` に載っていれば OpenCV 側は当然ビルドされ、`ocvu_get_build_information()` も `To be built:` にその名前を出す。それを根拠にすると誤る（M3.5 の `imgcodecs` がこれで、リンカが `cv::imencode` / `cv::imdecode` を未解決にして初めて分かった） |
+| ヘッダの `#define` が OpenCV の定数とずれる | `static_assert` で固定していない。`OCVU_IMREAD_*` のように OpenCV の値をそのまま出す定数は、実装 `.cpp` の先頭に `static_assert(OCVU_X == cv::X, "...")` を書き、写し間違いをコンパイル時に落とす（`native/src/ocvu_imgcodecs.cpp`、`native/src/ocvu_imgproc.cpp`） |
 
 ## 参照
 
@@ -202,6 +284,8 @@ MSVC の ASan に LeakSanitizer は含まれないので、リークはここで
 - `native/src/ocvu_error.h` — バリアのマクロと、囲ってはならない関数の一覧
 - `native/src/ocvu_mat_table.h` / `.cpp` — 世代番号つき handle table の参照実装
 - `native/src/ocvu_mat_buffer.cpp` — buffer 引数の検証順序の参照実装（`validate()`）
+- `native/src/ocvu_imgcodecs.cpp` — 出力の大きさが事前に分からないときの 2 回呼びの参照実装（M3.5）
+- `cmake/FindOpenCvUnityDeps.cmake` — **この plugin が**リンクする OpenCV モジュールの `COMPONENTS`。新しいモジュールの関数を出すならここも変える
 - `docs/abi-ownership-and-versioning.md` — handle と buffer の所有権契約の正本（M2 で確定）
 - `docs/roadmap.md` — 対象マイルストーンのゴールと非ゴール
 - `docs/unity-opencv-integration-research-and-plan.md` §6 — ABI 設計原則

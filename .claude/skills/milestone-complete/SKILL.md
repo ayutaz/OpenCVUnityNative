@@ -1,6 +1,6 @@
 ---
 name: milestone-complete
-description: Use before claiming a milestone (M0-M7) is done, before opening a PR for milestone work, or when asked whether a milestone is complete - checks each roadmap completion criterion against measured evidence, refreshes the documents that go stale (CLAUDE.md above all), and defers the verdict to CI. Triggers on "M1 is done", "milestone complete", "ready to merge", or finishing the last task of a plan.
+description: Use before claiming a milestone (M0-M7, including half-steps such as M3.5) is done, before opening a PR for milestone work, or when asked whether a milestone is complete - checks each roadmap completion criterion against measured evidence, refreshes the documents that go stale (CLAUDE.md above all), and defers the verdict to CI. Triggers on "M1 is done", "M3.5 is done", "milestone complete", "ready to merge", or finishing the last task of a plan.
 ---
 
 # マイルストーンの完了を判定する
@@ -73,6 +73,22 @@ pwsh tools/dev.ps1 test-tools-slow  # CI 専用。ローカルで叩くと数分
 取り直しに失敗してツリーが消える。CI がビルドを終えてから `opencv.ps1 restore`
 すれば戻る。
 
+**Unity に関わる完了条件があるなら、そのレーンも回す。** L1 / L3 が緑でも Unity 側は
+何も確かめていない。
+
+```
+pwsh tools/dev.ps1 test-unity-editmode   # L4
+pwsh tools/dev.ps1 test-unity-player     # L5
+pwsh tools/dev.ps1 test-unity-tarball    # tarball からの導入
+```
+
+**`test-unity-tarball` は既定では 1 platform 分しか確かめない。** 全部入りを検査する
+には `-PluginSource` で他 platform の plugin 木を渡す必要がある。渡さなければ従来
+どおり 1 platform で走って緑になる —— **全部入りのふりはしないが、引数が抜けていた
+ことも出力からは分からない。** 完了条件が全部入りについて言っているなら、**実行した
+コマンドラインをそのまま報告に貼る。**「レーンを回した」と「そのレーンが完了条件を
+見た」は別である。
+
 ### 4. ドキュメントの陳腐化を確認する ★ここが最も抜ける
 
 コードが正しくても、文書が古いと次のセッションを誤誘導する。以下を実際に開いて
@@ -94,6 +110,25 @@ OpenCV 統合の有無を過大に書いていないか。
 **`docs/roadmap.md`** — 現在地の記述と、次マイルストーンの前提条件。
 
 **`docs/README.md`** — 文書一覧に新しい文書が載っているか。
+
+**`docs/api-reference.md`** — 公開している C ABI と C# API の一覧。**関数を足したなら、
+冒頭の対象範囲（「M2 で公開した C ABI の N 関数」のような数え）と、末尾の「まだ無い
+機能」の一覧が同時に古くなる。** 足した機能が「まだ無い」側に残っていないか必ず見る。
+
+**`docs/abi-ownership-and-versioning.md`** — 所有権契約（§1）と API allowlist（§3）の
+正本。**新しい所有権の形や新しいモジュールの関数を足したなら、ここが最初に古くなる。**
+allowlist に載っていない関数を出荷している状態は、正本が正本でなくなっているという
+ことである。
+
+**数えている数を全部洗う。** 「公開 ABI は N 本」「allowlist は N 本」「Release の
+asset は N 件」「EditMode は N 件」のような数はリポジトリ中に散らばっていて**一斉に
+古くなる。** `grep -rn` で数字ごと探し、増減分を全部直す。
+
+**そのマイルストーンが「これまでの記述は誤りだった」と暴いたものは、訂正として明記
+する。** 黙って直すと、同じ誤解が別の文書に残っているかを誰も確かめられない。M3.5 が
+これだった —— 複数の文書が `imgcodecs` を「リンク済み」と書いていたが、
+`cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` には無く、リンカが `cv::imencode` /
+`cv::imdecode` を未解決にして初めて分かった。
 
 ### 5. 未処理の指摘を棚卸しする
 
@@ -139,11 +174,23 @@ merge 可否は CI が決める。ローカルで緑・CI で赤なら、CI が�
 artifact が上がっていることも確認する。「upload ステップが設定されている」
 ことと「実際に上がった」ことは別である。
 
+**workflow に job を足したなら、必須チェックにするかを決めるまでが作業である**
+（`CLAUDE.md` の「機構として強制されていること」）。PR に出るチェックを足しただけでは
+merge は止まらない。**PR で起動しない workflow（tag や schedule が trigger のもの）は
+そもそも必須にできない**ので、その場合は「必須にできない」と判定に書いて先へ進む。
+決めずに通すと、「CI が見ている」を「赤ければ止まる」と読み違えたまま残る。
+
 ### 8. 判定を書く
 
 完了条件を表にし、各行に「満たした / 満たしていない」と根拠を書く。
 満たしていない条件があるなら、**満たしていないと書く。** 部分的な達成を
 完了と呼ばない。
+
+**「満たしたが、実証はしていない」を第 3 の欄として持つ。** 検査を足したものの、
+現状では必ず通る側にしかならず、`prove-a-check-works` の手順で壊して落とせないものが
+これに当たる。満たしたと書くのは正しいが、証拠の欄には「壊して確かめられるのはいつか」
+を書く。**実証済みの条件と同じ見た目にしない** —— 見た目が同じだと、後から読む人は
+どちらが検査でどちらが宣言かを区別できない。
 
 ## やってはいけないこと
 

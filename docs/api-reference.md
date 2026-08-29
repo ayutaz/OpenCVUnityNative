@@ -1,18 +1,27 @@
 # API リファレンス
 
-**対象範囲: M2 で公開した C ABI の 9 関数と、その上に立つ C# の公開 API だけ。** まだ無い
-機能（`Mat` の部分参照、型変換・算術演算、`imgcodecs`、`WebCamTexture` 連携など）はここに
-書かない。詳しい経緯は `docs/abi-ownership-and-versioning.md` §3「初期 API の allowlist」を、
+**対象範囲: C ABI の 11 関数（M2 の 9 本 + M3.5 の 2 本）と、その上に立つ C# の公開 API
+だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、**`imgcodecs` のファイルパス
+経路**、`WebCamTexture` 連携など）はここに書かない。詳しい経緯は
+`docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5）を、
 所有権契約そのものは同 §1 を参照。
 
-対応 Unity は 6000.x のみ。**対応 platform は Windows x64 / macOS arm64 / Linux x64 の 3 つ**
+対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
+6000.3.16f1 の 1 版だけ**）。**対応 platform は Windows x64 / macOS arm64 / Linux x64 の 3 つ**
 （mobile と Web は未対応）。
 
 **native plugin の binary はリポジトリに入っていない。**
 `Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/` は丸ごと成果物で、binary も
 `.meta` も git は追跡しない。ローカルでは `./tools/dev.ps1 build` が、実行中の platform 分を
-そこへ置く。利用者に届く経路は GitHub Release の **platform ごとの UPM tarball** で、
-1 つの tarball にはその platform の binary だけが入る。したがって **Git URL では導入
+そこへ置く。利用者に届く経路は GitHub Release の **全部入り UPM tarball**
+（`com.ayutaz.opencv-unity-native.tgz`）で、**3 platform 分の binary が 1 つに入る** ——
+Unity は同じ package ID を 1 つしか導入できないので、platform ごとに分かれた tarball では
+「エディタは Windows、実機は別の platform」が表現できないためである。**どの binary が
+有効になるかは Plugin Import Settings（`.meta`）が決め**、Unity は自分の platform 向けの
+1 つだけを読み込む（Unity 6.3 の EditMode で `PluginImporter` に問うて実測している。
+**ただし実測したのは Windows 上で動く Unity であり、macOS 上での実測は無い**）。
+platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として引き続き出るが、
+**正は全部入りである**。したがって **Git URL では導入
 できない**（`.meta` しか届かず `DllImport` が実行時に全部失敗する）。導入手順は
 [README](../README.md) の Installing にある。
 
@@ -22,7 +31,7 @@
 `OCVU_STATUS_OK` (0) と `OCVU_STATUS_BUFFER_TOO_SMALL` (6) 以外はすべて失敗として扱う
 （詳細後述）。C# から直接この層を呼ぶことは想定していない —
 `CvUnity.Interop.NativeMethods`（`internal`）が P/Invoke 宣言を持ち、`CvUnity.CvMat` /
-`CvUnity.CvOps` / `CvUnity.CvNative` がそれを包んで公開する。
+`CvUnity.CvOps` / `CvUnity.CvCodecs` / `CvUnity.CvNative` がそれを包んで公開する。
 
 ### Mat のライフサイクル
 
@@ -87,13 +96,60 @@ OpenCV 由来の失敗は `OCVU_STATUS_OPENCV_ERROR` になる。
 | `OCVU_INTER_NEAREST` | 0 | `interpolation` |
 | `OCVU_INTER_LINEAR` | 1 | `interpolation` |
 
+### imgcodecs（M3.5 で追加）
+
+**ファイルパスは受けない。** 扱うのはメモリ上の byte 列だけである（理由は
+`docs/abi-ownership-and-versioning.md` §1.6）。
+
+| 関数 | 内容 |
+| --- | --- |
+| `ocvu_imencode(ocvu_mat_handle src, const char* ext, uint8_t* buffer, int32_t buffer_size, int32_t* out_required_size)` | `src` を `ext`（".png" のように先頭のドットを含む）の形式に符号化して `buffer` へ書く。**2 回呼ぶ**（下記）|
+| `ocvu_imdecode(const uint8_t* data, int64_t length, int32_t flags, ocvu_mat_handle dst)` | 符号化された byte 列を復号して `dst` に入れる。`dst` の形状・型は結果に応じて上書きされる |
+
+**`ocvu_imencode` は 2 回呼ぶ。** 符号化後の大きさは呼ぶ側に分からないので、1 回目は
+`buffer = NULL` / `buffer_size = 0` で呼んで `out_required_size` に必要バイト数を受け取り
+（戻り値は `OCVU_STATUS_BUFFER_TOO_SMALL`。**これは失敗ではない**）、2 回目にその大きさの
+buffer を渡す。last-error や OpenCV version の取得と同じ作法である。**足りないときは
+buffer に 1 バイトも書かない** —— 途中まで書くと、呼ぶ側は部分的に正しい buffer を掴む。
+成功時、`out_required_size` には実際に書いたバイト数が入る。
+
+**出力の所有権は最初から最後まで呼ぶ側にある。** native が確保した blob を handle で
+返す形は採らない（`docs/abi-ownership-and-versioning.md` §1 に無い所有権の種類を
+増やすため）。`ocvu_imdecode` の `data` も、`ocvu_mat_copy_from_buffer` の `src` と同じ
+**呼び出し内で完結する借用**である。
+
+status:
+
+| 条件 | status |
+| --- | --- |
+| `out_required_size` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `ext` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `ext` が空文字列 | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `buffer_size` が負 | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `buffer_size > 0` なのに `buffer` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| handle が無効（`src` / `dst` とも）| `OCVU_STATUS_INVALID_HANDLE` |
+| `buffer_size` が必要量に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_required_size` に必要量。**buffer は書かない**）|
+| 符号化結果が `int32_t` に収まらない | `OCVU_STATUS_INVALID_ARGUMENT` |
+| OpenCV が扱えない拡張子、`imencode` が false を返す | `OCVU_STATUS_OPENCV_ERROR` |
+| `data` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `length` が 0 以下、または `INT32_MAX` を超える | `OCVU_STATUS_INVALID_ARGUMENT` |
+| 画像として解釈できない byte 列 | `OCVU_STATUS_OPENCV_ERROR`（メモリは壊さない）|
+
+`flags` の定数（`cv::IMREAD_*` と同じ値。実装側の `static_assert` が写し間違いを固定する）:
+
+| 定数 | 値 | 内容 |
+| --- | --- | --- |
+| `OCVU_IMREAD_UNCHANGED` | -1 | そのまま読む（アルファも保つ）|
+| `OCVU_IMREAD_GRAYSCALE` | 0 | 1 チャンネルの灰色 |
+| `OCVU_IMREAD_COLOR` | 1 | 3 チャンネルの BGR |
+
 ### この allowlist に含まれないもの
 
 `ocvu_get_abi_version` / last-error 取得 / status 表の照会 / `ocvu_get_opencv_version` /
 `ocvu_get_build_information` / `ocvu_debug_throw` / `ocvu_debug_crash` は存在するが、
-M0/M1 由来の診断・conformance test 用 API であり、この allowlist（M2 で追加した 9 本）の
-対象外。C# 側では `CvNative` の一部メンバがこれらを包んでいるので、公開 C# API としての
-契約は §2.3 に記載する。
+M0/M1 由来の診断・conformance test 用 API であり、この allowlist（M2 の 9 本 + M3.5 の
+2 本 = 11 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを包んでいるので、
+公開 C# API としての契約は §2.4 に記載する。
 
 ## 2. C# 公開 API
 
@@ -136,7 +192,28 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 
 定数: `Bgra2Bgr = 1`、`Rgba2Bgra = 5`、`Bgr2Gray = 6`、`InterNearest = 0`、`InterLinear = 1`。
 
-### 2.3 `CvUnity.CvNative`
+### 2.3 `CvUnity.CvCodecs`
+
+`static class`（`CvUnity.Core` アセンブリ）。符号化された画像 byte 列と `CvMat` の
+相互変換。**ファイルは扱わない** —— 開くのは呼ぶ側の仕事で、ここが受けるのはメモリ上の
+byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の `StreamingAssets`
+から得たもの）。`CvOps` と別クラスにしてあるのは、`CvOps` が imgproc に範囲を
+限っているためである。
+
+| メンバ | 内容 |
+| --- | --- |
+| `static byte[] Encode(CvMat src, string ext)` | `ext`（".png" のように先頭のドットを含む）の形式に符号化する。**2 回呼びを隠す** —— 1 回目のサイズ問い合わせで `BufferTooSmall` 以外の status（無効な handle、扱えない拡張子）が返れば**そこで `CvNativeException` を投げる**。空配列を返して呼ぶ側に気づかせない形にはしない。返る配列の長さは必要量ちょうど |
+| `static void Decode(byte[] data, int flags, CvMat dst)` | 復号して `dst` に入れる。`dst` の大きさと型は結果に応じて置き換わる |
+| `static CvMat Decode(byte[] data, int flags)` | 復号して新しい `CvMat` を返す。**呼び出し元が `Dispose` する責任を持つ**（失敗時は内部で破棄してから送出する）|
+
+定数: `ImreadUnchanged = -1`、`ImreadGrayscale = 0`、`ImreadColor = 1`
+（C ABI の `OCVU_IMREAD_*` に対応）。
+
+`ext` は **UTF-8 の NUL 終端 byte 列**として native へ渡す。marshaller の既定 `CharSet` に
+任せないのは、境界での文字コード変換を実行環境（Mono / IL2CPP）任せにしないためである
+（`CvNative` が文字列の取得で UTF-8 を明示的に扱っているのと同じ理由）。
+
+### 2.4 `CvUnity.CvNative`
 
 `static class`。ネイティブ層のバージョン照会とエラー取得。
 
@@ -145,7 +222,7 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 | `static int AbiVersion` | `ocvu_get_abi_version()`。ロードされている native library の C ABI バージョン |
 | `static CvStatus GetLastErrorStatus()` | 呼び出しスレッドの直近のエラー status |
 | `static string GetLastErrorMessage()` | 直近のエラーメッセージ。無ければ空文字列 |
-| `static void ThrowIfFailed(CvStatus status)` | `status` が失敗なら `GetLastErrorMessage()` を添えて `CvNativeException` を送出する。`CvMat`/`CvOps` の各メンバが内部で使っている |
+| `static void ThrowIfFailed(CvStatus status)` | `status` が失敗なら `GetLastErrorMessage()` を添えて `CvNativeException` を送出する。`CvMat` / `CvOps` / `CvCodecs` の各メンバが内部で使っている |
 | `static bool IsFailure(CvStatus status)` | `Ok` と `BufferTooSmall` 以外を失敗とみなす |
 | `static string OpenCvVersion` | リンクされている OpenCV のバージョン文字列（例 `"5.0.0"`） |
 | `static string GetBuildInformation()` | `cv::getBuildInformation()` の内容。どの依存が有効リンクかを実行時に確認する用途 |
@@ -155,12 +232,13 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 `OutOfMemory = 3`、`OpenCvError = 4`、`UnknownError = 5`、`BufferTooSmall = 6`、
 `InvalidHandle = 7`。native 側の `OCVU_STATUS_LIST` と数値が一致することを L3 の
 `StatusCodeSyncTests` が検査する。`BufferTooSmall` は失敗ではなく、出力バッファの
-必要サイズを問い合わせる正規の使い方の結果である。
+必要サイズを問い合わせる正規の使い方の結果である。**M3.5 以降、これは診断 API だけの
+話ではない** —— `ocvu_imencode` が同じ作法で画像データの必要量を返す。
 
 `CvNativeException`（`class`, `Exception` 派生）: `CvStatus Status { get; }` を持つ。
 `Message` は `ThrowIfFailed` が `GetLastErrorMessage()` から埋める。
 
-### 2.4 `CvUnity.Unity.TextureConverter`
+### 2.5 `CvUnity.Unity.TextureConverter`
 
 `static class`（`CvUnity.UnityIntegration` アセンブリ）。`Texture2D` と `CvMat` の
 相互変換。**M2 時点で `TextureFormat.RGBA32` のみ対応**、それ以外を渡すと
@@ -171,7 +249,7 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 | `static CvMat ToMat(Texture2D texture)` | `texture.GetRawTextureData<byte>()` の先頭アドレスを直接 native に渡し、コピー無しで新しい `CvMat`（`CvMatType.Bgra32`）を作る。**借用契約**: 呼び出しの内側だけで読み、戻った時点で終わる。返された `CvMat` は呼び出し元が `Dispose` する責任を持つ |
 | `static void ToTexture(CvMat mat, Texture2D texture)` | `mat` の内容を `texture` の生データへ直接書き込み、`Apply()` する。`mat.Cols`/`Rows` が `texture` のサイズと一致しない場合は `ArgumentException`。**`mat` のチャンネル数 × 画素数が `texture` の RGBA32 前提（4 バイト/画素）と一致しない場合も `ArgumentException`** — native の検証は `stride`/`length` の整合しか見ないため、この不一致は Unity 層側で追加に検査している（詳細は `TextureConverter.cs` のコメント。実測: 4×3 の Gray8 を RGBA32 相当へ書くと native は成功を返しつつ先頭 12 バイトだけ書き換えていた） |
 
-### 2.5 `CvUnity.Unity.NativeArrayExtensions`
+### 2.6 `CvUnity.Unity.NativeArrayExtensions`
 
 `static class`（`CvUnity.UnityIntegration` アセンブリ）。`CvMat` に対する
 `NativeArray<T>` 向け拡張メソッド。`IntPtr` 版と等価だが、呼び出し側に
@@ -209,12 +287,15 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 
 1 つ目を支えるために、handle が指す `Mat` のアドレスは他の handle の作成・
 解放で動かないようにしてある（M3 でここが壊れていたのを直した。経緯は §1.5）。
+
 ## 3. 対象外（この文書に書かないもの）
 
-`Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、`imgcodecs` の読み書き、
-`WebCamTexture` 連携 — いずれも `docs/abi-ownership-and-versioning.md` §3 が
-「M2 で作らないもの」として明記しており、この API リファレンスにも存在しない。
+`Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
+経路**、`WebCamTexture` 連携 — いずれも `docs/abi-ownership-and-versioning.md` §3 が
+「まだ作らないもの」として明記しており、この API リファレンスにも存在しない。
 契約が固まり実装されたマイルストーンで、この文書に追記する形にする。
+**メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と
+§2.3 にある。**
 
 ## 参照
 

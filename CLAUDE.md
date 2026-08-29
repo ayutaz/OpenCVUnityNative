@@ -8,25 +8,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **M2（Windows vertical slice）は完了した（8 件中 8 件、2026-08-29）。** `Mat` のライフサイクル（create / release / clone / get_info / copy_from_buffer / copy_to_buffer）と `imgproc` 3 関数（cvtColor / resize / GaussianBlur）が C ABI にあり、所有権契約（二重解放・解放後アクセス・buffer の長さ/stride/NULL 検証）が L3 でテストされ、Unity Editor (Mono) と IL2CPP Player の両方で同じ smoke test が通る。
 
-最後まで残っていた条件 7（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、**ランナーへの Unity 導入とアクティベーションを game-ci に任せ、Linux で走らせることで満たした**（`==> [EditMode] 10 passed` / `==> [Standalone] 10 passed`）。L5 は `UnityLinker --rule-set=Aggressive` を通した実物の IL2CPP Player で、stripping が有効な状態で P/Invoke が生き残ることを CI が実証している。
+最後まで残っていた条件 7（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、**ランナーへの Unity 導入とアクティベーションを game-ci に任せ、Linux で走らせることで満たした**（`==> [EditMode] 10 passed` / `==> [Standalone] 10 passed`。**これは当時の値である** —— M3.5 で EditMode は 16 件になり Unity も 6000.3.16f1 に上がったので、その構成での CI 実績はまだ無い）。L5 は `UnityLinker --rule-set=Aggressive` を通した実物の IL2CPP Player で、stripping が有効な状態で P/Invoke が生き残ることを CI が実証している。
 
 **CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。**理由として「game-ci は Windows ランナーでは使えない」と書いていたが、2026-08-29 にその根拠が崩れた** —— 挙げていた 2 つの issue のうち 1 つは使っていない別 action のもので、もう 1 つは使っているイメージ群の**別系統（Windows 版）**についてだった。**動く根拠も動かない根拠もこちらでは持っておらず、一度も試していない。** 経緯と現状の障害は `docs/roadmap.md`「担当が無かった制約」の Windows IL2CPP の節に 1 箇所だけ書いてある。試すのは M4 の担当。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
 
 **この作業が公開済み v0.1.0 の欠陥を暴いた。** ubuntu-24.04 でビルドした Linux の `.so` が GLIBC_2.38 を要求しており、それより古い環境では `DllNotFoundException` になっていた。ビルドも linkage 検証も配布物生成も通っていたので、**Unity を実際に動かすまで誰も知らなかった**。Linux のビルドを `ubuntu:22.04` コンテナへ移して 2.34 に下げ、`tools/verify-plugin-portability.ps1` がビルド時点で上限を見るようにした。判定の詳細は `docs/roadmap.md` の M2 / M3 節にある。
 
-**M3（Desktop 3 platform と配布の再現性）は、6 件の完了条件をすべて満たし、配布まで踏んだ。** 3 platform（Windows / macOS / Linux）で native plugin がビルドされ、L1 / L3 と `test-tools-slow` が CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されている。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認済み。
+**M3（Desktop 3 platform と配布の再現性）は、6 件の完了条件をすべて満たし、配布まで踏んだ。** 3 platform（Windows / macOS / Linux）で native plugin がビルドされ、L1 / L3 と `test-tools-slow` が CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されている。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認済み（**M3 時点の件数**。現在の件数はこのレーンの行にある）。
 
-**配った実績は 2 つある: v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）。** どちらも tag から `release.yml` が 3 platform 分を作り、`--draft` で下書きにしてから人が公開している。v0.1.1 は上に書いた Linux の欠陥を直した版で、**中身を差し替えず新しい版として出した** — 一度配ったものを黙って差し替えると、同じ版名で違う物が世の中に 2 つ存在することになる。asset は 16 件（3 platform × 5 + `SHA256SUMS.txt`）。**公開された物を落として実測した（2026-08-29、このマシン）**: Linux の tarball は `SHA256SUMS.txt` と一致し、中の `libopencv_unity_native.so` は `GLIBC<=2.34, GLIBCXX<=3.4.29`（上限 2.35 / 3.4.30）だった。
+**配った実績は 2 つある: v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）。** どちらも tag から `release.yml` が 3 platform 分を作り、`--draft` で下書きにしてから人が公開している。v0.1.1 は上に書いた Linux の欠陥を直した版で、**中身を差し替えず新しい版として出した** — 一度配ったものを黙って差し替えると、同じ版名で違う物が世の中に 2 つ存在することになる。asset は 16 件（3 platform × 5 + `SHA256SUMS.txt`）。**これは v0.1.1 までの形で、M3.5 以降は 18 件になる**（内訳は下の `release.yml` の行）。**公開された物を落として実測した（2026-08-29、このマシン）**: Linux の tarball は `SHA256SUMS.txt` と一致し、中の `libopencv_unity_native.so` は `GLIBC<=2.34, GLIBCXX<=3.4.29`（上限 2.35 / 3.4.30）だった。
 
 **PR #8 を CI に通したことで、ローカルでは緑だった欠陥が 3 件出た。** これは記録に値する: M3 を「書いたコードを CI に通すだけ」と見なしていたら、そのまま配っていた。
 
 1. **handle table の use-after-free。** `slots` が `std::vector<Slot>` で `Slot` が `cv::Mat` を値で持っており、`mat_table_get` が返すのは配列内部を指すポインタだった。別スレッドの `ocvu_mat_create` で配列が伸びると、先に解決したポインタが全部ぶら下がる。**壊れるのは create した側ではなく、無関係な handle を使っている側**で、2 つのスレッドがそれぞれ自分の `Mat` だけを触るという正しい使い方で壊れる。`Slot` を `std::unique_ptr<cv::Mat>` にして直し、`native/tests/test_mat_table_stability.cpp` が決定的に固定している。**ローカル 3 回と直前 3 回の CI が緑で、1 度だけ落ちた。フレークとして再実行していたら残っていた。** スレッド契約自体が未文書だったので `docs/abi-ownership-and-versioning.md` §1.5 を追加した。
 2. **配布 tarball が UPM で導入できない。** package ID のディレクトリごと固めていたため、UPM が展開後の root に `package.json` を見つけられない。tag を打っていたら 3 platform 分の壊れた tarball を配っていた。`tools/pack-upm-tarball.ps1` に集約し、npm と同じく `package/` の下に入れる形にした。
-3. **Release asset 名の衝突。** 3 platform が同じ `checksums.txt` 等を出すので、そのまま渡すと上書きされる。platform 名を頭に付け、15 件（3 × 5）を数えて確かめる。
+3. **Release asset 名の衝突。** 3 platform が同じ `checksums.txt` 等を出すので、そのまま渡すと上書きされる。platform 名を頭に付け、staging した数を数えて確かめる（当時 15 件 = 3 × 5。現在は 17 件で、内訳は下の `release.yml` の行）。
 
-**留保が 2 つある。** (a) **macOS の** Plugin Import Settings（`.meta`）は、その platform の binary が置かれた状態で Unity に読ませたことがない（CI の macOS job は plugin をビルドするが Unity を起動しない）。形式は Unity 自身が生成した Windows 分に合わせてあるが実測ではない。**Linux 分は実測に変わった**——M2 の条件 7 で `ci-unity.yml` が Linux の Unity を動かすようになり、`libopencv_unity_native.so` とその `.meta` が実際に読み込まれて EditMode / IL2CPP Player の両方で通った。(b) **Git URL では導入できない** — native plugin の binary は `.gitignore` で追跡から外してあるので、Git URL で参照した利用者に届くのは `.meta` だけで実体が入らない。完了条件は「Git URL **または** tarball」なので満たすが、利用者向けに明記が要る（`README.md` の "Why not a Git URL" とリリースノートに書いてある）。判定の詳細は `docs/roadmap.md` の M3 節にある。
+**留保が 2 つある。** (a) **macOS の `.meta` は M3.5 で実測に変わったが、「macOS 上で動く Unity」は依然として実測が無い。** M2 の条件 7 で Linux 分が実測になり（`ci-unity.yml` が Linux の Unity を動かし、`libopencv_unity_native.so` とその `.meta` が実際に読み込まれて EditMode / IL2CPP Player の両方で通った）、M3.5 の全部入りで macOS 分も実測になった —— 実物の `libopencv_unity_native.dylib` とその `.meta` を含む package を Unity に読ませ、`PluginImporter` に解釈を問う EditMode の検査が通った（2026-08-30、ローカルの Windows）。**残るのは macOS 上で Unity を起動すること**で、CI の macOS job は plugin をビルドするが Unity を起動しない。**M3.5 はこの穴を狭めるどころか深刻にした** —— macOS の binary と `.meta` は、いまや Windows / Linux の利用者が導入する package の中にも入って配られる。(b) **Git URL では導入できない** — native plugin の binary は `.gitignore` で追跡から外してあるので、Git URL で参照した利用者に届くのは `.meta` だけで実体が入らない。完了条件は「Git URL **または** tarball」なので満たすが、利用者向けに明記が要る（`README.md` の "Why not a Git URL" とリリースノートに書いてある）。判定の詳細は `docs/roadmap.md` の M3 節にある。
 
-現在の公開 ABI は 18 本。M0/M1 由来の 8 本（`ocvu_get_abi_version`、last-error の取得、status 表の照会、`ocvu_get_opencv_version` / `ocvu_get_build_information`）に、M2 で `Mat` のライフサイクルと buffer 転送の 6 本（`ocvu_mat_create` / `_release` / `_clone` / `_get_info` / `_copy_from_buffer` / `_copy_to_buffer`。`native/src/ocvu_mat_table.cpp`、`native/src/ocvu_mat.cpp`、`native/src/ocvu_mat_buffer.cpp`）、`imgproc` の 3 本（`ocvu_cvt_color` / `ocvu_resize` / `ocvu_gaussian_blur`。`native/src/ocvu_imgproc.cpp`）、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`）が加わった。所有権・versioning・API allowlist の正本は `docs/abi-ownership-and-versioning.md`。
+**M3.5（配布の形と、実用に必要な最小の穴）は実装が済み、ローカルで実測した。ただし CI ではまだ 1 度も走っていない。** 成立させたのは 3 つ: (1) **3 platform 分の binary を 1 つに束ねた tarball `com.ayutaz.opencv-unity-native.tgz` を配る正にした**（版番号を名前に入れない —— OpenUPM の `githubReleaseAssetName` が安定した接頭辞で asset を選ぶため。実測 8.4 MB）。platform ごとの tarball も引き続き出すが、そちらは便宜であって正ではない。(2) **`imgcodecs` の encode / decode を C ABI に出した**（下記）。(3) **Unity を 6.3 LTS へ載せ替えた**（`tests/UnityProject` は 6000.3.16f1、`package.json` の `"unity"` も 6000.3）。**実測はこのマシンで 2026-08-30**: 全部入りの tarball が導入できて `==> UPM tarball install: 16 passed`、Unity 6.3 の EditMode が 16 passed、IL2CPP Player が 10 passed（**IL2CPP モジュールが入っておらず Player が "Currently selected scripting backend (IL2CPP) is not installed" で落ちたので、Hub の CLI で入れてから走らせた**）。**残っているのは OpenUPM 登録**で、`docs/openupm-registration.md` に定義を用意してあるが**提出していない** —— 新しい asset 名を持つ release が公開されている必要がある。OpenUPM 側に受理されるかどうかは範囲外。
+
+**`imgcodecs` について記録に値する間違いがある: このプラグインは M3.5 まで `imgcodecs` をリンクしていなかった。** リポジトリの複数箇所が「リンク済み」と書いていたが、`cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` は `core imgproc` だけだった。**間違えるのが容易な形をしている** —— `tools/opencv-config.psd1` の `Modules` に `imgcodecs` が入っているので **OpenCV 自身はそれを含めてビルドされており**、`ocvu_get_build_information()` も `To be built: ... imgcodecs` と報告する。**「OpenCV に入っている」と「このプラグインがリンクしている」は別である。** 気づいたのは CMake を読み直してではなく、`cv::imencode` / `cv::imdecode` が未解決の外部シンボル（LNK2019）になったからである。ついでに分かったこと: **`COMPONENTS` に足すだけでは binary は 1 バイトも増えない**（静的リンクは参照された object しか引かない）。Windows の debug plugin が 8,831,488 → 10,177,536 バイト（+1.35 MB）になったのは、関数を書いたからである。
+
+現在の公開 ABI は 20 本。M0/M1 由来の 8 本（`ocvu_get_abi_version`、last-error の取得、status 表の照会、`ocvu_get_opencv_version` / `ocvu_get_build_information`）に、M2 で `Mat` のライフサイクルと buffer 転送の 6 本（`ocvu_mat_create` / `_release` / `_clone` / `_get_info` / `_copy_from_buffer` / `_copy_to_buffer`。`native/src/ocvu_mat_table.cpp`、`native/src/ocvu_mat.cpp`、`native/src/ocvu_mat_buffer.cpp`）、`imgproc` の 3 本（`ocvu_cvt_color` / `ocvu_resize` / `ocvu_gaussian_blur`。`native/src/ocvu_imgproc.cpp`）、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`）が加わり、M3.5 で `imgcodecs` の 2 本（`ocvu_imencode` / `ocvu_imdecode`。`native/src/ocvu_imgcodecs.cpp`）が加わった。所有権・versioning・API allowlist の正本は `docs/abi-ownership-and-versioning.md`。
+
+**この 2 本はファイルパスを受け取らない。メモリ上の byte 列だけを扱う。**「画像ファイルの読み書き」ではない。理由は 2 つ: Windows では境界を越えるパスの文字コードが問題になること、Android では StreamingAssets が APK の中にあってパスでは開けないこと。拡張子（`".png"` 等）も marshal した文字列ではなく、**UTF-8 の NUL 終端 byte 列として明示的に渡す**。また `ocvu_imencode` は **出力の大きさを呼ぶ側が事前に知り得ない最初の ABI 関数**である。native 側が確保した blob の handle は導入せず、既存の 2 回呼びの作法（`OCVU_STATUS_BUFFER_TOO_SMALL` + `out_required_size`）に載せた —— byte 列の所有権は最初から最後まで呼ぶ側にある。buffer が足りないときは何も書かない。C# 側の入口は `CvCodecs`（`Runtime/Core/CvCodecs.cs`）で、`CvOps` には入れていない（あちらは `imgproc` の範囲である）。
 
 ### 開発コマンド
 
@@ -39,15 +45,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 2 本（OpenCV 構成・ハッシュ無効化） | 約 18 秒 |
 | `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証・restore の実 download・linkage 検証・配布物生成 | 約 4 分 15 秒（2026-08-28 実測。M3 で `VerifyArtifactLinkage.Tests.ps1` と `PackageRelease.Tests.ps1` が加わり、M1 時点の約 70 秒から伸びた） |
 | `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 10 秒 |
-| `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke） | 約 11 秒 |
+| `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke、44 件） | 約 11 秒 |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 18 秒（増分。2026-08-28 実測。M1 時点の約 11 秒より伸びているが、原因は未特定——増えたのは L1 側で計測済みの再コンパイル対象と同じファイル群で、M3 固有の変更ではない） |
 | `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
-| `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono） | 約 27 秒（増分。2026-08-28 実測） |
-| `./tools/dev.ps1 test-unity-player` | L5（Unity IL2CPP Player のビルドと実行） | 約 54 秒（増分・キャッシュ温状態。2026-08-28 実測。cold 実測はまだ無く、roadmap の想定は 5〜20 分） |
-| `./tools/dev.ps1 test-unity-tarball` | **UPM tarball の導入検証。** tarball だけを指した使い捨ての Unity プロジェクトを作り、そこで EditMode を走らせる | 約 3 分（2026-08-28 実測。Library/ を持って行かないので Unity が import からやり直す）|
+| `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、16 件） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値で、6000.3.16f1・16 件では未計測**） |
+| `./tools/dev.ps1 test-unity-player` | L5（Unity IL2CPP Player のビルドと実行） | 約 54 秒（増分・キャッシュ温状態。2026-08-28 実測。cold 実測はまだ無く、roadmap の想定は 5〜20 分。**Unity 6000.0.82f1 での値**） |
+| `./tools/dev.ps1 test-unity-tarball` | **UPM tarball の導入検証。** tarball だけを指した使い捨ての Unity プロジェクトを作り、そこで EditMode を走らせる。**`-PluginSource` に他 platform の plugin 木（';' 区切り）を渡すと全部入りとして固めてから検証する** —— 渡さなければ従来どおり 1 platform 分で走り、**黙って全部入りのふりはしない** | 約 3 分（2026-08-28 実測。Library/ を持って行かないので Unity が import からやり直す。**Unity 6000.0.82f1・1 platform でのもの**）|
 | `./tools/dev.ps1 clean` | `build/` を削除 | — |
 
 上記のうち `test` / `test-asan` は 2026-08-28 に、`test-native` / `test-managed` は 2026-08-27 に、いずれもネイティブ成果物が最新の状態（直前のビルドから変更なし）で実測した値である。**M1 時点でソースの変更を伴う増分ビルドを計測したときは `test` が約 65 秒（`test-native` 約 28 秒、`test-managed` 約 43 秒）だった。** 差の主因は毎回のビルドで実際に何を再コンパイルするかで、OpenCV の `find_package` を伴う CMake の再 configure 自体は毎回走る。成果物が最新かどうかで数字は大きく動くので、ここでの「実測」は目安であって上限の保証ではない。
+
+**M3.5 で上の数字の前提が変わったが、再計測していない。** L1 に 8 ケース（`native/tests/test_imgcodecs.cpp`）、L3 に 8 ケース（`ImgcodecsTests.cs`）、`test-tools-slow` に負の経路 4 件が加わり、plugin は `imgcodecs` をリンクして大きくなった（数字は上の imgcodecs の段）。**上の表の数字はいずれも M3.5 より前のものである。**
 
 「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、ソース変更を伴う `test` の実測（約 65 秒）はすでに緊張関係にある。M1 ではこれを**受け入れて記録するに留めており、解消していない**。着手するなら configure の結果を跨いで再利用するか、OpenCV に依存しないレーンを分けることになる。
 
@@ -72,10 +80,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 場所 | 内容 |
 | --- | --- |
 | `native/include/opencv_unity_native.h` | 公開 C ABI ヘッダ。`OCVU_STATUS_LIST` が status code の唯一の定義元 |
-| `native/src/` | C ABI 実装（version / last-error / status 表 / debug throw・crash / OpenCV version・build information / `Mat` のライフサイクルと buffer 転送 / imgproc 3 関数） |
+| `native/src/` | C ABI 実装（version / last-error / status 表 / debug throw・crash / OpenCV version・build information / `Mat` のライフサイクルと buffer 転送 / imgproc 3 関数 / **imgcodecs の encode・decode 2 関数**） |
 | `native/tests/` | L1 の GoogleTest と、意図的にクラッシュ・ハングする `ocvu_probe` |
 | `cmake/run_expect_failure.cmake` | 「失敗するはずのコマンド」を走らせる CTest ドライバ |
-| `cmake/FindOpenCvUnityDeps.cmake` | `third_party/opencv/<hash>/` を探して OpenCV を取り込む |
+| `cmake/FindOpenCvUnityDeps.cmake` | `third_party/opencv/<hash>/` を探して OpenCV を取り込む。**`COMPONENTS` の行がこのプラグインの実際のリンク対象を決める**（現在は `core imgproc imgcodecs`）—— `tools/opencv-config.psd1` の `Modules` は OpenCV 側が何をビルドするかであって、こちらが何をリンクするかではない |
 | `tools/opencv-config.psd1` | OpenCV ビルド構成の唯一の定義元。`Toolchains`（platform 別 generator/architecture）と `PlatformCMakeArgs`（platform 固有 flag）+ 共通の module allowlist・CMake flags（M3 Task 1 で platform 別化） |
 | `tools/OpenCvConfig.psm1` | 構成の読み込みと構成ハッシュの算出（`opencv.ps1` と CI の両方が使う）。`Get-OpenCvPlatform` が `$IsWindows`/`$IsMacOS`/`$IsLinux` から実行中の platform を判定する |
 | `tools/opencv.ps1` | OpenCV の `restore` / `build` / `verify` / `status` / `clean` の入口 |
@@ -85,18 +93,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tools/ci/setup-linux-container.sh` | Linux のビルドコンテナに道具を入れる。cmake は Kitware から（jammy の apt は 3.22.1 で古すぎる）。git の safe.directory も設定する（コンテナは root、ファイルは runner の UID）|
 | `tools/tests/OpenCvConfig.Tests.ps1` | 構成ハッシュの検査（`dev.ps1 test` に入る速いレーン）に加えて、**workflow 側の不変条件を job 単位で**見る: `container:` を持つ job の宣言イメージが `opencv-config.psd1` と一致すること、その job の `run:` に `sudo` が残っていないこと、`opencv.ps1 restore` を呼ぶ job が `third_party/opencv/` を対象にした cache step を**ちょうど 1 つ**持ち、その `path:` と `key:` の両方が構成ハッシュを参照し、参照先の step id が同じ job に実在すること、テストレーンを走らせる job が結果を `if: always()` で artifact 化すること、全 job に `timeout-minutes` があること、配る binary を作る job が step 単位の `if:` 無しで移植性を検査し、その振り分けが matrix の platform 集合と過不足なく一致すること。**job 単位にしたのは、ファイル単位では通ってしまう穴を実際に踏んだから**である——cache の検査が `ci-native` の Windows job の分で満足し、後から足した macOS / Linux と `ci-sanitizers` の linux-asan が漏れていた。**コンテナ名の検査も同じ穴を持っていた**: 4 本の workflow を名指ししていたので `nightly` を見落としており、`container:` を持つ全 job を対象にする形に直した。切り出しは YAML パーサを使わずインデント規約で行うが、**切れなかったときは空振りではなく落ちる**（`jobs:` 直下の 2 スペース key を緩く数えた数と、job として認識した数が合わなければ失敗させる）。**ファイル単位で見るもの**は 3 つある: `# shellcheck ` で始まる散文（道具が指示文として読んでしまう）、`tools/tests/*.Tests.ps1` が `dev.ps1` の `$ToolsTestScriptsFast` / `$ToolsTestScriptsSlow` に配線されていること、`.github/codeql/codeql-config.yml` の `query-filters`（下の行）。workflow の列挙は `.yml` と `.yaml` の両方を拾い、`git ls-files` の一覧と突き合わせる——**検査対象から静かに外れる**が構造上ありえないようにするため |
 | `tools/assert-unity-results.ps1` | Unity のテスト結果 XML の判定。**ローカルと CI の両方がここを通る** —— CI では game-ci が Unity を起動するので起動の仕方は分かれるが、判定は分けない。「0 件で緑にしない」もここが持つ |
-| `tools/pack-upm-tarball.ps1` | UPM tarball を作る唯一の入口。`release.yml` と `dev.ps1 test-unity-tarball` の**両方**がここを通る（作り方が分かれると、導入を確かめた tarball と実際に配る tarball が別物になる）。中身は npm と同じく `package/` の下に入れる — package ID のディレクトリごと固めると UPM が 展開後の root に `package.json` を見つけられず導入に失敗する（M3 で実測） |
-| `tools/package-release.ps1` | 配布物一式（`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` / `THIRD_PARTY_NOTICES.md` の 4 点）を実物の artifact から生成する（M3 Task 6。手で書かない）。**`THIRD_PARTY_NOTICES.md` はここに含まれない** |
+| `tools/pack-upm-tarball.ps1` | UPM tarball を作る唯一の入口。`release.yml` と `dev.ps1 test-unity-tarball` の**両方**がここを通る（作り方が分かれると、導入を確かめた tarball と実際に配る tarball が別物になる）。中身は npm と同じく `package/` の下に入れる — package ID のディレクトリごと固めると UPM が 展開後の root に `package.json` を見つけられず導入に失敗する（M3 で実測）。**M3.5 で `-AllPlatforms` が加わり、これが配る正になった** —— 3 platform 分の binary を 1 つに束ね、名前から版番号を落とす（`com.ayutaz.opencv-unity-native.tgz`）。**存在検査だけにしない**: 全部入りは中身の一覧そのものが契約なので、3 つ揃っていることに加えて**予期しない binary が 1 つでもあれば止め**、固めた後の archive の中を数え直す。`-MaxBytes`（既定 512 MB）を**引数にしてあるのは、既定のままではこの検査が働くところを誰も確かめられないから**である（現在の配布物は上限の 1/60 以下） |
+| `tools/assemble-plugins.ps1` | 3 platform の plugin 木を 1 つに重ねる（全部入りの材料。M3.5）。**何でもコピーしない** —— 既知の binary と `.meta` だけを運び、知らないファイルがあれば止める。binary と `.meta` は必ず対で運ぶ（**binary の無い `.meta` を置くと Unity が消す**。下の `tools/plugin-meta/` の行）。**位置引数を禁止してある** —— `pwsh -File` から空白区切りで 2 つ渡すと 2 つ目が `PackageDir` に入り、**元の木を上書き先と取り違えたまま静かに成功する**（実測で踏んだ）。複数の元は ';' 区切りで受ける |
+| `tools/package-release.ps1` | 配布物一式（`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` / `THIRD_PARTY_NOTICES.md` の 4 点）を実物の artifact から生成する（M3 Task 6。手で書かない）。通知はリポジトリ root の全文に、**実物から拾った component 一覧の platform 固有ヘッダを足して**同梱する。**`-ChecksumsOnly` は `checksums.txt` だけを出す**（M3.5、全部入り用）—— SBOM と build-manifest はどちらも「復元済み OpenCV artifact（= 実行中 platform のもの）」から作るので、3 platform を束ねる job には元が無い。**統合版を捏造せず、中身の説明は platform ごとの物に任せる** |
 | `third_party/opencv/<hash>/` | 展開先（gitignore 済み）。`build-manifest.json` に実測の構成が入る |
 | `THIRD_PARTY_NOTICES.md` | OpenCV が bundle する third-party のライセンス全文。**構成ハッシュを埋め込まない** — パスは `<hash>` 表記で、取得方法を文書内に書いてある（値を書くと構成を変えるたびに古くなる。M3 で 19 箇所が一斉に死んだ）。`package-release.ps1` が配布物に同梱する |
-| `Packages/com.ayutaz.opencv-unity-native/` | UPM パッケージ本体（`Runtime/Core`、`Runtime/Interop`、`Runtime/UnityIntegration`）。**`Runtime/Plugins/` は丸ごと成果物で、git は追跡しない**——binary も `.meta` も。`dev.ps1 build` がビルドした platform の binary と `.meta` をここへ置く |
+| `Packages/com.ayutaz.opencv-unity-native/` | UPM パッケージ本体（`Runtime/Core`、`Runtime/Interop`、`Runtime/UnityIntegration`）。**`Runtime/Plugins/` は丸ごと成果物で、git は追跡しない**——binary も `.meta` も。`dev.ps1 build` がビルドした platform の binary と `.meta` をここへ置く。**配る正の全部入りでは 3 platform 分が同居する**（`tools/assemble-plugins.ps1` が重ねる） |
 | `tools/plugin-meta/<platform>/` | Plugin Import Settings（`.meta`）の正本。`Runtime/Plugins` を根とした鏡像。**package の中に置くと Unity に消される** — binary の無い platform の `.meta` は「asset の無い孤児」と見なされ、mutable な package では実際に削除される（`test-unity-editmode` を Windows で 1 回走らせるだけで macOS/Linux 分が消えることを実測。M3 のレビュー M4）|
 | `Packages/com.ayutaz.opencv-unity-native/Runtime/UnityIntegration/` | UnityEngine に依存するコード（`TextureConverter` 等）を置く別 asmdef。`Runtime/Core` / `Runtime/Interop` には置かない |
 | `Packages/com.ayutaz.opencv-unity-native/Samples~/BasicUsage/` | UPM sample（M3 Task 7）。末尾 `~` のため Unity にインポートされるまでコンパイルされない |
-| `docs/api-reference.md` | M2 で公開した C ABI 9 関数と C# 公開 API（`CvMat`/`CvOps`/`CvNative`/`TextureConverter`/`NativeArrayExtensions`）のリファレンス（M3 Task 7） |
+| `docs/api-reference.md` | C ABI と C# 公開 API（`CvMat`/`CvOps`/`CvCodecs`/`CvNative`/`TextureConverter`/`NativeArrayExtensions`）のリファレンス（M3 Task 7。M3.5 で `ocvu_imencode` / `ocvu_imdecode` と `CvCodecs` が加わった） |
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
 | `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ |
-| `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する。**この参照はディレクトリであって tarball ではない**ので、tarball の中身が壊れていてもこのレーンは通る——**tarball からの導入は `dev.ps1 test-unity-tarball` が別に見る**（使い捨てのプロジェクトに tarball だけを入れて EditMode を走らせ、10/10 pass を実測済み。M3 でこのレーンを足して初めて「導入できない tarball」が見つかった）。**Git URL からの導入はこの構成では成立しない**（binary が git の追跡外にあるため） |
+| `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する。**この参照はディレクトリであって tarball ではない**ので、tarball の中身が壊れていてもこのレーンは通る——**tarball からの導入は `dev.ps1 test-unity-tarball` が別に見る**（使い捨てのプロジェクトに tarball だけを入れて EditMode を走らせ、16/16 pass を実測済み。M3 でこのレーンを足して初めて「導入できない tarball」が見つかった。**M3.5 で `-PluginSource` が加わり、他 platform の plugin 木を重ねた全部入りも検証できる** —— このマシンでビルドできるのは 1 platform 分だけなので、他 platform は公開済み release から取ってくる）。**Git URL からの導入はこの構成では成立しない**（binary が git の追跡外にあるため） |
+| `tests/UnityProject/Assets/Tests/EditMode/PluginGatingTests.cs` | 全部入りで **Unity が自分の platform の plugin だけを有効にしていること**を、`PluginImporter` に問う（M3.5）。`PackageRelease.Tests.ps1` の `.meta` 検査との違いは、YAML を自分で読むか **Unity に読ませた結果を読むか**。**着手前の実測: macOS の `.meta` を「Windows でも有効」に壊しても、既存の EditMode は 10 passed のまま通った**（3 platform で binary のファイル名が違うので `DllImport` の解決が名前の時点で分岐し、壊れた gating に触れない）。同じ壊し方で今は 16 中 3 件が落ちる。**`GetCompatibleWithEditor()` は 3 つとも true を返す** —— `.meta` は Editor を 3 つとも有効にし、振り分けは `GetEditorData("OS")` が持つ。**Editor の可否だけを見る検査は常に true で、何も見ていない** |
 | `.github/workflows/` | 下の表を参照。8 本ある |
 | `.github/codeql/codeql-config.yml` | CodeQL の解析範囲と `query-filters`。**触る前に、機械が捕まえられない罠が 2 つあることを知っておくこと。** (1) **filter の順序が既定を決める** — 先頭が `exclude` のときだけ「他は全部含める」が既定になる。先頭に `include:` を足すと既定が反転し、**解析がその 1 規則だけに縮む**（書いた覚えのない規則までまとめて消える）。(2) **`exclude` を `excludes` と綴り間違えても CI は緑のまま**で、外したはずの指摘だけが黙って戻ってくる —— codeql-action が持つ設定の JSON schema は `query-filters` の要素に「何でも通る」分岐を持つため、綴り間違いも 1 要素に exclude と include を両方書く形も schema 検証を通る（実測。schema を取ってきて手元で当てた）。**このうち機械が守るのは (1) と「除外する id の集合」だけ**である（`tools/tests/OpenCvConfig.Tests.ps1` が、全要素が `exclude` であること・先頭が `exclude` であること・id がちょうど `cs/unmanaged-code` と `cs/call-to-unmanaged-code` の 2 つであることを見る）。**守られないのは「その id が今も CodeQL に実在するか」**——上流で規則が改名されれば、綴りとして正しいまま何も外さなくなり、誰も赤くならない |
 | `.github/dependabot.yml` | `actions/*` の可変タグと `tests/Managed` の NuGet を週 1 で追う。**「いつの間にか変わっていた」を「差分として見える変更」に変える**のが目的で、上流が壊れた版を出したときにこちらは何も変えていないのに壊れる、という経路を塞ぐ。M3 後に追加 |
@@ -109,11 +119,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `ci-native.yml` | push(main) / PR / 手動 | L1 + L3 を 3 platform で。macOS / Linux job には `test-tools-slow` も配線 | **3 platform とも green**（M3 の PR #8 以降） |
 | `ci-sanitizers.yml` | push(main) / PR / 手動 | L2。Windows は ASan、Linux は ASan+LSan（リーク検出はこのレーンだけが担う） | green |
 | `build-opencv.yml` | 手動 + 構成ファイルの変更 | allowlist 構成の OpenCV を 3 platform でビルドし artifact 公開 | 稼働中 |
-| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**ubuntu で走る**（Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた。上記参照）。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通） | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green） |
+| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**ubuntu で走る**（Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた。上記参照）。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通）。Unity の版は `ProjectVersion.txt` から取るので、載せ替えても workflow は変えなくてよい | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green）。**ただしその green は Unity 6000.0.82f1・EditMode 10 件のもの**で、M3.5 の 6000.3.16f1・16 件ではまだ走っていない |
 | `ci-lint.yml` | push(main) / PR / 手動 | 4 job: actionlint（workflow の構文・式・`run:` の中の shell）/ shellcheck（hook と CI のスクリプト）/ PSScriptAnalyzer（`tools/` の PowerShell、Error のみ）/ 文書の相対リンク検査（コードブロックの中は見ない。0 件なら「壊れていない」ではなく走査が効いていないとして落とす）。**静的に読めば分かる誤りを CI 1 周（10〜20 分）かけて確かめていた**のを埋める。数分で終わるので重いレーンより先に落ちる | green |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C#。C++ は**配布する `opencv_unity_native` だけ**をビルドする——`paths-ignore` は C++ に効かず（解析対象は「実際にコンパイルされたもの」）、テストごとビルドすると FetchContent の GoogleTest の指摘が混ざるため。C# は P/Invoke していること自体への 2 規則を `query-filters` で外す（**設計どおりの指摘に本物が埋もれる**ため。実測で open 107 件中 84 件がこれで、その陰に本物が 4 件あった）。OpenCV の cache は `if: matrix.language == 'c-cpp'` で c-cpp の leg に限る——csharp の leg は OpenCV を一度も開かないので、揃えないと cache hit 時に使わない木を落として展開し、miss 時は post step が `Path Validation Error` を出して何も保存しない（後者は「なぜ cache が温まらないのか」を調べる人に偽の手がかりを渡す） | green。埋もれていた本物 4 件の現状は下記 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。**3 job 定義**（速いレーンの job は `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）: Linux 成果物の移植性（`ubuntu:22.04` でビルドし直して GLIBC の要求を見る）/ Windows・macOS の速いレーン（`dev.ps1 test`。結果を `if: always()` で artifact 化する。名前は `matrix.runner` で分ける——`matrix.name` は空白を含み、分けないと 2 つの job が同じ artifact 名を取り合う）/ OpenCV artifact の期限切れ確認 | **schedule で起動した実績はまだ無い。** 手動起動が 2 回あり、1 回目（run 33230097557、2026-08-29 02:54Z）は 4 job 中 3 job が API レート制限で失敗、2 回目（run 33233610215、同 04:21Z、修正後）は 4 job とも success |
-| `release.yml` | tag `v*` / 手動 | 3 platform 分の UPM tarball と配布物 4 点 + `SHA256SUMS.txt` を GitHub Release へ。`--draft` で下書きを作り、点検してから人が公開する（**tag を打っただけでは外から見えない**）。ノートは `.github/release-notes.md` から読む（YAML の中の PowerShell の中の Markdown という三重のエスケープを避けるため） | **v0.1.0 / v0.1.1 で実行済み**。空撃ち（`workflow_dispatch`）1 回を含む |
+| `release.yml` | tag `v*` / 手動 | 3 platform 分の UPM tarball と配布物 4 点、**配る正である全部入りの tarball `com.ayutaz.opencv-unity-native.tgz` とその `checksums.txt`**、`SHA256SUMS.txt` を GitHub Release へ（staging する asset は 17 件 = 3 × 5 + 全部入りの 2 件、`SHA256SUMS.txt` を足して Release には 18 件）。**数だけでは足りない**ので、全部入りが実際に並んでいることも名指しで見る。全部入りに **SBOM と build-manifest は付けない**（理由は上の `tools/package-release.ps1` の行）。M3.5 で各 matrix job が `Runtime/Plugins/` も artifact 化するようになり、publish 側が重ねて固める。asset にするのは `upm-out/` と `release-out/` の中身だけで、**生の binary は asset にしない**。`--draft` で下書きを作り、点検してから人が公開する（**tag を打っただけでは外から見えない**）。ノートは `.github/release-notes.md` から読む（YAML の中の PowerShell の中の Markdown という三重のエスケープを避けるため） | **v0.1.0 / v0.1.1 で実行済み**。空撃ち（`workflow_dispatch`）1 回を含む |
 
 **どの workflow が merge を止めるかは、この表には書かない。** 走ることと止めることは
 別で、しかも止める側は GitHub の設定であってファイルではない。現在の必須チェックと、
@@ -144,7 +154,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md` — M0 の実装計画（タスク単位、TDD 手順つき）
 - `docs/superpowers/plans/2026-08-25-m1-opencv-build.md` — M1 の実装計画（タスク単位、TDD 手順つき）
 - `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md` — M2 の実装計画（タスク単位、TDD 手順つき）
-- `docs/abi-ownership-and-versioning.md` — `Mat` と Unity メモリの所有権契約、`OCVU_ABI_VERSION` の versioning 規約、`core`/`imgproc` API allowlist の正本
+- `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md` — M3 の実装計画（タスク単位、TDD 手順つき）
+- `docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md` — M3.5 の実装計画（タスク単位、TDD 手順つき）
+- `docs/openupm-registration.md` — OpenUPM へ出す登録定義と手順。**まだ提出していない**（新しい asset 名を持つ公開済み release が要る）
+- `docs/abi-ownership-and-versioning.md` — `Mat` と Unity メモリの所有権契約、`OCVU_ABI_VERSION` の versioning 規約、`core`/`imgproc`/`imgcodecs` API allowlist の正本
 - `docs/unity-opencv-integration-research-and-plan.md` — 競合調査、アーキテクチャ、ライセンス方針、命名方針（519 行）
 - `docs/native-backend-language-tdd-evaluation.md` — C++ / Rust の評価とテストハーネス設計
 - `docs/README.md` — 文書一覧とステータス
@@ -155,7 +168,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | --- | --- |
 | native backend 実装言語 | **C++**（Rust spike は不要になった） |
 | UPM package ID | **`com.ayutaz.opencv-unity-native`** |
-| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.0.82f1 の 1 版だけで、その版は 2026-10 に通常サポートが終わる** —— M3.5 で 6.3 LTS へ載せ替える（`docs/roadmap.md` の「差別化の穴」#4） |
+| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.3.16f1 の 1 版だけ** —— M3.5 で 6000.0.82f1 から載せ替えた（6000.0 の通常サポートは 2026-10 に終わる。`docs/roadmap.md` の「差別化の穴」#4）。`package.json` の `"unity"` も 6000.3 で、検証している版と一致している |
 | C# ターゲット | netstandard2.1 / C# 9 |
 | OpenCV 入手 | allowlist 構成で CI がビルドし artifact 配布。**ローカルではビルドしない** |
 | CI/CD | public OSS のため GitHub Actions を全面活用。重い検証はすべて CI |
@@ -208,7 +221,7 @@ Unity application
 
 - **OpenCV 5 は 4.x の互換 wrapper ではない**。レガシー C API は完全削除済み、最低 C++17、`calib3d` は `geometry`/`calib`/`stereo`/`ptcloud` へ、`features2d` は `features` へ再編。ML・G-API・Haar/HOG 系の一部は contrib へ移動。API 設計は 5.x のモジュール構成を基準にする。
 - **OpenCvSharp5 を Unity に持ち込む前提で設計しない**。managed layer が net8.0 / C# 12 対象で、Unity の managed plug-in は .NET Standard / .NET Framework 対象。OpenCvSharp の managed API 名を互換目的で複製することも目的外。
-- **「本体が Apache-2.0」と「バイナリ内の全依存が Apache-2.0」は別問題**（同文書 §8.2）。OpenCV の CMake は FFmpeg / GStreamer / JPEG / PNG / TIFF / WebP / OpenEXR / protobuf / IPP 等の optional・bundled 依存を持ち、`WITH_FFMPEG` は既定で有効。初期標準 build では `videoio` と FFmpeg/GStreamer を外し、`imgcodecs` は notice 確認後に opt-in。**CMake configure summary を保存し、想定外の依存が有効なら CI を失敗させる**。
+- **「本体が Apache-2.0」と「バイナリ内の全依存が Apache-2.0」は別問題**（同文書 §8.2）。OpenCV の CMake は FFmpeg / GStreamer / JPEG / PNG / TIFF / WebP / OpenEXR / protobuf / IPP 等の optional・bundled 依存を持ち、`WITH_FFMPEG` は既定で有効。初期標準 build では `videoio` と FFmpeg/GStreamer を外す。`imgcodecs` は notice を確認したうえで有効化済みで、**M3.5 で初めて実際にリンクされた**（PNG / JPEG のみ。「ビルドに入っている」と「リンクしている」を取り違えていた経緯は上の「リポジトリの現状」にある）。**CMake configure summary を保存し、想定外の依存が有効なら CI を失敗させる**。
 - native artifact ごとに OpenCV tag、contrib tag、compiler、toolchain、CMake flags、依存 version、hash を manifest 化する（`artifacts/<platform>/build-manifest.json`、`sbom.spdx.json`）。
 - ライセンス面はプロジェクト方針であり法的助言ではない。公開前に別途法務確認が必要。
 
@@ -227,7 +240,7 @@ Unity application
 | L4 | Unity EditMode (Mono) | 1〜3 分 | M2（CI は Linux。ローカルは Windows） |
 | L5 | Unity IL2CPP Player | 5〜20 分 | M2（**CI は Linux の IL2CPP**。Windows 版はローカルのみ） |
 
-**「想定時間」は roadmap 起草時の見積もりであり、実測はもっと速い。** `dev.ps1 test-unity-editmode` は約 27 秒、`dev.ps1 test-unity-player`（IL2CPP Player の実ビルド込み）は約 54 秒だった（いずれも 2026-08-28、Unity / Bee のキャッシュが温まった状態での増分実測。cold の実測はまだ無い）。両レーンとも `tests/UnityProject/` から `Packages/com.ayutaz.opencv-unity-native/` をローカル参照して動く。CI（`ci-unity.yml`）は 2026-08-29 に初めて green になった——ただし **CI は ubuntu で game-ci を使い、Unity を起動するのは `dev.ps1` ではない**ので、上の実測値は ローカル（Windows）のものである。CI の L5 は Linux の IL2CPP Player で、EditMode / Standalone とも 10 件 pass した。
+**「想定時間」は roadmap 起草時の見積もりであり、実測はもっと速い。** `dev.ps1 test-unity-editmode` は約 27 秒、`dev.ps1 test-unity-player`（IL2CPP Player の実ビルド込み）は約 54 秒だった（いずれも 2026-08-28、Unity / Bee のキャッシュが温まった状態での増分実測。cold の実測はまだ無い）。両レーンとも `tests/UnityProject/` から `Packages/com.ayutaz.opencv-unity-native/` をローカル参照して動く。CI（`ci-unity.yml`）は 2026-08-29 に初めて green になった——ただし **CI は ubuntu で game-ci を使い、Unity を起動するのは `dev.ps1` ではない**ので、上の実測値は ローカル（Windows）のものである。CI の L5 は Linux の IL2CPP Player で、EditMode / Standalone とも 10 件 pass した（2026-08-29、Unity 6000.0.82f1）。**M3.5 で EditMode は 15 件、Unity は 6000.3.16f1 になったので、上の実測値も CI の実績もその構成のものではない。** 6.3 でのローカル実測は 2026-08-30 に取り直してあり（EditMode 16 passed / IL2CPP Player 10 passed）、数字は「リポジトリの現状」にある。
 
 **L3 のクラッシュ・ハング耐性は M2 Task 4 で実証済み。** `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`、kind=0 で不正アクセス、kind=1 で無限ループ。戻らない前提の関数なので `OCVU_TRY_BEGIN` では囲まない）を `tests/Managed/CvUnity.Tests.Managed/HarnessProbeTests.cs` から P/Invoke し、`tools/run-managed-probe.ps1`（`dev.ps1 test-managed-probe` 経由）が「非 0 終了かつ有限時間」を assertion する形で確かめている。実測（このマシン、2026-08-27）: segfault は `AccessViolationException` で 6 秒後に非 0 終了、hang は `--blame-hang-timeout 30s` に捕まり 36 秒後に非 0 終了・hangdump を生成。いずれも 60〜180 秒の上限内に収まった。数字は実行のたびに数秒動く（初回計測では 5 秒 / 35 秒だった）。L1 / L2 の `native/tests/ocvu_probe.cpp` が持つ expect-failure の構図（`cmake/run_expect_failure.cmake`）の L3 版であり、`cmake/run_expect_failure.cmake` 同様「非 0 で終わっただけ」では合格にせず、スタックトレース／hangdump の宛先テスト名でプローブが意図した経路に実際に到達したことまで見ている。このプローブは意図的に落ちるため通常の `dev.ps1 test` には含めない（`Category!=Probe` で除外、`StatusCodeSyncTests` 等の既存 L3 とは別枠）。数分かかるので CI 専用（`ci-native.yml` の「Run the L3 crash and hang probes」）で、ローカルでは走らない。
 
@@ -247,7 +260,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: M3 まで完了。v0.1.1 が最新の公開版。**次は M3.5** — 詳細は roadmap）
+## マイルストーン（現在地: M3.5 の実装は済み、**CI ではまだ 1 度も走っていない**。OpenUPM 登録は未提出。v0.1.1 が最新の公開版。次は M4 — 詳細は roadmap）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
@@ -257,9 +270,9 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
 | **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件すべて達成。最後の条件 7（CI で L4/L5）は game-ci + Linux で満たした。その過程で、公開済み Linux 版が古い環境で読み込めない欠陥が判明し修正** |
 | **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。配布まで踏み、v0.1.0 と、Linux の欠陥を直した v0.1.1 を公開済み** |
-| **M3.5** | **配布の形と、実用に必要な最小の穴。** 2026-08-29 の再調査で足した。**1 つの package に 1 platform 分の binary しか入らない**ので「エディタは Windows、実機は Android」が表現できず、**M4 の成果物を配れない**。あわせて OpenUPM 登録・画像ファイルの読み書き・Unity 6.3 LTS への載せ替え |
+| **M3.5** | **配布の形と、実用に必要な最小の穴** —— 全部入りの package、`imgcodecs` の encode / decode（**ファイルパスではなく byte 列**）、Unity 6.3 LTS への載せ替え。2026-08-29 の再調査で足した。配る正を 3 platform 分を束ねた 1 つの tarball にしたので「エディタは Windows、実機は Android」が表現でき、M4 の成果物を配れるようになった。**実装は済みだが CI ではまだ走っておらず、OpenUPM 登録は未提出**（登録には新しい asset 名を持つ公開済み release が要る） |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する。**16 KB 対応は 2027-02-01 から Google Play の要件**（それより前に満たす。止まるのは利用者のリリースである）。macOS の `.meta` 実測と Windows IL2CPP の結論もここ |
-| M5 | binding specification と generator。**`imgcodecs` は M3.5 へ前倒しした**（2026-08-29。手書きで足りるものに生成の仕組みを待たせる理由が無かった） |
+| M5 | binding specification と generator。**`imgcodecs` は M3.5 で出した**（`ocvu_imencode` / `ocvu_imdecode`、2026-08-30）ので、ここには残っていない |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
 | M7 | Optional profiles と性能。**OpenCV 5 の新しい DNN エンジンはここ** —— 競合が持たない最大の差になりうるが、Unity には推論の代替があるので前倒ししない（roadmap の M7 節） |
 
@@ -268,7 +281,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 ## 実装に着手するとき
 
 1. `docs/roadmap.md` で対象マイルストーンの目的・ゴール・完了条件・**非ゴール**を確認する
-2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）。M3.5 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
+2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）、M3.5 の計画は `docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md`（実施済み。OpenUPM 登録のみ残）。M4 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
 M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、ライセンス表示と SBOM の公開フロー、各 platform で必須とする Editor / Mono / IL2CPP / device test matrix。
@@ -280,7 +293,7 @@ M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決�
 | Windows の compiler / runtime linkage | 実行時ライブラリは共有する形。組み込む開発者が同梱物を選べる状態を保つ | M1 Task 8。上の「確定事項」表 |
 | `Mat` と Unity メモリの lifetime contract | **借用 handle を作らない。** handle は常に native 所有、Unity の buffer は呼び出し内で完結する借用 | `docs/abi-ownership-and-versioning.md` §1 |
 | C ABI の versioning / 後方互換 | 単一整数の `OCVU_ABI_VERSION`、C# 側は**完全一致**で検査。bump する変更としない変更を明記 | 同 §2 |
-| 初期 `core` / `imgproc` API の allowlist | Mat の create / release / clone / get_info / copy_from_buffer / copy_to_buffer と cvtColor / resize / GaussianBlur の 9 本 | 同 §3 |
+| `core` / `imgproc` / `imgcodecs` API の allowlist | Mat の create / release / clone / get_info / copy_from_buffer / copy_to_buffer と cvtColor / resize / GaussianBlur（M2 の 9 本）に、M3.5 の imencode / imdecode を足した 11 本 | 同 §3 |
 
 ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになり、`tests/UnityProject/` は M2 で実在するようになった。`bindings/`（M5 予定）だけがまだ無い。
 
@@ -402,11 +415,15 @@ CodeQL まで見る。それでも次は緑のまま通過する。
   そう判定したのと同じ基準を、こちらにも当てる
 - **macOS 上の Unity の挙動**（CI の macOS job は plugin をビルドするが Unity を
   起動しない。Linux 分は M2 の条件 7 で実測できるようになった）。**M4 の担当**
-  —— `docs/roadmap.md`「担当が無かった制約」
+  —— `docs/roadmap.md`「担当が無かった制約」。**`.meta` の解釈自体は M3.5 で
+  実測に変わった**（他 OS の Unity に読ませた結果を `PluginImporter` で確認）。
+  残るのは macOS 上で実行することで、**M3.5 でその binary は全利用者が導入する
+  package の中に入った**
 - **Windows の IL2CPP Player**（CI の L5 は Linux で、Windows 版はローカルの
   レーンだけが担う）。**M4 の担当** —— 同上。**実際に走らせたことは一度も無い**
-- **複数 platform を同時に使うこと。** 配る tarball は platform ごとに分かれて
-  おり、1 つの package に 1 platform 分しか入らない。**M3.5 の担当**
+- **全部入りの package。** 3 platform を 1 つに束ねる形自体は M3.5 で成立したが、
+  **それを確かめるレーン（`dev.ps1 test-unity-tarball`）はどの workflow からも
+  走っていない。** 実測はローカル（Windows、2026-08-30）だけである
 - mobile / Web（M4 / M6 の担当。まだ何も無い）
 - **「ビルドできた」と「動く」の差。** v0.1.0 でこれを踏んだ——3 platform とも
   ビルドが成功し linkage 検証も配布物生成も通ったのに、Linux の成果物は

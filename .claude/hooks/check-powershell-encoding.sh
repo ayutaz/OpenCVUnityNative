@@ -77,7 +77,15 @@ Windows の PowerShell は既定で ANSI コードページに書き出します
 
 スクリプト冒頭（param ブロックの直後、最初の出力より前）に足してください:
 
-    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+**この綴りで書いてください。** CLAUDE.md が定めている形がこれで、tools/ の
+新しいスクリプトはすべてこれで揃えてあります。[System.Text.Encoding]::UTF8 でも
+コンソールの文字コードは UTF-8 になります（違いは preamble（BOM）を持つことだけで、
+PowerShell 7.6.5 ではリダイレクトした出力に BOM は出ませんでした —— 2026-08-30 に
+このマシンで実測。両者とも先頭は e3 81 82 だった）。**動く / 動かないの話では
+なく、綴りが混在すると次に書く人が毎回どちらが正しいのかを調べ直すことになる
+ためです。**
 
 この欠陥は M1 で tools/opencv.ps1、tools/verify-opencv-artifact.ps1、
 tools/dev.ps1 に順番に現れました。修正が隣のファイルに既に在っても

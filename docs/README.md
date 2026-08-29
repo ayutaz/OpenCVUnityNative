@@ -7,20 +7,20 @@
 - [ロードマップ](./roadmap.md)
   - 確定事項（backend 言語、package ID、対象 Unity、OpenCV 入手方法、CI 方針、Windows のランタイムライブラリ linkage）
   - M0〜M7（2026-08-29 に足した **M3.5** を含む）の各マイルストーンの目的・ゴール・完了条件・非ゴール
-  - **差別化の穴**（2026-08-29 の再調査。競合が全員 OpenCV 4 系のままであること、埋まっていない 10 件（掲げている差別化のうち達成していないものと、競合が持っていて本案が持たないものの合算）と、その担当）
+  - **差別化の穴**（2026-08-29 の再調査。競合が全員 OpenCV 4 系のままであること、差別化の穴 10 件（掲げている差別化のうち達成していないものと、競合が持っていて本案が持たないものの合算）と、その担当。**うち 3 件は M3.5 で解消し、1 件が部分達成になった**）
   - ローカルループと CI の役割分担、GitHub Actions のワークフロー構成（M3 の後に `ci-lint` / `codeql` / `nightly` と Dependabot を追加。**`nightly` は schedule でまだ 1 度も走っていない**）
-  - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）
+  - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）、[M3.5 配布の形と最小の穴](./superpowers/plans/2026-08-30-m3.5-distribution-shape.md)（全部入り tarball / `imgcodecs` / Unity 6.3。**OpenUPM の登録申請だけが残る**——詳細は roadmap の M3.5 節）
 - [API リファレンス](./api-reference.md)
-  - **M2 で公開した** C ABI 9 関数（`Mat` のライフサイクルと buffer 転送の 6 本、`cvtColor` / `resize` / `GaussianBlur` の 3 本）と、その上に立つ C# の公開 API
-  - **この 9 本は公開 ABI の総数ではありません。** 現在の公開 ABI は 18 本あり、残りは M0 / M1 由来の 8 本（ABI version の取得、last-error の取得、status 表の照会、OpenCV の version と build information）と、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash` 1 本です。この文書が「9 関数」と限定しているのは、**M2 で確定した allowlist の範囲**を指すためで、18 との差は数え漏れではありません（version / last-error / status 表は文書内で必要に応じて触れています）。全 18 本の内訳は [CLAUDE.md](../CLAUDE.md)、所有権と allowlist の正本は [C ABI の所有権と versioning](./abi-ownership-and-versioning.md) にあります
-  - **まだ無い機能は書きません。** 範囲は M2 で確定した allowlist に一致します
+  - C ABI 11 関数（M2 の 9 本 = `Mat` のライフサイクルと buffer 転送の 6 本 + `cvtColor` / `resize` / `GaussianBlur` の 3 本、**M3.5 で足した `imencode` / `imdecode` の 2 本**）と、その上に立つ C# の公開 API
+  - **この 11 本は公開 ABI の総数ではありません。** 現在の公開 ABI は 20 本あり、残りは M0 / M1 由来の 8 本（ABI version の取得、last-error の取得、status 表の照会、OpenCV の version と build information）と、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash` 1 本です。この文書が「11 関数」と限定しているのは、**M2 で確定し M3.5 で 2 本足した allowlist の範囲**を指すためで、20 との差は数え漏れではありません（version / last-error / status 表は文書内で必要に応じて触れています）。全 20 本の内訳は [CLAUDE.md](../CLAUDE.md)、所有権と allowlist の正本は [C ABI の所有権と versioning](./abi-ownership-and-versioning.md) にあります
+  - **まだ無い機能は書きません。** 範囲は M2 で確定し、M3.5 で `imgcodecs` の 2 本を足した allowlist に一致します
 - [C ABI の所有権と versioning](./abi-ownership-and-versioning.md)
-  - **確定（M2 着手前）。** 借用 handle を作らない決定と、その理由・受け入れたコスト
+  - **確定（M2 着手前）。** 借用 handle を作らない決定と、その理由・受け入れたコスト（M3 で §1.5 のスレッド規約、M3.5 で §1.6 の blob の規約を追記）
   - `OCVU_ABI_VERSION` を bump する変更としない変更
-  - M2 で公開する 9 本の API allowlist と、M2 で作らないもの
+  - API allowlist（M2 の 9 本 + M3.5 の `imencode` / `imdecode` で 11 本）と、まだ作らないもの
   - roadmap の M2 完了条件を書き換えた経緯（`wrap` を廃し copy に置き換えた件）
 - [Unity 向け OpenCV 統合の競合調査と初期計画](./unity-opencv-integration-research-and-plan.md)
-  - OpenCV 5.x / 4.x の状況（2026-08-25 時点。**§3 と §4.6 は 2026-08-29 に取り直した** —— 5.0 の目玉が DNN エンジンの書き直しであること、競合の現況、OpenUPM という配布経路）
+  - OpenCV 5.x / 4.x の状況（2026-08-25 時点。**§3 と §4.6 は 2026-08-29 に取り直し、§4.6 の配布と OpenUPM、§8.3 の `imgcodecs` は M3.5（2026-08-30）で更新した** —— 5.0 の目玉が DNN エンジンの書き直しであること、競合の現況、OpenUPM という配布経路）
   - OpenCV for Unity、OpenCV-plus-Unity、OpenCvSharp、Emgu CV の比較
   - 自作 Apache-2.0 OSS の価値、ライセンス上の注意、推奨アーキテクチャ
   - native bridge を C++ / Rust のどちらで実装するかの比較と Phase 0 判断基準
@@ -30,6 +30,9 @@
   - sanitizer の入手条件、Miri の FFI 制約、`opencv` crate の安定性表明とビルド要件
   - Unity を経由しないテスト層（素の .NET での P/Invoke 検証）を核にしたテストピラミッド案
   - C++ 開始の推奨と、判断を安価に覆すための条件
+- [OpenUPM への登録](./openupm-registration.md)
+  - **準備済み。まだ提出していません。** 提出できる条件（新しい名前の asset が付いた公開済みリリースが 1 つあること）と、提出するものの中身
+  - **受理されるかどうかは第三者の判断なので、こちらの完了条件には含めていません**
 
 ## リポジトリ直下の文書
 
@@ -43,10 +46,22 @@
 
 ## Status
 
-M0〜M3 はすべて完了しています。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）を公開しました**。
+M0〜M3 は完了し、**M3.5（配布の形と最小の穴）は OpenUPM の登録申請を除いて達成しました**。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）を公開しました**。**M3.5 の成果はまだリリースに載っていません** —— 次の版で初めて利用者に届きます。
 
 M2 の最後に残っていた条件 7（CI 上で L4/L5 を実行）は、game-ci でランナーへの Unity 導入とライセンスのアクティベーションを行い、Linux で走らせることで満たしました。**その過程で、公開済み v0.1.0 の Linux 版が古い環境で読み込めない欠陥が判明しました** —— ubuntu-24.04 でビルドした `.so` が GLIBC_2.38 を要求していたためで、Unity を CI で実際に動かすまで誰も気づけませんでした。Linux のビルドを `ubuntu:22.04` コンテナへ移し、要求を 2.34 に下げたうえで、ビルド時点で上限を検査するようにしています。
 
-M3（Desktop 3 platform と配布の再現性）は、roadmap の完了条件 6 件をすべて満たしました。3 platform で native plugin がビルドされ、L1 / L3 と slow tools テストが CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されています。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認しました。**配布まで踏んでいます** —— v0.1.0（2026-08-28）と、上記の Linux の欠陥を直した v0.1.1（2026-08-29）。どちらも 3 platform 分の tarball と配布物 4 点 + `SHA256SUMS.txt` で、asset は 16 件です。**v0.1.0 は中身を差し替えず、リリースノートの冒頭に「この版の Linux 版は動かない」と明記して v0.1.1 へ誘導しています**（一度配ったものを黙って差し替えると、同じ版名で違う物が 2 つ存在することになるため）。また、**macOS の** Plugin Import Settings はその platform の binary が置かれた状態で Unity に読ませたことがなく（Linux 分は M2 の条件 7 で実測に変わりました）、Git URL 経由では binary が git の追跡外にあるため導入できません（完了条件は「Git URL または tarball」なので tarball 側で満たしています）。PR #8 を CI に通した時点で、ローカルでは緑だった欠陥が 3 件出ています——handle table の use-after-free、UPM が導入できない tarball、Release asset 名の衝突で、いずれも修正済みです。詳細は roadmap の M3 節にあります。
+M3（Desktop 3 platform と配布の再現性）は、roadmap の完了条件 6 件をすべて満たしました。3 platform で native plugin がビルドされ、L1 / L3 と slow tools テストが CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されています。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認しました（M3 時点のこれは **platform ごとの** tarball です。全部入りに対する実測は下の M3.5 の段落にあります）。**配布まで踏んでいます** —— v0.1.0（2026-08-28）と、上記の Linux の欠陥を直した v0.1.1（2026-08-29）。どちらも 3 platform 分の tarball と配布物 4 点 + `SHA256SUMS.txt` で、asset は 16 件でした（**M3.5 以降は 18 件になります**）。**v0.1.0 は中身を差し替えず、リリースノートの冒頭に「この版の Linux 版は動かない」と明記して v0.1.1 へ誘導しています**（一度配ったものを黙って差し替えると、同じ版名で違う物が 2 つ存在することになるため）。また、Git URL 経由では binary が git の追跡外にあるため導入できません（完了条件は「Git URL または tarball」なので tarball 側で満たしています）。**macOS の** Plugin Import Settings は M3 時点では「その platform の binary が置かれた状態で Unity に読ませたことがない」状態でした（Linux 分は M2 の条件 7 で実測に変わりました）。M3.5 で何がどこまで実測に変わったかは下の段落にあります。PR #8 を CI に通した時点で、ローカルでは緑だった欠陥が 3 件出ています——handle table の use-after-free、UPM が導入できない tarball、Release asset 名の衝突で、いずれも修正済みです。詳細は roadmap の M3 節にあります。
+
+M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完了条件 6 件のうち **OpenUPM への登録申請を除いて満たしました**。**ただしこのブランチはまだ CI に通していません** —— 以下の数字はすべてこのマシン（Windows）での 2026-08-30 のローカル実測です。
+
+配る正は **3 platform 分の binary が 1 つに入った `com.ayutaz.opencv-unity-native.tgz`** になりました（版番号を含まない名前。OpenUPM の `githubReleaseAssetName` が安定した接頭辞で asset を選ぶためです）。platform ごとの tarball も補助として引き続き出します。その全部入りを使い捨ての Unity プロジェクトに導入して **15/15 pass**（EditMode が 10 件から 16 件に増えたのは `PluginGatingTests` を足したためです）。**この tarball のレーンはどの CI workflow でも走りません** —— ローカルだけです。
+
+`PluginGatingTests` は `PluginImporter` に問う形で「自分の platform 向けがちょうど 1 つ」「`Any` が立っていない」「他 platform の Standalone で有効になっていない」を見ます。**macOS の `.meta` を「Windows でも有効」に壊すと 3 件落ちます** —— 壊しても 10/10 で素通りしていた M3 までの状態から変わりました。もう 1 つ記録に値するのは、**`GetCompatibleWithEditor()` が 3 つとも true を返す**ことです。`.meta` は Editor を 3 platform とも有効にしたうえで、その下の `settings: OS:` で振り分けているので、**そのフラグだけを見る検査は常に true で無感**です。振り分けを見るには `GetEditorData("OS")` を読む必要があります（最初にそう書かずに落とし、直しました）。
+
+**macOS 上で動く Unity は依然として未実測です。** M3.5 はこの穴を緩めるのではなく鋭くしました —— macOS の binary と `.meta` が、Windows と Linux の利用者も導入する正の package の中に同居するようになったからです。実測できたのは「Windows 上の Unity が、3 つ同居した中から Windows 向けの 1 つだけを有効にする」ところまでで、macOS 上の Unity が実際にその `.dylib` を読み込むことは確かめていません（M4 の担当）。
+
+`imgcodecs` は **M3.5 で初めてリンクされました**。それまで `cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` だけで、リポジトリ内の複数箇所にあった「モジュールはリンク済み」という記述は**誤り**でした。誤解の出どころも記録しておきます: `tools/opencv-config.psd1` の `Modules` には `imgcodecs` が入っているので **OpenCV 自体はそれを含めてビルドされており**、`ocvu_get_build_information()` も `To be built: … imgcodecs …` と報告します。**「OpenCV に入っている」と「このプラグインがリンクしている」は別です。** 気づいたのは CMake を読んだからではなく、実装を書いた時点で `cv::imencode` / `cv::imdecode` が未解決の外部シンボルになったからです。C ABI に `ocvu_imencode` / `ocvu_imdecode` が加わり、公開 ABI は 18 本から 20 本、allowlist は 9 本から 11 本になりました。**扱うのはメモリ上の byte 列だけで、ファイルパスは受けません**（理由は [所有権と versioning](./abi-ownership-and-versioning.md) §1.6）。
+
+検証する Unity は 6000.0 から **6000.3 LTS（6000.3.16f1）** へ載せ替えました（6000.0 の通常サポートが 2026-10 に終わるためです）。6.3 で EditMode 16 件、IL2CPP Player 10 件が通っています —— **IL2CPP モジュールは Hub の CLI で先に入れる必要がありました**（入っていない状態では Player のビルドが「Currently selected scripting backend (IL2CPP) is not installed」で落ちます）。OpenUPM への登録は**準備済みで、まだ提出していません**（新しい名前の asset が付いた公開済みリリースが 1 つ要るためで、受理されるかどうかは範囲外です。詳細は [OpenUPM への登録](./openupm-registration.md)）。詳細は roadmap の M3.5 節にあります。
 
 本文中の「推奨」「目標」「案」のうち、まだ実装されていない部分は依然として設計提案であり、実装済み機能や動作確認結果ではありません。両者の区別は各文書内の記述を見て判断してください。競合製品のバージョンや対応状況は変わるため、実装開始時と公開前に再確認します。

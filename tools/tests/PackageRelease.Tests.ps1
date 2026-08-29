@@ -317,9 +317,42 @@ try {
     Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
     $thisPlatform = Get-OpenCvPlatform
 
-    $packed = & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $thisPlatform |
-              Select-Object -Last 1
-    Assert-That ($LASTEXITCODE -eq 0) 'pack-upm-tarball exits 0'
+    <#
+        **単体 platform で固める前に、他 platform の binary を退避する。**
+
+        packer は「名前と中身が食い違わない」ことを見るようになったので、
+        3 platform 揃った木で -Platform windows-x64 を叩くと正当に拒否される。
+        開発機に 3 つ揃うのは M3.5 以降ふつうに起こる（全部入りのレーンを
+        1 回走らせれば残る）ので、**木の状態に頼らず、退避してから確かめる。**
+    #>
+    $singleStash = @()
+    foreach ($rel in @(
+        'Runtime/Plugins/x86_64/opencv_unity_native.dll'
+        'Runtime/Plugins/macOS/libopencv_unity_native.dylib'
+        'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so'
+    )) {
+        $mine = switch ($thisPlatform) {
+            'windows-x64' { 'Runtime/Plugins/x86_64/opencv_unity_native.dll' }
+            'macos-arm64' { 'Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
+            'linux-x64'   { 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so' }
+        }
+        if ($rel -eq $mine) { continue }
+        $full = Join-Path $repoRoot "Packages/com.ayutaz.opencv-unity-native/$rel"
+        if (Test-Path -LiteralPath $full) {
+            $to = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-stash-" + [guid]::NewGuid().ToString('n'))
+            Move-Item -LiteralPath $full -Destination $to -Force
+            $singleStash += @{ From = $to; To = $full }
+        }
+    }
+
+    try {
+        $packed = & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $thisPlatform |
+                  Select-Object -Last 1
+        Assert-That ($LASTEXITCODE -eq 0) 'pack-upm-tarball exits 0'
+    }
+    finally {
+        foreach ($s in $singleStash) { Move-Item -LiteralPath $s.From -Destination $s.To -Force }
+    }
 
     <#
         -Platform が名前を変えるだけになっていないこと。
@@ -330,13 +363,152 @@ try {
         job 構成がたまたまそうなっているだけで、packer 自身の保証ではない。
     #>
     $otherPlatform = if ($thisPlatform -eq 'windows-x64') { 'macos-arm64' } else { 'windows-x64' }
-    & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $otherPlatform 2>&1 | Out-Null
-    Assert-That ($LASTEXITCODE -ne 0) `
-        "packing as '$otherPlatform' fails when that platform's binary is absent"
+
+    <#
+        **その platform の binary が「無い」状態を、ここで作る。**
+
+        以前はローカルの木に実行中 platform の binary しか無いことに頼っていたが、
+        M3.5 で全部入りを作れるようにしたので、開発機に 3 つ揃っていることが
+        普通に起こる。そのとき -Platform macos-arm64 は正当に成功するので、
+        この検査は「落ちるはず」を主張したまま緑にならなくなる（実測で踏んだ）。
+
+        依存するのは木の状態ではなく、退避してから確かめるという手順にする。
+    #>
+    $otherBinary = switch ($otherPlatform) {
+        'windows-x64' { Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/x86_64/opencv_unity_native.dll' }
+        'macos-arm64' { Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
+        default       { $null }
+    }
+    $otherStash = $null
+    if ($otherBinary -and (Test-Path -LiteralPath $otherBinary)) {
+        $otherStash = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-other-" + [guid]::NewGuid().ToString('n'))
+        Move-Item -LiteralPath $otherBinary -Destination $otherStash -Force
+    }
+    try {
+        & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $otherPlatform 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) `
+            "packing as '$otherPlatform' fails when that platform's binary is absent"
+    }
+    finally {
+        if ($otherStash) { Move-Item -LiteralPath $otherStash -Destination $otherBinary -Force }
+    }
 
     # 知らない platform を黙って通さない。4 つ目を足すときの安全網。
     & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform 'solaris-sparc' 2>&1 | Out-Null
     Assert-That ($LASTEXITCODE -ne 0) 'packing for an unknown platform fails'
+
+    <#
+        全部入り（-AllPlatforms）の検査。
+
+        **このマシンには 1 platform 分の binary しか無い**ので、正常系は
+        3 つ揃った木を合成してから確かめる。ここで見たいのは packer の判定で
+        あって実物のビルドではないので、他 platform 分は中身のある偽物で足りる
+        —— 判定は「その位置にファイルが在るか」であり、中身は読まない。
+    #>
+    $allOut = Join-Path $packOut 'allplatforms'
+    New-Item -ItemType Directory -Force -Path $allOut | Out-Null
+
+    $pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+    $allBinaries = @(
+        'x86_64/opencv_unity_native.dll'
+        'macOS/libopencv_unity_native.dylib'
+        'Linux/x86_64/libopencv_unity_native.so'
+    )
+
+    <#
+        **binary だけでなく `.meta` も揃える。**
+
+        `dev.ps1 build` が置くのは実行中 platform の分だけなので、CI の
+        Windows / macOS runner では他 platform の `.meta` が存在しない
+        （`tools/plugin-meta/` は windows 2 / macos 2 / linux 3 ファイル）。
+        binary だけを placeholder で補うと、archive の `.meta` が 2 つに
+        なって「7 つ在ること」が成り立たない。
+
+        **著者のローカルでこれが見えなかったのは、全部入りのレーンを走らせた
+        残骸として 3 platform 分の `.meta` が残っていたためである。**
+        木の状態に頼らず、正本（`tools/plugin-meta/`）から揃える —— 本番で
+        `assemble-plugins.ps1` がしているのと同じことをする。
+    #>
+    $created = @()
+    foreach ($rel in $allBinaries) {
+        $full = Join-Path $pluginRoot $rel
+        if (-not (Test-Path -LiteralPath $full)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $full) | Out-Null
+            Set-Content -LiteralPath $full -Value 'placeholder for the packer check' -NoNewline
+            $created += $full
+        }
+    }
+
+    $metaSourceRoot = Join-Path $repoRoot 'tools/plugin-meta'
+    foreach ($platformDir in @(Get-ChildItem -LiteralPath $metaSourceRoot -Directory)) {
+        foreach ($meta in @(Get-ChildItem -LiteralPath $platformDir.FullName -Recurse -File)) {
+            $rel = [System.IO.Path]::GetRelativePath($platformDir.FullName, $meta.FullName)
+            $full = Join-Path $pluginRoot $rel
+            if (-not (Test-Path -LiteralPath $full)) {
+                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $full) | Out-Null
+                Copy-Item -LiteralPath $meta.FullName -Destination $full -Force
+                $created += $full
+            }
+        }
+    }
+
+    try {
+        $allPacked = & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms |
+                     Select-Object -Last 1
+        Assert-That ($LASTEXITCODE -eq 0) '-AllPlatforms packs when all three binaries are present'
+
+        if ($allPacked -and (Test-Path -LiteralPath $allPacked)) {
+            # **名前に版番号を入れない。** OpenUPM の githubReleaseAssetName は
+            # 安定した接頭辞で asset を選ぶ。
+            Assert-That ((Split-Path -Leaf $allPacked) -eq 'com.ayutaz.opencv-unity-native.tgz') `
+                'the all-in-one tarball has a stable, version-free name'
+
+            Push-Location (Split-Path -Parent $allPacked)
+            try { $allEntries = @(& tar -tzf (Split-Path -Leaf $allPacked)) }
+            finally { Pop-Location }
+
+            $packedBins = @($allEntries | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+            Assert-That ($packedBins.Count -eq 3) `
+                "the all-in-one archive carries three binaries (saw $($packedBins.Count))"
+
+            # **>= ではなく = で見る。** 「3 つ以上」だと、7 つ在るべきところが
+            # 4 つでも通ってしまう。この archive の中身は一覧そのものが契約である。
+            $packedMetas = @($allEntries |
+                Where-Object { $_ -like 'package/Runtime/Plugins/*' -and $_ -like '*.meta' })
+            Assert-That ($packedMetas.Count -eq 7) `
+                "the all-in-one archive carries all seven plugin metas (saw $($packedMetas.Count): $($packedMetas -join ', '))"
+        }
+
+        # 負 1: binary が 1 つ欠けたら止まる。
+        $victim = Join-Path $pluginRoot 'macOS/libopencv_unity_native.dylib'
+        $stash  = "$victim.stash"
+        Move-Item -LiteralPath $victim -Destination $stash -Force
+        try {
+            & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms 2>&1 | Out-Null
+            Assert-That ($LASTEXITCODE -ne 0) '-AllPlatforms fails when a platform binary is missing'
+        }
+        finally { Move-Item -LiteralPath $stash -Destination $victim -Force }
+
+        # 負 2: 知らない binary が混ざったら止まる。**存在検査だけでは通ってしまう形。**
+        $stray = Join-Path $pluginRoot 'x86_64/stray.dll'
+        Set-Content -LiteralPath $stray -Value 'not ours' -NoNewline
+        try {
+            & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms 2>&1 | Out-Null
+            Assert-That ($LASTEXITCODE -ne 0) '-AllPlatforms fails when an unexpected binary is present'
+        }
+        finally { Remove-Item -LiteralPath $stray -Force -ErrorAction SilentlyContinue }
+
+        # 負 3: 上限を超えたら止まる。**引数にしてあるので、ここで実際に落とせる。**
+        & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms -MaxBytes 1000 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) 'the size guard rejects a tarball over the limit'
+
+        # 負 4: -Platform と -AllPlatforms は同時に使えない。
+        & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms -Platform 'windows-x64' 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) '-Platform and -AllPlatforms are mutually exclusive'
+    }
+    finally {
+        foreach ($f in $created) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
 
     if ($packed -and (Test-Path -LiteralPath $packed)) {
         Assert-That ((Split-Path -Leaf $packed) -like "*-$thisPlatform.tgz") `

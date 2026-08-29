@@ -226,6 +226,51 @@ OCVU_API ocvu_status ocvu_gaussian_blur(ocvu_mat_handle src, ocvu_mat_handle dst
                                         int32_t ksize_width, int32_t ksize_height,
                                         double sigma_x, double sigma_y);
 
+/* imdecode の読み込み方。cv::IMREAD_* の値をそのまま使う（実装側で static_assert）。 */
+#define OCVU_IMREAD_UNCHANGED (-1)
+#define OCVU_IMREAD_GRAYSCALE   0
+#define OCVU_IMREAD_COLOR       1
+
+/*
+ * Mat を画像形式に符号化し、buffer へ書く。
+ *
+ * **2 回呼ぶ。** 符号化後の大きさは呼ぶ側に分からないため、1 回目は
+ * buffer=NULL / buffer_size=0 で呼んで out_required_size に必要バイト数を
+ * 受け取り（戻り値は OCVU_STATUS_BUFFER_TOO_SMALL。これは失敗ではない）、
+ * 2 回目にその大きさの buffer を渡す。last-error や OpenCV version の
+ * 取得と同じ作法である。
+ *
+ * **native は buffer を保持しない。** 出力の所有権は最初から最後まで呼ぶ側に
+ * ある。native が確保した blob を handle で返す形は採らない —— それは
+ * docs/abi-ownership-and-versioning.md §1 に無い所有権の種類を増やすため。
+ *
+ * out_required_size は必須で、成功時は実際に書いたバイト数、
+ * OCVU_STATUS_BUFFER_TOO_SMALL のときは必要バイト数が入る。
+ * **それ以外のどの失敗でも 0 が入る** —— 呼ぶ側が変数を使い回していても、
+ * 前回の値が残って「失敗したのに前回のサイズを信じる」経路ができないようにする。
+ * buffer_size が足りない場合、buffer には**何も書かない**。
+ *
+ * ext は ".png" のように先頭のドットを含む拡張子で、NULL・空文字列は拒否する。
+ * OpenCV が扱えない拡張子は OCVU_STATUS_OPENCV_ERROR になる。
+ */
+OCVU_API ocvu_status ocvu_imencode(ocvu_mat_handle src, const char* ext,
+                                   uint8_t* buffer, int32_t buffer_size,
+                                   int32_t* out_required_size);
+
+/*
+ * 符号化された画像 byte 列を復号して dst に入れる。dst の形状と型は
+ * 結果に応じて上書きされる。
+ *
+ * data は**この呼び出しの内側でのみ読む**（借用）。native は保持しない。
+ * length は 1 以上 INT32_MAX 以下でなければならず、そうでなければ
+ * OCVU_STATUS_INVALID_ARGUMENT。画像として解釈できない byte 列は
+ * OCVU_STATUS_OPENCV_ERROR になる（メモリは壊さない）。
+ *
+ * flags は OCVU_IMREAD_*。
+ */
+OCVU_API ocvu_status ocvu_imdecode(const uint8_t* data, int64_t length,
+                                   int32_t flags, ocvu_mat_handle dst);
+
 /*
  * conformance test 用に、内部で意図的に例外を投げる。
  * kind: 0 = std::runtime_error, 1 = std::bad_alloc,

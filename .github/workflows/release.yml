@@ -186,6 +186,9 @@ jobs:
         shell: pwsh
         run: ./tools/pack-upm-tarball.ps1 -OutputDir upm-out -Platform '${{ matrix.platform }}'
 
+      # **plugin の木そのものも上げる。** これまで各 job の binary の唯一の
+      # 出口は自分の .tgz の中だけだったので、3 platform を 1 つに束ねる job に
+      # 渡す手段が無かった。全部入りを作るにはここが要る。
       - name: Upload the platform bundle
         uses: actions/upload-artifact@v7
         with:
@@ -193,6 +196,7 @@ jobs:
           path: |
             upm-out/
             release-out/
+            Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/
           if-no-files-found: error
 
   publish:
@@ -228,6 +232,53 @@ jobs:
           }
           Write-Host "==> all three platform bundles are present"
 
+      # tag と package.json の版が一致していること。
+      #
+      # **人が数える約束を 1 つ増やさない。** OpenUPM は git tag から版を見つけ、
+      # UPM が読むのは tarball の中の package.json である。ずれると、
+      # OpenUPM 上の版と実際に入る版が食い違う（platform 別 tarball の
+      # 名前も古い版を名乗る）。M3 が踏んだ asset 名の衝突と同じ形なので、
+      # 機械に数えさせる。
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}' -replace '^v', ''
+          $pkg = (Get-Content -LiteralPath 'Packages/com.ayutaz.opencv-unity-native/package.json' -Raw |
+                  ConvertFrom-Json).version
+          Write-Host "tag=$tag package.json=$pkg"
+          if ($tag -ne $pkg) {
+              Write-Error "tag '$tag' と package.json の version '$pkg' が食い違っています。どちらかを直してから打ち直すこと。"
+              exit 1
+          }
+          Write-Host '==> tag and package.json agree'
+
+      # 全部入りの package を作る。**これが配る正である。**
+      #
+      # Unity は同じ package ID を 1 つしか導入できないので、platform ごとに
+      # 分かれた tarball では「エディタは Windows、実機は Android」という
+      # 構成が表現できない。platform ごとの tarball も引き続き出すが、
+      # 1 platform 分だけ要る利用者のための補助であって、正ではない。
+      - name: Assemble the all-in-one package
+        shell: pwsh
+        run: |
+          $sources = @('windows-x64', 'macos-arm64', 'linux-x64') |
+                     ForEach-Object { "bundles/release-$_/Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins" }
+          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
+
+      - name: Create the all-in-one tarball
+        shell: pwsh
+        run: ./tools/pack-upm-tarball.ps1 -OutputDir all-in-one -AllPlatforms
+
+      # 全部入りの checksums.txt。3 platform 分の binary が 1 つの表に載る。
+      #
+      # **SBOM と build-manifest は作らない。** どちらも復元済みの OpenCV
+      # artifact（= その job の platform のもの）から作るので、ここには元が
+      # 無い。統合版を捏造せず、platform ごとの物に説明を任せる。
+      - name: Write the all-in-one checksums
+        shell: pwsh
+        run: ./tools/package-release.ps1 -OutputDir all-in-one -ChecksumsOnly
+
       # Release asset の名前は Release 全体で一意でなければならない。
       # package-release.ps1 は 3 platform とも同じ名前
       # （checksums.txt / sbom.spdx.json / build-manifest.json /
@@ -238,25 +289,49 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path assets | Out-Null
+
+          # **配る物だけを拾う。** artifact には全部入りを組むための
+          # Runtime/Plugins も入っているが、それは中間物であって asset では
+          # ない。ディレクトリを絞らずに再帰すると、生の binary が
+          # Release に並ぶ。
           foreach ($dir in Get-ChildItem bundles -Directory) {
               $platform = $dir.Name -replace '^release-', ''
-              foreach ($f in Get-ChildItem $dir.FullName -Recurse -File) {
-                  $name = if ($f.Extension -eq '.tgz') {
-                      $f.Name
-                  } else {
-                      "$platform-$($f.Name)"
+              foreach ($sub in @('upm-out', 'release-out')) {
+                  $subDir = Join-Path $dir.FullName $sub
+                  if (-not (Test-Path -LiteralPath $subDir)) { continue }
+                  foreach ($f in Get-ChildItem $subDir -Recurse -File) {
+                      $name = if ($f.Extension -eq '.tgz') {
+                          $f.Name
+                      } else {
+                          "$platform-$($f.Name)"
+                      }
+                      Copy-Item -LiteralPath $f.FullName -Destination (Join-Path 'assets' $name) -Force
                   }
-                  Copy-Item -LiteralPath $f.FullName -Destination (Join-Path 'assets' $name) -Force
               }
           }
 
+          # 全部入り（配る正）とその checksums。名前は既に一意なのでそのまま。
+          foreach ($f in Get-ChildItem all-in-one -File) {
+              Copy-Item -LiteralPath $f.FullName -Destination (Join-Path 'assets' $f.Name) -Force
+          }
+
           # 名前が衝突していたら、Copy-Item が黙って上書きした後になる。
-          # 数えて確かめる: 3 platform x (tarball 1 + 配布物 4) = 15。
+          # 数えて確かめる:
+          #   3 platform x (tarball 1 + 配布物 4) = 15
+          # + 全部入りの tarball 1 + その checksums.txt 1
+          # = 17
           $staged = @(Get-ChildItem assets -File)
           Write-Host "==> staged $($staged.Count) assets"
           $staged | ForEach-Object { Write-Host "    $($_.Name)" }
-          if ($staged.Count -ne 15) {
-              Write-Error "expected 15 assets (3 platforms x 5 files) but staged $($staged.Count); names collided or a file is missing"
+          if ($staged.Count -ne 17) {
+              Write-Error "expected 17 assets (3 platforms x 5 + the all-in-one tarball and its checksums) but staged $($staged.Count); names collided or a file is missing"
+              exit 1
+          }
+
+          # 全部入りが実際に並んでいること。**数だけ合っていても、正が
+          # 抜けていたら意味が無い。**
+          if (-not (Test-Path 'assets/com.ayutaz.opencv-unity-native.tgz')) {
+              Write-Error 'the all-in-one tarball is missing from the staged assets'
               exit 1
           }
 
@@ -283,14 +358,14 @@ jobs:
               }
           # **改行は LF を明示する。** Set-Content は Windows で CRLF を書き、
           # sha256sum -c はファイル名の末尾に付いた CR をファイル名の一部として
-          # 扱うので、15 件すべてが "No such file or directory" になる
-          # （実測。生成物は 15 行あり、workflow の行数検査も通るのに、
+          # 扱うので、全件が "No such file or directory" になる
+          # （実測。生成物は行数が合っていて workflow の行数検査も通るのに、
           # 利用者が使う道具では 1 件も検証できない状態だった）。
           [IO.File]::WriteAllText(
               (Join-Path $PWD 'assets/SHA256SUMS.txt'),
               (($sums -join "`n") + "`n"))
 
-          # 15 行きっかりであること。1 行でも欠けたら、その asset は検証でき
+          # asset の数と同じ行数であること。1 行でも欠けたら、その asset は検証でき
           # ないまま配られる。
           $written = @(Get-Content -LiteralPath 'assets/SHA256SUMS.txt' |
                        Where-Object { $_.Trim() -ne '' })
