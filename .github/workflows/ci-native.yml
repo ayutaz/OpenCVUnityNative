@@ -46,7 +46,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Cache CMake FetchContent (googletest)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/windows-x64-debug/_deps
           key: fetchcontent-windows-${{ hashFiles('native/tests/CMakeLists.txt') }}
@@ -63,7 +63,7 @@ jobs:
           "config-hash=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Cache OpenCV
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
           key: opencv-${{ steps.opencv-config.outputs.config-hash }}
