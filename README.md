@@ -93,10 +93,12 @@ more than one cannot get them all from a single install: Unity allows one packag
 per package ID, and taking a different tarball on each build machine does not help
 when the editor and the build target are different platforms.
 
-**This is a defect, not a design.** It is scheduled for M3.5, which replaces these
-with one package holding every platform; per-platform `.meta` files already restrict
-each binary to its own platform, so the others are inert rather than harmful. See
-the roadmap.
+**This is a defect, not a design.** M3.5 adds a package holding every platform and
+makes that the canonical one. The per-platform `.meta` files are already written so
+that each binary is enabled only on its own platform, but no build has ever had three
+of them side by side, so how Unity actually behaves in that case is something M3.5
+verifies rather than something we can assert here. See the
+[roadmap](docs/roadmap.md).
 
 ### How releases are made
 

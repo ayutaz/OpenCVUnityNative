@@ -205,9 +205,13 @@ platform ごとの tarball のうち 1 つを選んで公開すれば、`openupm
 1 件目がそのまま現れる**ので、先にそちらを解く。
 
 実装時に効く細かい制約が 2 つある。**パッケージは 512 MB 未満**であること ——
-ただし現状これは効かない。Windows の plugin は 8.5 MB（2026-08-29 に手元の
-ビルドを実測）で、5 platform 分を足しても 50 MB 前後にしかならない。**効いてくるのは
-DNN や contrib を含む profile を配る段階**（M7）である。そして
+ただし現状これは効かない。**実際に配った v0.1.1 の tarball は 3 platform 合計で
+8.0 MB** である（2026-08-29 に Release の asset サイズを実測: linux-x64 3,639,983 /
+macos-arm64 1,931,691 / windows-x64 2,472,421 バイト）。全部入りにしても同じ桁で、
+上限まで 60 倍以上ある。**効いてくるのは DNN や contrib を含む profile を配る段階**
+（M7）である。**モバイルを足した後の値は測っていない** —— iOS は静的リンクなので
+共有ライブラリと同じ桁とは限らず、Android で何 architecture を積むかも未定
+（[ロードマップ](./roadmap.md)「差別化の穴」#8）。そして
 `githubReleaseAssetName` は**版番号を含まない安定した接頭辞**を想定しており、
 本案の tarball 名は現在 `com.ayutaz.opencv-unity-native-<version>-<platform>.tgz`
 という版番号入りである。
