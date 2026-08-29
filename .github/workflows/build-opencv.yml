@@ -67,7 +67,7 @@ jobs:
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends git ca-certificates
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up the build container
         if: matrix.platform == 'linux-x64'
         run: bash ./tools/ci/setup-linux-container.sh
@@ -103,7 +103,7 @@ jobs:
         run: Get-Content "third_party/opencv/${{ steps.config.outputs.config-hash }}/build-manifest.json"
 
       - name: Upload the artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.config.outputs.artifact-name }}
           path: third_party/opencv/${{ steps.config.outputs.config-hash }}/

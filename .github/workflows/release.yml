@@ -68,7 +68,7 @@ jobs:
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends git ca-certificates
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up the build container
         if: matrix.platform == 'linux-x64'
         run: bash ./tools/ci/setup-linux-container.sh
@@ -78,6 +78,27 @@ jobs:
         if: matrix.platform == 'macos-arm64'
         shell: pwsh
         run: brew install ninja
+
+      # **OpenCV は毎回 API から取らない。** restore は木が既に在れば
+      # download を丸ごと省く（Invoke-Restore の先頭で検証して return する）。
+      #
+      # キャッシュが無いと、この job が走るたびに artifact を探す API 呼び出しが
+      # 発生する。**多数の workflow を同時に走らせるとレート制限に当たり、
+      # 成果物にもコードにも問題が無いのに CI が全部赤くなる**（実測、
+      # 2026-08-29。Dependabot の PR 9 件と v0.1.1 のリリースが同時に落ちた）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
 
       - name: Restore OpenCV
         shell: pwsh
@@ -119,7 +140,7 @@ jobs:
         run: ./tools/pack-upm-tarball.ps1 -OutputDir upm-out -Platform '${{ matrix.platform }}'
 
       - name: Upload the platform bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.platform }}
           path: |
@@ -137,10 +158,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download every platform bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: bundles
 

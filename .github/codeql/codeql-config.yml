@@ -1,0 +1,33 @@
+# CodeQL に何を読ませるか。
+#
+# ## なぜ設定が要るか
+#
+# 既定では作業ツリー全体を読む。このリポジトリでは `build/` に CMake が
+# FetchContent で落としてきた GoogleTest の**ソースごと**入るので、
+# GoogleTest 本体の指摘が 5 件出た（path-injection と
+# uncontrolled-process-operation）。
+#
+# **他人のコードの指摘は、こちらでは直せない。** 直せないものが並ぶと、
+# 本物の指摘がその中に埋もれる。埋もれた指摘は無いのと同じなので、
+# 読む範囲を自分が責任を持つコードに絞る。
+#
+# 依存そのものの脆弱性を追うのは CodeQL の仕事ではない——それは OpenCV の
+# 固定版と `tools/verify-opencv-artifact.ps1` の allowlist、そして
+# Dependabot が持つ。
+
+name: OpenCVUnityNative CodeQL config
+
+paths:
+  - native
+  - Packages/com.ayutaz.opencv-unity-native
+  - tests/Managed
+
+paths-ignore:
+  # ビルド生成物。FetchContent が持ってくる GoogleTest のソースもここに入る。
+  - build
+  # 展開した OpenCV。中身は上流のもので、こちらでは直せない。
+  - third_party
+  # Unity が生成する。
+  - tests/UnityProject/Library
+  - tests/UnityProject/Temp
+  - tests/UnityProject/Logs

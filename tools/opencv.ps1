@@ -181,6 +181,42 @@ function Test-OpenCvTreeValid([string]$ManifestPath) {
     }
 }
 
+<#
+    gh をレート制限に耐える形で呼ぶ。
+
+    GitHub の API はリポジトリ単位で上限があり、複数の workflow を同時に
+    走らせると当たる。**当たったときに落ちるのではなく、待って続ける。**
+    上限は時間で回復するので、待てば必ず進む——落とすと人が再実行する
+    ことになり、その再実行がまた上限を消費する。
+
+    レート制限**以外**の失敗は待たずにそのまま返す。待って直るものと
+    直らないものを混ぜない。
+#>
+function Invoke-GhWithRetry {
+    param(
+        [Parameter(Mandatory)][scriptblock] $Script,
+        [Parameter(Mandatory)][string] $What,
+        [int] $MaxAttempts = 4
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $output = & $Script 2>&1
+        if ($LASTEXITCODE -eq 0) { return ($output -join "`n") }
+
+        $text = ($output -join "`n")
+        $rateLimited = $text -match 'rate limit|secondary rate|403'
+        if (-not $rateLimited -or $attempt -eq $MaxAttempts) {
+            Write-Host $text
+            return $null
+        }
+
+        $wait = [Math]::Pow(2, $attempt) * 15   # 30s, 60s, 120s
+        Write-Host "==> $What はレート制限に当たった。$wait 秒待って再試行する（$attempt/$MaxAttempts）" -ForegroundColor Yellow
+        Start-Sleep -Seconds $wait
+    }
+    return $null
+}
+
 function Invoke-Restore {
     $manifestPath = Join-Path $OpenCvRoot 'build-manifest.json'
 
@@ -220,20 +256,28 @@ function Invoke-Restore {
         #
         # 構成ハッシュが同じなら中身も同じはずなので、どれを取っても等価である。
         # 最新の成功した実行のものを選ぶ。
-        # 該当する実行を 1 つ選ぶ。**先に受けてから property を読む** —
-        # 空の結果に対して (...).databaseId と書くと StrictMode が
-        # 「property が無い」で落ち、下の分かりやすいエラーに到達しない
-        # （実測: artifact が存在しない構成で restore すると、意図した案内では
-        # なく PowerShell の内部例外が出ていた）。
-        $candidates = @(& gh run list --workflow=build-opencv.yml --status=success `
-                            --limit 20 --json databaseId,createdAt `
-                        | ConvertFrom-Json |
-                        Where-Object {
-                            $arts = & gh api "repos/:owner/:repo/actions/runs/$($_.databaseId)/artifacts" `
-                                        --jq '.artifacts[].name' 2>$null
-                            $arts -contains $ArtifactName
-                        })
-        $runId = if ($candidates.Count -gt 0) { $candidates[0].databaseId } else { $null }
+        <#
+            **artifact を名前で 1 回引く。** 以前はここで成功した実行を 20 件
+            列挙し、**その 1 件ずつに artifact を問い合わせていた**——1 回の
+            restore で最大 21 回の API 呼び出しになる。
+
+            3 platform × 複数 workflow を同時に走らせると、これが積み上がって
+            レート制限に当たる。実測（2026-08-29、v0.1.1 のリリース時）:
+
+                error fetching artifacts: HTTP 403: API rate limit exceeded
+                for installation
+
+            **失敗したのは成果物でもコードでもなく、探し方だった。** artifact の
+            一覧は名前で絞り込めるので、1 回で済む。expired かどうかも同じ
+            応答に入っているので、失効を「見つからない」と混同せずに言える。
+        #>
+        $encodedName = [uri]::EscapeDataString($ArtifactName)
+        $found = Invoke-GhWithRetry -What "look up artifact '$ArtifactName'" -Script {
+            & gh api "repos/:owner/:repo/actions/artifacts?name=$encodedName&per_page=100" `
+                 --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | reverse | .[0] | .workflow_run.id'
+        }
+
+        $runId = if ($found -and $found -ne 'null') { $found.Trim() } else { $null }
 
         if (-not $runId) {
             Write-RestoreFailure (@(
@@ -254,6 +298,7 @@ function Invoke-Restore {
                 '  1. この構成でまだ一度もビルドしていない'
                 '  2. artifact が失効した（GitHub Actions の保持上限は 90 日）'
                 '  3. gh が認証されていない（`gh auth status` で確認）'
+                '  4. API のレート制限に当たった（同時に多くの workflow を走らせた）'
                 ''
                 '1 と 2 のどちらでも、対処は build ワークフローの再実行です:'
                 '  gh workflow run build-opencv.yml'

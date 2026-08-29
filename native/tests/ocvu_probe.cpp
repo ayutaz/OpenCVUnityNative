@@ -37,9 +37,24 @@ int main(int argc, char** argv) {
     }
 
     if (std::strcmp(mode, "use-after-free") == 0) {
+        /*
+         * **この use-after-free は意図的である。消してはならない。**
+         *
+         * ASan レーンが本当に use-after-free を検出することを実証するための
+         * プローブで、CMake が harness.use_after_free_is_detected として
+         * expect-failure テストに登録している。ここが「正しい」コードに
+         * なった瞬間、そのテストは緑のまま何も検証しなくなる——検査が
+         * 静かに無力化される、このリポジトリが繰り返し踏んでいる形である。
+         *
+         * CodeQL は当然これを critical として報告する（cpp/use-after-free）。
+         * 報告は正しい。**正しい報告に対して、意図的であることを明示する。**
+         * 黙って抑制すると、次に読む人が「なぜ critical が出ないのか」を
+         * 調べ直すことになる。
+         */
         int* p = new int[16];
         p[0] = 7;
         delete[] p;
+        // codeql[cpp/use-after-free] 意図的。ASan が検出することを確かめるプローブである。
         volatile int observed = p[0];  // ASan: heap-use-after-free
         std::printf("observed %d\n", static_cast<int>(observed));
         return 0;

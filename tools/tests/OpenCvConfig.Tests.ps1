@@ -387,6 +387,36 @@ foreach ($sh in @(& git ls-files '*.sh')) {
     Assert-That ($bad.Count -eq 0) `
         "$sh has no prose comment that shellcheck would read as a directive"
 }
+
+# --- restore を呼ぶ job には OpenCV のキャッシュを置く ---
+#
+# `opencv.ps1 restore` は木が既に在れば download を丸ごと省く。キャッシュが
+# 無いと、その job が走るたびに artifact を探す API 呼び出しが発生する。
+#
+# **多数の workflow を同時に走らせるとレート制限に当たり、成果物にもコードにも
+# 問題が無いのに CI が全部赤くなる。** 実測（2026-08-29）: Dependabot の PR
+# 9 件と v0.1.0 のリリースが同時に落ちた。原因はどれも
+# `API rate limit exceeded for installation` だった。
+#
+# **workflow を足すときに一緒に足すのを忘れる**——実際、codeql / nightly を
+# 追加したときと、ci-unity を書き換えたときの計 3 回忘れた。目で追うと漏れる
+# ので機械に見させる。
+$workflowDir = Join-Path $repoRoot '.github/workflows'
+foreach ($wf in Get-ChildItem -LiteralPath $workflowDir -Filter '*.yml' -File) {
+    $text = Get-Content -LiteralPath $wf.FullName -Raw
+    if ($text -notmatch 'opencv\.ps1 restore') { continue }
+
+    Assert-That ($text -match 'actions/cache@') `
+        "$($wf.Name) calls opencv.ps1 restore and caches the OpenCV tree"
+
+    # キャッシュの path が構成ハッシュを含むこと。ハッシュを含めないと、
+    # 構成を変えたときに古い木が再利用されて「新しい設定でビルドしたつもりが
+    # 古い成果物」になる。
+    if ($text -match 'actions/cache@') {
+        Assert-That ($text -match 'third_party/opencv/\$\{\{\s*steps\.[A-Za-z0-9_-]+\.outputs\.config-hash') `
+            "$($wf.Name) keys the OpenCV cache on the configuration hash"
+    }
+}
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
