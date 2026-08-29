@@ -1,0 +1,35 @@
+# action の版を追いかける。
+#
+# **なぜ要るか。** workflow は `actions/checkout@v4` のように可変タグで固定して
+# いる。タグは動くので、上流が壊れた版を出したときにこちらは何も変えていない
+# のに壊れる。逆に、修正が出ても気づかない。
+#
+# Dependabot に PR を出させれば、変更が差分として見え、CI が判定してから入る。
+# **「いつの間にか変わっていた」を「見て分かる変更」に変える**のが目的である。
+#
+# NuGet も見る。L3 は xUnit と .NET SDK に載っており、そこが古いまま気づかない
+# のは native 側の固定を丁寧にやっている意味を薄める。
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+
+  - package-ecosystem: nuget
+    directory: /tests/Managed
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "test"
+    labels:
+      - dependencies

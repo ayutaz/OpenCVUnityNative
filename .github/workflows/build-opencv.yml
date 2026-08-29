@@ -14,6 +14,12 @@ concurrency:
   group: build-opencv-${{ github.ref }}
   cancel-in-progress: false
 
+# 既定の権限は広い。artifact の公開に要るのは書き込みだけで、
+# それ以外は読み取りで足りる。**必要な分だけ渡す。**
+permissions:
+  contents: read
+  actions: write   # artifact の公開に要る
+
 jobs:
   build:
     name: OpenCV 5.0.0 ${{ matrix.platform }}
