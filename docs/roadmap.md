@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | native backend 実装言語 | **C++** | [言語評価](./native-backend-language-tdd-evaluation.md) §1。sanitizer が安定版ツールチェーンで使える、`opencv` crate の unstable 表明と `Mat` 共有可変性の警告を回避、iOS / Web のツールチェーン鎖が短い |
 | UPM package ID | **`com.ayutaz.opencv-unity-native`** | 個人リポジトリとして公開 |
-| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.0.82f1 の 1 版だけ** | 検証マトリクスを最小化。IL2CPP / .NET Standard 2.1 前提で単純化。**ただし 6000.0 LTS は 2026-10 に通常サポートが終わるので、M3.5 で 6.3 LTS へ載せ替える**（差別化の穴 #4。日付の詳細は M3.5 の完了条件） |
+| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.3.16f1 の 1 版だけ**（M3.5 で 6000.0.82f1 から載せ替えた） | 検証マトリクスを最小化。IL2CPP / .NET Standard 2.1 前提で単純化。**6000.0 LTS の通常サポートが 2026-10 に終わるための載せ替えである**（差別化の穴 #4。日付の詳細は M3.5 の完了条件）。`package.json` の `unity` も `6000.3` を宣言する。**版が 1 つしかないこと自体は変わっていない** |
 | OpenCV 入手 | **allowlist 構成で 1 回ビルドしキャッシュ**（ビルドは CI が担当） | 計画書 §8.3 の依存方針を最初から満たす。開発ループでは artifact の download のみ |
 | CI/CD | **GitHub Actions を全面的に活用** | public OSS リポジトリのため GitHub-hosted runner が無償。重い検証はすべて CI に寄せる |
 | ライセンス | Apache-2.0 | 計画書 §8 |
@@ -41,6 +41,9 @@
 nightly は「誰も push していない間に壊れること」だけを見る。
 実測時間も想定より速い（`CLAUDE.md` の開発コマンド表を参照。ローカル Windows で
 EditMode 約 27 秒、IL2CPP Player 約 54 秒。いずれもキャッシュが温まった状態）。
+**ただしこの 2 つは Unity 6000.0.82f1・EditMode 10 件のときの値で、M3.5 で
+6000.3.16f1・EditMode 15 件になった後は取り直していない**（通ることは実測した ——
+下の M3.5 節の判定表）。
 
 ### CI/CD 戦略
 
@@ -69,7 +72,7 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | 3 platform の UPM tarball と manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。その前に `workflow_dispatch` の空撃ちを 1 回している（run 33156465235、3 platform とも success、publish は tag でないため skip） | M3 |
+| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | **全部入りの UPM tarball（配る正）** と platform ごとの tarball 3 本、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。staging は **17 件**（3 platform × 5 + 全部入り tarball 1 + その `checksums.txt` 1）を数え、全部入りが名前で並んでいることも見る。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**この M3.5 の配線はまだ 1 度も実行していない**（下記は M3 時点の実績）。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。その前に `workflow_dispatch` の空撃ちを 1 回している（run 33156465235、3 platform とも success、publish は tag でないため skip） | M3 |
 | `ci-lint.yml` | push(main) / PR / 手動 | actionlint / shellcheck / PSScriptAnalyzer / 文書の相対リンク検査の 4 job。**静的に読めば分かる誤りを、CI を 1 周（10〜20 分）回して確かめていた**のを埋める | M3 後 |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C# の静的解析。sanitizer が「実際に踏んだ経路」を見るのに対し、CodeQL は経路を実行せずに探すので**重なっていない** | M3 後 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**schedule での実行実績はまだ無い**（下記） | M3 後 |
@@ -463,8 +466,9 @@ trigger 条件のような変わらない事実に置くこと。
 
 3. **Release asset 名の衝突。** `package-release.ps1` は 3 platform とも同じ
    名前（`checksums.txt` 等）で出すので、そのまま `gh release create` に
-   渡すと衝突する。platform 名を頭に付け、staging 後に 15 件
-   （3 platform × 5 ファイル）を数えて確かめる形にした。
+   渡すと衝突する。platform 名を頭に付け、staging 後に件数を数えて確かめる形にした
+   （当時は 15 件 = 3 platform × 5 ファイル。**M3.5 で全部入りの tarball とその
+   `checksums.txt` が加わり 17 件になった**）。
 
 ### 条件ごとの根拠
 
@@ -703,8 +707,9 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 [競合調査](./unity-opencv-integration-research-and-plan.md) §4.6 にある。
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
-本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` の
-9 本に留まる —— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
+本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
+`imgcodecs` の 11 本に留まる（M3.5 で `imgcodecs` の 2 本が加わった。公開 ABI 全体は
+18 → 20 本）—— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
 商用（OpenCV for Unity 3.0.3 / OpenCV 4.13.0）も OSS（neon-izm 版 / OpenCV 4.11）も
 4.x 系のままである。
 
@@ -718,10 +723,10 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 | # | 穴 | なぜ差別化に効くか | 担当 |
 | --- | --- | --- | --- |
-| 1 | **1 つの package に 1 platform 分の binary しか入らない** | Unity は同じ package ID を 1 つしか導入できない。「エディタは Windows、実機は Android」が表現できない | **M3.5** |
-| 2 | 画像を encode / decode できない | 比較した競合はいずれも画像の入出力を持つ（そちらはファイル経路まで含む）。モジュールはリンク済みで、足りないのは ABI 関数だけ | **M3.5**（M5 から前倒し） |
-| 3 | OpenUPM に載っていない | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **M3.5** |
-| 4 | 検証している Unity が 1 版だけ | **その 1 版（6000.0 LTS）の通常サポートが 2026-10 に終わる**（有償階層の延長は別。M3.5 の完了条件を参照） | **M3.5** |
+| 1 | ~~**1 つの package に 1 platform 分の binary しか入らない**~~ **M3.5 で解消** | Unity は同じ package ID を 1 つしか導入できない。「エディタは Windows、実機は Android」が表現できなかった | **M3.5 完了**。全部入り tarball（`com.ayutaz.opencv-unity-native.tgz`）が配る正になり、Desktop 3 platform が同居した状態で `test-unity-tarball` が 15 passed |
+| 2 | ~~画像を encode / decode できない~~ **M3.5 で解消** | 比較した競合はいずれも画像の入出力を持つ（そちらはファイル経路まで含む）。**ここに「モジュールはリンク済みで、足りないのは ABI 関数だけ」と書いていたのは誤りで、実際は `imgcodecs` をリンクしていなかった**（下記 M5 節） | **M3.5 完了**（M5 から前倒し）。component を足し、`ocvu_imencode` / `ocvu_imdecode` を出した |
+| 3 | OpenUPM に載っていない | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **M3.5（(c) が未了）**。(a) 版番号なしの asset 名と (b) 容量の検査は済んだ。**残るのは登録申請だけで、それは新しい asset 名を含む Release を公開した後になる**（[登録の準備](./openupm-registration.md)） |
+| 4 | 検証している Unity が 1 版だけ | **M3.5 でその 1 版を 6000.0.82f1 → 6000.3.16f1 に載せ替えた**（6000.0 LTS の通常サポートが 2026-10 に終わるため。6.3 LTS は 2027-12 まで）。**版が 1 つしかないこと自体は変わっていない** | **M3.5 完了**（載せ替えのみ。複数版の検証は担当なし） |
 | 5 | カメラ映像を受け取れない | Unity で OpenCV を使う最大の用途。今は `Texture2D` の RGBA32 のみ | **M4** |
 | 6 | macOS で Unity に読み込ませたことがない | iOS のビルドに macOS runner が要るので、M4 で自然に埋まる | **M4** |
 | 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった。動く根拠も動かない根拠も持っていない** | **M4** |
@@ -733,14 +738,16 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **これは機能の不足ではなく、配布の形が現実を表現できていないという欠陥である。**
 
-Unity の package は 1 つの ID につき 1 つしか導入できない。本案は
-`release.yml` が platform ごとに別の tarball を作っており、利用者はそのうち 1 つを選ぶ。
-**そのため「エディタは Windows、ビルド対象は Android」という、モバイル開発で常態の
-構成が、そもそも表現できない。**
+Unity の package は 1 つの ID につき 1 つしか導入できない。**M3.5 の前は**
+`release.yml` が platform ごとに別の tarball を作るだけで、利用者はそのうち 1 つを
+選ぶしかなかった。**そのため「エディタは Windows、ビルド対象は Android」という、
+モバイル開発で常態の構成が、そもそも表現できなかった。**
 
-**M4 の完了条件をすべて満たしても、その成果物を利用者に渡せない。** 実機で smoke test が
-通る Android の `.so` を作れても、それを Windows のエディタと同じ package に入れられ
-ないからである。したがって #1 は M4 の装飾ではなく**前提条件**であり、M4 の前に置く。
+当時の判断: **M4 の完了条件をすべて満たしても、その成果物を利用者に渡せない。** 実機で
+smoke test が通る Android の `.so` を作れても、それを Windows のエディタと同じ package に
+入れられないからである。したがって #1 は M4 の装飾ではなく**前提条件**であり、M4 の前に
+置いた。**M3.5 でこの前提は解けた** —— 全部入り tarball が配る正になり、M4 に残るのは
+その中へ mobile の binary を足すことだけである（M4 の完了条件を参照）。
 
 **Desktop だけを見ていた間は表面化しなかった。** Windows の利用者が Windows 向けに
 ビルドする限り、必要な binary は 1 つで足りたためである。
@@ -753,7 +760,10 @@ Unity の package は 1 つの ID につき 1 つしか導入できない。本�
 
 なお `Runtime/Plugins/` の中は既に platform ごとのディレクトリに分かれている
 （`x86_64/` / `macOS/` / `Linux/x86_64/`）。**変えるのは固め方だけで、
-package の構造ではない。**
+package の構造ではない。** **この見立ては当たった** —— M3.5 が足したのは
+`tools/assemble-plugins.ps1`（3 つの木を 1 つに重ねる）と
+`tools/pack-upm-tarball.ps1 -AllPlatforms` だけで、`Runtime/Plugins/` の構造は
+変えていない。
 
 ### サンプルと文書について
 
@@ -796,10 +806,13 @@ package の構造ではない。**
   (b) 全部入り tarball が **512 MB 未満**であることを検査する、
   (c) 登録申請を出す。
 
-  **(b) は今は必ず通る回帰ガードである。** 現状の配布物は上限まで大きく余裕があり
-  （実測値と内訳は[競合調査](./unity-opencv-integration-research-and-plan.md) §4.6）、
-  **壊して落ちるところを見られるのは profile を足す段階（M7）になってから**である。
-  満たしたことを実証の記録として数えない。
+  **(b) は今は必ず通る回帰ガードである。** 現状の配布物は上限まで大きく余裕がある
+  （実測値と内訳は[競合調査](./unity-opencv-integration-research-and-plan.md) §4.6）。
+  **起草時は「壊して落ちるところを見られるのは profile を足す段階（M7）になってから」
+  と書いたが、それは外れた** —— 上限を `pack-upm-tarball.ps1` の `-MaxBytes` 引数に
+  したので、小さい値を渡せば今日そのまま落とせる（`tools/tests/PackageRelease.Tests.ps1`
+  が `-MaxBytes 1000` で実際に落としている）。**検査の閾値を定数ではなく引数にすると、
+  その検査が働くところを見られる。**
   **公開が成立するかは OpenUPM 側の受理によるので、この条件には含めない** ——
   他のすべての条件が自リポジトリで判定できるのに対し、ここだけが第三者に依存する
 - **`imgcodecs` を C ABI に出す。** 中核は**メモリ上の byte 列を相手にする経路**
@@ -814,6 +827,57 @@ package の構造ではない。**
 **非ゴール**
 モバイル platform の追加（M4）。カメラ入力（M4）。新しい画像処理関数。
 Asset Store での配布。
+
+**実測による完了判定（2026-08-30、`milestone-complete` skill の手順で照合）**
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 1 | 全 platform の binary を 1 つに収めた tarball を `release.yml` が作る | **満たす（留保あり）**。`tools/assemble-plugins.ps1` と `pack-upm-tarball.ps1 -AllPlatforms` はローカルで実測（3 binary が同梱されていることを、作った archive の中を数えて確認）。**`release.yml` 側の配線は未実行** —— tag も `workflow_dispatch` も走らせていない |
+| 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 15 passed`（2026-08-30、このマシン）。**このレーンはどの workflow にも入っていない**（ローカル専用。M3 から変わっていない） |
+| 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たす（留保あり）**。`PluginGatingTests`（EditMode 5 件）が `PluginImporter` に `.meta` の解釈を問う。**実測したのは Windows（ローカル）だけで、Linux は `ci-unity.yml` が同じ検査を走らせるがこのブランチはまだ CI を通していない。macOS は依然として未実測**（下記） |
+| 4 | OpenUPM へ登録できる形にする | **(a)(b) は満たす、(c) は未了**。(a) asset 名から版番号を落とした（`com.ayutaz.opencv-unity-native.tgz`）。(b) `pack-upm-tarball.ps1 -MaxBytes`（既定 512 MB）が上限を見る —— 全部入りの実測は 8.4 MB。(c) 登録申請は、新しい asset 名を含む Release を公開した後になる（[登録の準備](./openupm-registration.md)。**OpenUPM 側の受理はこの条件に含めない**） |
+| 5 | `imgcodecs` を C ABI に出す（メモリ上の byte 列） | **満たす**。`ocvu_imencode` / `ocvu_imdecode`（公開 ABI 18 → 20 本、allowlist は 9 → 11 本）。L1 8 ケース / L3 8 ケース、C# は `CvCodecs`。**着手して初めて `imgcodecs` がリンクされていなかったことが分かった**（下記） |
+| 6 | Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る | **満たす**。`6000.3.16f1` で L4 が 15 passed、L5（IL2CPP Player）が 10 passed（2026-08-30、このマシン）。`package.json` の `unity` も `6000.3` にした。**L5 は最初に落ちた** —— 6.3 のエディタに IL2CPP モジュールが無く `Currently selected scripting backend (IL2CPP) is not installed` で Player のビルドが止まったので、Hub の CLI で入れてから通した |
+
+**したがって M3.5 は 6 件中 5 件である。** 残るのは条件 4 の (c)（OpenUPM 登録申請）で、
+**公開済みの Release が要るので PR の中では閉じない。**
+
+**このブランチはまだ CI を 1 度も通していない。** M3 で「ローカルでは緑だった欠陥が
+CI で 3 件出た」ことを記録した以上、上の判定はすべて**ローカル実測**であり、
+merge 可否の判定ではない。
+
+**条件 3 で、鈍い検査を 2 つ捕まえた。** どちらも「通っているから効いている」が
+成り立たない例である。
+
+- **壊しても素通りしていた。** macOS の `.dylib` の `.meta` を Windows でも有効になるよう
+  壊すと、**従来の EditMode（10 件）は 10 passed のまま緑だった。** 同じ壊し方で
+  `PluginGatingTests` は 15 件中 3 件が落ちる。**同居させただけでは取り違えを見つけられず、
+  「どう振り分けられたか」を Unity 自身に問うて初めて見える。**
+- **`PluginImporter.GetCompatibleWithEditor()` は 3 つとも `true` を返す。** `.meta` は
+  3 platform いずれもエディタを有効にしたうえで OS の下位設定で振り分けるので、
+  **この flag だけを読む検査は常に真になり、何も検査しない。** 見るべきは
+  `GetEditorData("OS")` である。
+
+**`imgcodecs` は「入っている」と「リンクしている」を取り違えていた。** M3.5 の前、
+このリポジトリは複数箇所で「モジュールはリンク済み」と書いていたが、**それは誤りで、
+`cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` しか要求していなかった。**
+実装を書いた時点で `cv::imencode` / `cv::imdecode` が未解決の外部シンボル（LNK2019）に
+なり、リンカが証拠を出した。**誤解しやすい形だった** —— `tools/opencv-config.psd1` の
+`Modules` には `imgcodecs` が入っており（= **OpenCV 自体はそれを含めてビルドされる**）、
+`ocvu_get_build_information()` も `To be built: ... imgcodecs ...` と報告する。
+**「OpenCV に入っている」と「このプラグインがリンクしている」は別である。**
+component を足しただけでは何も変わらず（静的リンクは参照された object しか引かない）、
+Windows の debug plugin が 8,831,488 → 10,177,536 バイト（+1.35 MB）に増えたのは
+**関数を書いたからである。**
+
+**ABI はファイルパスを受け取らない。** 扱うのはメモリ上の byte 列だけで、
+理由は Windows の文字コードの扱いと、**Android の `StreamingAssets` が APK の中にあって
+パスで開けない**ことである。したがって**「画像ファイルの読み書き」ではない** ——
+ファイルを開くのは呼ぶ側の仕事のままである。`ocvu_imencode` は
+**出力の大きさを呼ぶ側が事前に知りえない最初の ABI 関数**だが、native が確保した blob の
+handle は導入せず、既存の 2 回呼びの形（`OCVU_STATUS_BUFFER_TOO_SMALL` +
+`out_required_size`）に載せた。**bytes は最初から最後まで呼ぶ側の所有で、
+buffer が足りないときは何も書かない。**
 
 ---
 
@@ -848,11 +912,15 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
   （穴 #7）。やると決めるか諦めると決めるかは問わないが、**上流の issue を読んだ
   結果を根拠にしない** —— 今回崩れた判断がたどったのがその経路である
 - **対応 CPU アーキテクチャの範囲を決める**（穴 #8）。少なくとも Android の
-  x86_64（エミュレータ）を含めるかは、開発体験に直接効くので明示的に決める
+  x86_64（エミュレータ）を含めるかは、開発体験に直接効くので明示的に決める。
+  **M3.5 の 6.3 載せ替えで、Unity 自身が最低要件を上げた** —— Android の minSdk が
+  23 → 25、iOS の target が 13.0 → 15.0（`tests/UnityProject/ProjectSettings/ProjectSettings.asset`
+  の差分）。この決定はその上で行う
 - **モバイルの binary が全部入り package に入り、`dev.ps1 test-unity-tarball` が
   通る。** M3.5 が作るのは Desktop 3 platform 分なので、**platform を足す作業は
-  ここに残る**（`tools/pack-upm-tarball.ps1` は未知の platform を明示的に拒むので、
-  黙って抜けることはない）。**このレーンが示せるのは「入っていること」と「他を
+  ここに残る**（`tools/pack-upm-tarball.ps1` と `tools/assemble-plugins.ps1` の**両方**が
+  未知の platform を明示的に拒むので、黙って抜けることはない —— **裏を返すと、
+  platform を足すときは 2 か所を直すことになる**）。**このレーンが示せるのは「入っていること」と「他を
   壊さないこと」までで、モバイルの binary が動くことは示せない** —— それは同じ M4 の
   実機 smoke test の担当である。ここまで通って初めて「エディタは Windows、実機は
   Android」が利用者の手元で成立する
@@ -877,11 +945,15 @@ binding specification から C ABI 宣言 / C# P/Invoke / API 対応表 / confor
 
 - spec を正本として生成物が作られ、golden test で一致が検証される
 - `geometry` / `calib` / `features` / `objdetect` などを**利用例に基づいて**追加する
-- **`imgcodecs` は M3.5 へ移した**（2026-08-29）。2026-08-29 に一度ここへ入れたが、
-  同じ日の再調査で前倒しに変えている。**生成の仕組みを待つ理由が無かった** ——
-  モジュールはリンク済み、notice も揃っており、足りないのは手で書く数本の ABI 関数
-  だけで、それは今ある 9 本と同じ書き方で足せる。M5 で扱うのは、そこで手書きした
-  関数を spec の側へ寄せることである
+- **`imgcodecs` は M3.5 へ移し、そこで実装した**（2026-08-30 完了）。2026-08-29 に
+  一度ここへ入れたが、同じ日の再調査で前倒しに変えている。**生成の仕組みを待つ理由が
+  無かった** —— notice は揃っており、足りないのは手で書く数本の ABI 関数だけで、
+  それは既存の関数と同じ書き方で足せた。**ただし前倒しの理由として「モジュールは
+  リンク済み」と書いていたのは誤りである** —— `cmake/FindOpenCvUnityDeps.cmake` は
+  `core imgproc` しか要求しておらず、`imgcodecs` はプラグインにリンクされていなかった
+  （M3.5 節を参照）。M3.5 で component を足し、`ocvu_imencode` / `ocvu_imdecode` を
+  書いた（公開 ABI は 20 本、うち allowlist は 11 本）。**M5 で扱うのは、そこで
+  手書きした関数を spec の側へ寄せることである**
 - API 対応表を生成し、「OpenCV 全対応」という曖昧な表現を使わない
 - 生成された P/Invoke が IL2CPP stripping を生き延びることを L5 で確認する
 
@@ -928,11 +1000,13 @@ DNN / contrib / 動画 codec / videoio が opt-in profile として追加でき�
 **低コピー経路の実測もここが担当である**（穴 #9）。掲げている主張を支える実測が
 まだ無い、という穴である。
 
-**`imgcodecs` はここに含まれない。** 標準ビルドに既に入っており（`Modules`）、
-bundle される zlib / libpng / libjpeg-turbo の notice も揃っているので、
-opt-in profile として足すものではない。**残っているのは C ABI に出すことだけ**で、
-それは M3.5 の担当である。ここで扱う「codec」は動画のそれ（FFmpeg / GStreamer を
-引き込む videoio 系）を指す。
+**`imgcodecs` はここに含まれない。** **OpenCV 側の**標準ビルドに既に入っており
+（`Modules`）、bundle される zlib / libpng / libjpeg-turbo の notice も揃っているので、
+opt-in profile として足すものではない。**M3.5 で完了した** ——
+`cmake/FindOpenCvUnityDeps.cmake` に component を足してリンクし
+（**「残っているのは C ABI に出すことだけ」と書いていたが、リンクも残っていた**。
+M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここで扱う「codec」は
+動画のそれ（FFmpeg / GStreamer を引き込む videoio 系）を指す。
 
 **完了条件**
 
@@ -942,7 +1016,7 @@ opt-in profile として足すものではない。**残っているのは C ABI
 
 ---
 
-## 担当が無かった制約（2026-08-29 に全件割り当て）
+## 担当が無かった制約（2026-08-29 に全件割り当て、うち 1 件は M3.5 で解消）
 
 **M0〜M3 を完了し v0.1.1 を配ったあとで「できないこと」を数え直したときに見つかった
 3 件。** どれも留保として本文には書かれていたが、**解消する担当がどこにも無かった。**
@@ -953,26 +1027,32 @@ opt-in profile として足すものではない。**残っているのは C ABI
 **「本文に書いてあるのに誰の担当でもない」状態が実際に起きたこと**のほうが、次に
 同じことを防ぐうえで役に立つ記録だからである。
 
-### 画像の encode / decode（当初は「画像ファイルの読み書き」と書いた）→ M3.5
+### 画像の encode / decode（当初は「画像ファイルの読み書き」と書いた）→ M3.5 で解消
 
-**「バイナリには入っているが、呼ぶ関数が無く、誰の担当でもない」状態だった。**
-`imgcodecs` は標準ビルドに入っていて notice も揃っているのに、M5 の完了条件は
+**「呼ぶ関数が無く、誰の担当でもない」状態だった。** なお当初ここには「バイナリには
+入っているが」と書いていたが、**それは誤りである** —— `imgcodecs` が入っていたのは
+OpenCV 側のビルドツリーで、こちらのプラグインは `core imgproc` しかリンクして
+いなかった（M3.5 で実装に着手し、リンカの未解決シンボルとして判明した。M3.5 節を参照）。
+`imgcodecs` は **OpenCV 側の**標準ビルドに入っていて notice も揃っているのに、
+M5 の完了条件は
 `geometry` / `calib` / `features` / `objdetect` を名指しして `imgcodecs` を挙げず、
 M7 の「codec」は**まだ入っていないものを profile として足す**話だった。両方の枠の
 外に落ちていた。
 
 いったん M5 の完了条件に加え、同じ日の再調査（上記「差別化の穴」#2）で **M3.5 へ
 前倒しした。** 生成の仕組みを待つ理由が無く、比較した競合はすべて持っている機能で
-あるためである。
+あるためである。**M3.5 で実装した**（`ocvu_imencode` / `ocvu_imdecode`、C# は
+`CvCodecs`。L1 8 ケース / L3 8 ケース）。
 
 **あわせて、この節に書いていた評価を 1 つ訂正する。** ここには「実用上いちばん
 大きい欠落であり、このパッケージ単体では何も入出力できない」と書いていたが、
 **Unity の利用者にとっては言い過ぎだった。** Unity 自身が PNG / JPEG の読み書きを
 持つので、`ファイル → Texture2D → CvMat` の経路は**今日すでに成立する**。
 効いてくるのは、メインスレッド以外で読みたいときと、Unity が扱わない形式のときである
-（**M3.5 が足すのはメモリ上の byte 列を相手にする経路**なので、ファイルを開くのは
-引き続き呼ぶ側の仕事である）。**「無いと何もできない」ではなく「あると楽になる」**
-—— 前倒しの判断自体は変えないが、理由を実態に合わせる。
+（**M3.5 が足したのはメモリ上の byte 列を相手にする経路**で、ABI はファイルパスを
+受け取らない。ファイルを開くのは引き続き呼ぶ側の仕事である）。
+**「無いと何もできない」ではなく「あると楽になる」** —— 前倒しの判断自体は
+変えないが、理由を実態に合わせる。
 
 ### Windows の IL2CPP Player を CI で回す → M4 で結論を出す
 
@@ -1042,16 +1122,24 @@ Unity を起動しない。
 macOS 上で Unity を動かすことになる。**「ついでに埋まる」に任せず M4 の完了条件に
 書いた**のは、まさにこの節が生まれた理由がそれだからである。
 
+**M3.5 でこの穴の重みが上がった。** 全部入りの tarball が配る正になったので、
+**利用者が受け取る 1 つの package の中に、Unity に一度も読ませたことのない macOS の
+binary と `.meta` が同居する。** Windows と Linux の利用者もそれを一緒に導入する。
+M3.5 が足した `PluginGatingTests` は Windows と Linux でしか走らないので、
+そこも埋まらない —— **緩んだのではなく、締まった。**
+
 ---
 
 ## マイルストーン間の依存
 
 ```text
 M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 Desktop 配布
+（完了）          （完了）             （完了）              （完了 / v0.1.1）
                                                               |
                                                               v
                                                      M3.5 配布の形と最小の穴
-                                              （全部入り package / OpenUPM / 画像入出力）
+                        （全部入り package / OpenUPM / 画像入出力 / Unity 6.3 LTS）
+                              （6 件中 5 件。OpenUPM の登録申請だけが残る）
                                                               |
                                                               v
                                                           M4 Mobile

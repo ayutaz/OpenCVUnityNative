@@ -10,6 +10,13 @@
 # int32_t を返す関数（ocvu_get_abi_version、ocvu_get_status_count）は
 # OCVU_TRY_END の return と型が合わないので構造的に対象外。
 #
+# **シグネチャは `extern "C" ocvu_status ocvu_名前(` までを 1 物理行に置くこと。**
+# 下の awk はこの形の正規表現で関数を認識する。戻り値と名前の間で折り返すと
+# 関数だと認識できないので、折り返した形（ocvu_status を返す extern "C" の行に
+# "(" が無い）は「認識できません」として別に指摘する。黙って素通しにすると、
+# 出力が「囲われている」場合と区別できず、通ったことが証拠にならなくなる。
+# 引数側の改行は問題ない。ヘッダの宣言も対象外（見ているのは .cpp の定義だけ）。
+#
 # 除外:
 #   - ocvu_get_last_error_status / ocvu_get_last_error_message
 #     OCVU_TRY_BEGIN は clear_last_error() を呼ぶ。エラーを報告するために
@@ -38,6 +45,10 @@ command -v jq >/dev/null 2>&1 || exit 0
 file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_response.filePath // empty' 2>/dev/null) || exit 0
 [ -n "$file" ] || exit 0
 
+# この正規表現は native の前に区切り文字を要求する（third_party/.../native/src/ を
+# 拾わないため）。したがって**相対パスで手動実行すると黙って素通しになる。**
+# 本番の tool_input.file_path は絶対パスなので実害は無いが、hook を手で試すときは
+# 絶対パスで渡すこと —— 相対パスで「何も出なかった」は合格の証拠にならない。
 printf '%s' "$file" | grep -qE '[/\\]native[/\\]src[/\\].+\.(cpp|cc|cxx)$' || exit 0
 [ -f "$file" ] || exit 0
 
@@ -49,6 +60,16 @@ unguarded=$(awk '
     /extern[ \t]+"C"/ {
         if (pending != "" && !guarded) print pendingLine ": " pending
         pending = ""; guarded = 0
+    }
+
+    # 折り返したシグネチャを黙って見逃さない。ocvu_status を返す extern "C" の
+    # 行に "(" が無ければ、戻り値と関数名・"(" が別の行にあるということで、
+    # 下の正規表現はこれを関数だと認識しない。認識しないことは「囲われている」と
+    # 出力が区別できないので、認識できなかったこと自体を指摘する。
+    /extern[ \t]+"C"[ \t]+ocvu_status/ && !/\(/ {
+        if (optout > 0 && NR - optout <= 10) next
+        print NR ": シグネチャが折り返されていて認識できません"
+        next
     }
 
     /extern[ \t]+"C"[ \t]+ocvu_status[ \t]+ocvu_[A-Za-z0-9_]*[ \t]*\(/ {
@@ -95,6 +116,12 @@ status code と thread-local last-error に変換します（native/src/ocvu_err
 と理由を書いてください。囲まない条件は「throw し得ない実装であること」です。
 エラー報告関数（ocvu_get_last_error_status / ocvu_get_last_error_message）は
 囲うと報告すべきエラーを自分で消すため、最初から除外されています。
+
+「シグネチャが折り返されていて認識できません」と出た行は、extern \"C\" ocvu_status と
+関数名・\`(\` が別の行にある形です。この hook は関数だと認識できないので、囲ってあるか
+どうかを判定できません。**囲ってあっても指摘します** —— 黙って素通しにすると、出力が
+「囲われている」場合と区別できないためです。\`(\` までを 1 物理行に戻してください
+（引数側の改行は問題ありません）。
 
 確認: pwsh tools/dev.ps1 test-native")
 
