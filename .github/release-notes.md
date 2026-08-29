@@ -9,7 +9,7 @@ OpenCV 5.0.0 を Unity 6000.x 向けに、独自の C ABI と C# API で提供�
 // Packages/manifest.json
 {
   "dependencies": {
-    "com.ayutaz.opencv-unity-native": "file:../ThirdParty/com.ayutaz.opencv-unity-native-0.1.0-windows-x64.tgz"
+    "com.ayutaz.opencv-unity-native": "file:../ThirdParty/com.ayutaz.opencv-unity-native-<version>-windows-x64.tgz"
   }
 }
 ```

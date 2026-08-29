@@ -26,9 +26,13 @@ Windows, macOS and Linux first, then Android and iOS, then Web/Wasm. Unity 6000.
 
 Releases live at
 [github.com/ayutaz/OpenCVUnityNative/releases](https://github.com/ayutaz/OpenCVUnityNative/releases).
-The current version is **v0.1.0** — desktop only, and deliberately small: `Mat`
-lifecycle plus `cvtColor` / `resize` / `GaussianBlur`. Mobile and Web are not
-supported yet.
+Desktop only, and deliberately small: `Mat` lifecycle plus `cvtColor` / `resize` /
+`GaussianBlur`. Mobile and Web are not supported yet.
+
+**On Linux, use v0.1.1 or later.** The Linux plugin in v0.1.0 was built against
+glibc 2.38 and fails to load on anything older — Ubuntu 22.04 included — with
+`DllNotFoundException`. Since v0.1.1 the Linux artifacts are built in an Ubuntu
+22.04 container and require only glibc 2.34.
 
 Each release carries one UPM tarball per platform:
 
@@ -45,7 +49,7 @@ beside your project, and point the package manifest at it:
 // Packages/manifest.json
 {
   "dependencies": {
-    "com.ayutaz.opencv-unity-native": "file:../ThirdParty/com.ayutaz.opencv-unity-native-0.1.0-windows-x64.tgz"
+    "com.ayutaz.opencv-unity-native": "file:../ThirdParty/com.ayutaz.opencv-unity-native-<version>-windows-x64.tgz"
   }
 }
 ```
