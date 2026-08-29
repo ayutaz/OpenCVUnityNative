@@ -116,6 +116,29 @@ jobs:
           "image=unityci/editor:ubuntu-$version-${{ matrix.imageFlavour }}-3" >> $env:GITHUB_OUTPUT
           Write-Host "==> Unity $version / ubuntu-$version-${{ matrix.imageFlavour }}-3"
 
+      # **OpenCV をホスト側でキャッシュする。** ビルドはコンテナの中で
+      # 行うが、ワークスペースは mount されているので、ホストに展開して
+      # おけばコンテナからそのまま見える。restore は木が既に在れば
+      # download を丸ごと省く。
+      #
+      # これが無いと、この job が走るたびに artifact を探す API 呼び出しが
+      # 発生する。**多数の workflow を同時に走らせるとレート制限に当たり、
+      # 成果物にもコードにも問題が無いのに CI が全部赤くなる**（実測、
+      # 2026-08-29。Dependabot の PR 9 件と v0.1.1 のリリースが同時に落ちた）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'linux-x64')
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
       # OpenCV の取得と native plugin のビルドは、**Unity が動くコンテナと
       # 同じ世代**で行う。runner（ubuntu-24.04, glibc 2.39）で作った .so は
       # game-ci のコンテナでは読み込めず、v0.1.0 で実際に
