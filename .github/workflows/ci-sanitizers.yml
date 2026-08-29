@@ -114,6 +114,42 @@ jobs:
       - uses: actions/checkout@v7
       - name: Set up the build container
         run: bash ./tools/ci/setup-linux-container.sh
+
+      # **OpenCV は毎回 API から取らない。** restore は木が既に在れば
+      # download を丸ごと省く（Invoke-Restore の先頭で検証して return する）。
+      #
+      # キャッシュが無いと、この job が走るたびに artifact を探す API 呼び出しが
+      # 発生する。**多数の workflow を同時に走らせるとレート制限に当たり、
+      # 成果物にもコードにも問題が無いのに CI が全部赤くなる**（実測、
+      # 2026-08-29。Dependabot の PR 9 件と v0.1.1 のリリースが同時に落ちた）。
+      #
+      # その対策で他の workflow には入れたのに、**必須チェックであるこの job には
+      # 入れ忘れていた。** 検査（tools/tests/OpenCvConfig.Tests.ps1）が workflow
+      # 単位で「cache が 1 つでもあるか」しか見ておらず、asan-windows job の分で
+      # 通っていたためである。
+      #
+      # **位置は「コンテナの用意」より後でなければならない。** この step は
+      # pwsh で走るが、その pwsh を入れるのは setup-linux-container.sh である。
+      # ワークスペースはコンテナに mount されているので、ここで展開した木は
+      # そのままビルドから見える。
+      #
+      # -Platform を渡さないのは、この job が対象 platform の上で走っている
+      # からである（Get-OpenCvPlatform が $IsLinux と OSArchitecture から
+      # linux-x64 と判定する。コンテナが ubuntu:22.04 でも判定は変わらない）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
       - name: Restore OpenCV
         shell: pwsh
         env:
@@ -126,3 +162,14 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1
         run: ./tools/dev.ps1 test-asan
+
+      # **落ちたときに読めることが目的なので if: always() を付ける。**
+      # リーク検出はこのレーンだけが担うので、ここが落ちたときの結果 XML が
+      # 残らないと、何が漏れたのかを後から読む手段が無くなる。
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-asan-linux
+          path: artifacts/test-results/
+          if-no-files-found: warn

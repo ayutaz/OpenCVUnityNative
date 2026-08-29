@@ -1,5 +1,13 @@
 # M0: 自動 TDD ハーネス Implementation Plan
 
+> **状態: 実施済みの計画である。** 2026-08-25 に PR #1（`bb1b9b3`）として main へ入った。
+> 完了条件は [docs/roadmap.md](../../roadmap.md) の M0 節にあり、リポジトリは M0 を完了
+> として扱っている（`CLAUDE.md` 冒頭）。
+>
+> **本文のチェックボックス 52 個は 1 つも更新していない。** 実施当時に印を付けなかった
+> だけで、未着手という意味ではない。**この計画書を進捗の記録として読まないこと。**
+> 何がどこまで成立しているかは roadmap の完了条件を見ること。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** OpenCV を一切含まない最小 C ABI に対して、L1（native 契約テスト）・L2（ASan）・L3（素の .NET での P/Invoke 検証）が単一コマンドと GitHub Actions の両方で回り、クラッシュ・ハング・メモリ破壊が人手を介さず赤く落ちる状態を作る。

@@ -35,6 +35,13 @@
 | L4 | Unity EditMode (Mono) | 1〜3 分 | pre-merge | M2 |
 | L5 | Unity IL2CPP Player | 5〜20 分 | nightly / release | M2 |
 
+**L4 / L5 の「実行頻度」は起草時の想定で、実装は違う。** どちらも
+`ci-unity.yml` が push(main) / PR / 手動で毎回走らせる（Linux）。
+`nightly.yml` に Unity レーンは入っていない —— 重いレーンは PR で回るので、
+nightly は「誰も push していない間に壊れること」だけを見る。
+実測時間も想定より速い（`CLAUDE.md` の開発コマンド表を参照。ローカル Windows で
+EditMode 約 27 秒、IL2CPP Player 約 54 秒。いずれもキャッシュが温まった状態）。
+
 ### CI/CD 戦略
 
 public OSS リポジトリのため GitHub-hosted runner を無償で使える。これを前提に、**ローカルループと CI の役割を明確に分離する**。
@@ -55,14 +62,43 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 
 | ワークフロー | トリガー | 内容 | 導入 |
 | --- | --- | --- | --- |
-| `ci-native.yml` | push / PR | L1 + L3、通常ビルド | M0 |
-| `ci-sanitizers.yml` | push / PR | ASan / UBSan レーン | M0 |
+| `ci-native.yml` | push(main) / PR / 手動 | L1 + L3、通常ビルド | M0 |
+| `ci-sanitizers.yml` | push(main) / PR / 手動 | ASan / UBSan レーン | M0 |
 | `build-opencv.yml` | 手動 + 構成変更時 | allowlist 構成の OpenCV をビルドし artifact 公開 | M1 |
-| `ci-unity.yml` | PR / nightly | Unity EditMode (L4) + IL2CPP Player (L5) | M2 |
+| `ci-unity.yml` | push(main) / PR / 手動 | Unity EditMode (L4) + IL2CPP Player (L5)。**起草時は「PR / nightly」と書いていたが、実装は nightly ではない。** ubuntu で走る（game-ci の Windows イメージが `windows-2022` と噛み合わないため）ので、CI の L5 は Linux の IL2CPP Player である | M2 |
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | 3 platform の UPM tarball と manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**M3 完了時に `workflow_dispatch` で 1 回実行済み**（run 33156465235、3 platform とも success、publish は tag でないため skip）。**tag を打った実績はまだ無い** | M3 |
+| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | 3 platform の UPM tarball と manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。その前に `workflow_dispatch` の空撃ちを 1 回している（run 33156465235、3 platform とも success、publish は tag でないため skip） | M3 |
+| `ci-lint.yml` | push(main) / PR / 手動 | actionlint / shellcheck / PSScriptAnalyzer / 文書の相対リンク検査の 4 job。**静的に読めば分かる誤りを、CI を 1 周（10〜20 分）回して確かめていた**のを埋める | M3 後 |
+| `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C# の静的解析。sanitizer が「実際に踏んだ経路」を見るのに対し、CodeQL は経路を実行せずに探すので**重なっていない** | M3 後 |
+| `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**schedule での実行実績はまだ無い**（下記） | M3 後 |
+
+**M3 の後に足したもの**（マイルストーンの完了条件ではなく、CI/CD の監査で出た穴を塞ぐもの）
+
+- `ci-lint.yml` / `codeql.yml` / `nightly.yml` の 3 workflow（上表）
+- `.github/codeql/codeql-config.yml` の `query-filters` — P/Invoke していること自体への 2 規則（`cs/unmanaged-code` / `cs/call-to-unmanaged-code`）を外す。**このパッケージは native を P/Invoke で呼ぶために存在する**ので、この 2 規則の指摘は 1 件残らず設計どおりであり、ABI 関数を 1 本足すたびに増える。実測（2026-08-29）で open 107 件のうち 84 件がこれで、**その陰にこちらのコードに対する本物が 4 件埋もれていた**。埋もれた指摘は無いのと同じである。4 件の現在の扱いは `CLAUDE.md` のワークフロー節にある
+- `.github/dependabot.yml` — `actions/*` と `tests/Managed` の NuGet を週 1 で追う。可変タグで固定しているので、**上流が変われば何もしていないのに壊れる**。その変化を差分として見える形にする
+- `SECURITY.md` / `CONTRIBUTING.md` — OSS として欠けていた。前者は非公開の脆弱性報告先とこの境界で何が範囲内か、後者は貢献の手順と**CI が見ないもの**を明示する
+
+**`nightly.yml` は schedule でまだ 1 度も走っていない。** 手動起動が 2 回あるだけで、
+1 回目（run 33230097557、2026-08-29 02:54Z）は 4 job 中 3 job が
+`API rate limit exceeded for installation` で失敗し、原因を直したあとの
+2 回目（run 33233610215、同 04:21Z）が 4 job とも success だった
+（上表のとおり 3 job 定義に対して実行は 4 件になる。数え方が違うだけで、
+どちらの数字も同じ run のものである）。
+**「workflow ファイルが存在する」は「CI で実行された」ではない** ——
+M2 の条件 7 をその基準で未達と判定した以上、こちらにも同じ基準を当てる。
+cron の経路そのものが動いたことは、まだ確かめられていない。
+
+**上の表は「何が走るか」だけを書いている。「何が merge を止めるか」は
+ここには書かない。** 走ることと止めることは別で、しかも止める側は GitHub の
+branch protection の設定であってこのリポジトリのファイルではない。
+**必須チェックと、その補集合（赤くても merge できるレーン）の記載場所は
+`CLAUDE.md` の「機構として強制されていること」ただ 1 箇所**で、正本はさらに
+その先の GitHub 側の設定である（同節に読み出しコマンドがある）。ここに
+同じ事実を書き足すと、必須を 1 本増やしただけで両方が同時に古くなる。
+**CI が「見ている」ことと「止める」ことは別である。**
 
 **CI が満たすべき制約**（ハーネスと同じ理由で、これらは M0 で確立する）
 
@@ -70,6 +106,19 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 - すべてのジョブに `timeout-minutes` を設定する。ハングしたジョブが枠を占有しない
 - テスト結果を機械可読形式（JUnit XML）で artifact 化し、失敗時に読める状態にする
 - 依存は hash / tag で固定し、`actions/*` も含めてバージョンを明示する
+
+**これらは M0 で確立したが、後から足した job には自動では伝わらなかった。**
+M3 で追加した `ci-native` の macOS / Linux job と `ci-sanitizers` の linux-asan job は、
+**テスト結果の artifact 化（3 つ目の制約）を持たないまま走っていた** ——
+Windows job には最初から在ったので、workflow のファイルを見るかぎり満たして
+いるように読めた。M3 の後にこれを埋め（後から足した `nightly.yml` の速いレーンにも
+同じものが無かったので、そちらも埋めた）、あわせて
+`tools/tests/OpenCvConfig.Tests.ps1` の workflow 検査を **job 単位**に直した
+（ファイル単位では「同じ workflow の別の job が満たしている」で通ってしまう）。
+検査は「upload step が在るか」ではなく **`if: always()` が付いているか**まで見る
+——付いていなければ成功時しか上がらず、目的（落ちたときに何が落ちたのかを読む）を
+ちょうど果たさない形で緑になる。**制約を文書に書くことと、それが全 job に
+掛かっていることは別である。**
 
 ---
 
@@ -292,7 +341,8 @@ ubuntu-24.04（glibc 2.39）でビルドした `.so` が GLIBC_2.38 を要求し
 知らなかった。「3 platform でビルドできた」と「3 platform で動く」を
 取り違えていた。
 
-直したものは M3 節の「配布」に書いた。要点は 2 つ:
+直したものと、直した版（v0.1.1）を出し直すまでは M3 節の
+「配布 その 2」に書いた。要点は 2 つ:
 
 - Linux のビルドを `ubuntu:22.04` のコンテナに移した（要求は 2.38 → 2.34 に
   下がった）。コンテナ名は構成ハッシュに入るので、環境が変われば artifact も
@@ -460,16 +510,27 @@ trigger 条件のような変わらない事実に置くこと。
   `.meta` だけで実体が入らない。完了条件は「または」なので満たすが、
   **Git URL では導入できない**ことは利用者向けに明記する必要がある。
 
-  **配布そのもの（tag を打って Release を作る）はまだ行っていない。**
-  ただし `release.yml` は `workflow_dispatch` で 1 回空撃ちしてある
+  **配布そのもの（tag を打って Release を作る）は、この判定の後に行った**
+  ——下の「配布 その 1 / その 2」の節にある。判定の時点では `release.yml` を
+  `workflow_dispatch` で 1 回空撃ちしただけだった
   （run 33156465235、2026-08-28。3 platform とも package job が success、
-  publish は tag でないため skip）。成果物を実際に落として確かめた:
+  publish は tag でないため skip）。その成果物を実際に落として確かめた:
 
-  | platform | tarball の中身 | 構成ハッシュ |
+  | platform | tarball の中身 | 構成ハッシュ（この run 時点） |
   | --- | --- | --- |
   | windows-x64 | `x86_64/opencv_unity_native.dll` + `.meta` | `4785d98e9aad` |
   | macos-arm64 | `macOS/libopencv_unity_native.dylib` + `.meta` | `1ccdc7f9ab94` |
   | linux-x64 | `Linux/x86_64/libopencv_unity_native.so` + `.meta` | `c4e3c491d973` |
+
+  **linux-x64 のハッシュはその後 `a5ecba918754` に変わった。** 上の値は
+  run 33156465235（コンテナ化する前）の記録であって、現行の値ではない。
+  M2 の条件 7 で Linux のビルドを `ubuntu:22.04` のコンテナへ移し、
+  コンテナ名を構成ハッシュに入れたためである（ビルド環境が変われば成果物も
+  別物なので、同じハッシュのまま古い artifact が再利用されては困る）。
+  Windows / macOS の 2 つは変わっていない。現行の値は
+  `./tools/opencv.ps1 status` か
+  `Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform linux-x64)` で読める
+  ——**ここに書いた値を現行として読まないこと。**
 
   **各 tarball は自分の platform の binary と `.meta` だけを持ち、他 platform の
   ものが混入していない。** `.meta` を package の外へ移した変更が CI 上でも
@@ -527,7 +588,7 @@ trigger 条件のような変わらない事実に置くこと。
   コピーして `dev.ps1 test-unity-editmode` を実行——exit 0、10/10 pass で
   **サンプルが実際にコンパイルを通ることを確認した**。
 
-### 配布（2026-08-28 に v0.1.0 を公開）
+### 配布 その 1 — v0.1.0（2026-08-28）
 
 完了条件を満たしたあと、実際に配るところまで進めた。**配布は M3 の完了条件
 ではない**（条件 2 が求めるのは「導入できる UPM パッケージ」で、公開の実行
@@ -584,6 +645,50 @@ trigger 条件のような変わらない事実に置くこと。
 **`release.yml` は下書きを作る。** 公開は人が Release ページで押す。tag を
 打っただけでは外から見えない。中身が違っていたときに、誰かの手に渡る前に
 捨てられる状態を保つためである。
+
+### 配布 その 2 — v0.1.1（2026-08-29、最新）
+
+**この段取りをすり抜けたものが 1 つあった。** v0.1.0 の Linux tarball は
+Ubuntu 22.04 で読み込めない。空撃ち・下書き・公開の 3 段階はどれも
+「作れたか」「中身が想定どおりか」を見ていて、**「読み込めるか」は誰も
+見ていなかった**。M2 の条件 7 で CI が Unity を動かして初めて分かった
+（詳しくは M2 節「この作業が暴いたもの」）。
+
+直したうえで **v0.1.1 として出し直した**。要点は 3 つ:
+
+- Linux のビルドを `ubuntu:22.04` のコンテナへ移した。要求は
+  **GLIBC 2.38 → 2.34** に下がった。runner のイメージは GitHub の都合で
+  上がっていくので、runner を固定するだけでは同じ問題を数年後に繰り返す
+- **コンテナ名を構成ハッシュに入れた。** ビルド環境が変われば成果物も別物
+  なので、同じハッシュのまま古い artifact が再利用されては困る
+  （linux-x64: `c4e3c491d973` → `a5ecba918754`。Windows / macOS は不変）
+- `tools/verify-plugin-portability.ps1` が、要求する GLIBC / GLIBCXX の上限を
+  **ビルドの時点で**見る。`readelf` に頼らず ELF を直接読むので Windows の
+  開発機でも動く
+
+**中身を差し替えず、新しい版として出した。** 一度配ったものを黙って
+差し替えると、同じ版名で違う物が世の中に 2 つ存在することになる。代わりに
+**v0.1.0 のリリースノートの冒頭に「この版の Linux 版は動かない」と明記し、
+v0.1.1 へ誘導する**形にした（Windows / macOS はこの版でも問題ないことも
+書いてある）。既に v0.1.0 を取った人に届く場所は、そこしかない。
+
+公開後の実測（2026-08-29、公開済み asset を利用者と同じ手順で落として検証）:
+
+- Release の asset は 16 件（3 platform × 5 + `SHA256SUMS.txt`）。
+  `SHA256SUMS.txt` は残る 15 件を覆う
+- 落とした Linux tarball は `sha256sum -c` で `OK`
+- その中の `libopencv_unity_native.so` に
+  `tools/verify-plugin-portability.ps1` を掛けて
+  `GLIBC<=2.34, GLIBCXX<=3.4.29`（上限 2.35 / 3.4.30）、exit 0。
+  **配った物そのものに対する測定である**——CI のビルド成果物ではない
+
+**ただし、この検査が `release.yml` の中で走るようになったのは v0.1.1 の
+後である。** それまで `verify-plugin-portability.ps1` が走るのは
+`ci-unity.yml` と `nightly.yml` だけで、**tag を打ったときには走らなかった**。
+v0.1.1 の Linux binary が上限に収まっているのは、Linux のビルドが
+コンテナに固定されている構造の帰結であって、配る経路が検査した結果では
+なかった。「構造で防げているから検査は要らない」は v0.1.0 が否定した論法
+そのものなので、`release.yml` にも掛けるようにした。
 
 ---
 

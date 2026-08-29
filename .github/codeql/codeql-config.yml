@@ -16,11 +16,34 @@
 # **paths / paths-ignore は C# には効くが、C++ には効かない。** CodeQL の
 # C++ 解析は「実際にコンパイルされたもの」からデータベースを作るので、
 # ここで除外してもコンパイルされていれば入る（実測: build/ を書いても
-# GoogleTest の指摘 5 件が消えなかった）。
+# GoogleTest の指摘 5 件が消えなかった）。公式文書も同じことを書いている——
+# paths / paths-ignore が効くのは interpreted な言語か、ビルドせずに解析する
+# 場合だけで、C++ を実際にビルドして解析するここは対象外である。
 #
 # **C++ 側は「何をビルドするか」で絞る。** codeql.yml は配布する
 # opencv_unity_native だけをビルドする——テストをビルドすると
 # FetchContent が落としてくる GoogleTest が一緒に入るためである。
+#
+# ## それでも残る third_party の指摘（2026-08-29 時点で 19 件）
+#
+# opencv_unity_native をビルドすれば OpenCV のヘッダはコンパイルされるので、
+# 上の 2 つの手では消えない（cpp/rule-of-two 7 件・cpp/commented-out-code 7 件・
+# cpp/array-in-interface 5 件。すべて third_party/opencv/<hash>/include 配下）。
+#
+# **「system include にすれば消える」は成り立たない。** OpenCV は imported
+# target として取り込んでおり、CMake は imported target の
+# INTERFACE_INCLUDE_DIRECTORIES を既定で system 扱いにする（NO_SYSTEM_FROM_IMPORTED
+# を立てたときだけ普通の -I に落ちることまで実測で確かめた）。つまり
+# **すでに system include として渡っているのに指摘は出ている**ので、
+# CMake 側に足せば直る 1 行は存在しない。
+#
+# 下の query-filters で cpp/rule-of-two ごと消すこともできるが、**それは
+# native/src の自分のコードに対する同じ指摘まで消す。** rule-of-two が指す形は
+# 所有権を持つ型のコピー操作が半分だけ書かれている状態で、M3 で踏んだ handle
+# table の use-after-free と地続きである。上流の雑音を片付けるために、この層で
+# 一番効く検査を捨てることになるので採らない。19 件は個別に dismiss（won't fix）
+# してある——**これは恒久策ではない。** OpenCV の構成ハッシュが変われば
+# パスが変わり、同じ 19 件が新しい alert として open で出てくる。
 #
 # 依存そのものの脆弱性を追うのは CodeQL の仕事ではない——それは OpenCV の
 # 固定版と `tools/verify-opencv-artifact.ps1` の allowlist、そして
@@ -42,3 +65,41 @@ paths-ignore:
   - tests/UnityProject/Library
   - tests/UnityProject/Temp
   - tests/UnityProject/Logs
+
+# P/Invoke していること自体への指摘を外す。
+#
+# `cs/unmanaged-code` と `cs/call-to-unmanaged-code` は「アンマネージドコードを
+# 呼んでいる」と言っているだけである。**このパッケージは native を P/Invoke で
+# 呼ぶために存在する**ので、この 2 規則の指摘は 1 件残らず設計どおりであり、
+# しかも ABI 関数を 1 本足すたびに増え続ける。2026-08-29 実測で、open していた
+# 107 件のうち 84 件がこの 2 規則だった。
+#
+# 外さないと何が起きるかも同じ実測で出ている。その 107 件の中に、**こちらの
+# コードに対する本物の指摘が 4 件**埋もれていた（cs/dispose-not-called-on-throw
+# 2 件、cs/useless-assignment-to-local 1 件、cs/path-combine 1 件）。設計どおりの
+# 84 件が並んだ一覧は上から読んでも終わらないので、この 4 件には行き着かない。
+# 冒頭に書いたのと同じ理由——**埋もれた指摘は無いのと同じ**——で外す。
+#
+# 外すのは「呼んでいる」への指摘だけで、「呼び方が壊れている」を見る規則
+# （バッファ長、文字列のマーシャリング、Dispose の取りこぼし）は残す。危険なのは
+# そちらであって、P/Invoke している事実ではない。
+#
+# 書式は公式文書のものをそのまま写している（推測で書かない）: 1 つの
+# `- exclude:` に 1 つの `id:`。`id:` はリストも `/…/` で囲んだ正規表現も取れるが、
+# 1 行 1 規則にしておくと「なぜこれを外したか」を後から 1 件ずつ足し引きできる。
+#
+# **ここでの綴り間違いは誰も止めてくれない。** codeql-action が持つ設定の
+# JSON schema は query-filters の要素に「何でも通る」分岐を持っているので、
+# `exclude` を `excludes` と書いても、1 つの要素に exclude と include を両方
+# 書いても、schema 検証は通ってしまう（実測。schema を取ってきて手元で当てた）。
+# つまり**書き間違えても CI は緑のままで、指摘だけが黙って出続ける**。効いたか
+# どうかは Security タブの件数を数えるしかない。
+#
+# **並び順に意味がある。** 最初のフィルタが `exclude` のとき「他は全部含める」が
+# 既定になる。ここへ `include` を先頭に足すと、**書いた覚えのない規則まで
+# まとめて消える**。規則を足すときは必ずこの `exclude` の後ろに置くこと。
+query-filters:
+  - exclude:
+      id: cs/unmanaged-code
+  - exclude:
+      id: cs/call-to-unmanaged-code

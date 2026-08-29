@@ -121,6 +121,53 @@ jobs:
           $root = Get-OpenCvRoot -Config (Get-OpenCvConfig)
           ./tools/verify-artifact-linkage.ps1 -Root $root
 
+      # **配る物を作る経路にも、移植性の検査を掛ける。**
+      #
+      # この検査は v0.1.0 の欠陥そのものに対応して作られた——ubuntu-24.04 で
+      # 作った .so が GLIBC_2.38 を要求し、Ubuntu 22.04 では
+      # DllNotFoundException になった。ビルドも linkage 検証も配布物生成も
+      # 通っていたので、Unity を実際に動かすまで誰も知らなかった。
+      #
+      # ところがその検査が走るのは ci-unity.yml と nightly.yml だけで、
+      # ci-unity.yml の trigger は pull_request と push:main である。
+      # **tag を打ったときには走らない。** つまり実際に配る binary には
+      # 1 度も掛かっていなかった。今は Linux のビルドを ubuntu:22.04 の
+      # コンテナに移したので構造的には防げているが、「構造で防げているから
+      # 検査は要らない」は v0.1.0 が否定した論法そのものである。
+      #
+      # **linux-x64 でだけ意味がある。** 見るのは Linux の .so で、他の
+      # platform の job には存在しない。script は対象が無ければ exit 1 で
+      # 落ちる（「対象が無い」を「違反なし」と読まない作り）ので、
+      # 3 platform 全部で無条件に呼ぶと Windows / macOS が必ず赤くなる。
+      #
+      # if: で step ごと落とさず、platform を明示的に振り分けているのは、
+      # **platform を足したときに黙って素通りさせないため**である。if の
+      # 条件に載らない新しい platform は「検査されずに配られる」ではなく
+      # 「else に落ちて失敗する」——足した人が、検査するかしないかを
+      # 決めるまで進めない。
+      - name: Verify the plugin's portability
+        shell: pwsh
+        run: |
+          # 日本語を出すので明示する。既定の ANSI コードページ（runner は
+          # cp1252）で書き出されると、失敗したときのメッセージが読めなくなる。
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+          $platform = '${{ matrix.platform }}'
+          if ($platform -eq 'linux-x64') {
+              ./tools/verify-plugin-portability.ps1
+              # exit $LASTEXITCODE ではなく exit 1 にしてある。script が
+              # $LASTEXITCODE を残さずに終わった場合、前者は $null を渡して
+              # 0 で抜ける——つまり「確かめていない」が緑になる。
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+          } elseif ($platform -in @('windows-x64', 'macos-arm64')) {
+              # 走らなかったことをログに残す。灰色の skip と違い、
+              # 「意図して外した」ことが後から読んで分かる。
+              Write-Host "==> skipped on ${platform} (検査対象は Linux の .so だけ)"
+          } else {
+              Write-Error "unknown platform '${platform}': portability を検査するかどうかが決まっていない。tools/verify-plugin-portability.ps1 を掛けるか、ここに明示的な除外を足すこと。"
+              exit 1
+          }
+
       - name: Build the release bundle
         shell: pwsh
         run: ./tools/package-release.ps1 -OutputDir release-out

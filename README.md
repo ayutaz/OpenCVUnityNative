@@ -96,9 +96,20 @@ to every consumer.
 ### How releases are made
 
 Tagging `v*` builds all three platforms, verifies the linkage of what was built,
-packages it, and creates a **draft** release. A human looks at what was produced and
-publishes it. A tag alone does not make a release visible — that is deliberate, so a
-release that is wrong can be discarded before anyone has it.
+checks that the Linux library does not require a newer glibc or libstdc++ than the
+oldest environment we support, packages it, and creates a **draft** release. That
+last check reads the version records inside the built `.so`; it does not load the
+library, so it is a statement about what the binary asks of its host, not proof that
+it runs there. A human looks at what was produced and publishes it. A tag alone does
+not make a release visible — that is deliberate, so a release that is wrong can be
+discarded before anyone has it.
+
+That portability check now runs on the release path as well, which it did not
+before. It was written in response to the v0.1.0 defect, yet it only ran in the
+Unity and nightly lanes, neither of which a tag triggers — so it had never been
+applied to a binary anyone actually downloaded. Building Linux inside a pinned container prevents
+the problem structurally, but "the structure prevents it, so the check is redundant"
+is precisely the reasoning v0.1.0 disproved.
 
 ## Requirements
 
@@ -171,6 +182,27 @@ image. A shared library only loads on a system at least as new as the one that b
 it, and runner images keep moving forward. Building in a pinned container keeps the
 floor where we intend it (glibc 2.35), and `tools/verify-plugin-portability.ps1`
 fails the build if what came out requires anything newer.
+
+Beyond the table, every pull request also runs `actionlint`, `shellcheck`,
+`PSScriptAnalyzer` and a repository-relative link check, and CodeQL analyses the C++
+and C#. A nightly workflow re-checks the Linux artifact's glibc floor, runs the fast
+lanes on Windows and macOS, and confirms the pinned OpenCV artifacts have not
+expired — things that break while nobody is pushing. **The nightly workflow has not
+yet run on its schedule**; it has only been started by hand, once unsuccessfully
+(API rate limits) and once green.
+
+**Not every lane blocks a merge.** The required checks are the five contract,
+P/Invoke and sanitizer jobs across the three platforms. The Unity, lint and CodeQL
+workflows run on every pull request but are not required, so they can be red and the
+change still merges. CI watching something and CI stopping something are different
+things.
+
+## Contributing and security
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how a change gets in, what a change needs, and
+  what CI does **not** check.
+- [SECURITY.md](SECURITY.md) — how to report a vulnerability privately, and what is
+  in scope at this boundary.
 
 ## License
 

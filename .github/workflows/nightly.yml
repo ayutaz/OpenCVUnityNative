@@ -159,6 +159,27 @@ jobs:
         shell: pwsh
         run: ./tools/dev.ps1 test
 
+      # **落ちたときに読めることが目的なので if: always() を付ける。**
+      # 成功時だけ upload しても、失敗の中身は読めないままである
+      # （M0 の完了条件「テスト結果を機械可読な形式で artifact 化し、
+      # 失敗時に読める状態にする」）。
+      #
+      # nightly は「誰も何も変えていないのに runner イメージの更新で
+      # 壊れた」ことに気づくためのレーンなので、落ちた朝に結果 XML が
+      # 残っていないと原因に辿り着くまでが 1 段遠くなる。
+      #
+      # **artifact 名は matrix.runner で分ける。** matrix.name
+      # （`Windows x64` / `macOS arm64`）には空白が入る。名前を分けないと
+      # 2 つの job が同じ artifact 名を取り合って上書きになる
+      # （M3 で Release asset 名の衝突として実際に踏んだ形と同じ）。
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-nightly-${{ matrix.runner }}
+          path: artifacts/test-results/
+          if-no-files-found: warn
+
   # **OpenCV artifact がまだ取得できるか。** GitHub の artifact には保持期限が
   # あり、切れると `opencv.ps1 restore` が失敗して全レーンが止まる。切れる前に
   # 気づきたい——「ある朝、誰も何も変えていないのに CI が全部赤い」を避ける。
