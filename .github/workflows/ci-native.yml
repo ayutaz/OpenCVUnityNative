@@ -117,6 +117,37 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Install Ninja
         run: brew install ninja
+
+      # **OpenCV は毎回 API から取らない。** restore は木が既に在れば
+      # download を丸ごと省く（Invoke-Restore の先頭で検証して return する）。
+      #
+      # キャッシュが無いと、この job が走るたびに artifact を探す API 呼び出しが
+      # 発生する。**多数の workflow を同時に走らせるとレート制限に当たり、
+      # 成果物にもコードにも問題が無いのに CI が全部赤くなる**（実測、
+      # 2026-08-29。Dependabot の PR 9 件と v0.1.1 のリリースが同時に落ちた）。
+      #
+      # その対策で codeql / nightly / ci-unity / release には入れたのに、
+      # **必須チェックであるこの job には入れ忘れていた。** 検査
+      # （tools/tests/OpenCvConfig.Tests.ps1）が workflow 単位で「cache が
+      # 1 つでもあるか」しか見ておらず、windows job の分で通っていたためである。
+      #
+      # -Platform を渡さないのは、この job が対象 platform の上で走っている
+      # からである（Get-OpenCvPlatform が $IsMacOS と OSArchitecture から
+      # macos-arm64 と判定する）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
       - name: Restore OpenCV
         shell: pwsh
         env:
@@ -134,6 +165,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tools/dev.ps1 test-tools-slow
+
+      # **落ちたときに読めることが目的なので if: always() を付ける。**
+      # 成功時だけ上げても意味が無い（M0 の完了条件「テスト結果を機械可読な
+      # 形式で artifact 化し、失敗時に読める状態にする」）。windows job には
+      # 最初から在ったが、M3 で足したこの job には無かった。
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-macos
+          path: artifacts/test-results/
+          if-no-files-found: warn
 
   linux:
     name: Linux x64 (L1 + L3)
@@ -168,6 +211,37 @@ jobs:
       - name: Set up the build container
         run: bash ./tools/ci/setup-linux-container.sh
       # .NET と Ninja は setup-linux-container.sh が入れる。
+
+      # **OpenCV は毎回 API から取らない。** restore は木が既に在れば
+      # download を丸ごと省く（Invoke-Restore の先頭で検証して return する）。
+      #
+      # キャッシュが無いと、この job が走るたびに artifact を探す API 呼び出しが
+      # 発生する。**多数の workflow を同時に走らせるとレート制限に当たり、
+      # 成果物にもコードにも問題が無いのに CI が全部赤くなる**（実測、
+      # 2026-08-29。Dependabot の PR 9 件と v0.1.1 のリリースが同時に落ちた）。
+      #
+      # **位置は「コンテナの用意」より後でなければならない。** この step は
+      # pwsh で走るが、その pwsh を入れるのは setup-linux-container.sh である。
+      # ワークスペースはコンテナに mount されているので、ここで展開した木は
+      # そのままビルドから見える（nightly.yml の同じ job と同じ形）。
+      #
+      # -Platform を渡さないのは、この job が対象 platform の上で走っている
+      # からである（Get-OpenCvPlatform が $IsLinux と OSArchitecture から
+      # linux-x64 と判定する。コンテナが ubuntu:22.04 でも判定は変わらない）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
       - name: Restore OpenCV
         shell: pwsh
         env:
@@ -185,3 +259,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./tools/dev.ps1 test-tools-slow
+
+      # **落ちたときに読めることが目的なので if: always() を付ける。**
+      # 成功時だけ上げても意味が無い（M0 の完了条件「テスト結果を機械可読な
+      # 形式で artifact 化し、失敗時に読める状態にする」）。windows job には
+      # 最初から在ったが、M3 で足したこの job には無かった。
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-linux
+          path: artifacts/test-results/
+          if-no-files-found: warn

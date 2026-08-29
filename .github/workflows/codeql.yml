@@ -85,7 +85,18 @@ jobs:
       # 発生する。**多数の workflow を同時に走らせるとレート制限に当たり、
       # 成果物にもコードにも問題が無いのに CI が全部赤くなる**（実測、
       # 2026-08-29。Dependabot の PR 9 件と v0.1.1 のリリースが同時に落ちた）。
+      #
+      # **この 2 step は c-cpp の leg だけで走らせる。** 条件は下の
+      # `Restore OpenCV` と揃っていなければならない。csharp の leg は
+      # OpenCV を一度も開かないので、揃っていないと 2 つの形で害が出る:
+      # cache hit のときは **使わない 91 MB 前後の Linux ツリーを download
+      # して展開する**し、cache miss のときは post step が
+      # `Path Validation Error: Path(s) specified in the action for caching
+      # do(es) not exist` を出して何も保存しない。後者が厄介で、
+      # **「なぜ cache が温まらないのか」を調べる人が偽の手がかりを掴む**
+      # ——実際には c-cpp 側の cache は正しく効いている。
       - name: Resolve OpenCV config hash
+        if: matrix.language == 'c-cpp'
         id: opencv-config
         shell: pwsh
         run: |
@@ -94,6 +105,7 @@ jobs:
           "config-hash=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Cache OpenCV
+        if: matrix.language == 'c-cpp'
         uses: actions/cache@v6
         with:
           path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}

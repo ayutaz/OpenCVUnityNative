@@ -14,7 +14,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **この作業が公開済み v0.1.0 の欠陥を暴いた。** ubuntu-24.04 でビルドした Linux の `.so` が GLIBC_2.38 を要求しており、それより古い環境では `DllNotFoundException` になっていた。ビルドも linkage 検証も配布物生成も通っていたので、**Unity を実際に動かすまで誰も知らなかった**。Linux のビルドを `ubuntu:22.04` コンテナへ移して 2.34 に下げ、`tools/verify-plugin-portability.ps1` がビルド時点で上限を見るようにした。判定の詳細は `docs/roadmap.md` の M2 / M3 節にある。
 
-**M3（Desktop 3 platform と配布の再現性）は、6 件の完了条件をすべて満たした。ただし配布の最後の一歩——tag を打って Release を作ること——はまだ踏んでいない。** 3 platform（Windows / macOS / Linux）で native plugin がビルドされ、L1 / L3 と `test-tools-slow` が CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されている。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認済み。
+**M3（Desktop 3 platform と配布の再現性）は、6 件の完了条件をすべて満たし、配布まで踏んだ。** 3 platform（Windows / macOS / Linux）で native plugin がビルドされ、L1 / L3 と `test-tools-slow` が CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されている。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認済み。
+
+**配った実績は 2 つある: v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）。** どちらも tag から `release.yml` が 3 platform 分を作り、`--draft` で下書きにしてから人が公開している。v0.1.1 は上に書いた Linux の欠陥を直した版で、**中身を差し替えず新しい版として出した** — 一度配ったものを黙って差し替えると、同じ版名で違う物が世の中に 2 つ存在することになる。asset は 16 件（3 platform × 5 + `SHA256SUMS.txt`）。**公開された物を落として実測した（2026-08-29、このマシン）**: Linux の tarball は `SHA256SUMS.txt` と一致し、中の `libopencv_unity_native.so` は `GLIBC<=2.34, GLIBCXX<=3.4.29`（上限 2.35 / 3.4.30）だった。
 
 **PR #8 を CI に通したことで、ローカルでは緑だった欠陥が 3 件出た。** これは記録に値する: M3 を「書いたコードを CI に通すだけ」と見なしていたら、そのまま配っていた。
 
@@ -22,7 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. **配布 tarball が UPM で導入できない。** package ID のディレクトリごと固めていたため、UPM が展開後の root に `package.json` を見つけられない。tag を打っていたら 3 platform 分の壊れた tarball を配っていた。`tools/pack-upm-tarball.ps1` に集約し、npm と同じく `package/` の下に入れる形にした。
 3. **Release asset 名の衝突。** 3 platform が同じ `checksums.txt` 等を出すので、そのまま渡すと上書きされる。platform 名を頭に付け、15 件（3 × 5）を数えて確かめる。
 
-**留保が 2 つある。** (a) macOS / Linux の Plugin Import Settings（`.meta`）は、その platform の binary が置かれた状態で Unity に読ませたことがない（CI の macOS / Linux job は plugin をビルドするが Unity を起動しない）。形式は Unity 自身が生成した Windows 分に合わせてあるが実測ではない。(b) **Git URL では導入できない** — native plugin の binary は `.gitignore` で追跡から外してあるので、Git URL で参照した利用者に届くのは `.meta` だけで実体が入らない。完了条件は「Git URL **または** tarball」なので満たすが、利用者向けに明記が要る。判定の詳細は `docs/roadmap.md` の M3 節にある。
+**留保が 2 つある。** (a) **macOS の** Plugin Import Settings（`.meta`）は、その platform の binary が置かれた状態で Unity に読ませたことがない（CI の macOS job は plugin をビルドするが Unity を起動しない）。形式は Unity 自身が生成した Windows 分に合わせてあるが実測ではない。**Linux 分は実測に変わった**——M2 の条件 7 で `ci-unity.yml` が Linux の Unity を動かすようになり、`libopencv_unity_native.so` とその `.meta` が実際に読み込まれて EditMode / IL2CPP Player の両方で通った。(b) **Git URL では導入できない** — native plugin の binary は `.gitignore` で追跡から外してあるので、Git URL で参照した利用者に届くのは `.meta` だけで実体が入らない。完了条件は「Git URL **または** tarball」なので満たすが、利用者向けに明記が要る（`README.md` の "Why not a Git URL" とリリースノートに書いてある）。判定の詳細は `docs/roadmap.md` の M3 節にある。
 
 現在の公開 ABI は 18 本。M0/M1 由来の 8 本（`ocvu_get_abi_version`、last-error の取得、status 表の照会、`ocvu_get_opencv_version` / `ocvu_get_build_information`）に、M2 で `Mat` のライフサイクルと buffer 転送の 6 本（`ocvu_mat_create` / `_release` / `_clone` / `_get_info` / `_copy_from_buffer` / `_copy_to_buffer`。`native/src/ocvu_mat_table.cpp`、`native/src/ocvu_mat.cpp`、`native/src/ocvu_mat_buffer.cpp`）、`imgproc` の 3 本（`ocvu_cvt_color` / `ocvu_resize` / `ocvu_gaussian_blur`。`native/src/ocvu_imgproc.cpp`）、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`）が加わった。所有権・versioning・API allowlist の正本は `docs/abi-ownership-and-versioning.md`。
 
@@ -49,7 +51,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、ソース変更を伴う `test` の実測（約 65 秒）はすでに緊張関係にある。M1 ではこれを**受け入れて記録するに留めており、解消していない**。着手するなら configure の結果を跨いで再利用するか、OpenCV に依存しないレーンを分けることになる。
 
-重いツールテスト 2 本（`VerifyOpenCvArtifact` は 1 ケースごとに `pwsh -NoProfile -File` を起こす作りで単体 69 秒、`OpenCvRestore` は実 download）は `test` から外して `test-tools-slow` に分け、必須チェック `ci-native` の step として走らせている。**ローカルで走らないが、CI では必ず走る。** どこからも走らない状態にしないことが目的である（M1 のレビュー H2）。
+重いツールテスト 2 本（`VerifyOpenCvArtifact` は 1 ケースごとに `pwsh -NoProfile -File` を起こす作りで単体 69 秒、`OpenCvRestore` は実 download）は `test` から外して `test-tools-slow` に分け、`ci-native` の step として走らせている。**ローカルで走らないが、CI では必ず走る。** どこからも走らない状態にしないことが目的である（M1 のレビュー H2）。
 
 `tools/dev.ps1` は OpenCV を自動では取得しない。`native` の configure/build より先に `./tools/opencv.ps1 restore` を実行しておくこと（未実行だと明示的なエラーで止まる）。
 
@@ -81,6 +83,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tools/verify-artifact-linkage.ps1` | 成果物の linkage が構成の意図と一致するかの検証（M3 Task 3/5。送った CMake flag ではなく `.lib`/`.a` を読む）。Windows は `DEFAULTLIB`、macOS/Linux は `nm -u`（リンク済み依存）・`lipo`/`readelf`（linkage）・`ar t` のメンバ名（**有効言語**——`foo.S.o` が出たらアセンブラが有効化された）で判定。**3 platform とも実物の artifact に対して CI で green。** 負の経路（アセンブル済み object を詰めた合成 archive）も macOS/Linux の CI で落ちることを確認済み。このマシンには `nm`/`ar` が無いのでローカルでは SKIP と出る——SKIP は「確かめていない」であって「合格」ではない |
 | `tools/verify-plugin-portability.ps1` | Linux plugin が要求する GLIBC / GLIBCXX の上限検査。**readelf に頼らず ELF を直接読む**ので Windows の開発機でも動く（道具が無いから検査できない、という穴を作らない）。上限は「支える最も古い環境」= Ubuntu 22.04（glibc 2.35）|
 | `tools/ci/setup-linux-container.sh` | Linux のビルドコンテナに道具を入れる。cmake は Kitware から（jammy の apt は 3.22.1 で古すぎる）。git の safe.directory も設定する（コンテナは root、ファイルは runner の UID）|
+| `tools/tests/OpenCvConfig.Tests.ps1` | 構成ハッシュの検査（`dev.ps1 test` に入る速いレーン）に加えて、**workflow 側の不変条件を job 単位で**見る: `container:` を持つ job の宣言イメージが `opencv-config.psd1` と一致すること、その job の `run:` に `sudo` が残っていないこと、`opencv.ps1 restore` を呼ぶ job が `third_party/opencv/` を対象にした cache step を**ちょうど 1 つ**持ち、その `path:` と `key:` の両方が構成ハッシュを参照し、参照先の step id が同じ job に実在すること、テストレーンを走らせる job が結果を `if: always()` で artifact 化すること、全 job に `timeout-minutes` があること、配る binary を作る job が step 単位の `if:` 無しで移植性を検査し、その振り分けが matrix の platform 集合と過不足なく一致すること。**job 単位にしたのは、ファイル単位では通ってしまう穴を実際に踏んだから**である——cache の検査が `ci-native` の Windows job の分で満足し、後から足した macOS / Linux と `ci-sanitizers` の linux-asan が漏れていた。**コンテナ名の検査も同じ穴を持っていた**: 4 本の workflow を名指ししていたので `nightly` を見落としており、`container:` を持つ全 job を対象にする形に直した。切り出しは YAML パーサを使わずインデント規約で行うが、**切れなかったときは空振りではなく落ちる**（`jobs:` 直下の 2 スペース key を緩く数えた数と、job として認識した数が合わなければ失敗させる）。**ファイル単位で見るもの**は 3 つある: `# shellcheck ` で始まる散文（道具が指示文として読んでしまう）、`tools/tests/*.Tests.ps1` が `dev.ps1` の `$ToolsTestScriptsFast` / `$ToolsTestScriptsSlow` に配線されていること、`.github/codeql/codeql-config.yml` の `query-filters`（下の行）。workflow の列挙は `.yml` と `.yaml` の両方を拾い、`git ls-files` の一覧と突き合わせる——**検査対象から静かに外れる**が構造上ありえないようにするため |
 | `tools/assert-unity-results.ps1` | Unity のテスト結果 XML の判定。**ローカルと CI の両方がここを通る** —— CI では game-ci が Unity を起動するので起動の仕方は分かれるが、判定は分けない。「0 件で緑にしない」もここが持つ |
 | `tools/pack-upm-tarball.ps1` | UPM tarball を作る唯一の入口。`release.yml` と `dev.ps1 test-unity-tarball` の**両方**がここを通る（作り方が分かれると、導入を確かめた tarball と実際に配る tarball が別物になる）。中身は npm と同じく `package/` の下に入れる — package ID のディレクトリごと固めると UPM が 展開後の root に `package.json` を見つけられず導入に失敗する（M3 で実測） |
 | `tools/package-release.ps1` | 配布物一式（`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` / `THIRD_PARTY_NOTICES.md` の 4 点）を実物の artifact から生成する（M3 Task 6。手で書かない）。**`THIRD_PARTY_NOTICES.md` はここに含まれない** |
@@ -93,8 +96,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `docs/api-reference.md` | M2 で公開した C ABI 9 関数と C# 公開 API（`CvMat`/`CvOps`/`CvNative`/`TextureConverter`/`NativeArrayExtensions`）のリファレンス（M3 Task 7） |
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
 | `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ |
-| `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する（M3 時点でも変わらず。Git URL / tarball 導入は未検証） |
-| `.github/workflows/` | `ci-native.yml`（L1 + L3。M3 で `macos`/`linux` job を追加し、両方に `test-tools-slow` も配線済み）、`ci-sanitizers.yml`（L2。M3 で `linux-asan` job を追加）、`build-opencv.yml`（OpenCV のビルドと artifact 公開。M3 で 3 platform の matrix 化）、`ci-unity.yml`（L4 + L5。**CI で実行され green**——2026-08-29。game-ci でランナーへの Unity 導入とアクティベーションを行い、**ubuntu で走らせる**。game-ci の Windows イメージは Server 2019 向けで `windows-2022` では OS 不一致で落ちるため。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。trigger は pull_request / push / workflow_dispatch）。M3 で追加された macOS/Linux job と `linux-asan` job は PR #8 で実行され、**3 platform とも green**。`release.yml`（tag で 3 platform 分の UPM tarball と配布物 + `SHA256SUMS.txt` を GitHub Release へ。**v0.1.0 で実行済み**——`--draft` で下書きを作り、点検してから人が公開する。tag を打っただけでは外から見えない。ノートは `.github/release-notes.md` から読む（YAML の中の PowerShell の中の Markdown という三重のエスケープを避けるため）） |
+| `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する。**この参照はディレクトリであって tarball ではない**ので、tarball の中身が壊れていてもこのレーンは通る——**tarball からの導入は `dev.ps1 test-unity-tarball` が別に見る**（使い捨てのプロジェクトに tarball だけを入れて EditMode を走らせ、10/10 pass を実測済み。M3 でこのレーンを足して初めて「導入できない tarball」が見つかった）。**Git URL からの導入はこの構成では成立しない**（binary が git の追跡外にあるため） |
+| `.github/workflows/` | 下の表を参照。8 本ある |
+| `.github/codeql/codeql-config.yml` | CodeQL の解析範囲と `query-filters`。**触る前に、機械が捕まえられない罠が 2 つあることを知っておくこと。** (1) **filter の順序が既定を決める** — 先頭が `exclude` のときだけ「他は全部含める」が既定になる。先頭に `include:` を足すと既定が反転し、**解析がその 1 規則だけに縮む**（書いた覚えのない規則までまとめて消える）。(2) **`exclude` を `excludes` と綴り間違えても CI は緑のまま**で、外したはずの指摘だけが黙って戻ってくる —— codeql-action が持つ設定の JSON schema は `query-filters` の要素に「何でも通る」分岐を持つため、綴り間違いも 1 要素に exclude と include を両方書く形も schema 検証を通る（実測。schema を取ってきて手元で当てた）。**このうち機械が守るのは (1) と「除外する id の集合」だけ**である（`tools/tests/OpenCvConfig.Tests.ps1` が、全要素が `exclude` であること・先頭が `exclude` であること・id がちょうど `cs/unmanaged-code` と `cs/call-to-unmanaged-code` の 2 つであることを見る）。**守られないのは「その id が今も CodeQL に実在するか」**——上流で規則が改名されれば、綴りとして正しいまま何も外さなくなり、誰も赤くならない |
+| `.github/dependabot.yml` | `actions/*` の可変タグと `tests/Managed` の NuGet を週 1 で追う。**「いつの間にか変わっていた」を「差分として見える変更」に変える**のが目的で、上流が壊れた版を出したときにこちらは何も変えていないのに壊れる、という経路を塞ぐ。M3 後に追加 |
+| `SECURITY.md` / `CONTRIBUTING.md` | OSS として欠けていたので M3 後に追加（英語）。`SECURITY.md` は非公開の脆弱性報告先と、**この境界で何が範囲内か**（buffer の長さ・stride、handle の寿命、例外の漏出、不正な画像データがメモリ破壊になること）。`CONTRIBUTING.md` は `CLAUDE.md` を読ませ、`prove-a-check-works` と `add-abi-function` の規律、**CI が見ないもの**（文書の陳腐化・スコープ超過・完了の過大申告）を明示する |
+
+### ワークフロー（`.github/workflows/`）
+
+| workflow | trigger | 内容 | 実行実績 |
+| --- | --- | --- | --- |
+| `ci-native.yml` | push(main) / PR / 手動 | L1 + L3 を 3 platform で。macOS / Linux job には `test-tools-slow` も配線 | **3 platform とも green**（M3 の PR #8 以降） |
+| `ci-sanitizers.yml` | push(main) / PR / 手動 | L2。Windows は ASan、Linux は ASan+LSan（リーク検出はこのレーンだけが担う） | green |
+| `build-opencv.yml` | 手動 + 構成ファイルの変更 | allowlist 構成の OpenCV を 3 platform でビルドし artifact 公開 | 稼働中 |
+| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**ubuntu で走る** — game-ci の Windows イメージは Server 2019 向けで `windows-2022` では OS 不一致で落ちるため。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通） | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green） |
+| `ci-lint.yml` | push(main) / PR / 手動 | 4 job: actionlint（workflow の構文・式・`run:` の中の shell）/ shellcheck（hook と CI のスクリプト）/ PSScriptAnalyzer（`tools/` の PowerShell、Error のみ）/ 文書の相対リンク検査（コードブロックの中は見ない。0 件なら「壊れていない」ではなく走査が効いていないとして落とす）。**静的に読めば分かる誤りを CI 1 周（10〜20 分）かけて確かめていた**のを埋める。数分で終わるので重いレーンより先に落ちる | green |
+| `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C#。C++ は**配布する `opencv_unity_native` だけ**をビルドする——`paths-ignore` は C++ に効かず（解析対象は「実際にコンパイルされたもの」）、テストごとビルドすると FetchContent の GoogleTest の指摘が混ざるため。C# は P/Invoke していること自体への 2 規則を `query-filters` で外す（**設計どおりの指摘に本物が埋もれる**ため。実測で open 107 件中 84 件がこれで、その陰に本物が 4 件あった）。OpenCV の cache は `if: matrix.language == 'c-cpp'` で c-cpp の leg に限る——csharp の leg は OpenCV を一度も開かないので、揃えないと cache hit 時に使わない木を落として展開し、miss 時は post step が `Path Validation Error` を出して何も保存しない（後者は「なぜ cache が温まらないのか」を調べる人に偽の手がかりを渡す） | green。埋もれていた本物 4 件の現状は下記 |
+| `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。**3 job 定義**（速いレーンの job は `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）: Linux 成果物の移植性（`ubuntu:22.04` でビルドし直して GLIBC の要求を見る）/ Windows・macOS の速いレーン（`dev.ps1 test`。結果を `if: always()` で artifact 化する。名前は `matrix.runner` で分ける——`matrix.name` は空白を含み、分けないと 2 つの job が同じ artifact 名を取り合う）/ OpenCV artifact の期限切れ確認 | **schedule で起動した実績はまだ無い。** 手動起動が 2 回あり、1 回目（run 33230097557、2026-08-29 02:54Z）は 4 job 中 3 job が API レート制限で失敗、2 回目（run 33233610215、同 04:21Z、修正後）は 4 job とも success |
+| `release.yml` | tag `v*` / 手動 | 3 platform 分の UPM tarball と配布物 4 点 + `SHA256SUMS.txt` を GitHub Release へ。`--draft` で下書きを作り、点検してから人が公開する（**tag を打っただけでは外から見えない**）。ノートは `.github/release-notes.md` から読む（YAML の中の PowerShell の中の Markdown という三重のエスケープを避けるため） | **v0.1.0 / v0.1.1 で実行済み**。空撃ち（`workflow_dispatch`）1 回を含む |
+
+**どの workflow が merge を止めるかは、この表には書かない。** 走ることと止めることは
+別で、しかも止める側は GitHub の設定であってファイルではない。現在の必須チェックと、
+その補集合（= 赤くても merge できるレーン）は下の「機構として強制されていること」に
+**1 箇所だけ**書いてある。**正本はそこですらなく GitHub 側の設定である** ——
+同節に読み出しコマンドがある。
+
+**CodeQL の `query-filters` が外した 84 件の陰にいた「本物 4 件」の現状**
+（2026-08-29 に API で実測。**4 件ともテストコードにあり、配布物には入らない**）:
+`cs/dispose-not-called-on-throw` 2 件と `cs/useless-assignment-to-local` 1 件は
+`tests/Managed/CvUnity.Tests.Managed/CvMatTests.cs` にあり、`using` を足して
+捨てる値を破棄子（`_`）で受ける形に直した。**残る 1 件は `cs/path-combine`**
+——`tests/Managed/CvUnity.Tests.Managed/NativeLibraryResolver.cs:55`、環境変数
+`OCVU_NATIVE_DIR` を `Path.Combine` の第 1 引数に渡している箇所で、**手を付けていない**。
+なお **alert は 4 件とも open のままである**: この差分に対する CodeQL の解析がまだ
+走っていないので、直した 3 件が消えるのは次の解析後になる。「直した」と
+「alert が閉じた」は別である。
+
+**M3 後の点検で、workflow 側に 3 つの穴が見つかったので埋めた。** いずれも「足したときに一緒に足すのを忘れた」形である。
+
+- **`opencv.ps1 restore` を呼ぶのに OpenCV の cache が無い job** が 3 つ（`ci-native` の macOS / Linux、`ci-sanitizers` の linux-asan）。cache が無いと job のたびに artifact を探す API 呼び出しが起きる。**レート制限に当たると、成果物にもコードにも問題が無いのに CI が全部赤くなる**（2026-08-29 に実測。Dependabot の PR 9 件とリリースが同時に落ちた）。`tools/tests/OpenCvConfig.Tests.ps1` に検査はあったが、**判定が workflow 単位で「cache が 1 つでもあるか」しか見ていなかった**ので、同じ workflow の Windows job の分で通っていた（検査は job 単位に直した。上の表の該当行）。**job 単位にしただけでは足りなかった**——「job 本文のどこかに `actions/cache@` とハッシュ参照が在れば通る」形だったので、`key:` を定数に書き換えても、別目的の cache（Windows job の GoogleTest 用 FetchContent キャッシュ）で満たしても緑になった。いまは `third_party/opencv/` を対象にした step を特定し、その `path:` と `key:` の両方がハッシュを参照していること、参照先の step id が同じ job に実在することまで見る。**定数キーは cache が無いより悪い**: 別構成で保存された木が復元されて毎回捨てられ、しかも key は完全一致するので保存もされない。
+- **テスト結果の artifact 化（`if: always()`）が同じ 3 job に無かった。** M0 の完了条件「テスト結果を機械可読な形式で artifact 化し、失敗時に読める状態にする」は Windows job にしか掛かっていなかった。落ちたときに読めることが目的なので、成功時だけ上げても意味が無い（`if: always()` の有無まで job 単位の検査が見る）。**同じものが後から足した `nightly.yml` の速いレーンにも無かった**ので、そちらも埋めた（artifact 名は `matrix.runner` で分ける。`matrix.name` は空白を含み、分けないと 2 つの job が同じ名前を取り合う——M3 の Release asset 名の衝突と同じ形である）。
+- **`verify-plugin-portability.ps1` が `release.yml` で走っていなかった。** この検査は v0.1.0 の欠陥そのものに対応して作ったのに、走るのは `ci-unity.yml` と `nightly.yml` だけで、**tag を打ったときには走らない** — つまり実際に配る binary には 1 度も掛かっていなかった。今は Linux のビルドがコンテナに固定されているので構造的には防げているが、「構造で防げているから検査は要らない」は v0.1.0 が否定した論法そのものである。linux-x64 でだけ走らせ、他 platform は明示的に skip、**未知の platform は失敗させる**（検査するかしないかを決めるまで進めない形にする）。「配る binary を作る job が移植性を検査すること」自体も job 単位の検査に入れた。
 
 正本となる設計文書:
 
@@ -205,7 +247,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: M2・M3 とも完了。v0.1.0 を公開済み。次は M4 — 詳細は roadmap）
+## マイルストーン（現在地: M2・M3 とも完了。v0.1.1 が最新の公開版。次は M4 — 詳細は roadmap）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
@@ -214,13 +256,13 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | **M0** | **自動 TDD ハーネスの成立（OpenCV 非依存）。** 反復速度の土台を他の何よりも先に固定する — **完了** |
 | **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
 | **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件すべて達成。最後の条件 7（CI で L4/L5）は game-ci + Linux で満たした。その過程で、公開済み Linux 版が古い環境で読み込めない欠陥が判明し修正** |
-| **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。残るは tag を打って Release を作ること** |
+| **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。配布まで踏み、v0.1.0 と、Linux の欠陥を直した v0.1.1 を公開済み** |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
 | M5 | binding specification と generator |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
 | M7 | Optional profiles と性能 |
 
-**M2 以降の完了条件には、native 単体テストだけでなく実際の Unity Player から C# → P/Invoke → C ABI → OpenCV を通る smoke test を含める。** M2 はこれをローカルで満たした（L4 / L5 とも green）。CI 上での実行だけが残っている。
+**M2 以降の完了条件には、native 単体テストだけでなく実際の Unity Player から C# → P/Invoke → C ABI → OpenCV を通る smoke test を含める。** M2 はこれをローカルで満たしたうえで、2026-08-29 に CI（Linux）でも実行して条件 7 を満たした。**ただし「CI で走っている」は「赤ければ止まる」ではない** —— `ci-unity` が merge を止めるかどうかは下記「機構として強制されていること」を見ること。
 
 ## 実装に着手するとき
 
@@ -292,8 +334,8 @@ CI が赤くて直した場合、その修正差分にもレビューが要る�
 | 設定 | 値 | 意味 |
 | --- | --- | --- |
 | main の branch protection | 有効 | 直接 push は `GH006` で拒否される |
-| 必須チェック | `Windows x64 (L1 + L3)` / `Windows x64 AddressSanitizer (L2)` / `macOS arm64 (L1 + L3)` / `Linux x64 (L1 + L3)` / `Linux x64 ASan+LSan (L2)` の **5 本**（M3 完了時に 2 本から拡張） | 全部 pass しないと merge できない |
-| 必須でない job | （現在は無し） | M3 の途中までは macOS / Linux の 3 job が必須外で、**赤でも merge できる**穴があった。安定して緑になったので M3 完了時に必須へ加えた |
+| 必須チェック | `Windows x64 (L1 + L3)` / `Windows x64 AddressSanitizer (L2)` / `macOS arm64 (L1 + L3)` / `Linux x64 (L1 + L3)` / `Linux x64 ASan+LSan (L2)` の **5 本** = `ci-native` の 3 job と `ci-sanitizers` の 2 job（M3 完了時に 2 本から拡張。2026-08-29 に API で実測し、この表と一致） | 全部 pass しないと merge できない |
+| 必須でないもの | **上の 5 本以外のすべて。** 2026-08-29 時点で PR に出るのは `ci-unity` 2 件（1 job 定義 + `lane` matrix: EditMode / Standalone）/ `ci-lint` 4 件 / `codeql` 2 件（1 job 定義 + `language` matrix: c-cpp / csharp）の計 8 件 | **赤でも merge できる。** 下記 |
 | strict | 有効 | ブランチが main より古いと merge できない（`allow_update_branch` で自動更新可） |
 | 必須レビュー数 | **0** | PR は必須だが人間の承認は不要 |
 | enforce_admins | **有効** | 管理者も例外ではない。抜け道は無い |
@@ -301,6 +343,33 @@ CI が赤くて直した場合、その修正差分にもレビューが要る�
 | linear history | 必須 | main は一直線に保たれる |
 | force push / ブランチ削除 | 禁止 | main の履歴は書き換えられない |
 | auto-merge | 有効 | `gh pr merge <n> --auto --squash` で予約でき、CI が緑になった時点で自動的に入る |
+
+**必須チェックの正本はこの表ではなく GitHub 側の設定である。**
+`gh api repos/ayutaz/OpenCVUnityNative/branches/main/protection --jq .required_status_checks.contexts`
+で読める。増やしたら、この表も一緒に直すこと。
+
+**この規律は「必須でないもの」の側にも同じだけ掛かる。** 必須の一覧より、その
+補集合のほうが陳腐化しやすい —— 必須を 1 本増やせば、他所に散らばった
+「あれは必須ではない」という記述が同時に全部嘘になるからである。**だから
+「何が merge を止めないか」を書くのはこの表の 1 行だけにしてある**（上の
+「必須でないもの」）。他の節と `docs/roadmap.md` は、事実を繰り返さずここを指す。
+**別の場所に同じ事実を書き足さないこと。**
+
+例外が 1 つある。`README.md` の "Not every lane blocks a merge." は外部の
+利用者向けに英語で同じことを述べており、ここを指すわけにいかない
+（`CLAUDE.md` はエージェント向けの文書である）。**必須チェックを増減したら
+そこも一緒に直すこと。** リポジトリ内で二重に書かれているのはこの 1 箇所だけ、
+という状態を保つ。
+
+**この穴は前にも開いていた。** M3 の途中までは macOS / Linux の 3 job が
+必須外で、赤でも merge できた（安定して緑になった時点で必須へ加えた）。
+同じ形の穴は、上の表の「必須でないもの」に数えられているレーンの側に、
+必須を増やすまで開き続ける。**その中に完了条件そのものを担うレーンが
+含まれていれば、そこが赤いまま入る変更は「完了と記録した条件が、実際には
+守られていない」状態を作れてしまう。** どのレーンが該当するかはここには
+書かない —— 上の表の「必須でないもの」が唯一の記載場所で、正本はさらに
+その先の GitHub 側の設定である。**CI が「見ている」ことと「止める」ことは
+別である。**
 
 main には squash された 1 コミットしか残らないので、**squash の本文にそのブランチの要約を書く**。
 個々のコミットは PR ページに残る。
@@ -315,11 +384,20 @@ main には squash された 1 コミットしか残らないので、**squash �
 「CI が緑なら正しい」という意味ではない。
 
 **CI の守備範囲は M2 / M3 の完了で大きく広がった。** 現在は 3 platform の
-L1 / L2 / L3、Linux の LeakSanitizer、成果物の linkage と移植性、そして
-Linux 上の Unity EditMode / IL2CPP Player まで見る。それでも次は緑のまま通過する。
+L1 / L2 / L3、Linux の LeakSanitizer、成果物の linkage と移植性、Linux 上の
+Unity EditMode / IL2CPP Player、workflow・shell・PowerShell の静的解析、
+CodeQL まで見る。それでも次は緑のまま通過する。
 
 - 文書の陳腐化（M0 で Critical になった経路。CI は緑だった）
 - 完了条件を満たしていないのに完了と称すること、スコープ超過
+- **必須でないレーンが赤いこと。** どのレーンがそれに当たるかはここには
+  書かない —— 上の「機構として強制されていること」の表が唯一の記載場所で、
+  正本はさらにその先の GitHub 側の設定である
+- **schedule で起動する検査。** `nightly.yml` は cron（毎日 04:00 UTC）で
+  走る前提で書いてあるが、**cron の経路はまだ 1 度も動いていない**
+  （手動起動が 2 回あるだけで、1 回目は 4 job 中 3 job が失敗した）。
+  「ファイルが存在する」は「CI で実行された」ではない —— M2 の条件 7 を
+  そう判定したのと同じ基準を、こちらにも当てる
 - **macOS 上の Unity の挙動**（CI の macOS job は plugin をビルドするが Unity を
   起動しない。Linux 分は M2 の条件 7 で実測できるようになった）
 - **Windows の IL2CPP Player**（game-ci が Windows ランナーで動かないため、

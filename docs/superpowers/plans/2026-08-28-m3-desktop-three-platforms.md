@@ -1,5 +1,15 @@
 # M3 Desktop 3 platform と配布の再現性 実装計画
 
+> **状態: 実施済みの計画である。Task 8 まで実施した。** 2026-08-28 に `4c1fdae` として
+> main へ入り、**完了条件 6 件すべてを満たしている。** 判定は
+> [docs/roadmap.md](../../roadmap.md) の M3 節にある。ただし Task 8 の時点の判定は
+> 「6 件中 1 件」だった —— 実装した commit が一度も CI を通っていなかったためで、
+> PR #8 を出して 3 platform で実行したところ、ローカルでは緑だった欠陥が 3 件出た。
+> その後 v0.1.0 を公開し、Linux が古い環境で読み込めない欠陥を直した v0.1.1 を出した。
+>
+> **本文のチェックボックス 53 個は 1 つも更新していない。** 実施当時に印を付けなかった
+> だけで、未着手という意味ではない。**この計画書を進捗の記録として読まないこと。**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Windows / macOS / Linux の native artifact が CI から生成されて platform 込みのハッシュで識別され、Linux レーンがリークを検出し、成果物の linkage が構成の意図と一致することを機械が確かめる。

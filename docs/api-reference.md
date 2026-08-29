@@ -5,10 +5,16 @@
 書かない。詳しい経緯は `docs/abi-ownership-and-versioning.md` §3「初期 API の allowlist」を、
 所有権契約そのものは同 §1 を参照。
 
-対応 Unity は 6000.x のみ。native plugin は本リポジトリの現時点では Windows x64 のみ同梱
-（`Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/x86_64/`）。macOS / Linux 向けの
-ビルド構成と CI は M3 で追加済みだが、それぞれの plugin binary が同梱されるのは CI が
-artifact を公開してからになる。
+対応 Unity は 6000.x のみ。**対応 platform は Windows x64 / macOS arm64 / Linux x64 の 3 つ**
+（mobile と Web は未対応）。
+
+**native plugin の binary はリポジトリに入っていない。**
+`Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/` は丸ごと成果物で、binary も
+`.meta` も git は追跡しない。ローカルでは `./tools/dev.ps1 build` が、実行中の platform 分を
+そこへ置く。利用者に届く経路は GitHub Release の **platform ごとの UPM tarball** で、
+1 つの tarball にはその platform の binary だけが入る。したがって **Git URL では導入
+できない**（`.meta` しか届かず `DllImport` が実行時に全部失敗する）。導入手順は
+[README](../README.md) の Installing にある。
 
 ## 1. C ABI（`native/include/opencv_unity_native.h`）
 

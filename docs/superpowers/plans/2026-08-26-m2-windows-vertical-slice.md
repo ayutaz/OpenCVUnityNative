@@ -1,5 +1,16 @@
 # M2 Windows vertical slice 実装計画
 
+> **状態: 実施済みの計画である。Task 8 まで実施した。** 2026-08-27 に PR #5（`9ded0b9`）
+> として main へ入った時点の判定は「8 件中 7 件達成、条件 7 は未達」で、残っていた条件 7
+> （`ci-unity.yml` が CI 上で L4 / L5 を実行する）は 2026-08-29 に達成した（`8c68fff`）。
+> **完了条件 8 件すべてを満たしている。判定は [docs/roadmap.md](../../roadmap.md) の
+> M2 節にある** —— そこが正本である。実施中の進行記録は手元の `.superpowers/` 配下に
+> あるが、**これは `.gitignore` で追跡外なのでクローンには入らない。** 別のマシンで
+> この計画書を読む者には検証できないため、参照先として当てにしないこと。
+>
+> **本文のチェックボックス 62 個は 1 つも更新していない。** 実施当時に印を付けなかった
+> だけで、未着手という意味ではない。**この計画書を進捗の記録として読まないこと。**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `Mat` のライフサイクルと 3 つの `imgproc` API が C# から動き、Unity Editor (Mono) と Windows IL2CPP Player で同一結果になる。
