@@ -25,7 +25,21 @@ param(
     # Unix どちらの配置でも確かめられるよう、明示的に上書きできるようにする
     # （tools/verify-artifact-linkage.ps1 の -Root と同じ考え方）。
     [string]$Root,
-    [string]$Platform
+    [string]$Platform,
+
+    <#
+        checksums.txt だけを出す。
+
+        **全部入りの package 用である。** SBOM と build-manifest は復元済みの
+        OpenCV artifact（= 実行中 platform のもの）から作るので、3 platform を
+        束ねる job には元が無い。**統合版を捏造せずに、出せるものだけ出す。**
+
+        checksums.txt は package を走査して作るので、3 platform 分の binary が
+        置かれていればそのまま 3 行になる。SBOM / build-manifest /
+        THIRD_PARTY_NOTICES は platform ごとの物が Release に付くので、
+        全部入りの中身の説明はそちらが担う。
+    #>
+    [switch]$ChecksumsOnly
 )
 
 # param ブロックより後に置く。Set-StrictMode を先に置くと param(...) が
@@ -128,6 +142,11 @@ if ($lines.Count -eq 0) {
     exit 1
 }
 $lines | Set-Content -LiteralPath (Join-Path $OutputDir 'checksums.txt') -Encoding utf8
+
+if ($ChecksumsOnly) {
+    Write-Host "==> checksums.txt only ($($lines.Count) binaries)" -ForegroundColor Green
+    return
+}
 
 # --- build manifest ---
 $manifestSource = Join-Path $Root 'build-manifest.json'
