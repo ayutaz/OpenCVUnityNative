@@ -330,13 +330,124 @@ try {
         job 構成がたまたまそうなっているだけで、packer 自身の保証ではない。
     #>
     $otherPlatform = if ($thisPlatform -eq 'windows-x64') { 'macos-arm64' } else { 'windows-x64' }
-    & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $otherPlatform 2>&1 | Out-Null
-    Assert-That ($LASTEXITCODE -ne 0) `
-        "packing as '$otherPlatform' fails when that platform's binary is absent"
+
+    <#
+        **その platform の binary が「無い」状態を、ここで作る。**
+
+        以前はローカルの木に実行中 platform の binary しか無いことに頼っていたが、
+        M3.5 で全部入りを作れるようにしたので、開発機に 3 つ揃っていることが
+        普通に起こる。そのとき -Platform macos-arm64 は正当に成功するので、
+        この検査は「落ちるはず」を主張したまま緑にならなくなる（実測で踏んだ）。
+
+        依存するのは木の状態ではなく、退避してから確かめるという手順にする。
+    #>
+    $otherBinary = switch ($otherPlatform) {
+        'windows-x64' { Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/x86_64/opencv_unity_native.dll' }
+        'macos-arm64' { Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
+        default       { $null }
+    }
+    $otherStash = $null
+    if ($otherBinary -and (Test-Path -LiteralPath $otherBinary)) {
+        $otherStash = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-other-" + [guid]::NewGuid().ToString('n'))
+        Move-Item -LiteralPath $otherBinary -Destination $otherStash -Force
+    }
+    try {
+        & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $otherPlatform 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) `
+            "packing as '$otherPlatform' fails when that platform's binary is absent"
+    }
+    finally {
+        if ($otherStash) { Move-Item -LiteralPath $otherStash -Destination $otherBinary -Force }
+    }
 
     # 知らない platform を黙って通さない。4 つ目を足すときの安全網。
     & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform 'solaris-sparc' 2>&1 | Out-Null
     Assert-That ($LASTEXITCODE -ne 0) 'packing for an unknown platform fails'
+
+    <#
+        全部入り（-AllPlatforms）の検査。
+
+        **このマシンには 1 platform 分の binary しか無い**ので、正常系は
+        3 つ揃った木を合成してから確かめる。ここで見たいのは packer の判定で
+        あって実物のビルドではないので、他 platform 分は中身のある偽物で足りる
+        —— 判定は「その位置にファイルが在るか」であり、中身は読まない。
+    #>
+    $allOut = Join-Path $packOut 'allplatforms'
+    New-Item -ItemType Directory -Force -Path $allOut | Out-Null
+
+    $pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+    $allBinaries = @(
+        'x86_64/opencv_unity_native.dll'
+        'macOS/libopencv_unity_native.dylib'
+        'Linux/x86_64/libopencv_unity_native.so'
+    )
+
+    # 元から在るものは触らない。作った分だけ後で消す。
+    $created = @()
+    foreach ($rel in $allBinaries) {
+        $full = Join-Path $pluginRoot $rel
+        if (-not (Test-Path -LiteralPath $full)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $full) | Out-Null
+            Set-Content -LiteralPath $full -Value 'placeholder for the packer check' -NoNewline
+            $created += $full
+        }
+    }
+
+    try {
+        $allPacked = & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms |
+                     Select-Object -Last 1
+        Assert-That ($LASTEXITCODE -eq 0) '-AllPlatforms packs when all three binaries are present'
+
+        if ($allPacked -and (Test-Path -LiteralPath $allPacked)) {
+            # **名前に版番号を入れない。** OpenUPM の githubReleaseAssetName は
+            # 安定した接頭辞で asset を選ぶ。
+            Assert-That ((Split-Path -Leaf $allPacked) -eq 'com.ayutaz.opencv-unity-native.tgz') `
+                'the all-in-one tarball has a stable, version-free name'
+
+            Push-Location (Split-Path -Parent $allPacked)
+            try { $allEntries = @(& tar -tzf (Split-Path -Leaf $allPacked)) }
+            finally { Pop-Location }
+
+            $packedBins = @($allEntries | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+            Assert-That ($packedBins.Count -eq 3) `
+                "the all-in-one archive carries three binaries (saw $($packedBins.Count))"
+
+            $packedMetas = @($allEntries |
+                Where-Object { $_ -like 'package/Runtime/Plugins/*' -and $_ -like '*.meta' })
+            Assert-That ($packedMetas.Count -ge 3) `
+                "the all-in-one archive carries the plugin metas (saw $($packedMetas.Count))"
+        }
+
+        # 負 1: binary が 1 つ欠けたら止まる。
+        $victim = Join-Path $pluginRoot 'macOS/libopencv_unity_native.dylib'
+        $stash  = "$victim.stash"
+        Move-Item -LiteralPath $victim -Destination $stash -Force
+        try {
+            & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms 2>&1 | Out-Null
+            Assert-That ($LASTEXITCODE -ne 0) '-AllPlatforms fails when a platform binary is missing'
+        }
+        finally { Move-Item -LiteralPath $stash -Destination $victim -Force }
+
+        # 負 2: 知らない binary が混ざったら止まる。**存在検査だけでは通ってしまう形。**
+        $stray = Join-Path $pluginRoot 'x86_64/stray.dll'
+        Set-Content -LiteralPath $stray -Value 'not ours' -NoNewline
+        try {
+            & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms 2>&1 | Out-Null
+            Assert-That ($LASTEXITCODE -ne 0) '-AllPlatforms fails when an unexpected binary is present'
+        }
+        finally { Remove-Item -LiteralPath $stray -Force -ErrorAction SilentlyContinue }
+
+        # 負 3: 上限を超えたら止まる。**引数にしてあるので、ここで実際に落とせる。**
+        & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms -MaxBytes 1000 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) 'the size guard rejects a tarball over the limit'
+
+        # 負 4: -Platform と -AllPlatforms は同時に使えない。
+        & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms -Platform 'windows-x64' 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) '-Platform and -AllPlatforms are mutually exclusive'
+    }
+    finally {
+        foreach ($f in $created) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
 
     if ($packed -and (Test-Path -LiteralPath $packed)) {
         Assert-That ((Split-Path -Leaf $packed) -like "*-$thisPlatform.tgz") `

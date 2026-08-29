@@ -27,7 +27,21 @@ param(
     [string] $OutputDir,
 
     # ファイル名に付ける platform 名（例 windows-x64）。省略すると付かない。
-    [string] $Platform
+    [string] $Platform,
+
+    # 3 platform 分の binary が入った「全部入り」を作る。-Platform とは排他。
+    #
+    # **配る正はこちらである。** Unity は同じ package ID を 1 つしか導入できず、
+    # platform ごとに分かれた tarball では「エディタは Windows、実機は Android」
+    # という構成が表現できない。
+    [switch] $AllPlatforms,
+
+    # 出来上がった tarball の上限バイト数。既定は OpenUPM の 512 MB。
+    #
+    # **引数にしてあるのは、落ちるところを見られるようにするためである。**
+    # 現状の配布物は上限まで 60 倍以上あるので、既定値のままでは
+    # この検査が働くところを誰も確かめられない（prove-a-check-works）。
+    [long] $MaxBytes = 536870912
 )
 
 Set-StrictMode -Version Latest
@@ -48,10 +62,33 @@ $version = (Get-Content -LiteralPath (Join-Path $packageDir 'package.json') -Raw
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $outFull = (Resolve-Path -LiteralPath $OutputDir).Path
 
-$name = if ($Platform) {
+if ($Platform -and $AllPlatforms) {
+    [Console]::Error.WriteLine('-Platform と -AllPlatforms は同時に指定できません。')
+    exit 1
+}
+
+<#
+    全部入りの名前には版番号を入れない。
+
+    OpenUPM の `githubReleaseAssetName` は**安定した接頭辞**で asset を選ぶので、
+    版番号入りの名前だと毎回パターンを書き換えることになる
+    （https://openupm.com/docs/adding-upm-package.html）。
+    platform ごとの tarball は従来どおり版番号入りのまま —— OpenUPM が見るのは
+    全部入りの 1 つだけである。
+#>
+$name = if ($AllPlatforms) {
+    'com.ayutaz.opencv-unity-native.tgz'
+} elseif ($Platform) {
     "com.ayutaz.opencv-unity-native-$version-$Platform.tgz"
 } else {
     "com.ayutaz.opencv-unity-native-$version.tgz"
+}
+
+# platform ごとの binary の置き場所。-Platform と -AllPlatforms の両方が使う。
+$PlatformBinaries = [ordered]@{
+    'windows-x64' = 'Runtime/Plugins/x86_64/opencv_unity_native.dll'
+    'macos-arm64' = 'Runtime/Plugins/macOS/libopencv_unity_native.dylib'
+    'linux-x64'   = 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so'
 }
 $tarballPath = Join-Path $outFull $name
 
@@ -71,9 +108,9 @@ $tarballPath = Join-Path $outFull $name
 #>
 if ($Platform) {
     $expected = switch ($Platform) {
-        'windows-x64' { 'Runtime/Plugins/x86_64/opencv_unity_native.dll' }
-        'macos-arm64' { 'Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
-        'linux-x64'   { 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so' }
+        'windows-x64' { $PlatformBinaries['windows-x64'] }
+        'macos-arm64' { $PlatformBinaries['macos-arm64'] }
+        'linux-x64'   { $PlatformBinaries['linux-x64'] }
         default {
             # 知らない platform 名を黙って通さない。名前だけ付いた tarball が
             # 出来るのを防ぐ。
@@ -101,6 +138,50 @@ if ($Platform) {
         exit 1
     }
     Write-Host "==> $Platform binary present: $expected" -ForegroundColor Green
+}
+
+<#
+    -AllPlatforms は「3 つ在る」だけでなく「余計なものが無い」まで見る。
+
+    **存在検査だけでは足りない。** -Platform の検査は存在しか見ないので、
+    別 platform の binary が紛れ込んでいても通る（上のコメントのとおり、
+    現在それが起きないのは release.yml の job 構成のおかげであって、
+    この script の保証ではない）。全部入りでは中身の一覧そのものが契約なので、
+    予期しない binary が 1 つでもあれば止める。
+#>
+if ($AllPlatforms) {
+    $pluginRoot = Join-Path $packageDir 'Runtime/Plugins'
+    $missing = @()
+    foreach ($entry in $PlatformBinaries.GetEnumerator()) {
+        if (-not (Test-Path -LiteralPath (Join-Path $packageDir $entry.Value))) {
+            $missing += "$($entry.Key): $($entry.Value)"
+        }
+    }
+    if ($missing.Count -gt 0) {
+        [Console]::Error.WriteLine(@(
+            '全部入りに必要な binary が揃っていません:'
+            ($missing | ForEach-Object { "  - $_" })
+            'tools/assemble-plugins.ps1 で 3 platform 分を重ねてから固めること。'
+        ) -join "`n")
+        exit 1
+    }
+
+    $found = @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Extension -in '.dll', '.dylib', '.so' })
+    $expectedFull = @($PlatformBinaries.Values | ForEach-Object {
+        (Join-Path $packageDir $_) -replace '/', [System.IO.Path]::DirectorySeparatorChar
+    })
+    $unexpected = @($found | Where-Object { $_.FullName -notin $expectedFull })
+    if ($unexpected.Count -gt 0) {
+        [Console]::Error.WriteLine(@(
+            '全部入りに予期しない binary が入っています:'
+            ($unexpected | ForEach-Object { "  - $($_.FullName)" })
+            '配る物の中身は一覧そのものが契約なので、知らない binary は通さない。'
+        ) -join "`n")
+        exit 1
+    }
+
+    Write-Host "==> all three platform binaries present, no extras" -ForegroundColor Green
 }
 
 # 使い捨ての staging に package/ として置き直す。
@@ -150,5 +231,36 @@ if ($entries -notcontains 'package/package.json') {
     exit 1
 }
 
-Write-Host "==> $name ($($entries.Count) entries)" -ForegroundColor Green
+<#
+    全部入りなら、3 つの binary が実際に archive の中に在ることまで見る。
+    ディレクトリを見ただけでは、tar が取りこぼした場合に気づけない。
+#>
+if ($AllPlatforms) {
+    $packedBinaries = @($entries | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+    if ($packedBinaries.Count -ne 3) {
+        [Console]::Error.WriteLine(@(
+            "全部入りの archive に binary が $($packedBinaries.Count) 個しかありません（3 個であるべき）。"
+            "入っていたもの: $(if ($packedBinaries) { $packedBinaries -join ', ' } else { '(なし)' })"
+        ) -join "`n")
+        exit 1
+    }
+    Write-Host "==> archive contains all three binaries" -ForegroundColor Green
+}
+
+<#
+    上限を超えていないこと。
+
+    **workflow ではなく packer に置く。** 呼ぶ側が 2 つ（release.yml と
+    dev.ps1）あり、片方だけに置くともう片方が素通しする。
+#>
+$actualBytes = (Get-Item -LiteralPath $tarballPath).Length
+if ($actualBytes -gt $MaxBytes) {
+    [Console]::Error.WriteLine(@(
+        "tarball が上限を超えています: $actualBytes バイト > $MaxBytes バイト"
+        'OpenUPM は 512 MB 未満を求める（https://openupm.com/docs/adding-upm-package.html）。'
+    ) -join "`n")
+    exit 1
+}
+
+Write-Host "==> $name ($($entries.Count) entries, $actualBytes bytes)" -ForegroundColor Green
 $tarballPath
