@@ -1,6 +1,6 @@
 {
   "name": "com.ayutaz.opencv-unity-native",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "displayName": "OpenCV Unity Native",
   "description": "OpenCV 5 for Unity through a project-owned C ABI. Apache-2.0.",
   "unity": "6000.0",

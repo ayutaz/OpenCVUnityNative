@@ -429,11 +429,16 @@ trigger 条件のような変わらない事実に置くこと。
   ——`git ls-files` は追跡を報告し続けるので tracked 検査は通り、中身の検査は
   `continue` で飛ばされていた。存在検査を足して塞いだ。
 
-  **留保: macOS / Linux の `.meta` は、その platform の binary が実際に
-  置かれた状態で Unity に読ませたことがない。** CI の macOS / Linux job は
-  plugin をビルドするが Unity を起動しない（Unity の CI 導入は M2 の条件 7
-  として未達）。形式は Unity 自身が生成した Windows 分の `.meta` に
-  合わせてあるが、実測ではない。
+  **Linux の `.meta` は実測で確かめた（2026-08-29）。** M2 の条件 7 を満たす
+  過程で `ci-unity.yml` が Linux の Unity を CI で動かすようになり、
+  `libopencv_unity_native.so` とその `.meta` が実際に読み込まれ、EditMode と
+  IL2CPP Player の両方でテストが通った（各 10 件）。plugin の import 設定が
+  意図どおり効いていることの直接の証拠である。
+
+  **macOS の `.meta` は依然として実測ではない。** CI の macOS job は plugin を
+  ビルドするが Unity を起動しない。形式は Unity 自身が生成した Windows 分の
+  `.meta` に合わせてあり、Linux 分が実機で通ったことで同じ作り方の妥当性は
+  上がったが、macOS そのもので確かめたわけではない。
 
 - **条件 2（満たす。tarball 側のみ）**: `dev.ps1 test-unity-tarball` を
   追加し、**tarball だけを指した使い捨ての Unity プロジェクト**で

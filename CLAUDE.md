@@ -182,10 +182,10 @@ Unity application
 | L1 | C ABI 契約テスト（GoogleTest + CTest） | 1〜5 秒 | M0 |
 | L2 | ASan / UBSan レーン | 10〜30 秒 | M0 |
 | L3 | **P/Invoke 検証（素の .NET、Unity 不使用）** | 2〜5 秒 | M0 |
-| L4 | Unity EditMode (Mono) | 1〜3 分 | M2 |
-| L5 | Unity IL2CPP Player | 5〜20 分 | M2 |
+| L4 | Unity EditMode (Mono) | 1〜3 分 | M2（CI は Linux。ローカルは Windows） |
+| L5 | Unity IL2CPP Player | 5〜20 分 | M2（**CI は Linux の IL2CPP**。Windows 版はローカルのみ） |
 
-**「想定時間」は roadmap 起草時の見積もりであり、実測はもっと速い。** `dev.ps1 test-unity-editmode` は約 27 秒、`dev.ps1 test-unity-player`（IL2CPP Player の実ビルド込み）は約 54 秒だった（いずれも 2026-08-28、Unity / Bee のキャッシュが温まった状態での増分実測。cold の実測はまだ無い）。両レーンとも `tests/UnityProject/` から `Packages/com.ayutaz.opencv-unity-native/` をローカル参照して動く。CI（`ci-unity.yml`）はまだ一度も走っていないので、CI 実測はまだ無い。
+**「想定時間」は roadmap 起草時の見積もりであり、実測はもっと速い。** `dev.ps1 test-unity-editmode` は約 27 秒、`dev.ps1 test-unity-player`（IL2CPP Player の実ビルド込み）は約 54 秒だった（いずれも 2026-08-28、Unity / Bee のキャッシュが温まった状態での増分実測。cold の実測はまだ無い）。両レーンとも `tests/UnityProject/` から `Packages/com.ayutaz.opencv-unity-native/` をローカル参照して動く。CI（`ci-unity.yml`）は 2026-08-29 に初めて green になった——ただし **CI は ubuntu で game-ci を使い、Unity を起動するのは `dev.ps1` ではない**ので、上の実測値は ローカル（Windows）のものである。CI の L5 は Linux の IL2CPP Player で、EditMode / Standalone とも 10 件 pass した。
 
 **L3 のクラッシュ・ハング耐性は M2 Task 4 で実証済み。** `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`、kind=0 で不正アクセス、kind=1 で無限ループ。戻らない前提の関数なので `OCVU_TRY_BEGIN` では囲まない）を `tests/Managed/CvUnity.Tests.Managed/HarnessProbeTests.cs` から P/Invoke し、`tools/run-managed-probe.ps1`（`dev.ps1 test-managed-probe` 経由）が「非 0 終了かつ有限時間」を assertion する形で確かめている。実測（このマシン、2026-08-27）: segfault は `AccessViolationException` で 6 秒後に非 0 終了、hang は `--blame-hang-timeout 30s` に捕まり 36 秒後に非 0 終了・hangdump を生成。いずれも 60〜180 秒の上限内に収まった。数字は実行のたびに数秒動く（初回計測では 5 秒 / 35 秒だった）。L1 / L2 の `native/tests/ocvu_probe.cpp` が持つ expect-failure の構図（`cmake/run_expect_failure.cmake`）の L3 版であり、`cmake/run_expect_failure.cmake` 同様「非 0 で終わっただけ」では合格にせず、スタックトレース／hangdump の宛先テスト名でプローブが意図した経路に実際に到達したことまで見ている。このプローブは意図的に落ちるため通常の `dev.ps1 test` には含めない（`Category!=Probe` で除外、`StatusCodeSyncTests` 等の既存 L3 とは別枠）。数分かかるので CI 専用（`ci-native.yml` の「Run the L3 crash and hang probes」）で、ローカルでは走らない。
 
@@ -225,7 +225,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 ## 実装に着手するとき
 
 1. `docs/roadmap.md` で対象マイルストーンの目的・ゴール・完了条件・**非ゴール**を確認する
-2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は Task 8 まで完了しているが、完了条件 7 件目は上記のとおり未達）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。ただし tag を打った Release はまだ無い）。M4 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
+2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）。M4 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
 M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、ライセンス表示と SBOM の公開フロー、各 platform で必須とする Editor / Mono / IL2CPP / device test matrix。
@@ -312,13 +312,24 @@ main には squash された 1 コミットしか残らないので、**squash �
 ### CI が保証していないこと
 
 「CI が唯一の正本の検証結果である」は **merge 可否の判定について**の話であって、
-「CI が緑なら正しい」という意味ではない。CI が見ているのは Windows x64 の
-ビルドと L1 / L2 / L3 だけである。次はどれも緑のまま通過する。
+「CI が緑なら正しい」という意味ではない。
+
+**CI の守備範囲は M2 / M3 の完了で大きく広がった。** 現在は 3 platform の
+L1 / L2 / L3、Linux の LeakSanitizer、成果物の linkage と移植性、そして
+Linux 上の Unity EditMode / IL2CPP Player まで見る。それでも次は緑のまま通過する。
 
 - 文書の陳腐化（M0 で Critical になった経路。CI は緑だった）
 - 完了条件を満たしていないのに完了と称すること、スコープ超過
-- Windows 以外のプラットフォーム、Unity Editor / Player 上の挙動（M2 以降）
-- メモリリーク（MSVC ASan は LeakSanitizer 非対応。M3 の Linux レーンの担当）
+- **macOS 上の Unity の挙動**（CI の macOS job は plugin をビルドするが Unity を
+  起動しない。Linux 分は M2 の条件 7 で実測できるようになった）
+- **Windows の IL2CPP Player**（game-ci が Windows ランナーで動かないため、
+  CI の L5 は Linux。Windows 版はローカルのレーンだけが担う）
+- mobile / Web（M4 / M6 の担当。まだ何も無い）
+- **「ビルドできた」と「動く」の差。** v0.1.0 でこれを踏んだ——3 platform とも
+  ビルドが成功し linkage 検証も配布物生成も通ったのに、Linux の成果物は
+  古い環境で読み込めなかった。`tools/verify-plugin-portability.ps1` は
+  その一形態（glibc の要求）を見るが、**「動く」の全部を機械が見ているわけでは
+  ない**
 
 **これらを見るのが PR 前の AI レビューである。** 2 つのゲートは重なっておらず、
 どちらかで代替できない。CI が機械的に検査できないものを人手なしで拾う唯一の場が
