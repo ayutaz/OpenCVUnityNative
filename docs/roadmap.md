@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | native backend 実装言語 | **C++** | [言語評価](./native-backend-language-tdd-evaluation.md) §1。sanitizer が安定版ツールチェーンで使える、`opencv` crate の unstable 表明と `Mat` 共有可変性の警告を回避、iOS / Web のツールチェーン鎖が短い |
 | UPM package ID | **`com.ayutaz.opencv-unity-native`** | 個人リポジトリとして公開 |
-| 対象 Unity | **6000.x のみ**（2022 LTS 非対応） | 検証マトリクスを最小化。IL2CPP / .NET Standard 2.1 前提で単純化 |
+| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.0.82f1 の 1 版だけ** | 検証マトリクスを最小化。IL2CPP / .NET Standard 2.1 前提で単純化。**ただし 6000.0 LTS は 2026-10 にサポートが終わるので、M3.5 で 6.3 LTS へ載せ替える**（差別化の穴 #4） |
 | OpenCV 入手 | **allowlist 構成で 1 回ビルドしキャッシュ**（ビルドは CI が担当） | 計画書 §8.3 の依存方針を最初から満たす。開発ループでは artifact の download のみ |
 | CI/CD | **GitHub Actions を全面的に活用** | public OSS リポジトリのため GitHub-hosted runner が無償。重い検証はすべて CI に寄せる |
 | ライセンス | Apache-2.0 | 計画書 §8 |
@@ -65,7 +65,7 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | `ci-native.yml` | push(main) / PR / 手動 | L1 + L3、通常ビルド | M0 |
 | `ci-sanitizers.yml` | push(main) / PR / 手動 | ASan / UBSan レーン | M0 |
 | `build-opencv.yml` | 手動 + 構成変更時 | allowlist 構成の OpenCV をビルドし artifact 公開 | M1 |
-| `ci-unity.yml` | push(main) / PR / 手動 | Unity EditMode (L4) + IL2CPP Player (L5)。**起草時は「PR / nightly」と書いていたが、実装は nightly ではない。** ubuntu で走る（game-ci の Windows イメージが `windows-2022` と噛み合わないため）ので、CI の L5 は Linux の IL2CPP Player である | M2 |
+| `ci-unity.yml` | push(main) / PR / 手動 | Unity EditMode (L4) + IL2CPP Player (L5)。**起草時は「PR / nightly」と書いていたが、実装は nightly ではない。** ubuntu で走るので、CI の L5 は Linux の IL2CPP Player である（**Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた** —— 下記 M2 節） | M2 |
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
@@ -316,13 +316,27 @@ L5 は本物である。`UnityLinker --rule-set=Aggressive` が走り、`il2cpp 
 残っていた 3 つのうち、資格情報の登録（ユーザーの操作）が済んだあと、
 残り 2 つを実装した。
 
-- **ランナーへの Unity 導入とアクティベーション**: game-ci に任せた。
-  **ただし Windows では成立しない** — game-ci の Windows イメージは
-  Windows Server 2019 向けで、`windows-2022` では
+- **ランナーへの Unity 導入とアクティベーション**: game-ci に任せ、ubuntu で
+  走らせた。当時ここには「Windows では成立しない」と書き、game-ci の Windows
+  イメージが Windows Server 2019 向けで `windows-2022` では
   「container operating system does not match the host operating system」で
-  落ちる（game-ci/unity-builder#542、game-ci/docker#213）。`windows-2019` は
-  GitHub 側で提供が終わっている。game-ci が主として支えるのは Linux なので、
-  このレーンは ubuntu で走らせる。
+  落ちること（game-ci/unity-builder#542、game-ci/docker#213）を根拠に挙げていた。
+
+  **この理由づけは 2026-08-29 に崩れた。** 根拠にしていた
+game-ci/unity-builder#542 と game-ci/docker#213 は**どちらも 2023-11-15 に
+解決済みとして閉じている**。#542 の最後のコメントは "V4 is now released and
+uses windows-2022" で、**この workflow が使っているのはその v4 である。**
+つまり「OS 不一致で落ちる」はもう成り立たない公算が高い —— ただし
+**一度も試していないので、成り立たないとも言い切れない。**
+
+**別の障害が GameCI 自身の文書にある。** Windows の IL2CPP ビルドに要る
+Visual Studio Build Tools は、Microsoft の制約でイメージに同梱できず、ホストから
+注入するか独自イメージを作る必要がある。加えて Windows ではビルドのたびに
+ライセンスの取得と返却が要る（[GameCI の Windows イメージ文書](https://game.ci/docs/docker/windows-docker-images/)）。
+
+**Linux で走らせている事実は変えない。** 変えるのは理由の書き方で、
+「不可能だから Linux」ではなく「**まだ試していないから Linux**」が正しい。
+試すかどうかは M4 の担当である。
 - **帰結として L5 は Windows ではなく Linux の IL2CPP Player である。**
   L5 が捕まえたいのは stripping が P/Invoke 宣言を消す問題で、これは IL2CPP
   全体の性質であり Windows 固有ではない。Windows の IL2CPP Player は
@@ -692,6 +706,104 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 ---
 
+## 差別化の穴（2026-08-29 の再調査）
+
+**モバイルを対象に含めると決めたのを機に、競合の現況を取り直し、「差別化として
+掲げているのに埋まっていないもの」を数え直した。** 調査の中身は
+[競合調査](./unity-opencv-integration-research-and-plan.md) §4.6 にある。
+
+**結論を先に書く。「Unity 向けに OpenCV 5 を出しているのは本案だけ」は今も成り立つ。**
+商用（OpenCV for Unity 3.0.3 / OpenCV 4.13.0）も OSS（neon-izm 版 / OpenCV 4.11）も
+4.x 系のままである。
+
+**だがこれは時間で消える位置である。** 競合が 5 系へ上げた日に、残る差は「OSS で
+あること」「独自 ABI」「ビルドの再現性」だけになる。**先行している間に何を積むかが
+論点であって、先行していること自体は成果ではない。**
+
+下表は、[計画書](./unity-opencv-integration-research-and-plan.md) §7 に掲げた差別化に
+対して**実際には埋まっていない**もの、および競合が持っていて本案が持たないもののうち、
+担当を決めるべきものである。
+
+| # | 穴 | なぜ差別化に効くか | 担当 |
+| --- | --- | --- | --- |
+| 1 | **1 つの package に 1 platform 分の binary しか入らない** | Unity は同じ package ID を 1 つしか導入できない。「エディタは Windows、実機は Android」が表現できない | **M3.5** |
+| 2 | 画像ファイルを読み書きできない | 比較した競合はすべて持つ。モジュールはリンク済みで、足りないのは ABI 関数だけ | **M3.5**（M5 から前倒し） |
+| 3 | OpenUPM に載っていない | OSS の Unity パッケージが探される場所。#1 が解ければ載せられる | **M3.5** |
+| 4 | 検証している Unity が 1 版だけ | **その 1 版（6000.0 LTS）のサポートが 2026-10 に終わる** | **M3.5** |
+| 5 | カメラ映像を受け取れない | Unity で OpenCV を使う最大の用途。今は `Texture2D` の RGBA32 のみ | **M4** |
+| 6 | macOS で Unity に読み込ませたことがない | iOS のビルドに macOS runner が要るので、M4 で自然に埋まる | **M4** |
+| 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」と記録していたが、根拠の issue は 2023 年に解決済みだった。試していないだけである** | **M4** |
+| 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決める** |
+| 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
+| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある | **M7**（位置づけを下記に明記） |
+
+### #1 を最優先に置く理由
+
+**これは機能の不足ではなく、配布の形が現実を表現できていないという欠陥である。**
+
+Unity の package は 1 つの ID につき 1 つしか導入できない。本案は
+`release.yml` が platform ごとに別の tarball を作っており、利用者はそのうち 1 つを選ぶ。
+**そのため「エディタは Windows、ビルド対象は Android」という、モバイル開発で常態の
+構成が、そもそも表現できない。**
+
+**M4 の完了条件をすべて満たしても、その成果物を利用者に渡せない。** 実機で smoke test が
+通る Android の `.so` を作れても、それを Windows のエディタと同じ package に入れられ
+ないからである。したがって #1 は M4 の装飾ではなく**前提条件**であり、M4 の前に置く。
+
+**Desktop だけを見ていた間は表面化しなかった。** Windows の利用者が Windows 向けに
+ビルドする限り、必要な binary は 1 つで足りたためである。**M3 の完了条件は
+「3 platform で配布できる」であって「3 platform を同時に使える」ではなく、
+その差が条件の文面からは読み取れなかった。**
+
+なお `Runtime/Plugins/` の中は既に platform ごとのディレクトリに分かれている
+（`x86_64/` / `macOS/` / `Linux/x86_64/`）。**変えるのは固め方だけで、
+package の構造ではない。**
+
+### サンプルと文書について
+
+比較表（§4.6）で差が最も大きいのはサンプルの数だが、**これはマイルストーンにしない。**
+機能を足すマイルストーンの中で、その機能のサンプルを一緒に足す。切り離すと、
+「あとでまとめて書く」が永久に来ないためである。
+
+---
+
+## M3.5 — 配布の形と、実用に必要な最小の穴
+
+**目的**
+**M4 に進む前に、配布の形が複数 platform を表現できるようにする。** 理由は上記 #1 に
+書いたとおりで、これが解けていないと M4 の成果物を利用者に渡せない。あわせて、
+比較した競合がすべて持っていて本案だけが持たない最小の機能（画像ファイルの読み書き）を
+埋め、検証する Unity をサポート期限内の版に載せ替える。
+
+**ゴール**
+1 つの tarball に Desktop 3 platform の binary が入り、OpenUPM から導入でき、
+画像ファイルを読み書きでき、サポート期限内の Unity で検証されている。
+
+**完了条件**
+
+- **全 platform の binary を 1 つに収めた tarball を `release.yml` が作る。** platform ごとの
+  tarball を併せて出すかは任意だが、**全部入りを正**とする
+- その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る
+  （`dev.ps1 test-unity-tarball` を全部入りに対して走らせる）
+- **`.meta` が「その platform でだけ有効」になっていることを機械的に検査する。**
+  全部入りにして初めて、**間違った platform の binary が読み込まれる事故が起こりうる**
+  ようになる。1 platform しか入っていない今は、この検査は空振りする
+- **OpenUPM に登録し、`openupm add com.ayutaz.opencv-unity-native` で導入できることを
+  実測する。** `trackingMode: githubRelease` で Release に添付した `.tgz` をそのまま
+  公開できる（[OpenUPM の文書](https://openupm.com/docs/adding-upm-package.html)）
+- **`imgcodecs` を C ABI に出す。** 中核は**メモリ上の byte 列を相手にする経路**
+  （`imencode` / `imdecode` に相当するもの）とする —— ファイルパスを native へ渡す形は、
+  Windows の文字コードの扱いが増えるうえ、**Android では `StreamingAssets` が APK の
+  中にあってパスで開けない**ので、モバイルへ進む前提と噛み合わない
+- **Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る。** 現在検証している 6000.0 LTS は
+  **2026-10 にサポートが終わる**（[Unity 6 のサポート表](https://unity.com/releases/unity-6/support)）
+
+**非ゴール**
+モバイル platform の追加（M4）。カメラ入力（M4）。新しい画像処理関数。
+Asset Store での配布。
+
+---
+
 ## M4 — Mobile
 
 **目的**
@@ -703,13 +815,25 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 **完了条件**
 
 - Android arm64-v8a と iOS arm64 の native artifact を CI が生成する
-- Android の 16 KB page size を CI で検証する
+- **Android の 16 KB page size を CI で検証する。これは既に必須要件である** ——
+  Google Play は 2025-11-01 から 16 KB 対応を要求しており、一度きりの猶予も
+  2026-05-30 で終わっている（[Android 開発者向け文書](https://developer.android.com/guide/practices/page-sizes)）。
+  つまり「対応しておくと良い」ではなく、**対応していない `.so` を含む package は
+  利用者が Play に出せない** —— この検査が無いまま配ると、利用者のリリースを止める
 - iOS の `__Internal` static link と linker stripping 後も P/Invoke が解決することを実機で確認する
 - lifecycle（background / foreground）と memory pressure を検証する
-- カメラ入力は Unity の WebCamTexture / AR Foundation 側から受ける
+- **`WebCamTexture` から `CvMat` を作れるようにする**（穴 #5）。カメラ入力そのものは
+  Unity 側から受ける方針を変えないが、**受け取る API が今は無い** ——
+  `TextureConverter` は `Texture2D` の RGBA32 しか受け付けない
+- **macOS の Plugin Import Settings を Unity で実測する**（穴 #6）。iOS のビルドには
+  macOS runner が要るので、ここで初めて macOS 上で Unity を動かすことになる
+- **Windows の IL2CPP Player を CI で回すかどうかを、結論として書く**（穴 #7）。
+  やると決めるか諦めると決めるかは問わないが、**未調査のまま次へ進まない**
+- **対応 CPU アーキテクチャの範囲を決める**（穴 #8）。少なくとも Android の
+  x86_64（エミュレータ）を含めるかは、開発体験に直接効くので明示的に決める
 
 **非ゴール**
-カメラ入力の独自実装。Web。
+カメラ入力の独自実装。Web。配布の形の変更（M3.5 で済ませておく）。
 
 ---
 
@@ -727,12 +851,11 @@ binding specification から C ABI 宣言 / C# P/Invoke / API 対応表 / confor
 
 - spec を正本として生成物が作られ、golden test で一致が検証される
 - `geometry` / `calib` / `features` / `objdetect` などを**利用例に基づいて**追加する
-- **`imgcodecs` を C ABI に出す（画像ファイルの読み書き）。** モジュール自体は
-  `tools/opencv-config.psd1` の `Modules` に入っていて**すでにバイナリにリンクされており**、
-  `THIRD_PARTY_NOTICES.md` に zlib / libpng / libjpeg-turbo のライセンス全文もある。
-  計画書 §8.2 が求めた「必要性と notice を確認したうえで opt-in」は済んでいる。
-  **足りないのは呼ぶための ABI 関数だけである** —— 詳細は下記「どのマイルストーンにも
-  属していない制約」にある
+- **`imgcodecs` は M3.5 へ移した**（2026-08-29）。2026-08-29 に一度ここへ入れたが、
+  同じ日の再調査で前倒しに変えている。**生成の仕組みを待つ理由が無かった** ——
+  モジュールはリンク済み、notice も揃っており、足りないのは手で書く数本の ABI 関数
+  だけで、それは今ある 9 本と同じ書き方で足せる。M5 で扱うのは、そこで手書きした
+  関数を spec の側へ寄せることである
 - API 対応表を生成し、「OpenCV 全対応」という曖昧な表現を使わない
 - 生成された P/Invoke が IL2CPP stripping を生き延びることを L5 で確認する
 
@@ -769,6 +892,20 @@ threads profile（別 profile として後続）。
 **ゴール**
 DNN / contrib / 動画 codec / videoio が opt-in profile として追加でき、低コピー経路が評価済みになる。
 
+**ここにある DNN は、差別化として最も大きくなりうる項目である**（穴 #10）。
+OpenCV 5.0 のリリース告知が最初に挙げる変更が DNN エンジンの書き直しで、比較した
+Unity 向け製品はすべて 4.x 系、つまり**書き直し前のエンジン**を載せている
+（[競合調査](./unity-opencv-integration-research-and-plan.md) §3 / §4.6）。
+
+**それでも M7 に置いたままにする。** Unity 利用者にとって推論エンジンは OpenCV だけ
+ではなく、OpenCV for Unity 自身が Unity Sentis との切り替えを用意しているほどである。
+**「競合が持っていないもの」と「利用者が本案に求めるもの」は別で**、後者の根拠が
+まだ無い。前倒しの判断は、利用例が集まってから行う。
+
+**低コピー経路の実測も同じ節にある**（穴 #9）。§7 の 7 番目に
+「Texture2D / NativeArray 等との低コピー連携」を掲げているのに、**現在その主張を
+支える実測は無い。** 掲げている以上、測るまでは主張として弱い。
+
 **`imgcodecs` はここに含まれない。** 標準ビルドに既に入っており（`Modules`）、
 bundle される zlib / libpng / libjpeg-turbo の notice も揃っているので、
 opt-in profile として足すものではない。**残っているのは C ABI に出すことだけ**で、
@@ -783,42 +920,68 @@ opt-in profile として足すものではない。**残っているのは C ABI
 
 ---
 
-## どのマイルストーンにも属していない制約
+## 担当が無かった制約（2026-08-29 に全件割り当て）
 
-**M0〜M3 を完了し v0.1.1 を配ったあとで「できないこと」を数え直したときに見つかった。**
-どれも留保として本文には書かれていたが、**解消する担当がどこにも無かった。**
-留保は「誰かがいずれ拾う」と読まれるので、拾う予定が無いなら無いと書く。
+**M0〜M3 を完了し v0.1.1 を配ったあとで「できないこと」を数え直したときに見つかった
+3 件。** どれも留保として本文には書かれていたが、**解消する担当がどこにも無かった。**
+留保は「誰かがいずれ拾う」と読まれるので、拾う予定が無いなら無いと書く —— という
+理由でこの節を作った。
 
-### 解決: 画像ファイルの読み書き（M5 の完了条件に加えた、2026-08-29）
+**同じ日のうちに 3 件とも担当が付いた**（下記）。**節は残す。** 担当が付いたことより、
+**「本文に書いてあるのに誰の担当でもない」状態が実際に起きたこと**のほうが、次に
+同じことを防ぐうえで役に立つ記録だからである。
+
+### 画像ファイルの読み書き → M3.5
 
 **「バイナリには入っているが、呼ぶ関数が無く、誰の担当でもない」状態だった。**
 `imgcodecs` は標準ビルドに入っていて notice も揃っているのに、M5 の完了条件は
 `geometry` / `calib` / `features` / `objdetect` を名指しして `imgcodecs` を挙げず、
-M7 の「codec」は**まだ入っていないものを profile として足す**話だった。両方の
-枠の外に落ちていた。M5 の完了条件に加えて解決した。
+M7 の「codec」は**まだ入っていないものを profile として足す**話だった。両方の枠の
+外に落ちていた。
 
-**これは実用上いちばん大きい欠落である。** 画像を読み書きできないので、この
-パッケージ単体では何も入出力できない（今できるのは Unity の `Texture2D` /
-`NativeArray` を経由した受け渡しだけ）。**M5 は M4 の後**という順序は「生成する
-コードの形を実機の制約で確定してから」という理由から来ているので、これより早く
-要るなら M5 を分割するか、M4 の前に小さなマイルストーンを挟むことになる。
-**その判断はまだしていない。**
+いったん M5 の完了条件に加え、同じ日の再調査（上記「差別化の穴」#2）で **M3.5 へ
+前倒しした。** 生成の仕組みを待つ理由が無く、比較した競合はすべて持っている機能で
+あるためである。
 
-### 担当なし: Windows の IL2CPP Player を CI で回す
+**あわせて、この節に書いていた評価を 1 つ訂正する。** ここには「実用上いちばん
+大きい欠落であり、このパッケージ単体では何も入出力できない」と書いていたが、
+**Unity の利用者にとっては言い過ぎだった。** Unity 自身が PNG / JPEG の読み書きを
+持つので、`ファイル → Texture2D → CvMat` の経路は**今日すでに成立する**。
+効いてくるのは、メインスレッド以外で読みたいとき、Unity が扱わない形式のとき、
+native 側だけで処理を閉じたいときである。**「無いと何もできない」ではなく
+「あると楽になる」** —— 前倒しの判断自体は変えないが、理由を実態に合わせる。
+
+### Windows の IL2CPP Player を CI で回す → M4 で結論を出す
 
 M2 の完了条件 6 は「Unity EditMode と **Windows** IL2CPP Player で同じ smoke test が
 通る」で、**ローカル実測で満たした**。条件 7（CI で L4 / L5 を実行する）は game-ci を
 使って **Linux** で満たした。したがって **Windows の IL2CPP Player は、今もローカルの
 `dev.ps1 test-unity-player` だけが担っている。**
 
-理由は記録してある（game-ci の Windows イメージが Windows Server 2019 向けで
-`windows-2022` では OS 不一致で落ちる。`windows-2019` は提供終了）。
-**記録してあるのは理由だけで、いつ誰がどう解決するかは M4 以降のどこにも無い。**
+**2026-08-29 に調べた結果、「無理だ」と書いていた根拠のほうが誤りだった。**
+理由として挙げていた
+[game-ci/unity-builder#542](https://github.com/game-ci/unity-builder/issues/542) と
+[game-ci/docker#213](https://github.com/game-ci/docker/issues/213) は、**どちらも
+2023-11-15 に解決済みとして閉じている**。#542 の最後のコメントは
+"V4 is now released and uses windows-2022" であり、**`ci-unity.yml` が使っているのは
+その v4 である。**
 
-やるとすれば self-hosted runner を立てるか、game-ci を使わずに `windows-2022` へ
-Unity を直接入れてライセンスを通すことになる。**どちらも調べていない。**
+**つまり、この 1 年近く「上流が直らないから無理」と書いてきたが、上流は
+とっくに直っていた。** 記録した時点では issue を読んだだけで、**Windows で
+走らせる試みは一度もしていない。** 読んだ根拠が古くなったことに気づく仕掛けが
+どこにも無かった —— リンク先が閉じても、こちらの文書は緑のままである。
 
-### 担当なし: macOS の Plugin Import Settings を Unity で実測する
+**それでも「すぐできる」ではない。** [GameCI 自身の Windows イメージ文書](https://game.ci/docs/docker/windows-docker-images/)は
+別の障害を挙げている: **IL2CPP のビルドに要る Visual Studio Build Tools は、
+Microsoft の制約でイメージに同梱できない** ——ホストから注入するか独自イメージを
+作る必要がある。加えて Windows ではビルドのたびにライセンスの取得と返却が要る。
+
+**M4 での担当は「決める」ではなく「試す」である。** まず `windows-2022` 上の
+game-ci v4 に素直に投げ、何が起きるかを見る。落ちたらその出力を根拠として
+記録する ——**issue を読んだ結果ではなく、こちらで走らせた結果を根拠にする。**
+そのうえで、独自イメージを作るか、self-hosted runner を立てるか、諦めるかを決める。
+
+### macOS の Plugin Import Settings を Unity で実測する → M4
 
 `.meta` の形式は Unity 自身が生成した Windows 分に合わせてあり、**Linux 分は M2 の
 条件 7 で実測に変わった**（`ci-unity.yml` が Linux の Unity を動かし、`.so` とその
@@ -826,17 +989,18 @@ Unity を直接入れてライセンスを通すことになる。**どちらも
 **macOS だけが実測でないまま残っている** —— CI の macOS job は plugin をビルドするが
 Unity を起動しない。
 
-同じ作り方の `.meta` が Linux の実機で通ったことで妥当性は上がったが、**それは
-macOS で確かめたことにはならない。** 解決するには CI の macOS で Unity を動かす
-必要があり、game-ci が Linux で使っている container の手が macOS runner でそのまま
-使えるかは**調べていない。**
-
----
+**M4 で自然に埋まる。** iOS のビルドには macOS runner が要るので、そこで初めて
+macOS 上で Unity を動かすことになる。**「ついでに埋まる」に任せず M4 の完了条件に
+書いた**のは、まさにこの節が生まれた理由がそれだからである。
 
 ## マイルストーン間の依存
 
 ```text
 M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 Desktop 配布
+                                                              |
+                                                              v
+                                                     M3.5 配布の形と最小の穴
+                                              （全部入り package / OpenUPM / 画像入出力）
                                                               |
                                                               v
                                                           M4 Mobile
