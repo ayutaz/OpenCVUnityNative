@@ -131,10 +131,10 @@ is gated by the `OS` sub-setting underneath that flag, not by the flag, so a che
 reading only the flag passes always and proves nothing. Second, the check has teeth:
 deliberately breaking a `.meta` so the macOS library claims Windows leaves the older
 ten-test suite at 10 of 10 — `DllImport` resolution already branches on the differing
-file names, so nothing there ever noticed — and fails 3 of the current 15.
+file names, so nothing there ever noticed — and fails 3 of the current 16.
 
 Installing the all-platform tarball into a throwaway project and running EditMode
-there passed 15 of 15, measured on one Windows machine on 2026-08-30. The tarball is
+there passed 16 of 16, measured on one Windows machine on 2026-08-30. CI runs the same EditMode suite on Linux and it passes 16 of 16 there too, but with only the Linux binary present, so the three-platform case those checks exist for is not what CI exercises. The tarball is
 8.4 MB. See the [roadmap](docs/roadmap.md).
 
 ### How releases are made

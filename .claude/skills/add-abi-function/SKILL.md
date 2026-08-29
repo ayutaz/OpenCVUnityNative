@@ -185,6 +185,23 @@ doc コメント）。
    部分的に書くと、呼ぶ側は途中まで正しい buffer を掴むことになり、壊れ方が
    「その場では気づけない」形になる
 
+**どの失敗でも `*out_required_size` に 0 を書く。** NULL 判定の直後に 0 を入れ、
+以降のすべての早期 return がその後ろに来るようにする。呼ぶ側は同じ変数を
+使い回すので、**書かないと「失敗したのに前回のサイズが残る」**。その値を信じて
+確保する経路ができ、次の呼び出しが偶然通ってしまう。
+
+**この規則は、テストが 0 で初期化していると確かめられない。** 「書いていない」と
+「0 を書いた」が区別できないためである。M3.5 では代入を消しても L1・L3 の
+16 件が緑のまま通った。**わざと汚してから呼ぶ**こと:
+
+```cpp
+int32_t needed = 12345;                 // 0 ではない値で汚す
+EXPECT_EQ(ocvu_imencode(src, nullptr, nullptr, 0, &needed), OCVU_STATUS_NULL_POINTER);
+EXPECT_EQ(needed, 0) << "失敗時は 0 を書くこと";
+```
+
+代入を消して**落ちること**を確認する（M3.5 の実測では 9 件が落ちた）。
+
 **L1 には境界を必ず入れる。** `buffer_size = needed - 1` で呼び、`BUFFER_TOO_SMALL`
 が返ること、かつ **buffer が呼び出し前と 1 バイトも変わっていないこと**を見る
 （`native/tests/test_imgcodecs.cpp` の `EncodeRejectsTooSmallBufferWithoutWriting`。
