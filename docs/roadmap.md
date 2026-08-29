@@ -839,6 +839,41 @@ Asset Store での配布。
 | 5 | `imgcodecs` を C ABI に出す（メモリ上の byte 列） | **満たす**。`ocvu_imencode` / `ocvu_imdecode`（公開 ABI 18 → 20 本、allowlist は 9 → 11 本）。L1 8 ケース / L3 8 ケース、C# は `CvCodecs`。**着手して初めて `imgcodecs` がリンクされていなかったことが分かった**（下記） |
 | 6 | Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る | **満たす**。`6000.3.16f1` で L4 が 16 passed、L5（IL2CPP Player）が 10 passed（2026-08-30、このマシン）。`package.json` の `unity` も `6000.3` にした。**L5 は最初に落ちた** —— 6.3 のエディタに IL2CPP モジュールが無く `Currently selected scripting backend (IL2CPP) is not installed` で Player のビルドが止まったので、Hub の CLI で入れてから通した |
 
+### 条件 2・3 の証拠を、どうすれば再現できるか
+
+**この 2 件の実測は「3 platform 分の binary が `Runtime/Plugins` に揃っている」
+状態でしか成立しない。** そしてその状態は、**このリポジトリのどのコマンドも
+自動では作らない** —— `dev.ps1 build` は実行中 platform の分しか置かず、
+`Runtime/Plugins/` は git の追跡外だからである。
+
+**手順を書いておかないと、証拠が「著者の機械にたまたま残っていたもの」に
+なる。** 実際、それが原因で `test-tools-slow` が CI の Windows / macOS job で
+落ちる欠陥を見落とした（レビューが再現して見つけた）。
+
+```
+# 公開済みの release から他 platform の実物を取る
+gh release download v0.1.1 --repo ayutaz/OpenCVUnityNative     --pattern "*macos-arm64.tgz" --pattern "*linux-x64.tgz" --dir /tmp/ocvu
+mkdir -p /tmp/ocvu/mac /tmp/ocvu/linux
+tar -xzf /tmp/ocvu/*macos-arm64.tgz -C /tmp/ocvu/mac
+tar -xzf /tmp/ocvu/*linux-x64.tgz   -C /tmp/ocvu/linux
+
+# 重ねて全部入りとして検査する
+./tools/dev.ps1 test-unity-tarball -PluginSource "/tmp/ocvu/mac/package;/tmp/ocvu/linux/package"
+```
+
+**後始末は自動では行われない。** `tools/assemble-plugins.ps1` は
+`Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins` を直接書き換え、
+消しはしない。単体 platform の状態に戻すには、他 platform のディレクトリを
+手で消す（`Runtime/Plugins/` は追跡外なので git では戻らない）。
+
+**この残骸があると、他のレーンの見え方が変わる。** `dev.ps1 test-unity-tarball`
+は 3 つ揃っていれば全部入りとして扱い、`PackageRelease.Tests.ps1` は
+単体 platform の検査で他 platform を退避する。どちらも残骸を前提にはして
+いないが、**「自分の機械で緑だった」を証拠として書くときは、どちらの状態で
+走らせたのかを併記すること。**
+
+---
+
 **したがって M3.5 は 6 件中 4 件を満たし、1 件が「満たすが未実証」、1 件が部分達成である。**
 
 **条件 3 を「満たす」に数えない理由を明記する。** 検査は書いたし、3 platform
