@@ -3,7 +3,25 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
-    [string]$Command = 'test'
+    [string]$Command = 'test',
+
+    <#
+        test-unity-tarball を**全部入り**に対して走らせるとき、他 platform の
+        plugin 木がある場所（';' 区切り）。
+
+        **このマシンでビルドできるのは 1 platform 分だけ**なので、全部入りを
+        作るには他 platform の binary を外から持ってくるしかない。公開済みの
+        release から取るのが今のところ唯一の経路である:
+
+            gh release download v0.1.1 --pattern "*macos-arm64.tgz" --pattern "*linux-x64.tgz"
+            tar -xzf ...   # package/Runtime/Plugins が出てくる
+            ./tools/dev.ps1 test-unity-tarball -PluginSource "<mac>/package;<linux>/package"
+
+        **渡さなければ従来どおり 1 platform 分で走る。** 黙って全部入りの
+        ふりをしない —— それをやると、レーンは緑なのに何も確かめていない
+        状態になる。
+    #>
+    [string]$PluginSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -392,6 +410,17 @@ function Test-UnityEditMode {
 function Test-UnityTarball {
     Build-Native
 
+    # 他 platform の木を渡されたら重ねる。ここで初めて 3 platform が揃う。
+    $allPlatforms = $false
+    if ($PluginSource) {
+        $assembler = Join-Path $PSScriptRoot 'assemble-plugins.ps1'
+        & pwsh -NoProfile -File $assembler -Source $PluginSource
+        if ($LASTEXITCODE -ne 0) {
+            Write-DevFailure "plugin の木を重ねられませんでした（exit $LASTEXITCODE）"
+        }
+        $allPlatforms = $true
+    }
+
     $unity   = Get-UnityEditorPath
 
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
@@ -408,8 +437,11 @@ function Test-UnityTarball {
         # platform を渡す。packer がその platform の binary の実在を確かめるので、
         # 「何か 1 つでも入っている」ではなく「意図した binary が入っている」に
         # なる。
-        $tgz = & pwsh -NoProfile -File $packer -OutputDir $upmDir -Platform $Platform |
-               Select-Object -Last 1
+        $tgz = if ($allPlatforms) {
+            & pwsh -NoProfile -File $packer -OutputDir $upmDir -AllPlatforms | Select-Object -Last 1
+        } else {
+            & pwsh -NoProfile -File $packer -OutputDir $upmDir -Platform $Platform | Select-Object -Last 1
+        }
         if ($LASTEXITCODE -ne 0 -or -not $tgz -or -not (Test-Path -LiteralPath $tgz)) {
             Write-DevFailure "UPM tarball を作れませんでした（exit $LASTEXITCODE）"
         }
@@ -424,6 +456,19 @@ function Test-UnityTarball {
         # 実行中 platform の綴りを 1 箇所で持っているので、それを使う。
         # 「何かしら」で見ると、古い binary が Plugins に残っているだけで
         # 通ってしまう。
+        # 全部入りなら 3 つ揃っていること。**1 つでも通る形にしない** ——
+        # それでは全部入りを確かめたことにならない。
+        if ($allPlatforms) {
+            $allBins = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+            if ($allBins.Count -ne 3) {
+                Write-DevFailure (@(
+                    "全部入りの tarball に binary が $($allBins.Count) 個しかありません（3 個であるべき）: $tgz"
+                    "入っていたもの: $(if ($allBins) { $allBins -join ', ' } else { '(なし)' })"
+                ) -join "`n")
+            }
+            Write-Host "==> tarball contains all three platform binaries" -ForegroundColor Green
+        }
+
         $binaries = @($listed | Where-Object { $_ -like "*/$NativeLibraryName" })
         if ($binaries.Count -lt 1) {
             $anyBinary = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
