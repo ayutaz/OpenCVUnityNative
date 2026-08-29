@@ -11,6 +11,17 @@
 # 本物の指摘がその中に埋もれる。埋もれた指摘は無いのと同じなので、
 # 読む範囲を自分が責任を持つコードに絞る。
 #
+# ## この設定が効く範囲（重要）
+#
+# **paths / paths-ignore は C# には効くが、C++ には効かない。** CodeQL の
+# C++ 解析は「実際にコンパイルされたもの」からデータベースを作るので、
+# ここで除外してもコンパイルされていれば入る（実測: build/ を書いても
+# GoogleTest の指摘 5 件が消えなかった）。
+#
+# **C++ 側は「何をビルドするか」で絞る。** codeql.yml は配布する
+# opencv_unity_native だけをビルドする——テストをビルドすると
+# FetchContent が落としてくる GoogleTest が一緒に入るためである。
+#
 # 依存そのものの脆弱性を追うのは CodeQL の仕事ではない——それは OpenCV の
 # 固定版と `tools/verify-opencv-artifact.ps1` の allowlist、そして
 # Dependabot が持つ。
