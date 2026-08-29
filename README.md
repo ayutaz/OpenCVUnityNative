@@ -2,7 +2,7 @@
 
 OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible native UPM package.
 
-> **Status: early development (M0/M1 complete; M2 meets 7 of its 8 completion criteria; M3 meets 1 of its 6).** M2's unmet criterion: CI never runs the Unity lanes (`ci-unity.yml` exists but has never executed, and registering credentials alone won't fix it — the GitHub-hosted runner has no Unity installed and nothing reads `UNITY_LICENSE` yet). The automated test harness (native GoogleTest lane, AddressSanitizer lane, managed P/Invoke contract lane, a Unity EditMode lane, and a Windows IL2CPP Player lane) exists and passes locally, linked against a reproducible OpenCV 5.0.0 build that CI produces and publishes as an artifact for Windows, macOS and Linux. The C ABI exposes a `Mat` lifecycle (create/release/clone/get_info/copy_from_buffer/copy_to_buffer) and three `imgproc` calls (cvtColor/resize/GaussianBlur) in addition to the M0 version/build-information/debug surface — 18 functions total. `Texture2D` round-trips through OpenCV and back with the same result in both Unity Editor (Mono) and a Windows IL2CPP Player build. M3 (three-platform desktop support) has all its work implemented and committed, but only the Unity sample and API reference criterion is actually verified — the other five (three-platform native-plugin CI build and Plugin Import Settings, Git URL/tarball installability, a complete release bundle, Linux leak detection, and machine-checked linkage on macOS/Linux) exist as code that has never run in CI on this branch, because the commits implementing them haven't been pushed past the last commit CI validated. Nothing beyond Windows x64 has an actual compiled plugin yet.
+> **Status: v0.1.1, desktop only (M0–M3 complete).** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. The public C ABI is deliberately narrow — `Mat` lifecycle and buffer transfer plus `cvtColor` / `resize` / `GaussianBlur` — because M2 was about getting ownership, stride, error handling and IL2CPP right rather than covering surface area. Mobile (M4) and Web (M6) are not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -18,9 +18,13 @@ A Unity-first integration of OpenCV 5, built around a narrow C ABI that this pro
 
 Reimplementing OpenCV algorithms. Hand-wrapping the entire OpenCV API up front. Duplicating OpenCvSharp's managed API for compatibility. Shipping one large binary with every codec, DNN and GPU backend enabled.
 
-## Planned platforms
+## Platforms
 
-Windows, macOS and Linux first, then Android and iOS, then Web/Wasm. Unity 6000.x only.
+**Shipping today:** Windows x64, macOS arm64, Linux x64. Each is built, tested and
+packaged by CI, and the Linux and Windows plugins are exercised by Unity itself
+(EditMode on Mono and a real IL2CPP player).
+
+**Planned:** Android and iOS, then Web/Wasm. Unity 6000.x only throughout.
 
 ## Installing
 
@@ -128,21 +132,53 @@ All local development after that goes through `tools/dev.ps1`:
 # AddressSanitizer lane (L2)
 ./tools/dev.ps1 test-asan
 
-# Unity EditMode (L4) and a Windows IL2CPP Player build + run (L5); require a local Unity install
+# Unity EditMode (L4) and a Windows IL2CPP Player build + run (L5); need a local Unity install
 ./tools/dev.ps1 test-unity-editmode
 ./tools/dev.ps1 test-unity-player
+
+# Install the UPM tarball into a throwaway Unity project and run its tests there
+./tools/dev.ps1 test-unity-tarball
 
 # Remove build output
 ./tools/dev.ps1 clean
 ```
 
-CI calls the same `tools/dev.ps1` script — there are no CI-only procedures. A local green run is an approximation kept for speed; CI decides mergeability. The Unity lanes above are the one exception right now: `ci-unity.yml` exists but has never executed in this repo's CI, because no Unity license is registered in GitHub Secrets. They currently pass only where run locally.
+CI calls the same `tools/dev.ps1` script for everything except the Unity lanes, where
+it uses [GameCI](https://game.ci/) to provide the editor and activate the licence.
+That divergence is deliberate and bounded: **the pass/fail decision is shared**, in
+`tools/assert-unity-results.ps1`, which both the local lanes and CI run. In particular
+"zero tests executed is not a pass" lives there, so it cannot hold locally while
+silently lapsing in CI.
+
+A local green run is an approximation kept for speed; CI decides mergeability.
+
+### What CI covers
+
+| | Windows x64 | macOS arm64 | Linux x64 |
+| --- | --- | --- | --- |
+| L1 contract tests + L3 P/Invoke | yes | yes | yes |
+| L2 sanitizers | ASan | — | ASan + **LeakSanitizer** |
+| Artifact linkage and enabled languages | yes | yes | yes |
+| Unity EditMode (L4) | local only | local only | **yes** |
+| Unity IL2CPP player (L5) | local only | — | **yes** |
+
+GameCI's Windows images target Windows Server 2019 and fail on the `windows-2022`
+runners GitHub offers, so the Unity lanes run on Linux. The Windows IL2CPP player is
+still covered, but only by the local lane.
+
+**Linux artifacts are built inside an Ubuntu 22.04 container**, not on the runner
+image. A shared library only loads on a system at least as new as the one that built
+it, and runner images keep moving forward. Building in a pinned container keeps the
+floor where we intend it (glibc 2.35), and `tools/verify-plugin-portability.ps1`
+fails the build if what came out requires anything newer.
 
 ## License
 
 Apache License 2.0 for this repository's own source. That does not by itself determine the terms of third-party code linked into the distributed binary — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses of what the pinned OpenCV build bundles. That file lists every licence the artifact ships and says, per component, whether it is actually linked into the binaries — SoftFloat, annoylib, MSCR's chi table and the Rubik font are linked alongside zlib, libpng, libjpeg-turbo and libclapack; a few others ship a licence file without being linked. The Rubik font is under the SIL Open Font License, not a BSD-family licence, so the set is not uniform. Dependencies are constrained by an allowlist (`tools/verify-opencv-artifact.ps1`) and documented per build profile.
 
-The runtime library is shared (`/MD`), not embedded — a developer integrating this package decides what to redistribute with their game rather than the package deciding for them.
+On Windows the plugin links the runtime library in its shared form rather than
+embedding a copy. A developer integrating this package decides what to redistribute
+with their game, rather than the package deciding for them.
 
 ## Documentation
 
@@ -152,6 +188,8 @@ Design and research documents (in Japanese) live under `docs/`:
 - [M0 implementation plan](docs/superpowers/plans/2026-08-25-m0-tdd-harness.md)
 - [M1 implementation plan](docs/superpowers/plans/2026-08-25-m1-opencv-build.md)
 - [M2 implementation plan](docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)
+- [M3 implementation plan](docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)
+- [API reference](docs/api-reference.md)
 - [C ABI ownership and versioning](docs/abi-ownership-and-versioning.md)
 - [Unity/OpenCV integration research and plan](docs/unity-opencv-integration-research-and-plan.md)
 - [Native backend language TDD evaluation](docs/native-backend-language-tdd-evaluation.md)
