@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 最後まで残っていた条件 7（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、**ランナーへの Unity 導入とアクティベーションを game-ci に任せ、Linux で走らせることで満たした**（`==> [EditMode] 10 passed` / `==> [Standalone] 10 passed`）。L5 は `UnityLinker --rule-set=Aggressive` を通した実物の IL2CPP Player で、stripping が有効な状態で P/Invoke が生き残ることを CI が実証している。
 
-**game-ci は Windows ランナーでは使えない** — Windows イメージが Windows Server 2019 向けで、`windows-2022` では OS 不一致で落ちる（game-ci/unity-builder#542）。`windows-2019` は提供終了。そのため **CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
+**CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。**理由として「game-ci は Windows ランナーでは使えない」と書いていたが、2026-08-29 にその根拠が崩れた** —— 挙げていた 2 つの issue のうち 1 つは使っていない別 action のもので、もう 1 つは使っているイメージ群の**別系統（Windows 版）**についてだった。**動く根拠も動かない根拠もこちらでは持っておらず、一度も試していない。** 経緯と現状の障害は `docs/roadmap.md`「担当が無かった制約」の Windows IL2CPP の節に 1 箇所だけ書いてある。試すのは M4 の担当。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
 
 **この作業が公開済み v0.1.0 の欠陥を暴いた。** ubuntu-24.04 でビルドした Linux の `.so` が GLIBC_2.38 を要求しており、それより古い環境では `DllNotFoundException` になっていた。ビルドも linkage 検証も配布物生成も通っていたので、**Unity を実際に動かすまで誰も知らなかった**。Linux のビルドを `ubuntu:22.04` コンテナへ移して 2.34 に下げ、`tools/verify-plugin-portability.ps1` がビルド時点で上限を見るようにした。判定の詳細は `docs/roadmap.md` の M2 / M3 節にある。
 
@@ -109,7 +109,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `ci-native.yml` | push(main) / PR / 手動 | L1 + L3 を 3 platform で。macOS / Linux job には `test-tools-slow` も配線 | **3 platform とも green**（M3 の PR #8 以降） |
 | `ci-sanitizers.yml` | push(main) / PR / 手動 | L2。Windows は ASan、Linux は ASan+LSan（リーク検出はこのレーンだけが担う） | green |
 | `build-opencv.yml` | 手動 + 構成ファイルの変更 | allowlist 構成の OpenCV を 3 platform でビルドし artifact 公開 | 稼働中 |
-| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**ubuntu で走る** — game-ci の Windows イメージは Server 2019 向けで `windows-2022` では OS 不一致で落ちるため。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通） | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green） |
+| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**ubuntu で走る**（Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた。上記参照）。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通） | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green） |
 | `ci-lint.yml` | push(main) / PR / 手動 | 4 job: actionlint（workflow の構文・式・`run:` の中の shell）/ shellcheck（hook と CI のスクリプト）/ PSScriptAnalyzer（`tools/` の PowerShell、Error のみ）/ 文書の相対リンク検査（コードブロックの中は見ない。0 件なら「壊れていない」ではなく走査が効いていないとして落とす）。**静的に読めば分かる誤りを CI 1 周（10〜20 分）かけて確かめていた**のを埋める。数分で終わるので重いレーンより先に落ちる | green |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C#。C++ は**配布する `opencv_unity_native` だけ**をビルドする——`paths-ignore` は C++ に効かず（解析対象は「実際にコンパイルされたもの」）、テストごとビルドすると FetchContent の GoogleTest の指摘が混ざるため。C# は P/Invoke していること自体への 2 規則を `query-filters` で外す（**設計どおりの指摘に本物が埋もれる**ため。実測で open 107 件中 84 件がこれで、その陰に本物が 4 件あった）。OpenCV の cache は `if: matrix.language == 'c-cpp'` で c-cpp の leg に限る——csharp の leg は OpenCV を一度も開かないので、揃えないと cache hit 時に使わない木を落として展開し、miss 時は post step が `Path Validation Error` を出して何も保存しない（後者は「なぜ cache が温まらないのか」を調べる人に偽の手がかりを渡す） | green。埋もれていた本物 4 件の現状は下記 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。**3 job 定義**（速いレーンの job は `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）: Linux 成果物の移植性（`ubuntu:22.04` でビルドし直して GLIBC の要求を見る）/ Windows・macOS の速いレーン（`dev.ps1 test`。結果を `if: always()` で artifact 化する。名前は `matrix.runner` で分ける——`matrix.name` は空白を含み、分けないと 2 つの job が同じ artifact 名を取り合う）/ OpenCV artifact の期限切れ確認 | **schedule で起動した実績はまだ無い。** 手動起動が 2 回あり、1 回目（run 33230097557、2026-08-29 02:54Z）は 4 job 中 3 job が API レート制限で失敗、2 回目（run 33233610215、同 04:21Z、修正後）は 4 job とも success |
@@ -155,7 +155,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | --- | --- |
 | native backend 実装言語 | **C++**（Rust spike は不要になった） |
 | UPM package ID | **`com.ayutaz.opencv-unity-native`** |
-| 対象 Unity | **6000.x のみ**（2022 LTS 非対応） |
+| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.0.82f1 の 1 版だけで、その版は 2026-10 に通常サポートが終わる** —— M3.5 で 6.3 LTS へ載せ替える（`docs/roadmap.md` の「差別化の穴」#4） |
 | C# ターゲット | netstandard2.1 / C# 9 |
 | OpenCV 入手 | allowlist 構成で CI がビルドし artifact 配布。**ローカルではビルドしない** |
 | CI/CD | public OSS のため GitHub Actions を全面活用。重い検証はすべて CI |
@@ -247,7 +247,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: M2・M3 とも完了。v0.1.1 が最新の公開版。次は M4 — 詳細は roadmap）
+## マイルストーン（現在地: M3 まで完了。v0.1.1 が最新の公開版。**次は M3.5** — 詳細は roadmap）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
@@ -257,17 +257,18 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | **M1** | **OpenCV 5.0.0 の再現可能ビルド。CI がビルドし artifact 配布、ローカルは download のみ — 完了** |
 | **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件すべて達成。最後の条件 7（CI で L4/L5）は game-ci + Linux で満たした。その過程で、公開済み Linux 版が古い環境で読み込めない欠陥が判明し修正** |
 | **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。配布まで踏み、v0.1.0 と、Linux の欠陥を直した v0.1.1 を公開済み** |
-| M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する |
-| M5 | binding specification と generator。**`imgcodecs` を C ABI に出すのもここ**（モジュールは既にリンク済みで notice も揃っており、足りないのは呼ぶ関数だけ。2026-08-29 に完了条件へ追加） |
+| **M3.5** | **配布の形と、実用に必要な最小の穴。** 2026-08-29 の再調査で足した。**1 つの package に 1 platform 分の binary しか入らない**ので「エディタは Windows、実機は Android」が表現できず、**M4 の成果物を配れない**。あわせて OpenUPM 登録・画像ファイルの読み書き・Unity 6.3 LTS への載せ替え |
+| M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する。**16 KB 対応は 2027-02-01 から Google Play の要件**（それより前に満たす。止まるのは利用者のリリースである）。macOS の `.meta` 実測と Windows IL2CPP の結論もここ |
+| M5 | binding specification と generator。**`imgcodecs` は M3.5 へ前倒しした**（2026-08-29。手書きで足りるものに生成の仕組みを待たせる理由が無かった） |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
-| M7 | Optional profiles と性能 |
+| M7 | Optional profiles と性能。**OpenCV 5 の新しい DNN エンジンはここ** —— 競合が持たない最大の差になりうるが、Unity には推論の代替があるので前倒ししない（roadmap の M7 節） |
 
 **M2 以降の完了条件には、native 単体テストだけでなく実際の Unity Player から C# → P/Invoke → C ABI → OpenCV を通る smoke test を含める。** M2 はこれをローカルで満たしたうえで、2026-08-29 に CI（Linux）でも実行して条件 7 を満たした。**ただし「CI で走っている」は「赤ければ止まる」ではない** —— `ci-unity` が merge を止めるかどうかは下記「機構として強制されていること」を見ること。
 
 ## 実装に着手するとき
 
 1. `docs/roadmap.md` で対象マイルストーンの目的・ゴール・完了条件・**非ゴール**を確認する
-2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）。M4 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
+2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）。M3.5 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
 M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、ライセンス表示と SBOM の公開フロー、各 platform で必須とする Editor / Mono / IL2CPP / device test matrix。
@@ -400,12 +401,12 @@ CodeQL まで見る。それでも次は緑のまま通過する。
   「ファイルが存在する」は「CI で実行された」ではない —— M2 の条件 7 を
   そう判定したのと同じ基準を、こちらにも当てる
 - **macOS 上の Unity の挙動**（CI の macOS job は plugin をビルドするが Unity を
-  起動しない。Linux 分は M2 の条件 7 で実測できるようになった）。
-  **どのマイルストーンの担当でもない** —— `docs/roadmap.md` の
-  「どのマイルストーンにも属していない制約」
-- **Windows の IL2CPP Player**（game-ci が Windows ランナーで動かないため、
-  CI の L5 は Linux。Windows 版はローカルのレーンだけが担う）。
-  **これも担当なし** —— 同上
+  起動しない。Linux 分は M2 の条件 7 で実測できるようになった）。**M4 の担当**
+  —— `docs/roadmap.md`「担当が無かった制約」
+- **Windows の IL2CPP Player**（CI の L5 は Linux で、Windows 版はローカルの
+  レーンだけが担う）。**M4 の担当** —— 同上。**実際に走らせたことは一度も無い**
+- **複数 platform を同時に使うこと。** 配る tarball は platform ごとに分かれて
+  おり、1 つの package に 1 platform 分しか入らない。**M3.5 の担当**
 - mobile / Web（M4 / M6 の担当。まだ何も無い）
 - **「ビルドできた」と「動く」の差。** v0.1.0 でこれを踏んだ——3 platform とも
   ビルドが成功し linkage 検証も配布物生成も通ったのに、Linux の成果物は

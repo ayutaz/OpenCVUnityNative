@@ -9,13 +9,15 @@ name: ci-unity
 # CI で同じ形にするには runner に Unity を入れる必要があるが、GitHub ホストの
 # `windows-2022` に Unity は含まれない。
 #
-# Unity を CI で動かす標準的な方法は game-ci である。**ただし game-ci の
-# Windows イメージは Windows Server 2019 向けで、`windows-2022` では
-# 「container operating system does not match the host operating system」で
-# 落ちる**（game-ci/unity-builder#542、game-ci/docker#213）。`windows-2019` は
-# GitHub 側で提供が終わっている。したがって Windows ホストでこの道は無い。
+# Unity を CI で動かす標準的な方法は game-ci である。ここには当初
+# 「game-ci の Windows イメージは Windows Server 2019 向けで、`windows-2022`
+# では OS 不一致で落ちる」と書き、2 つの issue を根拠に挙げていた。
+# **2026-08-29 に確認したところ、その 2 件は使っていない別 action のもので、
+# こちらの構成について何も言っていなかった。** 経緯と現状の障害は
+# docs/roadmap.md「担当が無かった制約」の Windows IL2CPP の節に集約してある。
 #
-# game-ci が主として支えるのは Linux なので、このレーンは ubuntu で走らせる。
+# **動く根拠も動かない根拠も、こちらでは持っていない。試していないからである。**
+# 試すのは M4 の担当。それまでこのレーンは ubuntu で走らせる。
 # 帰結として **L5 は Windows ではなく Linux の IL2CPP Player になる。**
 # L5 が捕まえたいのは managed code stripping が P/Invoke 宣言を消す問題で、
 # これは IL2CPP 全体の性質であり Windows 固有ではない。Windows の IL2CPP

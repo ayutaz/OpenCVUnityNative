@@ -86,12 +86,19 @@ binaries in history would grow it without bound. A Git URL reference therefore
 delivers the C# code and the Plugin Import Settings but no actual libraries, and
 every `DllImport` fails at runtime. Use the release tarball.
 
-### One tarball per platform
+### One tarball per platform — a known limitation
 
-Each tarball contains the binary for **one** platform. If you build for more than
-one, take the corresponding tarball on each build machine. A single package
-holding all three is not published, because it would ship two unusable binaries
-to every consumer.
+Each tarball contains the binary for **one** platform, so a project that builds for
+more than one cannot get them all from a single install: Unity allows one package
+per package ID, and taking a different tarball on each build machine does not help
+when the editor and the build target are different platforms.
+
+**This is a defect, not a design.** M3.5 adds a package holding every platform and
+makes that the canonical one. The per-platform `.meta` files are already written so
+that each binary is enabled only on its own platform, but no build has ever had three
+of them side by side, so how Unity actually behaves in that case is something M3.5
+verifies rather than something we can assert here. See the
+[roadmap](docs/roadmap.md).
 
 ### How releases are made
 
@@ -173,9 +180,15 @@ A local green run is an approximation kept for speed; CI decides mergeability.
 | Unity EditMode (L4) | local only | local only | **yes** |
 | Unity IL2CPP player (L5) | local only | — | **yes** |
 
-GameCI's Windows images target Windows Server 2019 and fail on the `windows-2022`
-runners GitHub offers, so the Unity lanes run on Linux. The Windows IL2CPP player is
-still covered, but only by the local lane.
+The Unity lanes run on Linux, and the Windows IL2CPP player is covered only by the
+local lane. The reason recorded here previously — that GameCI's Windows images fail on
+the `windows-2022` runners GitHub offers — did not survive checking: the two upstream
+issues it cited were closed in 2023, and neither describes this setup — one belongs to a
+GameCI action this repository does not use, the other to the Windows lineage of the
+GameCI images, while this workflow pins an `ubuntu-` one. GameCI's docs for the action it does use say Windows runners are unsupported
+for *package* testing, which is not what this workflow does, and their Windows images
+cannot ship the Visual Studio Build Tools an IL2CPP build needs. We have never tried it,
+so treat Windows here as untested rather than impossible. The roadmap tracks it.
 
 **Linux artifacts are built inside an Ubuntu 22.04 container**, not on the runner
 image. A shared library only loads on a system at least as new as the one that built

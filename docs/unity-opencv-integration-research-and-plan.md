@@ -1,6 +1,6 @@
 # Unity 向け OpenCV 統合の競合調査と初期計画
 
-- 調査基準日: **2026-08-25**
+- 調査基準日: **2026-08-25**（§3 と §4.6 のみ **2026-08-29** に取り直した。それ以外の節の数字は 08-25 のまま）
 - 対象プロジェクト: **OpenCV Unity Native**（仮称）
 - 対象リポジトリ: `OpenCVUnityNative`
 - 想定ライセンス: **Apache License 2.0**
@@ -50,7 +50,18 @@ OpenCV 5 の Unity 統合に影響する主な変更は次のとおりである�
 - レガシー OpenCV C API が完全に削除された。
 - `calib3d` は `geometry` / `calib` / `stereo` / `ptcloud` へ、`features2d` は `features` へ再編された。
 - ML と G-API、Haar/HOG 系の一部機能は contrib 側へ移動した。
-- 0D/1D 配列の意味、`Mat` の型、DNN 周辺などにも変更がある。
+- 0D/1D 配列の意味と `Mat` の型に変更がある。
+- **DNN エンジンが書き直された。** 5.0 のリリース告知が最初に挙げる変更がこれで、ONNX の
+  カバー率が 80% を超え、LLM / VLM を扱う経路が入り、Intel IPP / Arm KleidiCV /
+  Qualcomm FastCV / RISC-V RVV 向けの最適化と新しいハードウェア抽象層が加わった。
+  [OpenCV 5 release announcement](https://opencv.org/opencv-5/) /
+  [Phoronix](https://www.phoronix.com/news/OpenCV-5.0-Released) /
+  [CNX Software](https://www.cnx-software.com/2026/06/10/opencv-5-release-new-dnn-engine-with-enhanced-onnx-and-llm-vlm-support-intel-arm-and-risc-v-hardware-optimizations/)
+
+  **この 1 点が競合との最大の差になりうる。** 下記 4.6 のとおり Unity 向けの既存製品は
+  すべて 4.x 系で、そこに載っている DNN は書き直し前のエンジンである。ただし
+  「差になりうる」であって「差になる」ではない —— Unity には推論の選択肢が別にあり
+  （下記 4.6）、この判断は M7 の担当である。
 
 詳細は [OpenCV 5 documentation](https://docs.opencv.org/5.0/) と [OpenCV 4 to 5 migration guide](https://github.com/opencv/opencv/wiki/OpenCV-4-to-5-migration) を参照する。
 
@@ -134,6 +145,76 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 ただし同じ version history は、**Emgu CV 4.10.0 から Unity 3D を公式サポートしない**と明記している。理由は利用者数と Unity Pro ライセンス費用である。公式サイト内に古い Unity 対応説明が残っていても、新規採用判断では version history の「no longer officially supported」を優先して扱う。
 
 ライセンスは GPLv3 の open-source option と商用ライセンスのデュアルモデルである。[Emgu CV licensing](https://www.emgu.com/wiki/index.php/Licensing%3A) Apache-2.0 の Unity 用ライブラリを目指す本案にとって、直接の再利用先というより、API 設計や成熟した wrapper の比較対象である。
+
+### 4.6 2026-08-29 の再確認
+
+**M0〜M3 を完了し v0.1.1 を配ったあとで、比較対象の現況を取り直した。** 4.1〜4.5 は
+2026-08-25 の調査で、この節はその 4 日後の再確認である。**数字が動いていないことも
+記録する** —— 動いていないと確かめたことと、確かめていないことは別である。
+
+| 項目 | 2026-08-25 | 2026-08-29 | 判定 |
+| --- | --- | --- | --- |
+| OpenCV for Unity | 3.0.3 / OpenCV 4.13.0 | 変わらず | **OpenCV 5 へ移っていない** |
+| neon-izm/OpenCV-plus-Unity | 4 commits / OpenCV 4.11 / Release なし | **6 commits**、他は変わらず | 依然 OpenCV 4.11、Release なし |
+| OpenCvSharp | 5.0.0.20260806（managed は net8.0） | 変わらず | **README は「Unity では動かないので OpenCV for Unity 等を使え」と書いている** —— §4.4 の「Unity には 4.x 系を案内」は移行ガイド由来で、README の現行の言い方はより強い |
+| Emgu CV | 4.13.0 / Unity 公式サポート終了 | 変わらず（NuGet の最新は 4.13.0.5924 / 2026-05-14） | 変化なし |
+
+**結論は変わっていない: Unity 向けに OpenCV 5 を出している製品は、商用・OSS とも
+見つからない。** 「OpenCV 5 first」は今も本案だけが持つ位置である。
+
+**ただし、この位置は時間で消える。** 競合が 5 系へ上げれば、残る差は
+「OSS であること」「独自 ABI」「ビルドの再現性」だけになる。**先行している間に
+何を積むかがこの再調査の論点**であって、先行していること自体は成果ではない。
+
+#### OpenCV for Unity が持っていて本案が持たないもの
+
+[Enox のドキュメント](https://enoxsoftware.com/opencvforunity/documentation/)で確認した
+2026-08-29 時点の対応範囲。**機能の総数で競わない**方針（§7）は変えないが、
+**何が無いかを数えずに「競わない」と言うのは、単に知らないのと区別がつかない。**
+
+| 種別 | OpenCV for Unity | 本案（v0.1.1） |
+| --- | --- | --- |
+| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | 5（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features`）。うち C ABI に出ているのは `core` と `imgproc` の一部だけ |
+| platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | Windows / macOS / Linux |
+| 配布 | Asset Store から 1 つ入れれば全 platform | **platform ごとに別の tarball**（[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目） |
+| カメラ | `WebCamTexture` の補助クラス群、WebGPU 対応の非同期読み出し | 無し（`Texture2D` のみ） |
+| 推論 | OpenCV DNN と Unity Sentis を切り替える `MultiBackendDnn` | 無し |
+| サンプル | 多数 | 1 つ（`Samples~/BasicUsage`） |
+
+**推論について 1 点補足する。** Enox が Sentis との切り替えを用意しているのは、
+**Unity 利用者にとって推論エンジンは OpenCV だけではない**からである。したがって
+「OpenCV 5 の新しい DNN エンジンを載せれば勝てる」とは言えない。§3 に書いたとおり
+差になり**うる**が、Unity の中では Sentis が代替になる領域であり、そこへ投資するかは
+M7 で判断する。
+
+#### 配布経路: OpenUPM
+
+OSS の Unity パッケージは [OpenUPM](https://openupm.com/) 経由で探されることが多い。
+**本案は登録していない。**
+
+登録の障害になると考えていたのは「binary を git の追跡外に置いている」点だが、
+[OpenUPM のドキュメント](https://openupm.com/docs/adding-upm-package.html)には
+`trackingMode: githubRelease` があり、**Git tag からバージョンを見つけ、同名の
+GitHub Release に付いた `.tgz` をそのまま公開する**経路が用意されている。
+本案はすでに tag から Release を作り tarball を添付しているので、**この形は使える**。
+
+**OpenUPM の側は、複数の asset があっても困らない。** `githubReleaseAssetName` に
+名前のパターンを書けば、その 1 つを選んで公開できる。**困るのは利用者である** ——
+platform ごとの tarball のうち 1 つを選んで公開すれば、`openupm add` で入るのは
+その platform 分の binary だけになる。**[ロードマップ](./roadmap.md)「差別化の穴」の
+1 件目がそのまま現れる**ので、先にそちらを解く。
+
+実装時に効く細かい制約が 2 つある。**パッケージは 512 MB 未満**であること ——
+ただし現状これは効かない。**実際に配った v0.1.1 の tarball は 3 platform 合計で
+8.0 MB** である（2026-08-29 に Release の asset サイズを実測: linux-x64 3,639,983 /
+macos-arm64 1,931,691 / windows-x64 2,472,421 バイト）。全部入りにしても同じ桁で、
+上限まで 60 倍以上ある。**効いてくるのは DNN や contrib を含む profile を配る段階**
+（M7）である。**モバイルを足した後の値は測っていない** —— iOS は静的リンクなので
+共有ライブラリと同じ桁とは限らず、Android で何 architecture を積むかも未定
+（[ロードマップ](./roadmap.md)「差別化の穴」#8）。そして
+`githubReleaseAssetName` は**版番号を含まない安定した接頭辞**を想定しており、
+本案の tarball 名は現在 `com.ayutaz.opencv-unity-native-<version>-<platform>.tgz`
+という版番号入りである。
 
 ## 5. 自作 OSS の価値
 

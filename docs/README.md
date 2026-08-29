@@ -6,7 +6,8 @@
 
 - [ロードマップ](./roadmap.md)
   - 確定事項（backend 言語、package ID、対象 Unity、OpenCV 入手方法、CI 方針、Windows のランタイムライブラリ linkage）
-  - M0〜M7 の各マイルストーンの目的・ゴール・完了条件・非ゴール
+  - M0〜M7（2026-08-29 に足した **M3.5** を含む）の各マイルストーンの目的・ゴール・完了条件・非ゴール
+  - **差別化の穴**（2026-08-29 の再調査。競合が全員 OpenCV 4 系のままであること、埋まっていない 10 件（掲げている差別化のうち達成していないものと、競合が持っていて本案が持たないものの合算）と、その担当）
   - ローカルループと CI の役割分担、GitHub Actions のワークフロー構成（M3 の後に `ci-lint` / `codeql` / `nightly` と Dependabot を追加。**`nightly` は schedule でまだ 1 度も走っていない**）
   - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）
 - [API リファレンス](./api-reference.md)
@@ -19,7 +20,7 @@
   - M2 で公開する 9 本の API allowlist と、M2 で作らないもの
   - roadmap の M2 完了条件を書き換えた経緯（`wrap` を廃し copy に置き換えた件）
 - [Unity 向け OpenCV 統合の競合調査と初期計画](./unity-opencv-integration-research-and-plan.md)
-  - 2026-08-25 時点の OpenCV 5.x / 4.x の状況
+  - OpenCV 5.x / 4.x の状況（2026-08-25 時点。**§3 と §4.6 は 2026-08-29 に取り直した** —— 5.0 の目玉が DNN エンジンの書き直しであること、競合の現況、OpenUPM という配布経路）
   - OpenCV for Unity、OpenCV-plus-Unity、OpenCvSharp、Emgu CV の比較
   - 自作 Apache-2.0 OSS の価値、ライセンス上の注意、推奨アーキテクチャ
   - native bridge を C++ / Rust のどちらで実装するかの比較と Phase 0 判断基準
