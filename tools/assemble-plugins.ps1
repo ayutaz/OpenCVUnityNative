@@ -140,6 +140,25 @@ foreach ($src in $sources) {
             }
         }
 
+        # **逆も見る。** binary の .meta だけが在る木（artifact の取りこぼし、
+        # build が meta のコピー後に失敗した木）は、孤児の .meta を運ぶことに
+        # なる。後段の -AllPlatforms が結局止めるが、止まる場所が離れて
+        # 原因が読みにくい。その場で断つ。
+        $ownerBinary = ($BinaryToMeta.GetEnumerator() |
+                        Where-Object { $_.Value -eq $rel } |
+                        ForEach-Object { $_.Key })
+        if ($ownerBinary) {
+            $binPath = Join-Path $root $ownerBinary
+            if (-not (Test-Path -LiteralPath $binPath)) {
+                [Console]::Error.WriteLine(@(
+                    ".meta に対応する binary がありません: $rel"
+                    "元: $src"
+                    '孤児の .meta は Unity に消されるので、運ぶ前に断る。'
+                ) -join "`n")
+                exit 1
+            }
+        }
+
         $target = Join-Path $destPlugins $rel
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $target -Force

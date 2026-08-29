@@ -55,8 +55,22 @@ namespace CvUnity
             }
 
             var blob = new byte[required];
-            CvNative.ThrowIfFailed((CvStatus)NativeMethods.ocvu_imencode(
-                src.Handle, extBytes, blob, blob.Length, out _));
+            var status = (CvStatus)NativeMethods.ocvu_imencode(
+                src.Handle, extBytes, blob, blob.Length, out var written);
+            CvNative.ThrowIfFailed(status);
+
+            // **BufferTooSmall は「失敗」ではないので ThrowIfFailed は素通しする。**
+            // 2 回目でそれが返るのは、1 回目との間に src が変わって必要量が
+            // 増えたときで、native は 1 バイトも書いていない（ocvu_imgcodecs.cpp
+            // の「足りないときは何も書かない」）。ここで見ないと、**呼ぶ側は
+            // 例外も無しに全部 0 の byte 列を受け取る** —— それをファイルに
+            // 書けば「0 バイトではない壊れた画像」が残る。
+            if (status != CvStatus.Ok || written != blob.Length)
+            {
+                throw new CvNativeException(status,
+                    $"ocvu_imencode wrote {written} of {blob.Length} bytes " +
+                    "(the source Mat likely changed between the size query and the write)");
+            }
             return blob;
         }
 

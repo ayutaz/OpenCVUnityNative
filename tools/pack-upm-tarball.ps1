@@ -90,6 +90,66 @@ $PlatformBinaries = [ordered]@{
     'macos-arm64' = 'Runtime/Plugins/macOS/libopencv_unity_native.dylib'
     'linux-x64'   = 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so'
 }
+
+<#
+    Runtime/Plugins の下に在ってよいものの一覧。
+    tools/assemble-plugins.ps1 の $Allowed と同じ集合である。
+
+    **拡張子で判定しない。** `.dll` / `.dylib` / `.so` だけを見る形では
+    `libfoo.so.1`（拡張子は `.1`）・`.bundle`・`.a`・`.pdb` が素通りする。
+    配る物の中身は一覧そのものが契約なので、一覧と突き合わせる。
+#>
+$AllowedPluginFiles = @(
+    'x86_64/opencv_unity_native.dll'
+    'x86_64/opencv_unity_native.dll.meta'
+    'x86_64.meta'
+    'macOS/libopencv_unity_native.dylib'
+    'macOS/libopencv_unity_native.dylib.meta'
+    'macOS.meta'
+    'Linux/x86_64/libopencv_unity_native.so'
+    'Linux/x86_64/libopencv_unity_native.so.meta'
+    'Linux/x86_64.meta'
+    'Linux.meta'
+)
+
+<#
+    その platform 用として固めてよい中身か。
+
+    **-Platform 側にもこれを掛ける。** 以前は「開発機には 1 platform 分しか
+    無い」で実質守られていたが、**M3.5 がその前提を壊した** —— 全部入りを
+    組めるようにしたので、3 つ揃った開発機で `-Platform windows-x64` を叩くと、
+    3 platform 入りの中身に「windows-x64 用」という名前が付く。
+    tools/tests/PackageRelease.Tests.ps1 の負のテストも同じ前提崩れで
+    書き換えている。
+#>
+function Test-PluginTreeContents {
+    param([string[]] $ExpectedBinaries, [string] $What)
+
+    $pluginRoot = Join-Path $packageDir 'Runtime/Plugins'
+    if (-not (Test-Path -LiteralPath $pluginRoot)) { return }
+
+    $unexpected = @()
+    foreach ($file in Get-ChildItem -LiteralPath $pluginRoot -Recurse -File) {
+        $rel = [System.IO.Path]::GetRelativePath($pluginRoot, $file.FullName) -replace '\\', '/'
+        if ($rel -notin $AllowedPluginFiles) {
+            $unexpected += "知らないファイル: $rel"
+            continue
+        }
+        # binary は、この platform のものだけが在ってよい。
+        if ($rel -match '\.(dll|dylib|so)$' -and "Runtime/Plugins/$rel" -notin $ExpectedBinaries) {
+            $unexpected += "別 platform の binary: $rel"
+        }
+    }
+
+    if ($unexpected.Count -gt 0) {
+        [Console]::Error.WriteLine(@(
+            "$What に予期しないものが入っています:"
+            ($unexpected | ForEach-Object { "  - $_" })
+            '配る物の中身は一覧そのものが契約なので、知らないものは通さない。'
+        ) -join "`n")
+        exit 1
+    }
+}
 $tarballPath = Join-Path $outFull $name
 
 <#
@@ -138,6 +198,10 @@ if ($Platform) {
         exit 1
     }
     Write-Host "==> $Platform binary present: $expected" -ForegroundColor Green
+
+    # 名前と中身が食い違わないこと。存在検査だけでは、別 platform の binary が
+    # 紛れていても通る。
+    Test-PluginTreeContents -ExpectedBinaries @($expected) -What "'$Platform' の tarball"
 }
 
 <#
@@ -166,20 +230,7 @@ if ($AllPlatforms) {
         exit 1
     }
 
-    $found = @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File -ErrorAction SilentlyContinue |
-               Where-Object { $_.Extension -in '.dll', '.dylib', '.so' })
-    $expectedFull = @($PlatformBinaries.Values | ForEach-Object {
-        (Join-Path $packageDir $_) -replace '/', [System.IO.Path]::DirectorySeparatorChar
-    })
-    $unexpected = @($found | Where-Object { $_.FullName -notin $expectedFull })
-    if ($unexpected.Count -gt 0) {
-        [Console]::Error.WriteLine(@(
-            '全部入りに予期しない binary が入っています:'
-            ($unexpected | ForEach-Object { "  - $($_.FullName)" })
-            '配る物の中身は一覧そのものが契約なので、知らない binary は通さない。'
-        ) -join "`n")
-        exit 1
-    }
+    Test-PluginTreeContents -ExpectedBinaries @($PlatformBinaries.Values) -What '全部入り'
 
     Write-Host "==> all three platform binaries present, no extras" -ForegroundColor Green
 }
@@ -255,9 +306,13 @@ if ($AllPlatforms) {
 #>
 $actualBytes = (Get-Item -LiteralPath $tarballPath).Length
 if ($actualBytes -gt $MaxBytes) {
+    # **不合格の成果物を置き去りにしない。** 残すと、次に $OutputDir を見た人
+    # （や script）が「作られている」ことを合格と読み違えうる。
+    Remove-Item -LiteralPath $tarballPath -Force -ErrorAction SilentlyContinue
     [Console]::Error.WriteLine(@(
         "tarball が上限を超えています: $actualBytes バイト > $MaxBytes バイト"
         'OpenUPM は 512 MB 未満を求める（https://openupm.com/docs/adding-upm-package.html）。'
+        '超過した tarball は削除した。'
     ) -join "`n")
     exit 1
 }

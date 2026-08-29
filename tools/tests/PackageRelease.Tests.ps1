@@ -317,9 +317,42 @@ try {
     Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
     $thisPlatform = Get-OpenCvPlatform
 
-    $packed = & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $thisPlatform |
-              Select-Object -Last 1
-    Assert-That ($LASTEXITCODE -eq 0) 'pack-upm-tarball exits 0'
+    <#
+        **単体 platform で固める前に、他 platform の binary を退避する。**
+
+        packer は「名前と中身が食い違わない」ことを見るようになったので、
+        3 platform 揃った木で -Platform windows-x64 を叩くと正当に拒否される。
+        開発機に 3 つ揃うのは M3.5 以降ふつうに起こる（全部入りのレーンを
+        1 回走らせれば残る）ので、**木の状態に頼らず、退避してから確かめる。**
+    #>
+    $singleStash = @()
+    foreach ($rel in @(
+        'Runtime/Plugins/x86_64/opencv_unity_native.dll'
+        'Runtime/Plugins/macOS/libopencv_unity_native.dylib'
+        'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so'
+    )) {
+        $mine = switch ($thisPlatform) {
+            'windows-x64' { 'Runtime/Plugins/x86_64/opencv_unity_native.dll' }
+            'macos-arm64' { 'Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
+            'linux-x64'   { 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so' }
+        }
+        if ($rel -eq $mine) { continue }
+        $full = Join-Path $repoRoot "Packages/com.ayutaz.opencv-unity-native/$rel"
+        if (Test-Path -LiteralPath $full) {
+            $to = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-stash-" + [guid]::NewGuid().ToString('n'))
+            Move-Item -LiteralPath $full -Destination $to -Force
+            $singleStash += @{ From = $to; To = $full }
+        }
+    }
+
+    try {
+        $packed = & pwsh -NoProfile -File $packer -OutputDir $packOut -Platform $thisPlatform |
+                  Select-Object -Last 1
+        Assert-That ($LASTEXITCODE -eq 0) 'pack-upm-tarball exits 0'
+    }
+    finally {
+        foreach ($s in $singleStash) { Move-Item -LiteralPath $s.From -Destination $s.To -Force }
+    }
 
     <#
         -Platform が名前を変えるだけになっていないこと。

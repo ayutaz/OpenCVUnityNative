@@ -50,6 +50,39 @@ public class PluginGatingTests
     }
 
     /// <summary>
+    /// **どちらの構成で走ったかを、結果から区別できるようにする。**
+    ///
+    /// この検査群が捕まえたい欠陥（別 platform の `.meta` が自分の platform でも
+    /// 有効になっている）は、**3 platform 分が同居していないと原理的に現れない。**
+    /// ところが通常の EditMode レーンは `dev.ps1 build` が置いた 1 platform 分の
+    /// 木で走るので、そこでは要素 1 個の集合を検査しているにすぎない。
+    ///
+    /// 同じ 5 件が両方の構成で緑になると、**出力からはどちらを確かめたのか
+    /// 分からない。** そこで見た数を必ず表に出す。3 つ揃っていることを要求する
+    /// のは `OCVU_EXPECT_ALL_PLATFORMS` が立っているときだけで、それを立てるのは
+    /// 全部入りを組んだレーン（`dev.ps1 test-unity-tarball`）である。
+    /// </summary>
+    [Test]
+    public void ReportsHowManyPlatformsWereActuallyPresent()
+    {
+        var importers = LoadImporters();
+        var names = importers.Select(i => System.IO.Path.GetFileName(i.assetPath)).OrderBy(n => n);
+        TestContext.WriteLine($"native plugins present: {importers.Count} [{string.Join(", ", names)}]");
+
+        var expectAll = System.Environment.GetEnvironmentVariable("OCVU_EXPECT_ALL_PLATFORMS");
+        if (string.IsNullOrEmpty(expectAll))
+        {
+            // 1 platform 分でも構わないが、**何を見たかは記録に残す。**
+            Assert.That(importers.Count, Is.GreaterThanOrEqualTo(1));
+            return;
+        }
+
+        Assert.AreEqual(3, importers.Count,
+            "OCVU_EXPECT_ALL_PLATFORMS が立っているのに 3 platform 分が揃っていない。" +
+            $"見えたもの: [{string.Join(", ", names)}]");
+    }
+
+    /// <summary>
     /// エディタでの振り分けは `GetCompatibleWithEditor()` ではなく `OS` で決まる。
     ///
     /// **実測（2026-08-30）: 3 つとも `GetCompatibleWithEditor()` が true を返す。**

@@ -246,6 +246,8 @@ OCVU_API ocvu_status ocvu_gaussian_blur(ocvu_mat_handle src, ocvu_mat_handle dst
  *
  * out_required_size は必須で、成功時は実際に書いたバイト数、
  * OCVU_STATUS_BUFFER_TOO_SMALL のときは必要バイト数が入る。
+ * **それ以外のどの失敗でも 0 が入る** —— 呼ぶ側が変数を使い回していても、
+ * 前回の値が残って「失敗したのに前回のサイズを信じる」経路ができないようにする。
  * buffer_size が足りない場合、buffer には**何も書かない**。
  *
  * ext は ".png" のように先頭のドットを含む拡張子で、NULL・空文字列は拒否する。

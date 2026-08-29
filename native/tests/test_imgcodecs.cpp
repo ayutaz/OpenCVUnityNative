@@ -115,7 +115,9 @@ TEST(Imgcodecs, EncodeRejectsTooSmallBufferWithoutWriting) {
 }
 
 TEST(Imgcodecs, EncodeRejectsInvalidArguments) {
-    int32_t needed = 0;
+    // **毎回わざと汚してから呼ぶ。** 失敗経路で 0 が書かれることを見たいので、
+    // 0 で初期化したままだと「書いていない」と「0 を書いた」を区別できない。
+    int32_t needed = 12345;
 
     // out_required_size は必須。
     ocvu_mat_handle src = MakeKnownBgr();
@@ -123,29 +125,42 @@ TEST(Imgcodecs, EncodeRejectsInvalidArguments) {
 
     // ext は必須で、空文字列は受け付けない。
     EXPECT_EQ(ocvu_imencode(src, nullptr, nullptr, 0, &needed), OCVU_STATUS_NULL_POINTER);
+    EXPECT_EQ(needed, 0) << "失敗時は 0 を書くこと（呼ぶ側の使い回しに前回値を残さない）";
+
+    needed = 12345;
     EXPECT_EQ(ocvu_imencode(src, "", nullptr, 0, &needed), OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(needed, 0);
 
     // 負の buffer_size。
+    needed = 12345;
     EXPECT_EQ(ocvu_imencode(src, ".png", nullptr, -1, &needed), OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(needed, 0);
 
     // buffer_size > 0 なのに buffer が NULL。
+    needed = 12345;
     EXPECT_EQ(ocvu_imencode(src, ".png", nullptr, 16, &needed), OCVU_STATUS_NULL_POINTER);
+    EXPECT_EQ(needed, 0);
 
     // 解放済み handle。
     ocvu_mat_release(src);
+    needed = 12345;
     EXPECT_EQ(ocvu_imencode(src, ".png", nullptr, 0, &needed), OCVU_STATUS_INVALID_HANDLE);
+    EXPECT_EQ(needed, 0);
 
     // NONE handle。
+    needed = 12345;
     EXPECT_EQ(ocvu_imencode(OCVU_MAT_HANDLE_NONE, ".png", nullptr, 0, &needed),
               OCVU_STATUS_INVALID_HANDLE);
+    EXPECT_EQ(needed, 0);
 }
 
 TEST(Imgcodecs, EncodeRejectsUnknownExtension) {
     ocvu_mat_handle src = MakeKnownBgr();
-    int32_t needed = 0;
+    int32_t needed = 12345;
     // 対応していない拡張子は OpenCV 由来の失敗として報告する。
     EXPECT_EQ(ocvu_imencode(src, ".notanimage", nullptr, 0, &needed),
               OCVU_STATUS_OPENCV_ERROR);
+    EXPECT_EQ(needed, 0);
     ocvu_mat_release(src);
 }
 

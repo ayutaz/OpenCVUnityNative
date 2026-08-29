@@ -420,6 +420,29 @@ function Test-UnityTarball {
         }
         $allPlatforms = $true
     }
+    else {
+        <#
+            **渡されなくても、木に既に 3 つ揃っているなら全部入りとして扱う。**
+
+            packer は名前と中身が食い違うことを拒むので、3 つ揃った木で
+            単体 platform として固めようとすると落ちる。全部入りのレーンを
+            1 回走らせた開発機ではそれが普通に起こる。
+
+            ここで黙って 1 platform 分に見せかけることはしない —— どちらの
+            構成で走ったかを必ず表示する。「レーンを回した」と「そのレーンが
+            何を見たか」は別である。
+        #>
+        $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+        $present = @(
+            'x86_64/opencv_unity_native.dll'
+            'macOS/libopencv_unity_native.dylib'
+            'Linux/x86_64/libopencv_unity_native.so'
+        ) | Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) }
+        if ($present.Count -eq 3) {
+            Write-Host "==> 3 platform 分が既に揃っているので全部入りとして検査する" -ForegroundColor Cyan
+            $allPlatforms = $true
+        }
+    }
 
     $unity   = Get-UnityEditorPath
 
@@ -532,6 +555,18 @@ function Test-UnityTarball {
             ハング版である。実測は約 3 分なので、その 5 倍を上限にする。
         #>
         $timeoutMs = 15 * 60 * 1000
+
+        <#
+            全部入りを検査していることを、テスト側にも伝える。
+
+            PluginGatingTests が捕まえたい欠陥（別 platform の .meta が自分の
+            platform でも有効）は、**3 platform 分が同居していないと原理的に
+            現れない。** 1 platform 分の木でも同じ 5 件が緑になるので、
+            **出力からはどちらを確かめたのか分からない。** この環境変数が
+            立っているときだけ「3 つ揃っていること」を要求させる。
+        #>
+        if ($allPlatforms) { $env:OCVU_EXPECT_ALL_PLATFORMS = '1' }
+        try {
         $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -PassThru -NoNewWindow
         if (-not $proc.WaitForExit($timeoutMs)) {
             try { $proc.Kill($true) } catch { }
@@ -562,6 +597,9 @@ function Test-UnityTarball {
                 "ログ: $log"
             ) -join "`n")
         }
+
+        }
+        finally { Remove-Item Env:\OCVU_EXPECT_ALL_PLATFORMS -ErrorAction SilentlyContinue }
 
         <#
             **テストが通ったことは、tarball で解決された証拠にならない。**

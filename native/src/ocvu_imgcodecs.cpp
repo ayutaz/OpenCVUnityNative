@@ -72,6 +72,14 @@ extern "C" ocvu_status ocvu_imencode(ocvu_mat_handle src, const char* ext, uint8
                                       "encoded image does not fit in int32_t");
     }
 
+    // 0 バイトの符号化はありえないが、通すと buffer_size < needed が 0 < 0 で
+    // 偽になり、NULL 同士の 0 バイト memcpy に到達する（規格上は未定義動作で、
+    // UBSan の nonnull-attribute が拾う形）。ここで断つ。
+    if (encoded.empty()) {
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR,
+                                      "imencode produced no bytes");
+    }
+
     const int32_t needed = static_cast<int32_t>(encoded.size());
     *out_required_size = needed;
 
