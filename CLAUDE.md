@@ -334,8 +334,8 @@ CI が赤くて直した場合、その修正差分にもレビューが要る�
 | 設定 | 値 | 意味 |
 | --- | --- | --- |
 | main の branch protection | 有効 | 直接 push は `GH006` で拒否される |
-| 必須チェック | `Windows x64 (L1 + L3)` / `Windows x64 AddressSanitizer (L2)` / `macOS arm64 (L1 + L3)` / `Linux x64 (L1 + L3)` / `Linux x64 ASan+LSan (L2)` の **5 本** = `ci-native` の 3 job と `ci-sanitizers` の 2 job（M3 完了時に 2 本から拡張。2026-08-29 に API で実測し、この表と一致） | 全部 pass しないと merge できない |
-| 必須でないもの | **上の 5 本以外のすべて。** 2026-08-29 時点で PR に出るのは `ci-unity` 2 件（1 job 定義 + `lane` matrix: EditMode / Standalone）/ `ci-lint` 4 件 / `codeql` 2 件（1 job 定義 + `language` matrix: c-cpp / csharp）の計 8 件 | **赤でも merge できる。** 下記 |
+| 必須チェック | **13 本。** `ci-native` の 3 job（`Windows x64 (L1 + L3)` / `macOS arm64 (L1 + L3)` / `Linux x64 (L1 + L3)`）、`ci-sanitizers` の 2 job（`Windows x64 AddressSanitizer (L2)` / `Linux x64 ASan+LSan (L2)`）、`ci-lint` の 4 job（`Workflows (actionlint)` / `Shell scripts (shellcheck)` / `PowerShell (PSScriptAnalyzer)` / `Documentation links`）、`codeql` の 2 job（`Analyze c-cpp` / `Analyze csharp`）、`ci-unity` の 2 job（`Unity EditMode (Linux)` / `Unity Standalone (Linux)`）。2 本 → 5 本（M3 完了時）→ 13 本（2026-08-29、PR #30 が 13 本すべてを緑にしたのを見てから拡張）。2026-08-29 に API で実測し、この表と一致 | 全部 pass しないと merge できない |
+| 必須でないもの | **PR に出るチェックのうち必須でないものは、2026-08-29 時点で無い。** `build-opencv` / `nightly` / `release` は PR では起動しない（構成変更・定期実行・tag が trigger）ので、そもそも必須にできない | — |
 | strict | 有効 | ブランチが main より古いと merge できない（`allow_update_branch` で自動更新可） |
 | 必須レビュー数 | **0** | PR は必須だが人間の承認は不要 |
 | enforce_admins | **有効** | 管理者も例外ではない。抜け道は無い |
@@ -361,15 +361,16 @@ CI が赤くて直した場合、その修正差分にもレビューが要る�
 そこも一緒に直すこと。** リポジトリ内で二重に書かれているのはこの 1 箇所だけ、
 という状態を保つ。
 
-**この穴は前にも開いていた。** M3 の途中までは macOS / Linux の 3 job が
-必須外で、赤でも merge できた（安定して緑になった時点で必須へ加えた）。
-同じ形の穴は、上の表の「必須でないもの」に数えられているレーンの側に、
-必須を増やすまで開き続ける。**その中に完了条件そのものを担うレーンが
-含まれていれば、そこが赤いまま入る変更は「完了と記録した条件が、実際には
-守られていない」状態を作れてしまう。** どのレーンが該当するかはここには
-書かない —— 上の表の「必須でないもの」が唯一の記載場所で、正本はさらに
-その先の GitHub 側の設定である。**CI が「見ている」ことと「止める」ことは
-別である。**
+**この穴は 2 度開いて 2 度塞いだ。** 1 度目は M3 の途中で、macOS / Linux の
+3 job が必須外だった。2 度目は `ci-lint` / `codeql` / `ci-unity` を足したときで、
+**M2 の完了条件そのものである Unity レーンが、赤くても merge できる状態が
+2026-08-29 まで残っていた** —— 「CI で L4 / L5 を実行する」を満たしたと記録
+しながら、それが赤いまま入る変更を止められなかった。どちらも同じ理由で
+塞いだ: 安定して緑になったのを見てから必須へ加える。
+
+**次に workflow を足すときも同じ穴が開く。** PR に出るチェックを足しただけでは
+merge は止まらない。**CI が「見ている」ことと「止める」ことは別である。**
+必須にするかどうかを決めるまでが、workflow を足す作業である。
 
 main には squash された 1 コミットしか残らないので、**squash の本文にそのブランチの要約を書く**。
 個々のコミットは PR ページに残る。
