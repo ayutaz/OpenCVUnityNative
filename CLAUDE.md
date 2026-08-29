@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 最後まで残っていた条件 7（「`ci-unity.yml` が CI 上で L4/L5 を実行する」）は、**ランナーへの Unity 導入とアクティベーションを game-ci に任せ、Linux で走らせることで満たした**（`==> [EditMode] 10 passed` / `==> [Standalone] 10 passed`）。L5 は `UnityLinker --rule-set=Aggressive` を通した実物の IL2CPP Player で、stripping が有効な状態で P/Invoke が生き残ることを CI が実証している。
 
-**CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。**理由として「game-ci は Windows ランナーでは使えない」と書いていたが、2026-08-29 にそれが誤りだと分かった** —— 根拠にしていた game-ci/unity-builder#542 と game-ci/docker#213 はどちらも 2023-11-15 に「v4 が windows-2022 に対応した」として閉じており、この workflow が使っているのはその v4 である。別の障害（IL2CPP に要る Visual Studio Build Tools を GameCI のイメージに同梱できない）はあるが、**要するに一度も試していない**。試すかどうかは M4 の担当（`docs/roadmap.md`）。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
+**CI の L5 は Linux の IL2CPP Player** で、Windows 版はローカルのレーンが担う。**理由として「game-ci は Windows ランナーでは使えない」と書いていたが、2026-08-29 にその根拠が崩れた** —— 挙げていた 2 つの issue は、このリポジトリが使っていない別 action のものだった。**動く根拠も動かない根拠もこちらでは持っておらず、一度も試していない。** 経緯と現状の障害は `docs/roadmap.md`「担当が無かった制約」の Windows IL2CPP の節に 1 箇所だけ書いてある。試すのは M4 の担当。この workflow は `dev.ps1` で Unity を起動しない（game-ci が起動する）が、**合否の判定は `tools/assert-unity-results.ps1` をローカルと CI の両方が通る** —— 「0 件で緑にしない」もそこが持つ。
 
 **この作業が公開済み v0.1.0 の欠陥を暴いた。** ubuntu-24.04 でビルドした Linux の `.so` が GLIBC_2.38 を要求しており、それより古い環境では `DllNotFoundException` になっていた。ビルドも linkage 検証も配布物生成も通っていたので、**Unity を実際に動かすまで誰も知らなかった**。Linux のビルドを `ubuntu:22.04` コンテナへ移して 2.34 に下げ、`tools/verify-plugin-portability.ps1` がビルド時点で上限を見るようにした。判定の詳細は `docs/roadmap.md` の M2 / M3 節にある。
 
@@ -404,9 +404,7 @@ CodeQL まで見る。それでも次は緑のまま通過する。
   起動しない。Linux 分は M2 の条件 7 で実測できるようになった）。**M4 の担当**
   —— `docs/roadmap.md`「担当が無かった制約」
 - **Windows の IL2CPP Player**（CI の L5 は Linux で、Windows 版はローカルの
-  レーンだけが担う）。**M4 の担当** —— 同上。理由として長く書いてきた
-  「game-ci が Windows で動かない」は 2026-08-29 に根拠を失った。**実際に
-  走らせたことは一度も無い**
+  レーンだけが担う）。**M4 の担当** —— 同上。**実際に走らせたことは一度も無い**
 - **複数 platform を同時に使うこと。** 配る tarball は platform ごとに分かれて
   おり、1 つの package に 1 platform 分しか入らない。**M3.5 の担当**
 - mobile / Web（M4 / M6 の担当。まだ何も無い）

@@ -180,11 +180,12 @@ A local green run is an approximation kept for speed; CI decides mergeability.
 
 The Unity lanes run on Linux, and the Windows IL2CPP player is covered only by the
 local lane. The reason recorded here previously — that GameCI's Windows images fail on
-the `windows-2022` runners GitHub offers — no longer holds: both upstream issues were
-closed in 2023, and GameCI v4, which this workflow uses, targets `windows-2022`.
-GameCI's own docs do describe a different obstacle, namely that the Visual Studio Build
-Tools an IL2CPP build needs cannot ship inside their images. Either way we have not
-tried it, so treat this as untested rather than impossible.
+the `windows-2022` runners GitHub offers — did not survive checking: the two upstream
+issues it cited were closed in 2023 and belong to a GameCI action this repository does
+not use. GameCI's docs for the action it does use say Windows runners are unsupported
+for *package* testing, which is not what this workflow does, and their Windows images
+cannot ship the Visual Studio Build Tools an IL2CPP build needs. We have never tried it,
+so treat Windows here as untested rather than impossible. The roadmap tracks it.
 
 **Linux artifacts are built inside an Ubuntu 22.04 container**, not on the runner
 image. A shared library only loads on a system at least as new as the one that built

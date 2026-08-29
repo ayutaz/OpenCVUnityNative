@@ -724,7 +724,7 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 | 4 | 検証している Unity が 1 版だけ | **その 1 版（6000.0 LTS）のサポートが 2026-10 に終わる** | **M3.5** |
 | 5 | カメラ映像を受け取れない | Unity で OpenCV を使う最大の用途。今は `Texture2D` の RGBA32 のみ | **M4** |
 | 6 | macOS で Unity に読み込ませたことがない | iOS のビルドに macOS runner が要るので、M4 で自然に埋まる | **M4** |
-| 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」と記録していたが、根拠の issue は 2023 年に解決済みだった。試していないだけである** | **M4** |
+| 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった。動く根拠も動かない根拠も持っていない** | **M4** |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決める** |
 | 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
 | 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある | **M7**（位置づけを下記に明記） |
@@ -743,9 +743,13 @@ Unity の package は 1 つの ID につき 1 つしか導入できない。本�
 ないからである。したがって #1 は M4 の装飾ではなく**前提条件**であり、M4 の前に置く。
 
 **Desktop だけを見ていた間は表面化しなかった。** Windows の利用者が Windows 向けに
-ビルドする限り、必要な binary は 1 つで足りたためである。**M3 の完了条件は
-「3 platform で配布できる」であって「3 platform を同時に使える」ではなく、
-その差が条件の文面からは読み取れなかった。**
+ビルドする限り、必要な binary は 1 つで足りたためである。
+
+**ただし「条件に書いていなかった」ではない。** M3 の完了条件 1 は
+「platform / architecture 別の Plugin Import Settings」を求めており、**振り分けが
+意味を持つのは複数 platform の binary が同居するときだけ**である。つまり条件の文面は
+同居する形を指していた。**満たしたと判定したときに、配布物が同居していないことを
+見ていなかった。** 書いていなかったのではなく、読んでいなかった。
 
 なお `Runtime/Plugins/` の中は既に platform ごとのディレクトリに分かれている
 （`x86_64/` / `macOS/` / `Linux/x86_64/`）。**変えるのは固め方だけで、
@@ -797,7 +801,8 @@ package の構造ではない。**
   Windows の文字コードの扱いが増えるうえ、**Android では `StreamingAssets` が APK の
   中にあってパスで開けない**ので、モバイルへ進む前提と噛み合わない
 - **Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る。** 現在検証している 6000.0 LTS は
-  **2026-10 にサポートが終わる**（[Unity 6 のサポート表](https://unity.com/releases/unity-6/support)）
+  **2026-10 に通常のサポートが終わる**（[Unity 6 のサポート表](https://unity.com/releases/unity-6/support)。
+  Enterprise / Industry 契約者向けの延長は 1 年ある）。6.3 LTS は 2027-12 まで
 
 **非ゴール**
 モバイル platform の追加（M4）。カメラ入力（M4）。新しい画像処理関数。
@@ -816,11 +821,13 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 **完了条件**
 
 - Android arm64-v8a と iOS arm64 の native artifact を CI が生成する
-- **Android の 16 KB page size を CI で検証する。これは既に必須要件である** ——
-  Google Play は 2025-11-01 から 16 KB 対応を要求しており、一度きりの猶予も
-  2026-05-30 で終わっている（[Android 開発者向け文書](https://developer.android.com/guide/practices/page-sizes)）。
-  つまり「対応しておくと良い」ではなく、**対応していない `.so` を含む package は
-  利用者が Play に出せない** —— この検査が無いまま配ると、利用者のリリースを止める
+- **Android の 16 KB page size を CI で検証する。**
+  [Android 開発者向け文書](https://developer.android.com/guide/practices/page-sizes)（2026-08-29 に確認）は
+  「Android 15 (API 35) 以降を対象とするアプリは Google Play 上で 16 KB に対応して
+  いなければならない」と現在形で書き、**期限として挙げている日付は 1 つだけ、
+  2027-02-01 である** —— その日から、対応していない更新は公開できなくなる。
+  つまり**猶予は残っているが、止まるのは利用者のリリースである**（こちらが配る
+  `.so` が利用者のアプリに入るため）。**期限より前に満たしておく**
 - iOS の `__Internal` static link と linker stripping 後も P/Invoke が解決することを実機で確認する
 - lifecycle（background / foreground）と memory pressure を検証する
 - **`WebCamTexture` から `CvMat` を作れるようにする**（穴 #5）。カメラ入力そのものは
@@ -828,7 +835,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
   `TextureConverter` は `Texture2D` の RGBA32 しか受け付けない
 - **macOS の Plugin Import Settings を Unity で実測する**（穴 #6）。iOS のビルドには
   macOS runner が要るので、ここで初めて macOS 上で Unity を動かすことになる
-- **`windows-2022` 上の game-ci v4 へ実際に投げ、その run の出力を根拠として
+- **`windows-2022` 上で `game-ci/unity-test-runner@v4` へ実際に投げ、その run の出力を根拠として
   記録したうえで、Windows の IL2CPP Player を CI で回すかどうかを結論として書く**
   （穴 #7）。やると決めるか諦めると決めるかは問わないが、**上流の issue を読んだ
   結果を根拠にしない** —— 今回崩れた判断がたどったのがその経路である
@@ -964,27 +971,43 @@ M2 の完了条件 6 は「Unity EditMode と **Windows** IL2CPP Player で同�
 使って **Linux** で満たした。したがって **Windows の IL2CPP Player は、今もローカルの
 `dev.ps1 test-unity-player` だけが担っている。**
 
-**2026-08-29 に調べた結果、「無理だ」と書いていた根拠のほうが誤りだった。**
-理由として挙げていた
+**2026-08-29 に調べ直したところ、「無理だ」と書いていた根拠が、そもそも
+このリポジトリの構成についての根拠ではなかった。**
+
+理由として挙げていたのは
 [game-ci/unity-builder#542](https://github.com/game-ci/unity-builder/issues/542) と
-[game-ci/docker#213](https://github.com/game-ci/docker/issues/213) は、**どちらも
-2023-11-15 に解決済みとして閉じている**。#542 の最後のコメントは
-"V4 is now released and uses windows-2022" であり、**`ci-unity.yml` が使っているのは
-その v4 である。**
+[game-ci/docker#213](https://github.com/game-ci/docker/issues/213) の 2 件で、
+**どちらも 2023-11-15 に解決済みとして閉じている**（#542 は
+"V4 is now released and uses windows-2022"、#213 は Server 2022 のイメージが
+v3 で出たこと）。**しかしこのリポジトリは `unity-builder` を使っていない。**
+`ci-unity.yml` が使うのは `game-ci/unity-test-runner` で、**別リポジトリの別 action、
+版番号も独立している**（#542 の "V4" は unity-builder の v4、#213 の "v3" は docker
+イメージの v3、こちらの `@v4` は test-runner の v4 —— **3 つの別物が同じ数字で
+並んでいるだけである**）。
 
-**つまり、この 1 年近く「上流が直らないから無理」と書いてきたが、上流は
-とっくに直っていた。** 記録した時点では issue を読んだだけで、**Windows で
-走らせる試みは一度もしていない。** 読んだ根拠が古くなったことに気づく仕掛けが
-どこにも無かった —— リンク先が閉じても、こちらの文書は緑のままである。
+**したがって、あの 2 件はこちらの構成について何も言っていなかった。**
+「動く」根拠でも「動かない」根拠でもない。この理由づけは 2026-08-29 00:44 に
+書かれ、同じ日の 17 時台に崩れている —— **古くなったのではなく、書いた時点で
+既に別物の話だった。**
 
-**それでも「すぐできる」ではない。** [GameCI 自身の Windows イメージ文書](https://game.ci/docs/docker/windows-docker-images/)は
-別の障害を挙げている: **IL2CPP のビルドに要る Visual Studio Build Tools は、
-Microsoft の制約でイメージに同梱できない** ——ホストから注入するか独自イメージを
-作る必要がある。加えて Windows ではビルドのたびにライセンスの取得と返却が要る。
+**では現状はどうか。使っている action 自身の文書には Windows について現在形の
+記述がある**（[Test Runner の Caveats](https://game.ci/docs/github/test-runner)）:
+"The test runner can only test packages on Linux runners - Windows runners are
+currently not supported"。**ただしこれは package を対象にしたテストの話**で、
+`ci-unity.yml` は `projectPath` を渡す project のテストなので、そのまま当てはまるとは
+限らない。加えて
+[GameCI の Windows イメージ文書](https://game.ci/docs/docker/windows-docker-images/)は
+別の障害を挙げる: **IL2CPP のビルドに要る Visual Studio Build Tools は Microsoft の
+制約でイメージに同梱できない**（ホストから注入するか独自イメージが要る）。Windows では
+ビルドのたびにライセンスの取得と返却も要る。実務上は `ci-unity.yml` が `customImage`
+に `unityci/editor:ubuntu-…` を直書きしているので、そこも書き換えになる。
 
-**M4 での担当は「決める」ではなく「試す」である。** まず `windows-2022` 上の
-game-ci v4 に素直に投げ、何が起きるかを見る。落ちたらその出力を根拠として
-記録する ——**issue を読んだ結果ではなく、こちらで走らせた結果を根拠にする。**
+**要するに、動く根拠も動かない根拠も、こちらでは持っていない。**
+
+**M4 での担当は「決める」ではなく「試す」である。** まず `windows-2022` 上で
+`game-ci/unity-test-runner@v4` に素直に投げ、何が起きるかを見る（`customImage` の
+`ubuntu-` 直書きを外すところから）。落ちたらその出力を根拠として記録する ——
+**他人の issue を読んだ結果ではなく、こちらで走らせた結果を根拠にする。**
 そのうえで、独自イメージを作るか、self-hosted runner を立てるか、諦めるかを決める。
 
 ### macOS の Plugin Import Settings を Unity で実測する → M4
@@ -998,6 +1021,8 @@ Unity を起動しない。
 **M4 で自然に埋まる。** iOS のビルドには macOS runner が要るので、そこで初めて
 macOS 上で Unity を動かすことになる。**「ついでに埋まる」に任せず M4 の完了条件に
 書いた**のは、まさにこの節が生まれた理由がそれだからである。
+
+---
 
 ## マイルストーン間の依存
 

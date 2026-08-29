@@ -156,8 +156,8 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 | --- | --- | --- | --- |
 | OpenCV for Unity | 3.0.3 / OpenCV 4.13.0 | 変わらず | **OpenCV 5 へ移っていない** |
 | neon-izm/OpenCV-plus-Unity | 4 commits / OpenCV 4.11 / Release なし | **6 commits**、他は変わらず | 依然 OpenCV 4.11、Release なし |
-| OpenCvSharp | 5.0.0.20260806（managed は net8.0） | 変わらず | Unity 向けは 4.x 系のまま案内 |
-| Emgu CV | 4.13.0 / Unity 公式サポート終了 | **再確認していない** | 08-25 の判断（Unity の新規採用先として不利）を覆す材料は無いが、数字は確かめていない |
+| OpenCvSharp | 5.0.0.20260806（managed は net8.0） | 変わらず | **README は「Unity では動かないので OpenCV for Unity 等を使え」と書いている** —— §4.4 の「Unity には 4.x 系を案内」は移行ガイド由来で、README の現行の言い方はより強い |
+| Emgu CV | 4.13.0 / Unity 公式サポート終了 | 変わらず（NuGet の最新は 4.13.0.5924 / 2026-05-14） | 変化なし |
 
 **結論は変わっていない: Unity 向けに OpenCV 5 を出している製品は、商用・OSS とも
 見つからない。** 「OpenCV 5 first」は今も本案だけが持つ位置である。
