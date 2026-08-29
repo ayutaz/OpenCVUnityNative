@@ -110,5 +110,22 @@ namespace CvUnity.Interop
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_gaussian_blur(
             ulong src, ulong dst, int ksizeWidth, int ksizeHeight, double sigmaX, double sigmaY);
+
+        /*
+         * ext は **UTF-8 の NUL 終端 byte 列**として渡す。string を
+         * marshaller に任せず自分で encode するのは、境界での文字コード変換を
+         * 実行環境（Mono / IL2CPP、既定の CharSet）任せにしないためである。
+         * CvNative.ReadString が UTF-8 を明示的に扱っているのと同じ理由。
+         *
+         * buffer に null を渡す 1 回目は必要サイズの問い合わせで、
+         * OCVU_STATUS_BUFFER_TOO_SMALL が返るのが正常である。
+         */
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_imencode(
+            ulong src, byte[] ext, byte[] buffer, int bufferSize, out int requiredSize);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_imdecode(
+            byte[] data, long length, int flags, ulong dst);
     }
 }
