@@ -155,7 +155,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | --- | --- |
 | native backend 実装言語 | **C++**（Rust spike は不要になった） |
 | UPM package ID | **`com.ayutaz.opencv-unity-native`** |
-| 対象 Unity | **6000.x のみ**（2022 LTS 非対応） |
+| 対象 Unity | **6000.x のみ**（2022 LTS 非対応）。**実際に検証しているのは 6000.0.82f1 の 1 版だけで、その版は 2026-10 にサポートが終わる** —— M3.5 で 6.3 LTS へ載せ替える（`docs/roadmap.md` の「差別化の穴」#4） |
 | C# ターゲット | netstandard2.1 / C# 9 |
 | OpenCV 入手 | allowlist 構成で CI がビルドし artifact 配布。**ローカルではビルドしない** |
 | CI/CD | public OSS のため GitHub Actions を全面活用。重い検証はすべて CI |
@@ -268,7 +268,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 ## 実装に着手するとき
 
 1. `docs/roadmap.md` で対象マイルストーンの目的・ゴール・完了条件・**非ゴール**を確認する
-2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）。M4 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
+2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）。M3.5 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
 M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、ライセンス表示と SBOM の公開フロー、各 platform で必須とする Editor / Mono / IL2CPP / device test matrix。
@@ -403,10 +403,10 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 - **macOS 上の Unity の挙動**（CI の macOS job は plugin をビルドするが Unity を
   起動しない。Linux 分は M2 の条件 7 で実測できるようになった）。**M4 の担当**
   —— `docs/roadmap.md`「担当が無かった制約」
-- **Windows の IL2CPP Player**（game-ci が Windows ランナーで動かないため、
-  CI の L5 は Linux。Windows 版はローカルのレーンだけが担う）。**M4 で
-  「やるか諦めるか」を結論として出す** —— 同上。game-ci 側の解決を待つ道は
-  無いことまで確認済み
+- **Windows の IL2CPP Player**（CI の L5 は Linux で、Windows 版はローカルの
+  レーンだけが担う）。**M4 の担当** —— 同上。理由として長く書いてきた
+  「game-ci が Windows で動かない」は 2026-08-29 に根拠を失った。**実際に
+  走らせたことは一度も無い**
 - **複数 platform を同時に使うこと。** 配る tarball は platform ごとに分かれて
   おり、1 つの package に 1 platform 分しか入らない。**M3.5 の担当**
 - mobile / Web（M4 / M6 の担当。まだ何も無い）

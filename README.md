@@ -86,12 +86,17 @@ binaries in history would grow it without bound. A Git URL reference therefore
 delivers the C# code and the Plugin Import Settings but no actual libraries, and
 every `DllImport` fails at runtime. Use the release tarball.
 
-### One tarball per platform
+### One tarball per platform — a known limitation
 
-Each tarball contains the binary for **one** platform. If you build for more than
-one, take the corresponding tarball on each build machine. A single package
-holding all three is not published, because it would ship two unusable binaries
-to every consumer.
+Each tarball contains the binary for **one** platform, so a project that builds for
+more than one cannot get them all from a single install: Unity allows one package
+per package ID, and taking a different tarball on each build machine does not help
+when the editor and the build target are different platforms.
+
+**This is a defect, not a design.** It is scheduled for M3.5, which replaces these
+with one package holding every platform; per-platform `.meta` files already restrict
+each binary to its own platform, so the others are inert rather than harmful. See
+the roadmap.
 
 ### How releases are made
 

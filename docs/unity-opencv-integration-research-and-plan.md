@@ -204,8 +204,10 @@ platform ごとの tarball のうち 1 つを選んで公開すれば、`openupm
 その platform 分の binary だけになる。**[ロードマップ](./roadmap.md)「差別化の穴」の
 1 件目がそのまま現れる**ので、先にそちらを解く。
 
-実装時に効く細かい制約が 2 つある。**パッケージは 512 MB 未満**であること
-（全 platform を 1 つに入れる以上、無視できない上限である）。そして
+実装時に効く細かい制約が 2 つある。**パッケージは 512 MB 未満**であること ——
+ただし現状これは効かない。Windows の plugin は 8.5 MB（2026-08-29 に手元の
+ビルドを実測）で、5 platform 分を足しても 50 MB 前後にしかならない。**効いてくるのは
+DNN や contrib を含む profile を配る段階**（M7）である。そして
 `githubReleaseAssetName` は**版番号を含まない安定した接頭辞**を想定しており、
 本案の tarball 名は現在 `com.ayutaz.opencv-unity-native-<version>-<platform>.tgz`
 という版番号入りである。
