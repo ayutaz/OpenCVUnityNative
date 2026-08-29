@@ -103,7 +103,7 @@ jobs:
         run: Get-Content "third_party/opencv/${{ steps.config.outputs.config-hash }}/build-manifest.json"
 
       - name: Upload the artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.config.outputs.artifact-name }}
           path: third_party/opencv/${{ steps.config.outputs.config-hash }}/
