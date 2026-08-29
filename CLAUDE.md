@@ -258,7 +258,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | **M2** | **Windows vertical slice。API の広さではなく ownership / stride / エラー / IL2CPP の正しさを確定 — 8 件すべて達成。最後の条件 7（CI で L4/L5）は game-ci + Linux で満たした。その過程で、公開済み Linux 版が古い環境で読み込めない欠陥が判明し修正** |
 | **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。配布まで踏み、v0.1.0 と、Linux の欠陥を直した v0.1.1 を公開済み** |
 | **M3.5** | **配布の形と、実用に必要な最小の穴。** 2026-08-29 の再調査で足した。**1 つの package に 1 platform 分の binary しか入らない**ので「エディタは Windows、実機は Android」が表現できず、**M4 の成果物を配れない**。あわせて OpenUPM 登録・画像ファイルの読み書き・Unity 6.3 LTS への載せ替え |
-| M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する。**16 KB 対応は既に必須**（Google Play の猶予は 2026-05-30 で終了）。macOS の `.meta` 実測と Windows IL2CPP の結論もここ |
+| M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する。**16 KB 対応は 2027-02-01 から Google Play の要件**（それより前に満たす。止まるのは利用者のリリースである）。macOS の `.meta` 実測と Windows IL2CPP の結論もここ |
 | M5 | binding specification と generator。**`imgcodecs` は M3.5 へ前倒しした**（2026-08-29。手書きで足りるものに生成の仕組みを待たせる理由が無かった） |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
 | M7 | Optional profiles と性能。**OpenCV 5 の新しい DNN エンジンはここ** —— 競合が持たない最大の差になりうるが、Unity には推論の代替があるので前倒ししない（roadmap の M7 節） |
