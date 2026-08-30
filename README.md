@@ -135,7 +135,7 @@ file names, so nothing there ever noticed — and fails 3 of the current 16.
 
 Installing the all-platform tarball into a throwaway project and running EditMode
 there passed 16 of 16, measured on one Windows machine on 2026-08-30. CI runs the same EditMode suite on Linux and it passes 16 of 16 there too, but with only the Linux binary present, so the three-platform case those checks exist for is not what CI exercises. The all-platform tarball is
-9.6 MB (9,608,334 bytes), measured on the CI run that assembled it. See the [roadmap](docs/roadmap.md).
+9.6 MB, measured on the CI run that assembled it. See the [roadmap](docs/roadmap.md).
 
 ### How releases are made
 

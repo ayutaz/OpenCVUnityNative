@@ -13,7 +13,7 @@ param(
         作るには他 platform の binary を外から持ってくるしかない。公開済みの
         release から取るのが今のところ唯一の経路である:
 
-            gh release download v0.1.1 --pattern "*macos-arm64.tgz" --pattern "*linux-x64.tgz"
+            gh release download --pattern "*macos-arm64.tgz" --pattern "*linux-x64.tgz"   # 版を固定しない = 最新
             tar -xzf ...   # package/Runtime/Plugins が出てくる
             ./tools/dev.ps1 test-unity-tarball -PluginSource "<mac>/package;<linux>/package"
 

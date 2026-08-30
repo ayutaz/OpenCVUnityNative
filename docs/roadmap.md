@@ -72,7 +72,7 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | **全部入りの UPM tarball（配る正）** と platform ごとの tarball 3 本、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。staging は **17 件**（3 platform × 5 + 全部入り tarball 1 + その `checksums.txt` 1）を数え、全部入りが名前で並んでいることも見る。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した**（run 33286928144、release/v0.2.0 ブランチ。Release は作られていない）。それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— 条件を「Release を作る最後の step」だけに移して直した。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。その前に `workflow_dispatch` の空撃ちを 1 回している（run 33156465235、3 platform とも success、publish は tag でないため skip） | M3 |
+| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | **全部入りの UPM tarball（配る正）** と platform ごとの tarball 3 本、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。staging は **17 件**（3 platform × 5 + 全部入り tarball 1 + その `checksums.txt` 1）を数え、全部入りが名前で並んでいることも見る。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した**（run 33286928144、release/v0.2.0 ブランチ。Release は作られていない）。それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— 条件を「Release を作る最後の step」だけに移して直した。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
 | `ci-lint.yml` | push(main) / PR / 手動 | actionlint / shellcheck / PSScriptAnalyzer / 文書の相対リンク検査の 4 job。**静的に読めば分かる誤りを、CI を 1 周（10〜20 分）回して確かめていた**のを埋める | M3 後 |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C# の静的解析。sanitizer が「実際に踏んだ経路」を見るのに対し、CodeQL は経路を実行せずに探すので**重なっていない** | M3 後 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**schedule での実行実績はまだ無い**（下記） | M3 後 |
@@ -606,7 +606,8 @@ trigger 条件のような変わらない事実に置くこと。
 
 1. **空撃ち**（`workflow_dispatch`、run 33156465235）。package job だけを 3
    platform で走らせ、publish は tag でないため skip。成果物を落として中身を
-   検証した。
+   検証した。**これは M3 当時の挙動である** —— 2026-08-30 に job を割ったので、
+   いまの空撃ちは組み立てと staging まで通り、Release を作る job だけが止まる。
 2. **下書き**（tag を打つ、run 33161268329）。`gh release create --draft` で
    非公開の Release を作り、実物を点検した。
 3. **公開**。点検で出た欠陥を全部直してから、下書きを公開に切り替えた。
@@ -832,7 +833,7 @@ Asset Store での配布。
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 1 | 全 platform の binary を 1 つに収めた tarball を `release.yml` が作る | **満たす（留保あり）**。`tools/assemble-plugins.ps1` と `pack-upm-tarball.ps1 -AllPlatforms` はローカルで実測（3 binary が同梱されていることを、作った archive の中を数えて確認）。**`release.yml` 側の配線は未実行** —— tag も `workflow_dispatch` も走らせていない |
+| 1 | 全 platform の binary を 1 つに収めた tarball を `release.yml` が作る | **満たす（留保あり）**。`tools/assemble-plugins.ps1` と `pack-upm-tarball.ps1 -AllPlatforms` はローカルで実測（3 binary が同梱されていることを、作った archive の中を数えて確認）。**`release.yml` 側の配線も 2026-08-30 に通した**（run 33286928144、`workflow_dispatch`）—— 組み立て 3 binary、tarball 61 entries、staged 17 assets、`SHA256SUMS` 17 行（大きさは条件 4 の行にある）。Release は作られていない（publish job は tag に限る）|
 | 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 16 passed`（2026-08-30、このマシン）。**このレーンはどの workflow にも入っていない**（ローカル専用。M3 から変わっていない） |
 | 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たすが未実証**。`PluginGatingTests`（EditMode 6 件）が `PluginImporter` に `.meta` の解釈を問い、**3 platform 同居の状態では壊すと 16 中 3 件が落ちる**ことをローカルで確認した。**しかし自動で走る唯一の場所（`ci-unity.yml`）には 1 platform 分の binary しか無く、そこでは 6 件が無条件に緑になる** —— 取り違えが起こりうる状況が CI では一度も成立しない。`OCVU_EXPECT_ALL_PLATFORMS` を立てて 3 つを要求するのは `dev.ps1 test-unity-tarball` だけで、**そのレーンはどの workflow にも入っていない**。詳細は下記 |
 | 4 | OpenUPM へ登録できる形にする | **(a)(b) は満たす、(c) は未了**。(a) asset 名から版番号を落とした（`com.ayutaz.opencv-unity-native.tgz`）。(b) `pack-upm-tarball.ps1 -MaxBytes`（既定 512 MB）が上限を見る —— 全部入りの実測は 9.6 MB（9,608,334 バイト）。(c) 登録申請は、新しい asset 名を含む Release を公開した後になる（[登録の準備](./openupm-registration.md)。**OpenUPM 側の受理はこの条件に含めない**） |
@@ -852,7 +853,7 @@ Asset Store での配布。
 
 ```
 # 公開済みの release から他 platform の実物を取る
-gh release download v0.1.1 --repo ayutaz/OpenCVUnityNative     --pattern "*macos-arm64.tgz" --pattern "*linux-x64.tgz" --dir /tmp/ocvu
+gh release download --repo ayutaz/OpenCVUnityNative     --pattern "*macos-arm64.tgz" --pattern "*linux-x64.tgz" --dir /tmp/ocvu   # 版を固定しない = 最新
 mkdir -p /tmp/ocvu/mac /tmp/ocvu/linux
 tar -xzf /tmp/ocvu/*macos-arm64.tgz -C /tmp/ocvu/mac
 tar -xzf /tmp/ocvu/*linux-x64.tgz   -C /tmp/ocvu/linux
