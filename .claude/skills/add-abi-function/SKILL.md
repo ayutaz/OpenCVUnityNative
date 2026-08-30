@@ -303,25 +303,12 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 
 ## platform を足すとき
 
-**ABI 関数の話ではないが、同じファイル群を触るのでここに置く。**
+**`add-a-platform` skill を使うこと。** ABI 関数の話ではないが、同じファイル群を
+触るのでここから指す。
 
-新しい platform を足すときに直す場所は **5 つ**ある。**1 つでも漏れると、
-「揃っていないのに全部入りとして扱う」か「知らないファイルとして拒む」の
-どちらかが起きる。**
-
-| 場所 | 何を |
-| --- | --- |
-| `tools/opencv-config.psd1` | `Toolchains` と `PlatformCMakeArgs` |
-| `CMakePresets.json` | configure / build preset（**クロスなら `toolchainFile` を指す。指さないと host 向けにビルドされ、成功したように見えて中身が別物になる**） |
-| `tools/pack-upm-tarball.ps1` | `$PlatformBinaries` と `$AllowedPluginFiles` |
-| `tools/assemble-plugins.ps1` | `$Allowed` |
-| `tools/dev.ps1` | `$script:AllPlatformBinaries`（全部入りとして扱うかの判定）と `Copy-NativePluginForUnity` の出力先 |
-
-加えて `tools/plugin-meta/<platform>/` に `.meta` を作る。**GUID は既存と重複させない**
-——重複すると Unity が片方を無視し、**どちらが無視されるかは決まっていない。**
-
-`tools/tests/PackageRelease.Tests.ps1` が後半 3 つの一致と GUID の一意性を見る。
-**roadmap は長らく「2 か所」と書いていたが、実際は 3 か所だった**（M4 で判明）。
+直す場所は **17 箇所**あり（M4 で実測）、`.meta` のキー名・ファイル名の衝突・
+クロスでの `find_package` の閉じ込め・静的ライブラリの依存の束ねなど、
+**ビルドが通ってから CI で 8 回落ちた**罠がそこにまとまっている。
 
 ## 参照
 

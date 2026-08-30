@@ -130,18 +130,14 @@ asset は N 件」「EditMode は N 件」のような数はリポジトリ中�
 `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` には無く、リンカが `cv::imencode` /
 `cv::imdecode` を未解決にして初めて分かった。
 
-### platform を足すときに直す場所を数える
+### platform を足したなら、その一覧を全部数え直す
 
-**M4 で数を間違えた。** roadmap は「`pack-upm-tarball.ps1` と
-`assemble-plugins.ps1` の**両方**が未知の platform を拒むので、platform を
-足すときは 2 か所を直すことになる」と書いていたが、**実際は 3 か所**である ——
-`tools/dev.ps1` にも「全部入りとして扱うか」を決める一覧がある。
+**M4 で数を間違えた。** roadmap は「2 か所」と書いていたが実際は 3 か所で、
+さらに数え直すと **17 箇所**あった（`add-a-platform` skill に一覧がある）。
 
-3 つがずれると、**揃っていないのに全部入りとして扱う（またはその逆）**が起きる。
-いまは `tools/tests/PackageRelease.Tests.ps1` が 3 箇所の一致を見ている。
-
-**「2 か所」と書いてあっても、grep で数え直すこと。** 文書に書かれた数は、
-足したときに一緒に増えるとは限らない。
+判定の側でやることは 1 つ: **文書に書かれた数を信用せず、`git grep -c` で
+数え直す。** 「公開 ABI は N 本」「asset は N 件」「EditMode は N 件」も同じで、
+**これらはリポジトリ中に散らばっていて一斉に古くなる。**
 
 ### 「対象」と「実行環境」が一致しない条件を見分ける
 
@@ -211,6 +207,35 @@ artifact が上がっていることも確認する。「upload ステップが�
 merge は止まらない。**PR で起動しない workflow（tag や schedule が trigger のもの）は
 そもそも必須にできない**ので、その場合は「必須にできない」と判定に書いて先へ進む。
 決めずに通すと、「CI が見ている」を「赤ければ止まる」と読み違えたまま残る。
+
+**「成功が N 件」で充足を判定しない。名前で突き合わせる。**
+
+`gh pr checks` は `SUCCESS` 以外の状態も返す。M4 の PR では
+`EditMode results` / `Standalone results` の 2 件が **`NEUTRAL`** だった ——
+game-ci 自身が出す check run で、必須ではない。**成功件数を数えると
+「20 / 22 だから未達」と読み違える。**
+
+逆向きの読み違えのほうが危ない。**GitHub は必須チェックを
+`successful` / `skipped` / `neutral` のいずれでも通す。** `skipped` で
+通るということは、**条件で丸ごと飛ばした job は「緑」と同じ扱いになる**
+—— `needs:` で前段に繋いだだけの job は、前段が落ちると skip され、
+**止めるはずのチェックが止めない**（M4 で `if: ${{ !cancelled() }}` を
+足して塞いだ）。
+
+必須の一覧と実際の結果を、名前で突き合わせる:
+
+```
+gh api repos/<owner>/<repo>/branches/main/protection \
+  --jq '.required_status_checks.contexts[]' | sort > req.txt
+gh pr checks <n> --json name,state \
+  --jq '.[]|select(.state=="SUCCESS")|.name' | sort > ok.txt
+comm -23 req.txt ok.txt   # 空でなければ未達
+```
+
+**必須チェックの正本は GitHub 側の設定であって、`CLAUDE.md` の表ではない。**
+増やしたなら表も直す（`README.md` の英語版も一緒に直す —— 二重に書いてある
+のはその 1 箇所だけ、という状態を保つ）。
+
 
 ### 8. 判定を書く
 

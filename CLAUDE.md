@@ -443,9 +443,10 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 
 | skill | いつ使うか |
 | --- | --- |
-| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約。**platform を足すときに直す 5 箇所**もここにある（M4 で「2 か所」という記述が誤りだと分かった）|
-| `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定。**M4 で「CI では原理的に閉じない条件」の扱いが加わった** —— 実機が要るものは「満たすが未実証」ですらなく、人が実行する手順書に落とす |
-| `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした。**M4 で 4 つの節が加わった** —— 壊す前にコミットする / 置換が空振りしていないか確かめる / 手前に別の門があると番人に到達しない / 述語のゆるさ（構造的に常に真・部分一致・大文字小文字・散文に当たる）|
+| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約 |
+| `add-a-platform` | **対象 platform を足す・外す・変えるとき。** 一覧を持つ場所は **17 箇所**あり（M4 で実測。roadmap は長らく「2 か所」と書いていた）、語彙が違うので grep 1 回では揃わない。`.meta` のキー名 / ファイル名の platform 間衝突 / クロスでの `find_package` の閉じ込め / 静的ライブラリの依存の束ね / 新しい third-party など、**クロスビルドが緑になってから CI で 8 回落ちた**罠を、踏んだ順に並べてある |
+| `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定。**M4 で 2 つ加わった** —— 実機が要る条件は「満たすが未実証」ですらなく人が実行する手順書に落とす / **必須チェックの充足は成功件数ではなく名前で突き合わせる**（GitHub は `skipped` と `neutral` も pass として通す）|
+| `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした。**M4 で 6 つの節が加わった** —— 壊す前にコミットする / 置換が空振りしていないか確かめる / 手前に別の門があると番人に到達しない / 述語のゆるさ（構造的に常に真・部分一致・大文字小文字・散文に当たる）/ **自分でパースする検査は本物の解釈を代理できない** / **正本を写さず正本から読む** |
 
 **hook**（`.claude/settings.json`）
 
@@ -457,12 +458,14 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 | `check-powershell-encoding.sh` | PostToolUse (Write/Edit) | 非 ASCII を出力する `.ps1` / `.psm1` の `[Console]::OutputEncoding` 未設定を指摘。M1 で 3 つの別々のスクリプトに順に現れた |
 | `check-assertions-reachable.sh` | PostToolUse (Write/Edit) | `*.Tests.ps1` で、終了コードを決めた後ろに置かれ**落ちようがない** assertion を指摘 |
 | `check-shared-temp-paths.sh` | PostToolUse (Write/Edit) | `tools/tests/*.Tests.ps1` の**固定名の一時ファイル**を指摘。`dev.ps1 test` はレーンを並べて走らせるので、名前を固定すると 2 つの実行が潰し合う —— **落ちるのは無関係な assertion**で、再実行すると緑になるためフレークとして片付けられる（M4 で実測）|
+| `check-platform-list-drift.sh` | PostToolUse (Write/Edit) | 対象 platform の一覧を持つファイルが**正本より短いまま**置いていかれるのを指摘。正本は `tools/dev.ps1` の `$script:AllPlatformBinaries` で、**写さずそこから読む**ので platform が増えれば判定も増える。M4 で 3 platform のまま残った一覧が 3 つ出た（うち 1 つは直したのに巻き戻して再発）。**見えないのは同一ファイル内の 2 つ目以降の一覧**で、そちらは検査側が正本と突き合わせる |
 
-**後の 3 つは、どれも実際に起きたものを機械に見させている。** `check-powershell-encoding.sh`
-と `check-assertions-reachable.sh` は M1 で、`check-shared-temp-paths.sh` は M4 で
-踏んだ。1 つ目は修正が隣のファイルに在っても再発し、2 つ目は PASS 表示が出るので
-目視では気づけず、3 つ目は**再実行すると緑になる**ので原因の追跡が最も難しかった。
-「近くのコードを読めば分かる」類ではないから機械に見させている。
+**後の 4 つは、どれも実際に起きたものを機械に見させている。** `check-powershell-encoding.sh`
+と `check-assertions-reachable.sh` は M1 で、`check-shared-temp-paths.sh` と
+`check-platform-list-drift.sh` は M4 で踏んだ。1 つ目は修正が隣のファイルに在っても
+再発し、2 つ目は PASS 表示が出るので目視では気づけず、3 つ目は**再実行すると緑になる**
+ので原因の追跡が最も難しく、4 つ目は**ビルドも CI も通ったまま**配布物の中身だけが
+食い違う。「近くのコードを読めば分かる」類ではないから機械に見させている。
 
 hook は PowerShell ではなく **sh** で書いてある。この環境では pwsh の起動に
 約 3.3 秒、python に約 2.4 秒かかるのに対し sh は約 0.19 秒で、hook は毎回の
