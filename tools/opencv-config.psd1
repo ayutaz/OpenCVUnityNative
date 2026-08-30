@@ -63,6 +63,46 @@
             #>
             Container    = 'ubuntu:22.04'
         }
+
+        <#
+            Android。**クロスコンパイルなので host と対象が一致しない。**
+            NDK の toolchain file を使う（cmake/toolchains/android-arm64.cmake）。
+
+            arm64-v8a だけを対象にする。x86_64（エミュレータ）を含めるかの
+            判断は roadmap の M4 節に書いてある。
+        #>
+        'android-arm64' = @{
+            Generator    = 'Ninja'
+            Architecture = 'arm64-v8a'
+            BuildType    = 'Release'
+
+            <#
+                Unity 6.3 が Android の minSdk を 23 -> 25 に上げた
+                （tests/UnityProject/ProjectSettings/ProjectSettings.asset）。
+                それより低い API を対象にしても Unity 側が受け取らないので
+                揃える。**この値は構成ハッシュに入る** —— 変えれば別の
+                artifact になる。
+            #>
+            AndroidPlatform = 'android-25'
+        }
+
+        <#
+            iOS。**共有ライブラリを作らない。** iOS はアプリの外から .dylib を
+            読み込めないので、Unity は静的ライブラリ (.a) を受け取って IL2CPP の
+            バイナリへ静的リンクし、P/Invoke は DllImport("__Internal") で
+            解決する（CLAUDE.md「IL2CPP / AOT を前提とする」）。
+
+            **SHARED のままでもビルドは成功する。** 壊れるのは Unity に入れて
+            からで、これは v0.1.0 が踏んだ「ビルドできた ≠ 動く」と同じ形である。
+        #>
+        'ios-arm64' = @{
+            Generator    = 'Ninja'
+            Architecture = 'arm64'
+            BuildType    = 'Release'
+
+            # Unity 6.3 が iOS の target を 13.0 -> 15.0 に上げた。
+            IosDeploymentTarget = '15.0'
+        }
     }
 
     # platform 固有の CMake flag。共通の CMakeArgs に足される。
@@ -80,6 +120,38 @@
             # 共有ライブラリへ静的ライブラリを取り込むため。
             # 指定しないとリンク時に relocation エラーになる。
             '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
+        )
+        'android-arm64' = @(
+            '-DANDROID_ABI=arm64-v8a'
+            '-DANDROID_PLATFORM=android-25'
+            # STL は静的に。共有だと libc++_shared.so を利用者のアプリに
+            # 同梱してもらう必要があり、他の native plugin と衝突しうる。
+            '-DANDROID_STL=c++_static'
+            # 共有ライブラリへ静的ライブラリを取り込むため（linux と同じ）。
+            '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
+            <#
+                **16 KB page size。** Android 15 (API 35) 以降を対象とする
+                アプリは Google Play 上で 16 KB に対応していなければならず、
+                2027-02-01 から未対応の更新は公開できなくなる。
+                **止まるのは利用者のリリースである** —— こちらが配る .so が
+                利用者のアプリに入るため。
+
+                NDK r28 以降は既定で 16 KB だが、明示しておく。既定に頼ると
+                NDK を下げたときに黙って壊れる。検査は
+                tools/verify-android-page-size.ps1 が行う。
+            #>
+            '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384'
+        )
+        'ios-arm64' = @(
+            '-DCMAKE_SYSTEM_NAME=iOS'
+            '-DCMAKE_OSX_ARCHITECTURES=arm64'
+            # 配布先の下限を固定する。Unity 6.3 の要求に合わせる。
+            '-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0'
+            # 実機向け。シミュレータは別の sysroot なので同じ .a では動かない。
+            '-DCMAKE_OSX_SYSROOT=iphoneos'
+            # bitcode は Xcode 14 で廃止された。明示的に切らないと古い CMake が
+            # 有効化しようとする。
+            '-DCMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE=NO'
         )
     }
 

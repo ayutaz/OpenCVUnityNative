@@ -1414,6 +1414,47 @@ if (Test-Path -LiteralPath $codeqlConfigPath) {
 }
 
 
+# --- モバイル platform が構成を引ける（M4 Task 1）---
+#
+# 既存の 3 platform は「実行中の OS = 対象 platform」を前提にしていた
+# （Get-OpenCvPlatform が $IsWindows 等から判定する）。**モバイルはクロス
+# コンパイルなので host と対象が一致しない。** Get-OpenCvPlatform（host 判定）は
+# 変えず、Get-OpenCvConfig -Platform に対象を明示的に渡す形にする。
+$MobilePlatforms = @('android-arm64', 'ios-arm64')
+$AllTargetPlatforms = @('windows-x64', 'macos-arm64', 'linux-x64') + $MobilePlatforms
+
+foreach ($mobile in $MobilePlatforms) {
+    $cfg = Get-OpenCvConfig -Platform $mobile
+    Assert-That ($cfg.Platform -eq $mobile) "Get-OpenCvConfig -Platform $mobile returns that platform"
+    Assert-That ($null -ne $cfg.Toolchain) "$mobile has a toolchain"
+    Assert-That ($cfg.Toolchain.Generator -eq 'Ninja') `
+        "$mobile builds with Ninja (生成物の配置を platform 間で揃える)"
+
+    $hash = Get-OpenCvConfigHash -Config $cfg
+    Assert-That ($hash -match '^[0-9a-f]{12}$') "$mobile hash is 12 lowercase hex characters"
+}
+
+# **構成ハッシュが platform 間で衝突しない。** 衝突すると、Android の artifact 名で
+# iOS の木が展開されるような事故が静かに成立する。
+$allHashes = @($AllTargetPlatforms | ForEach-Object { Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform $_) })
+Assert-That ((@($allHashes | Sort-Object -Unique)).Count -eq $AllTargetPlatforms.Count) `
+    "all $($AllTargetPlatforms.Count) target platforms hash differently (衝突すると別 platform の artifact が展開される)"
+
+# **未知の platform は黙って通さない。** 既定に倒すと、対応していない対象で
+# 「Windows の構成で Android をビルドする」が静かに成立する。
+$rejected = $false
+try { Get-OpenCvConfig -Platform 'android-armv7' | Out-Null } catch { $rejected = $true }
+Assert-That $rejected 'an unknown platform is rejected, not defaulted'
+
+# **artifact 名に platform が入る。** 入らないと 5 platform が同じ名前を取り合う
+# （M3 の Release asset 名の衝突と同じ形）。
+foreach ($p in $AllTargetPlatforms) {
+    $name = Get-OpenCvArtifactName -Config (Get-OpenCvConfig -Platform $p)
+    Assert-That ($name -like "*-$p-*") "the artifact name for $p embeds the platform (saw: $name)"
+}
+
+
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
