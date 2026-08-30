@@ -257,9 +257,13 @@ expired — things that break while nobody is pushing. **The nightly workflow ha
 yet run on its schedule**; it has only been started by hand, once unsuccessfully
 (API rate limits) and once green.
 
-**Every lane that runs on a pull request blocks a merge.** Thirteen checks are
+**Almost every lane that runs on a pull request blocks a merge.** Thirteen checks are
 required: the contract, P/Invoke and sanitizer jobs across the three platforms, the
-four lint jobs, both CodeQL analyses, and both Unity lanes. Until 2026-08-29 the
+four lint jobs, both CodeQL analyses, and both Unity lanes. Two are deliberately not
+required — the jobs that build the Windows and macOS plugins for the Unity lanes — because
+when either fails the Unity lanes run anyway and go red on the missing input, which is
+what stops the merge. A skipped required check counts as passing, so depending on one
+without that guard would let a broken build through. Until 2026-08-29 the
 Unity, lint and CodeQL workflows ran on every pull request without being required,
 so they could be red and the change still merged; CI watching something and CI
 stopping something are different things, and only the second one is a gate. The
