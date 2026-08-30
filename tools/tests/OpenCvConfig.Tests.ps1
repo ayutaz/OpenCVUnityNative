@@ -1641,6 +1641,39 @@ Assert-That (@($nativeCMakeLines | Where-Object {
 
 
 
+# --- 5 platform が build-opencv / release / ci-native を通る（M4 Task 2/10）---
+#
+# **matrix から静かに漏れると、restore が「artifact が無い」で落ちる。**
+# しかもそれは、モバイルをビルドしようとした人の手元で初めて起きる。
+$AllTargetPlatformsForWorkflows = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')
+
+foreach ($wf in @('build-opencv.yml', 'release.yml')) {
+    $text = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/$wf") -Raw
+    foreach ($p in $AllTargetPlatformsForWorkflows) {
+        Assert-That ($text -match "(?m)^\s*- platform:\s*$([regex]::Escape($p))\s*$") `
+            "$wf has a matrix entry for $p"
+    }
+}
+
+# **モバイルは ci-native でもクロスビルドされる。** release でしかビルドされないと、
+# 壊れたことが分かるのが tag を打った後になる —— M3.5 で踏んだ
+# 「配る直前に初めて走る配線」と同じ形である。
+$ciNativeText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-native.yml') -Raw
+foreach ($p in @('android-arm64', 'ios-arm64')) {
+    Assert-That ($ciNativeText -match "(?m)^\s*- platform:\s*$([regex]::Escape($p))\s*$") `
+        "ci-native.yml cross-builds $p (release でしか作らないと、壊れたと分かるのが tag の後になる)"
+}
+
+# **Android の 16 KB 検査は、配る binary を作る job でも走る。**
+# ci-native だけだと、tag を打ったときには掛からない —— v0.1.0 の
+# verify-plugin-portability.ps1 がまさにその状態だった。
+$releaseLines = @(Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/release.yml') |
+                  Where-Object { $_ -notmatch '^\s*#' })
+Assert-That (@($releaseLines | Where-Object {
+    $_ -match '^\s*(run:\s*)?(&\s+)?\./tools/verify-android-page-size\.ps1(\s|$)'
+}).Count -eq 1) 'release.yml runs verify-android-page-size.ps1 in exactly one step (配る binary に掛からないと意味が無い)'
+
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

@@ -13,7 +13,17 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('restore', 'build', 'verify', 'status', 'clean')]
-    [string]$Command = 'restore'
+    [string]$Command = 'restore',
+
+    <#
+        対象 platform。**省略すると実行中の host**（Get-OpenCvPlatform）。
+
+        モバイルはクロスコンパイルなので host と対象が一致しない。明示しないと
+        「Windows の構成で Android をビルドする」が静かに成立する ——
+        **成功したように見えて中身が別物になる。**
+    #>
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [string]$Platform
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +39,7 @@ Set-StrictMode -Version Latest
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
 
-$Config       = Get-OpenCvConfig
+$Config       = if ($Platform) { Get-OpenCvConfig -Platform $Platform } else { Get-OpenCvConfig }
 $ConfigHash   = Get-OpenCvConfigHash -Config $Config
 $ArtifactName = Get-OpenCvArtifactName -Config $Config
 $OpenCvRoot   = Get-OpenCvRoot -Config $Config

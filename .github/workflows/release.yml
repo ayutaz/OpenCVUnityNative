@@ -58,6 +58,12 @@ jobs:
             runner: macos-14
           - platform: linux-x64
             runner: ubuntu-24.04
+          # モバイルは**クロスコンパイル**なので host の OS は対象と一致しない。
+          # Android は NDK が入っている ubuntu、iOS は Xcode が要るので macOS。
+          - platform: android-arm64
+            runner: ubuntu-24.04
+          - platform: ios-arm64
+            runner: macos-14
 
     steps:
       # **git だけを checkout より前に入れる。**
@@ -110,13 +116,13 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./tools/opencv.ps1 restore
+        run: ./tools/opencv.ps1 restore -Platform ${{ matrix.platform }}
 
       # plugin binary をこの platform 向けにビルドする。package-release.ps1 は
       # Packages/ 配下に置かれた binary を checksums に入れるので、先に要る。
       - name: Build the native plugin
         shell: pwsh
-        run: ./tools/dev.ps1 build
+        run: ./tools/dev.ps1 build -Platform ${{ matrix.platform }}
 
       # 成果物が構成の意図どおりかを、配る前に確かめる。ここを通っていない
       # binary は配布しない。
@@ -165,10 +171,18 @@ jobs:
               # $LASTEXITCODE を残さずに終わった場合、前者は $null を渡して
               # 0 で抜ける——つまり「確かめていない」が緑になる。
               if ($LASTEXITCODE -ne 0) { exit 1 }
-          } elseif ($platform -in @('windows-x64', 'macos-arm64')) {
+          } elseif ($platform -eq 'android-arm64') {
+              # Android は glibc ではなく NDK の sysroot に対してリンクするので、
+              # verify-plugin-portability.ps1（GLIBC / GLIBCXX の上限）は当てはまらない。
+              # **代わりに 16 KB page size を見る** —— 2027-02-01 から
+              # 未対応のアプリは Google Play で更新を公開できず、
+              # **止まるのは利用者のリリースである。**
+              ./tools/verify-android-page-size.ps1
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+          } elseif ($platform -in @('windows-x64', 'macos-arm64', 'ios-arm64')) {
               # 走らなかったことをログに残す。灰色の skip と違い、
               # 「意図して外した」ことが後から読んで分かる。
-              Write-Host "==> skipped on ${platform} (検査対象は Linux の .so だけ)"
+              Write-Host "==> skipped on ${platform} (GLIBC の検査対象は Linux の .so だけ)"
           } else {
               Write-Error "unknown platform '${platform}': portability を検査するかどうかが決まっていない。tools/verify-plugin-portability.ps1 を掛けるか、ここに明示的な除外を足すこと。"
               exit 1
@@ -238,7 +252,7 @@ jobs:
       - name: Check that all three platforms are present
         shell: pwsh
         run: |
-          $expected = @('windows-x64', 'macos-arm64', 'linux-x64')
+          $expected = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')
           $missing = @($expected | Where-Object {
               -not (Test-Path "bundles/release-$_")
           })
@@ -257,7 +271,7 @@ jobs:
       - name: Assemble the all-in-one package
         shell: pwsh
         run: |
-          $sources = @('windows-x64', 'macos-arm64', 'linux-x64') |
+          $sources = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64') |
                      ForEach-Object { "bundles/release-$_/Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
@@ -312,14 +326,14 @@ jobs:
 
           # 名前が衝突していたら、Copy-Item が黙って上書きした後になる。
           # 数えて確かめる:
-          #   3 platform x (tarball 1 + 配布物 4) = 15
+          #   5 platform x (tarball 1 + 配布物 4) = 25
           # + 全部入りの tarball 1 + その checksums.txt 1
-          # = 17
+          # = 27
           $staged = @(Get-ChildItem assets -File)
           Write-Host "==> staged $($staged.Count) assets"
           $staged | ForEach-Object { Write-Host "    $($_.Name)" }
-          if ($staged.Count -ne 17) {
-              Write-Error "expected 17 assets (3 platforms x 5 + the all-in-one tarball and its checksums) but staged $($staged.Count); names collided or a file is missing"
+          if ($staged.Count -ne 27) {
+              Write-Error "expected 27 assets (5 platforms x 5 + the all-in-one tarball and its checksums) but staged $($staged.Count); names collided or a file is missing"
               exit 1
           }
 
@@ -445,9 +459,9 @@ jobs:
           $assets = @(Get-ChildItem assets -File)
           Write-Host "==> $($assets.Count) assets arrived"
           $assets | ForEach-Object { Write-Host "    $($_.Name)" }
-          # 17 件 + assemble が書いた SHA256SUMS.txt = 18
-          if ($assets.Count -ne 18) {
-              Write-Error "expected 18 assets (17 staged + SHA256SUMS.txt) but got $($assets.Count); the artifact round trip lost or added something"
+          # 27 件 + assemble が書いた SHA256SUMS.txt = 28
+          if ($assets.Count -ne 28) {
+              Write-Error "expected 28 assets (27 staged + SHA256SUMS.txt) but got $($assets.Count); the artifact round trip lost or added something"
               exit 1
           }
           if (-not (Test-Path 'assets/com.ayutaz.opencv-unity-native.tgz')) {

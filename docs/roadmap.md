@@ -1075,6 +1075,32 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
   実機 smoke test の担当である。ここまで通って初めて「エディタは Windows、実機は
   Android」が利用者の手元で成立する
 
+
+### 対応 CPU アーキテクチャの決定（穴 #8）
+
+**Android は arm64-v8a のみ。iOS は arm64（実機）のみ。**
+
+**Android の x86_64（エミュレータ）は含めない。** 理由:
+
+- **実機は事実上すべて arm64-v8a である。** x86_64 が要るのはエミュレータでの
+  開発中だけで、配る成果物の対象ではない
+- **含めると全部入りが大きくなる。** OpenCV を静的リンクした `.so` が 1 つ増える
+  ぶん、OpenUPM の 512 MB 上限に対する余裕が減る（現在 9.6 MB。**モバイルを
+  足した後の実測は下の表に入れる**）
+- **エミュレータでの開発を止めるわけではない。** 利用者が自分でビルドする経路は
+  残る —— `tools/opencv-config.psd1` の `Toolchains` に `android-x64` を足し、
+  `CMakePresets.json` に preset を足せば通る
+
+**この決定は覆せる。** M4 Task 1 で対象 platform を host から切り離したので、
+足すのは構成の 2 箇所と packaging の 3 箇所である（`tools/tests/PackageRelease.Tests.ps1`
+がその 3 箇所の一致を見ている）。
+
+**iOS のシミュレータ（x86_64 / arm64-simulator）も含めない。** 別の sysroot
+なので同じ `.a` では動かず、**実機で動かすためのパッケージ**である。
+シミュレータで開発したい利用者は `cmake/toolchains/ios-arm64.cmake` を複製せず、
+`CMAKE_OSX_SYSROOT` を `iphonesimulator` にして自分でビルドする。
+
+
 **非ゴール**
 カメラ入力の独自実装。Web。**配布の形式そのものの変更**（全部入りにする方針は
 M3.5 で決着させておく。M4 で足すのはその中身であって、形ではない）。

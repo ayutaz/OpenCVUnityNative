@@ -271,3 +271,102 @@ jobs:
           name: test-results-linux
           path: artifacts/test-results/
           if-no-files-found: warn
+
+  # --- モバイルのクロスビルド（M4）---
+  #
+  # **L1 / L3 は走らせない。** クロスビルドした GoogleTest は host で実行できず、
+  # P/Invoke も host からは呼べない。ここが確かめるのは「クロスビルドが通ること」
+  # と「配る形になっていること」までである。**実機での検証は
+  # docs/m4-device-verification.md が人に渡す** —— CI が代われない部分がある、
+  # というのがこの job の前提である。
+  mobile:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read   # opencv.ps1 restore が gh run download を呼ぶ
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android-arm64
+            name: Android arm64-v8a (cross-build)
+            runner: ubuntu-24.04
+          - platform: ios-arm64
+            name: iOS arm64 (cross-build)
+            runner: macos-14
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Ninja
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ninja; else sudo apt-get update && sudo apt-get install -y ninja-build; fi
+
+      # cache が無いと job のたびに artifact を探す API 呼び出しが起きる。
+      # **レート制限に当たると、成果物にもコードにも問題が無いのに CI が
+      # 全部赤くなる**（実測、2026-08-29）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform '${{ matrix.platform }}')
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore -Platform ${{ matrix.platform }}
+
+      - name: Build the native plugin
+        shell: pwsh
+        run: ./tools/dev.ps1 build -Platform ${{ matrix.platform }}
+
+      # **配る形になっていること。** Android は 16 KB page size、iOS は
+      # 静的ライブラリであること。どちらも「ビルドできた ≠ 動く」の距離を
+      # 少しだけ詰める検査で、実機の代わりにはならない。
+      - name: Verify the shipped form
+        shell: pwsh
+        run: |
+          $platform = '${{ matrix.platform }}'
+          if ($platform -eq 'android-arm64') {
+              ./tools/verify-android-page-size.ps1
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+          } elseif ($platform -eq 'ios-arm64') {
+              $lib = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/iOS/libopencv_unity_native.a'
+              if (-not (Test-Path -LiteralPath $lib)) {
+                  Write-Error "iOS の静的ライブラリがありません: $lib"
+                  exit 1
+              }
+              # **ar のアーカイブであること。** 共有ライブラリになっていたら
+              # iOS では読み込めない —— しかもビルドは成功するので、
+              # Unity に入れて初めて壊れる。
+              $head = [System.Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($lib)[0..7])
+              if ($head -ne '!<arch>' + [char]0x0A) {
+                  Write-Error "静的ライブラリではありません（先頭が '!<arch>' ではない）: $lib"
+                  exit 1
+              }
+              Write-Host "==> $lib is an ar archive"
+          } else {
+              Write-Error "unknown platform '${platform}': 配る形をどう検査するか決まっていない。"
+              exit 1
+          }
+
+      - name: Upload the plugin tree
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugin-${{ matrix.platform }}
+          path: Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins
+          if-no-files-found: error
+          retention-days: 1
