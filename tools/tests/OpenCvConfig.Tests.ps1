@@ -798,12 +798,13 @@ if ($markerName) {
             # だと、同じ step にある `matrix.requireTest`（小文字の r）に当たって
             # しまい、**受け渡しを消しても緑になる**（実測）。-cmatch にしたうえで
             # 「引数として渡す」「値を代入する」のどちらかの形を要求する。
-            if (@($cmds | Where-Object { $_ -cmatch '(-RequireTest\b|RequireTest\s*=)' }).Count -gt 0) {
+            if (@($cmds | Where-Object { $_ -cmatch '(-RequireTest\b|RequireTest\s*=)' }).Count -gt 0 -and
+                @($cmds | Where-Object { $_ -cmatch '(-RequireOutput\b|RequireOutput\s*=)' }).Count -gt 0) {
                 $requireSteps += , $cmds
             }
         }
         Assert-That ($requireSteps.Count -eq 1) `
-            "$($job.Workflow) job '$($job.Name)' passes RequireTest to assert-unity-results.ps1 in exactly one step (saw $($requireSteps.Count))"
+            "$($job.Workflow) job '$($job.Name)' passes both RequireTest and RequireOutput to assert-unity-results.ps1 in exactly one step (saw $($requireSteps.Count))"
 
         # **依存が落ちたときに skip で済ませない。**
         #
@@ -880,6 +881,17 @@ if ($markerName) {
         "ci-unity.yml declares exactly one non-empty requireTest lane (saw $($declaredRequires.Count))"
     Assert-That (@($declaredRequires | Where-Object { $_ -match 'PluginGatingTests' }).Count -eq 1) `
         "ci-unity.yml requires the plugin gating tests to have run (saw: $($declaredRequires -join ', '))"
+
+    # **入力ではなく結果を要求していること。** テストが走って通っても、合図が
+    # 届かなければ「1 つ以上」の分岐を通っただけかもしれない。そのときの出力は
+    # 意図どおり動いた場合と 1 バイトも違わない。
+    $declaredOutputs = @($unityWorkflow | Where-Object {
+        $_ -match '^\s*requireOutput:\s*\S' -and $_ -notmatch "requireOutput:\s*''"
+    })
+    Assert-That ($declaredOutputs.Count -eq 1) `
+        "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
+    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 3' }).Count -eq 1) `
+        "ci-unity.yml requires the tests to report three platforms (saw: $($declaredOutputs -join ', '))"
 }
 
 

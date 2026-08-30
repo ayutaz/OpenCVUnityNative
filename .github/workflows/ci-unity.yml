@@ -115,7 +115,11 @@ jobs:
         shell: pwsh
         run: |
           Import-Module ./tools/OpenCvConfig.psm1 -Force
-          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform '${{ matrix.platform }}')
+          # **-Platform を渡さない。** この job は対象 platform の上で走って
+          # いるので、Get-OpenCvPlatform が自分で判定する。渡すと restore 側の
+          # 判定と二重の正本になり、matrix の綴りを間違えたときに「cache は
+          # 別 platform、restore は自分の platform」という食い違いが起きる。
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
           "config-hash=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Cache OpenCV
@@ -211,6 +215,12 @@ jobs:
             # 中では走らない。走ったことを結果 XML で確かめる（下の
             # 「Assert the results」）。
             requireTest: PluginGatingTests
+            # **入力ではなく結果を見る。** 合図が届かなければ gating は
+            # 「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた
+            # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
+            # 合図の経路が壊れた時点で赤くなる。**このレーンは 3 platform を
+            # 重ねてから走るので、無条件に 3 を要求してよい。**
+            requireOutput: 'native plugins present: 3'
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
@@ -219,6 +229,7 @@ jobs:
             testMode: Standalone
             # Editor 専用のテストは Player に入らないので、要求しない。
             requireTest: ''
+            requireOutput: ''
             # Linux の IL2CPP Player を作るので、その道具が入ったイメージが要る。
             # base では IL2CPP のビルドができない。
             imageFlavour: linux-il2cpp
@@ -414,6 +425,9 @@ jobs:
           # 「要求したことになっているが何も要求していない」状態になる。
           if ('${{ matrix.requireTest }}') {
               $params.RequireTest = '${{ matrix.requireTest }}'
+          }
+          if ('${{ matrix.requireOutput }}') {
+              $params.RequireOutput = '${{ matrix.requireOutput }}'
           }
           ./tools/assert-unity-results.ps1 @params
 

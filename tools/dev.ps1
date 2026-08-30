@@ -608,25 +608,42 @@ function Test-UnityTarball {
         }
         $exit = $proc.ExitCode
 
+        <#
+            **判定は共通の script に寄せる。**
+
+            ここだけ自前で XML を読んでいたので、`-RequireTest` を足したときに
+            **3 platform を実際に同居させて走らせる唯一のローカルレーンだけが、
+            gating が走ったことを要求しない**状態になっていた。CLAUDE.md の
+            「合否の判定は assert-unity-results.ps1 をローカルと CI の両方が
+            通る」とも食い違う。
+
+            全部入りのときは、**結果として `native plugins present: 3` が
+            出ていること**まで要求する。合図が届かなければ gating は
+            「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた場合と
+            1 バイトも違わない —— 入力を検査しても届いたことの証明にはならない。
+        #>
         if (-not (Test-Path -LiteralPath $results)) {
             Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
         }
+        if ($exit -ne 0) {
+            Write-DevFailure "tarball 導入後の EditMode テストが exit $exit で終了しました。`nログ: $log"
+        }
+
+        $assertArgs = @(
+            '-ResultsPath', $results
+            '-Lane', 'tarball'
+            '-LogPath', $log
+            '-RequireTest', 'PluginGatingTests'
+        )
+        if ($allPlatforms) {
+            $assertArgs += @('-RequireOutput', 'native plugins present: 3')
+        }
+        Invoke-Checked {
+            & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs
+        } 'assert the tarball results'
+
         [xml]$xml = Get-Content -LiteralPath $results
-        $failed = [int]$xml.'test-run'.failed
         $passed = [int]$xml.'test-run'.passed
-        if ($exit -ne 0 -or $failed -ne 0) {
-            Write-DevFailure "tarball 導入後の EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
-        }
-        # 0 件で緑にしない理由は Test-UnityEditMode と同じ。tarball 経路では
-        # 「UPM が解決に失敗してテストごと消える」が最も起きやすい失敗である。
-        if ($passed -lt 1) {
-            Write-DevFailure (@(
-                "tarball から導入した package のテストが 1 件も実行されませんでした（passed=$passed）。"
-                'UPM が package を解決できていないか、テスト assembly がコンパイル対象から'
-                '外れています。0 件の実行は成功ではありません。'
-                "ログ: $log"
-            ) -join "`n")
-        }
 
         <#
             **テストが通ったことは、tarball で解決された証拠にならない。**
