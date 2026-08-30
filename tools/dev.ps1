@@ -670,7 +670,7 @@ function Test-UnityTarball {
         )
         $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
         if ($allPlatforms) {
-            $assertArgs += @('-RequireOutput', 'native plugins present: 3')
+            $assertArgs += @('-RequireOutput', 'native plugins present: 3 [')
         }
         Invoke-Checked {
             & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs

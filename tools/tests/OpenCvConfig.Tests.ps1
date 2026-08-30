@@ -758,9 +758,15 @@ foreach ($job in $unityJobs) {
 # 名前を変えたときに「workflow は書くがテストは読まない」状態が緑で通る。
 $gatingTestPath = Join-Path $repoRoot 'tests/UnityProject/Assets/Tests/EditMode/PluginGatingTests.cs'
 $markerName = $null
-if ((Test-Path -LiteralPath $gatingTestPath) -and
-    ((Get-Content -LiteralPath $gatingTestPath -Raw) -match 'ExpectAllPlatformsMarker\s*=\s*"([^"]+)"')) {
-    $markerName = $Matches[1]
+if (Test-Path -LiteralPath $gatingTestPath) {
+    # **コメントを落としてから読む。** 全文に当てると、説明の中に書かれた
+    # 定義の見た目（`ExpectAllPlatformsMarker = "…"`）を正本と取り違える。
+    # このファイルが他の 3 箇所で潰したのと同じ形である。
+    $gatingCode = @(Get-Content -LiteralPath $gatingTestPath |
+                    Where-Object { $_ -notmatch '^\s*(//|///|\*|/\*)' }) -join "`n"
+    if ($gatingCode -match 'ExpectAllPlatformsMarker\s*=\s*"([^"]+)"') {
+        $markerName = $Matches[1]
+    }
 }
 Assert-That ($null -ne $markerName) `
     'PluginGatingTests declares the all-platforms marker name (読めなければ下の検査は空振りする)'
@@ -903,7 +909,7 @@ if ($markerName) {
     })
     Assert-That ($declaredOutputs.Count -eq 1) `
         "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
-    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 3' }).Count -eq 1) `
+    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 3 \[' }).Count -eq 1) `
         "ci-unity.yml requires the tests to report three platforms (saw: $($declaredOutputs -join ', '))"
 }
 

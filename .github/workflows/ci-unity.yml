@@ -224,7 +224,9 @@ jobs:
             # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
             # 合図の経路が壊れた時点で赤くなる。**このレーンは 3 platform を
             # 重ねてから走るので、無条件に 3 を要求してよい。**
-            requireOutput: 'native plugins present: 3'
+            # 末尾の '[' まで含めるのは境界のため。'present: 3' だけだと
+            # 'present: 30' にも当たる。
+            requireOutput: 'native plugins present: 3 ['
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
