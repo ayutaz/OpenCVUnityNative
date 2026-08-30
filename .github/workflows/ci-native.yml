@@ -362,38 +362,114 @@ jobs:
                   **形だけでは足りない。中身に OpenCV が入っていることを見る。**
 
                   CMake は STATIC ライブラリに依存アーカイブを取り込まないので、
-                  何もしなければ出来る .a は自分の object 10 個だけになる ——
-                  `cv::cvtColor` などは未解決のままで、**Unity が Xcode で
-                  リンクした時点で初めて失敗する。** 先頭 8 バイトを見る検査は
-                  そのスタブを通す（レビューで指摘された）。
+                  何もしなければ出来る .a は自分の object だけになり、cv::cvtColor
+                  などは未解決のまま残る。**Unity が Xcode でリンクした時点で初めて
+                  失敗する** —— ビルドも CI もそこまで緑である。
 
-                  native/CMakeLists.txt が libtool で束ねているので、
-                  OpenCV の object が member として並んでいるはずである。
+                  **前の 2 つの判定はどちらも空振りしていた**（M4 のレビューで発見）:
+
+                    - `ar t` のメンバ名を /opencv/ で照合していたが、424 member のうち
+                      当たっていたのは 1 件だけで、しかもそれは OpenCV ではなく
+                      **こちらの ocvu_opencv_info.cpp.o** だった。OpenCV の object は
+                      alloc.cpp.o / png.c.o のように名前に opencv を含まない。
+                      **libtool が 1 バイトも束ねなくても緑になる。**
+                    - `nm -u | match cv::` は、nm が既定で demangle しないので
+                      **決して真にならない**（実物には _ZN2cv が 156 件、cv:: は 0 件）。
+                      しかも 2>$null で nm の失敗ごと握り潰していた。
+
+                  **いまは測りたいものを直接測る**: 「こちらの object が要求している
+                  cv:: のシンボルを、この archive が定義しているか」。これは Xcode が
+                  リンクするときに問う質問そのものである。
+
+                  マングル名を書き並べない —— 必要なシンボルの一覧は、こちらの object
+                  だけを詰めた archive の未定義シンボルとして**その場で得る**。
+                  OpenCV の名前空間の綴りや inline namespace の有無に依存しない。
               #>
+              # **nm のフラグに頼らない。** --defined-only / -U の意味は実装で割れるので、
+              # -g（外部シンボルのみ）だけを使い、型の欄を自分で読む。
+              # archive では 'name.a(member.o):' の見出し行が混ざるので、
+              # 「アドレス? 型 1 文字 名前」の形に当たる行だけを拾う。
+              function Get-NmSymbols {
+                  param([string] $Archive, [switch] $UndefinedOnly)
+                  $out = & nm -g $Archive 2>&1
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "nm -g が失敗しました ($Archive): $($out -join ' ')"
+                  }
+                  $syms = [System.Collections.Generic.List[string]]::new()
+                  foreach ($line in $out) {
+                      if ($line -notmatch '^\s*([0-9a-fA-F]+)?\s*([A-Za-z])\s+(\S+)\s*$') { continue }
+                      $isUndefined = ($Matches[2] -ceq 'U')
+                      if ($UndefinedOnly -ne $isUndefined) { continue }
+                      $syms.Add($Matches[3])
+                  }
+                  return @($syms)
+              }
+
               $members = & ar t $lib
-              $opencvMembers = @($members | Where-Object { $_ -match '^(opencv_|.*opencv.*\.o$)' })
-              if ($opencvMembers.Count -lt 1) {
+              if ($LASTEXITCODE -ne 0) { Write-Error "ar t が失敗しました: $lib"; exit 1 }
+
+              # --- こちらの object だけを詰めた archive を作る（必要シンボルの供給源であり、
+              #     同時に「判定が空振りしていないか」の負の対照でもある）---
+              $ourObjects = @($members | Where-Object { $_ -match '^ocvu_.*\.o$' })
+              if ($ourObjects.Count -lt 1) {
+                  Write-Error "自分の object が 1 つも見つかりません: $($members.Count) members"
+                  exit 1
+              }
+              $libFull = (Resolve-Path -LiteralPath $lib).Path
+              $probeDir = Join-Path $(if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }) 'ocvu-nobundle'
+              Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
+              New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+              Push-Location $probeDir
+              try {
+                  & ar x $libFull @ourObjects
+                  if ($LASTEXITCODE -ne 0) { throw 'ar x が失敗しました' }
+                  & ar rcs 'nobundle.a' @ourObjects
+                  if ($LASTEXITCODE -ne 0) { throw 'ar rcs が失敗しました' }
+                  $needed = @(Get-NmSymbols -Archive 'nobundle.a' -UndefinedOnly |
+                              Where-Object { $_ -like '*_ZN2cv*' -or $_ -like '*_ZNK2cv*' } |
+                              Sort-Object -Unique)
+              }
+              finally { Pop-Location }
+
+              # **必要シンボルが 0 件なら、この判定は何も見ていない。**
+              if ($needed.Count -lt 1) {
+                  Write-Error '自分の object が cv:: のシンボルを 1 つも要求していません。判定が成立しないので止めます。'
+                  exit 1
+              }
+              Write-Host "==> our objects need $($needed.Count) cv:: symbols"
+
+              $defined = @(Get-NmSymbols -Archive $lib | Sort-Object -Unique)
+              $definedSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$defined)
+              $unresolved = @($needed | Where-Object { -not $definedSet.Contains($_) })
+
+              if ($unresolved.Count -gt 0) {
                   # **here-string を使わない。** 終端の "@ は列 0 に置く必要があり、
                   # YAML のブロックスカラーの中では構造を壊す（実測）。
                   $msg = @(
-                      ".a に OpenCV の object が 1 つも入っていません: $lib"
-                      "member 数: $($members.Count)（先頭 10 件: $(($members | Select-Object -First 10) -join ', ')）"
+                      ".a が自分の object の要求する cv:: シンボルを定義していません: $lib"
+                      "未解決 $($unresolved.Count) / $($needed.Count) 件（先頭 5 件）:"
+                      (($unresolved | Select-Object -First 5) -join [Environment]::NewLine)
                       'CMake は STATIC ライブラリに依存アーカイブを取り込みません。'
                       'このまま配ると、Unity が Xcode でリンクした時点で未解決シンボルになります。'
                   ) -join [Environment]::NewLine
                   Write-Error $msg
                   exit 1
               }
-              Write-Host "==> $lib carries $($opencvMembers.Count) OpenCV objects out of $($members.Count) members"
+              Write-Host "==> all $($needed.Count) cv:: symbols are defined in the archive ($($members.Count) members)"
 
-              # **未定義シンボルに cv:: が残っていないこと。** member が在っても
-              # 必要な object が欠けていれば、リンク時に落ちるのは同じである。
-              $undef = & nm -u $lib 2>$null | Where-Object { $_ -match '_?cv[0-9]*::' }
-              if ($undef) {
-                  Write-Error "cv:: のシンボルが未解決のまま残っています（先頭 5 件）:`n$(($undef | Select-Object -First 5) -join "`n")"
+              # **番人が働くことを、同じ step で見せる。** 束ねていない archive
+              # （いま作った nobundle.a）は、同じ判定で必ず落ちなければならない。
+              # 落ちなければ判定が緩んでいる。壊さずに、毎回それを確かめる。
+              Push-Location $probeDir
+              try { $controlDefined = @(Get-NmSymbols -Archive 'nobundle.a') }
+              finally { Pop-Location }
+              $controlSet = [System.Collections.Generic.HashSet[string]]::new([string[]]$controlDefined)
+              $controlUnresolved = @($needed | Where-Object { -not $controlSet.Contains($_) })
+              if ($controlUnresolved.Count -lt 1) {
+                  Write-Error '負の対照（束ねていない archive）を判定が通しました。この判定は束ねの有無を測れていません。'
                   exit 1
               }
-              Write-Host "==> no unresolved cv:: symbols"
+              Write-Host "==> the same check rejects an unbundled archive ($($controlUnresolved.Count) of $($needed.Count) unresolved there)"
           } else {
               Write-Error "unknown platform '${platform}': 配る形をどう検査するか決まっていない。"
               exit 1
