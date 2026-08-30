@@ -794,7 +794,11 @@ if ($markerName) {
         $requireSteps = @()
         foreach ($step in $job.Steps) {
             $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
-            if (@($cmds | Where-Object { $_ -match 'RequireTest' }).Count -gt 0) {
+            # **-match は既定で大文字小文字を区別しない。** 素の 'RequireTest'
+            # だと、同じ step にある `matrix.requireTest`（小文字の r）に当たって
+            # しまい、**受け渡しを消しても緑になる**（実測）。-cmatch にしたうえで
+            # 「引数として渡す」「値を代入する」のどちらかの形を要求する。
+            if (@($cmds | Where-Object { $_ -cmatch '(-RequireTest\b|RequireTest\s*=)' }).Count -gt 0) {
                 $requireSteps += , $cmds
             }
         }
