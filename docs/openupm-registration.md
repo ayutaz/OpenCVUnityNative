@@ -54,7 +54,7 @@ hunter: ayutaz
 image: null
 gitTagPrefix: 'v'
 gitTagIgnore: null
-minVersion: ''
+minVersion: '0.2.0'
 # **binary は git の追跡外にあるので、tag からソースを固める既定の経路では
 # 実体が入らない。** Release に添付した tarball をそのまま公開してもらう。
 trackingMode: githubRelease
@@ -64,8 +64,9 @@ readme: 'main:README.md'
 ```
 
 `minVersion` は、**新しい asset 名で出す最初のタグ**を書くのが正しい。
-それより前のタグには全部入りの asset が無く、OpenUPM のビルドが失敗するためである。
-タグを決めてから埋めること。
+それより前のタグ（v0.1.0 / v0.1.1）には全部入りの asset が無く、OpenUPM の
+ビルドが失敗するためである。**`0.2.0` を埋めてある** —— 全部入りの asset を
+持つ最初のタグがこれになる。
 
 ## 受理は完了条件に含まない
 
