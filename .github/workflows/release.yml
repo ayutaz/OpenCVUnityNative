@@ -11,7 +11,10 @@ name: release
 # 成立させられる。利用者は Release の URL を UPM に渡す。
 #
 # workflow_dispatch も残す。tag を打つ前に成果物の中身を確認できる方が、
-# 「出してから気づく」より安い。
+# 「出してから気づく」より安い。**空撃ちは Release を作る最後の step 以外を
+# すべて通る** —— 全部入りの組み立ても asset の数え上げも SHA256SUMS の生成も
+# 含む。ここを job ごと tag に限っていた間は、確認できるのが platform ごとの
+# 成果物までで、**束ねる側の配線は tag を打つまで一度も動かなかった。**
 
 on:
   push:
@@ -204,9 +207,18 @@ jobs:
     runs-on: ubuntu-24.04
     needs: package
     timeout-minutes: 15
-    # tag を打ったときだけ公開する。workflow_dispatch は成果物の確認用なので、
-    # Release は作らない（誤って空の Release を作らないため）。
-    if: startsWith(github.ref, 'refs/tags/v')
+    # **この job は workflow_dispatch でも走る。Release を作る最後の step だけが
+    # tag に限られる。**
+    #
+    # 以前は job ごと tag に限っていた。その形だと、全部入りの組み立て・asset の
+    # staging・SHA256SUMS の生成という**最も壊れやすい部分が、空撃ちでは 1 行も
+    # 実行されなかった** —— 動くかどうかが分かるのは tag を打った後だけで、これは
+    # 「配る直前に初めて走る配線」そのものである（M3 で導入できない tarball を
+    # 踏んだのと同じ形）。
+    #
+    # 誤って空の Release を作る心配は、下の「Publish as a draft」に同じ条件を
+    # 置くことで変わらず防げる。**判定が 1 段下がっただけで、公開の条件は
+    # 変わっていない。**
 
     steps:
       - uses: actions/checkout@v7
@@ -382,14 +394,17 @@ jobs:
       # あとである。下書きなら、実物が GitHub 上に揃った状態で目で見て
       # から公開できる。
       #
-      # この workflow は M3 完了時点で workflow_dispatch の空撃ち
-      # （package job だけ）しか実績が無く、publish job は一度も動いて
-      # いない。初回は特に、機械の判定と人の目の両方を通す価値がある。
+      # この step は v0.1.0 と v0.1.1 で 2 回動いている。**ただし M3.5 が足した
+      # 全部入りの組み立てから先は、まだ一度も配布に使われていない。**
+      # 初めて通す版は特に、機械の判定と人の目の両方を通す価値がある。
       #
       # 公開したくなったら Release ページの「Publish release」を押す。
       # --draft を外す判断は、この workflow が何度か通って形が安定して
       # からでよい。
       - name: Publish as a draft
+        # **Release を作るのは tag のときだけ。** 上の job から降りてきた条件で、
+        # 空撃ち（workflow_dispatch）はここで止まる。
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
