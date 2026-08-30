@@ -134,6 +134,54 @@ else {
 }
 Remove-Item -Recurse -Force $populatedUnixRoot, $tmp -ErrorAction SilentlyContinue
 
+<#
+    **iOS の .a が checksums に載ること。**
+
+    package-release.ps1 は binary を拡張子 ('.dll','.dylib','.so') で拾って
+    おり、**iOS の .a を binary と認めなかった。** その結果 ios-arm64 では
+    「plugin が 1 つも無い」と判断し、`先に dev.ps1 build を実行して`
+    という的外れな指示を出して落ちる。
+
+    **見つかったのは release.yml の空撃ちである**（run 33340116600）。
+    この経路は tag と手動でしか走らないので、CI は緑のままだった。
+    ここに置いて、次からは desktop のレーンで捕まるようにする。
+#>
+$iosBinary = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/iOS/libopencv_unity_native.a'
+$iosCreated = $false
+if (-not (Test-Path -LiteralPath $iosBinary)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $iosBinary) | Out-Null
+    Set-Content -LiteralPath $iosBinary -Value 'placeholder for the .a check' -NoNewline
+    $iosCreated = $true
+}
+try {
+    $iosRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'share/licenses/opencv5'
+    'zlib license text' | Set-Content -LiteralPath (Join-Path $iosRoot 'share/licenses/opencv5/zlib-LICENSE') -Encoding utf8
+    $tmp = New-TempDir 'ocvu-pkg-out'
+    & pwsh -NoProfile -File $script -OutputDir $tmp -Root $iosRoot -Platform 'ios-arm64' | Out-Null
+    Assert-That ($LASTEXITCODE -eq 0) 'package-release succeeds for ios-arm64 (the .a is a binary too)'
+    $iosSums = if (Test-Path -LiteralPath (Join-Path $tmp 'checksums.txt')) {
+        @(Get-Content -LiteralPath (Join-Path $tmp 'checksums.txt'))
+    } else { @() }
+    Assert-That (@($iosSums | Where-Object { $_ -like '*libopencv_unity_native.a' }).Count -eq 1) `
+        'checksums.txt lists the iOS static library'
+    Remove-Item -Recurse -Force $iosRoot, $tmp -ErrorAction SilentlyContinue
+
+    # **packer もモバイルの platform 名を受けること。** 以前は同じファイルの
+    # 中の switch が 3 分岐のままで、'unknown platform' で落ちていた。
+    # ここでは固めずに、名前が受理されるかどうかだけを見る（他 platform の
+    # binary が同居しているので、固める側は正当に拒否する）。
+    foreach ($mobile in @('android-arm64', 'ios-arm64')) {
+        $tmp = New-TempDir 'ocvu-pkg-out'
+        $out = & pwsh -NoProfile -File (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1') -OutputDir $tmp -Platform $mobile 2>&1
+        Assert-That (@($out | Where-Object { $_ -match 'unknown platform' }).Count -eq 0) `
+            "pack-upm-tarball knows the platform '$mobile'"
+        Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+    }
+}
+finally {
+    if ($iosCreated) { Remove-Item -LiteralPath $iosBinary -Force -ErrorAction SilentlyContinue }
+}
+
 # --- SBOM: Android レイアウト（sdk/etc/licenses/）からも component が拾われる ---
 #
 # **M4 のレビューで見つかった穴。** Android の OpenCV は install の木ごと

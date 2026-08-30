@@ -101,9 +101,49 @@ if (-not $ChecksumsOnly) {
     （3 つの artifact を束ねるだけで opencv.ps1 restore を走らせない）。
 #>
 # --- checksums ---
+
+# **配る binary の名前を、正本から読む。写さない。**
+# 読めなければ落とす —— 空の一覧で進むと、以降の走査が 1 件も拾わず、
+# 「plugin が無い」という誤った診断になる。
+$packerPath = Join-Path $repoRoot 'tools/pack-upm-tarball.ps1'
+$packerText = Get-Content -LiteralPath $packerPath -Raw
+$packerBlock = [regex]::Match($packerText, '(?ms)^\$PlatformBinaries\s*=\s*\[ordered\]@\{(.*?)^\}')
+if (-not $packerBlock.Success) {
+    [Console]::Error.WriteLine("tools/pack-upm-tarball.ps1 から `$PlatformBinaries を読めませんでした。書き方が変わっています。")
+    exit 1
+}
+# **件数の下限では足りない。** 値 5 件は一意な**ファイル名** 4 件に潰れる
+# （linux と android がどちらも libopencv_unity_native.so）。つまり iOS の
+# 行だけ取りこぼしても 3 件は満たすので、**いま直した「.a が黙って落ちる」
+# が同じ形で戻ってくる**（レビューでの指摘）。
+# key の行数と、拾えた値の数が一致することを要求する。
+$keyCount = @([regex]::Matches($packerBlock.Groups[1].Value, "(?m)^\s*'[^']+'\s*=")).Count
+$values = @([regex]::Matches($packerBlock.Groups[1].Value, "=\s*'Runtime/Plugins/([^']+)'") |
+    ForEach-Object { $_.Groups[1].Value })
+if ($keyCount -lt 3 -or $values.Count -ne $keyCount) {
+    [Console]::Error.WriteLine(@(
+        "tools/pack-upm-tarball.ps1 の `$PlatformBinaries を正しく読めませんでした。"
+        "key $keyCount 件に対して 'Runtime/Plugins/...' の値が $($values.Count) 件です。"
+        '書き方が変わったか、Runtime/Plugins 以外を指す項目が入っています。'
+    ) -join "`n")
+    exit 1
+}
+# **ここから先はファイル名だけを見る。** 同じ名前が別 platform に在る
+# （linux と android の .so）ので、一意化してよい —— 走査は package の中の
+# 実ファイルに対して行い、位置は checksums の行に相対パスとして残る。
+$knownPluginNames = @($values | ForEach-Object { Split-Path -Leaf $_ } | Sort-Object -Unique)
 $pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native'
 $lines = @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File |
-    Where-Object { $_.Extension -in @('.dll', '.dylib', '.so') } |
+    # **拡張子を列挙しない。** iOS の静的ライブラリは .a なので、
+    # ('.dll','.dylib','.so') では **binary が 1 つも見つからず**、
+    # 「先に dev.ps1 build を実行してください」という的外れな指示が出る。
+    # 実測: release.yml の空撃ちで ios-arm64 がこれで落ちた（run 33340116600）。
+    # **配る経路は tag と手動でしか走らないので、CI は緑のままだった。**
+    # 正本（pack-upm-tarball.ps1 の $PlatformBinaries）が持つファイル名で照合する。
+    # **既知の名前だけを数える。** 以前は拡張子で拾っていたので iOS の .a を
+    # 落としていた。逆に、想定外の binary が混入しても checksums には載らない
+    # —— そちらは pack-upm-tarball.ps1 の $AllowedPluginFiles が拒む担当である。
+    Where-Object { $_.Name -in $knownPluginNames } |
     ForEach-Object {
         $h = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         $rel = $_.FullName.Substring($pluginRoot.Length).TrimStart('\', '/') -replace '\\', '/'
@@ -118,6 +158,31 @@ if ($lines.Count -eq 0) {
     ) -join "`n")
     exit 1
 }
+<#
+    **一覧ではなく、package の実物と突き合わせる。**
+
+    上の「key 数と値の数が一致する」検査は、正本から 1 行まるごと消えた
+    場合を捕まえられない —— key も値も同時に減るので数は合う。**その形が
+    まさに、いま直した「iOS の .a が黙って checksums から落ちる」である。**
+
+    見るべきは一覧の内部整合ではなく、**配る物の中に、数えていない binary が
+    残っていないか**である。Runtime/Plugins の .meta 以外は全部 binary なので、
+    そこに 1 つでも取りこぼしがあれば止める。
+#>
+$pluginsDir = Join-Path $pluginRoot 'Runtime/Plugins'
+if (Test-Path -LiteralPath $pluginsDir) {
+    $unaccounted = @(Get-ChildItem -LiteralPath $pluginsDir -Recurse -File |
+        Where-Object { $_.Extension -ne '.meta' -and $_.Name -notin $knownPluginNames })
+    if ($unaccounted.Count -gt 0) {
+        [Console]::Error.WriteLine(@(
+            "checksums に載らない binary が $($unaccounted.Count) 件あります:"
+            ($unaccounted | ForEach-Object { "  - $($_.Name)" })
+            'tools/pack-upm-tarball.ps1 の $PlatformBinaries が、配る物より痩せています。'
+        ) -join "`n")
+        exit 1
+    }
+}
+
 $lines | Set-Content -LiteralPath (Join-Path $OutputDir 'checksums.txt') -Encoding utf8
 
 if ($ChecksumsOnly) {

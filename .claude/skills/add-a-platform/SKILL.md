@@ -71,6 +71,22 @@ if ($platforms.Count -lt 3) { Write-Error '...'; exit 1 }   # 読めなければ
 **写している場所は「直す場所」を 1 つ増やし、導出に変えれば 1 つ減る。**
 新しく platform 一覧を書きたくなったら、まず正本から読めないかを考えること。
 
+**hook が見えない一覧が、まだ 3 つある。** `check-platform-list-drift.sh` は
+**binary の相対パス**で判定するので、次の形は構造的に見えない:
+
+| 形 | 実例 |
+| --- | --- |
+| platform **名**のリスト | `.github/workflows/release.yml` に 2 つ（matrix と合わせて同一ファイルに 3 つ） |
+| Unity の `BuildTarget` | `PluginGatingTests.cs` の `Slots` |
+| workflow の matrix | 各 `.yml` |
+
+**M4 では、この見えない側から 3 件出た** —— `nightly.yml` の 3 platform 直書き、
+`pack-upm-tarball.ps1` の中の 2 つ目の一覧（`switch` の 3 分岐）、
+`package-release.ps1` の拡張子による binary 判定。**後ろ 2 つは
+`release.yml` の空撃ちでしか見つからなかった。**
+
+**だから platform を足したら、機械に頼らず上の表の場所を自分で開くこと。**
+
 **意図して一部の platform だけを扱う場合は、逃げ道がある。**
 `check-platform-list-drift.sh` hook は正本の 3 件以上を名指ししているファイルに
 全件を要求するので、`tools/verify-artifact-linkage.ps1` のように「desktop だけ

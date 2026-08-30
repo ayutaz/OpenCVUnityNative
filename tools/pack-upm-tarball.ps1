@@ -29,7 +29,7 @@ param(
     # ファイル名に付ける platform 名（例 windows-x64）。省略すると付かない。
     [string] $Platform,
 
-    # 3 platform 分の binary が入った「全部入り」を作る。-Platform とは排他。
+    # 全 platform 分の binary が入った「全部入り」を作る。-Platform とは排他。
     #
     # **配る正はこちらである。** Unity は同じ package ID を 1 つしか導入できず、
     # platform ごとに分かれた tarball では「エディタは Windows、実機は Android」
@@ -189,21 +189,25 @@ $tarballPath = Join-Path $outFull $name
     job 構成が変わった瞬間に、中身の違う tarball を配ることになる。
 #>
 if ($Platform) {
-    $expected = switch ($Platform) {
-        'windows-x64' { $PlatformBinaries['windows-x64'] }
-        'macos-arm64' { $PlatformBinaries['macos-arm64'] }
-        'linux-x64'   { $PlatformBinaries['linux-x64'] }
-        default {
-            # 知らない platform 名を黙って通さない。名前だけ付いた tarball が
-            # 出来るのを防ぐ。
-            [Console]::Error.WriteLine(@(
-                "unknown platform '$Platform'."
-                "この script は windows-x64 / macos-arm64 / linux-x64 のみを知っている。"
-                'platform を足すときは、対応する binary の位置もここに足すこと。'
-            ) -join "`n")
-            exit 1
-        }
+    # **正本（$PlatformBinaries）から引く。写して switch にしない。**
+    #
+    # 以前はここに windows / macos / linux の 3 分岐が直書きされており、
+    # **M4 で $PlatformBinaries に 5 件足したのに、こちらは 3 件のまま**
+    # だった。同じファイルの中に一覧が 2 つあると、片方だけが古くなる。
+    # 実測: release.yml の空撃ちで android-arm64 が
+    # "unknown platform 'android-arm64'" で落ちた（run 33340116600）。
+    # **配る経路は tag と手動でしか走らないので、CI は緑のままだった。**
+    if (-not $PlatformBinaries.Contains($Platform)) {
+        # 知らない platform 名を黙って通さない。名前だけ付いた tarball が
+        # 出来るのを防ぐ。
+        [Console]::Error.WriteLine(@(
+            "unknown platform '$Platform'."
+            "この script が知っているのは: $($PlatformBinaries.Keys -join ', ')"
+            'platform を足すときは、$PlatformBinaries に対応する binary の位置も足すこと。'
+        ) -join "`n")
+        exit 1
     }
+    $expected = $PlatformBinaries[$Platform]
 
     $expectedFull = Join-Path $packageDir $expected
     if (-not (Test-Path -LiteralPath $expectedFull)) {
