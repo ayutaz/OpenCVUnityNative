@@ -46,14 +46,27 @@ case "$file" in
   *.md | *.md.meta) exit 0 ;;
 esac
 
-canon_src="tools/dev.ps1"
-[ -f "$canon_src" ] || exit 0
+# 正本の場所を cwd に依存させない。hook は任意の cwd で呼ばれうる。
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+canon_src="${repo_root:-.}/tools/dev.ps1"
 
 # 正本から読む。写さない。
-canon=$(sed -n '/AllPlatformBinaries[[:space:]]*=[[:space:]]*@(/,/^)/p' "$canon_src" \
-        | sed -n "s/^[[:space:]]*'\([^']*\)'.*/\1/p")
+if [ -f "$canon_src" ]; then
+  canon=$(sed -n '/AllPlatformBinaries[[:space:]]*=[[:space:]]*@(/,/^)/p' "$canon_src" \
+          | sed -n "s/^[[:space:]]*'\([^']*\)'.*/\1/p")
+else
+  canon=""
+fi
 
-if [ -z "$canon" ]; then
+# **「見つからない」も「解析できない」も、同じだけ声を上げる。**
+# 以前は前者を無言で通していた（実測）—— 正本が消えても改名されても、
+# この hook は何も言わずに何も見なくなる。
+#
+# 件数の下限も見る。判定は「3 件以上を名指ししているファイル」を対象に
+# するので、正本が 3 件未満に読めた時点で**その判定は原理的に成立しない**
+# （配列が 1 行に畳まれた等）。数えられないまま黙るより、落とす。
+canon_count=$(printf '%s\n' "$canon" | grep -c '[^[:space:]]' || true)
+if [ -z "$canon" ] || [ "$canon_count" -lt 3 ]; then
   # **黙って素通ししない。** 読めないまま通すと、この hook は何も見ない
   # ようになり、しかも指摘が出ないので気づけない。
   jq -n '{
@@ -73,7 +86,20 @@ missing=""
 while IFS= read -r p; do
   [ -n "$p" ] || continue
   total=$((total + 1))
-  if grep -qF "$p" "$file" 2>/dev/null; then
+  # **部分一致にしない。** '…/libopencv_unity_native.a' は
+  # '…/libopencv_unity_native.a.meta' の一部でもあるので、素の grep -F だと
+  # **.meta だけを並べたファイルが「binary が揃っている」と判定される**
+  # （実測で再現した）。PackageRelease.Tests.ps1 で一度潰した欠陥の再導入で、
+  # 「.meta は足したが binary を足し忘れた」を見逃す。
+  #
+  # **正規表現に逃げない。** パスに含まれる '.' を環境依存なくエスケープ
+  # するのが難しく（この環境の sed で実際に空振りした）、壊れたエスケープは
+  # 「常に真」か「常に偽」になって静かに検査を殺す。
+  # 代わりに固定文字列の出現回数を比べる: パス自身の出現が、'.meta' 付きの
+  # 出現より多ければ、binary そのものを名指ししている行が在る。
+  hits=$(grep -oF -- "$p" "$file" 2>/dev/null | wc -l)
+  meta_hits=$(grep -oF -- "$p.meta" "$file" 2>/dev/null | wc -l)
+  if [ "$hits" -gt "$meta_hits" ]; then
     found=$((found + 1))
   else
     missing="$missing

@@ -251,12 +251,18 @@ if (-not $packBlock.Success) {
 }
 $canonicalPlatforms = @([regex]::Matches($packBlock.Groups[1].Value, "(?m)^\s*'([^']+)'\s*=") |
     ForEach-Object { $_.Groups[1].Value })
-# 読めたのに空、を通さない（空なら以降の突き合わせが常に成立する）。
-Assert-That ($canonicalPlatforms.Count -ge 3) `
-    "the canonical platform list was parsed from pack-upm-tarball.ps1 ($($canonicalPlatforms.Count) entries)"
+# **件数は「以上」で見ない。** 正規表現の抽出が部分的に壊れて 3 件に減っても
+# -ge 3 は通り、その後の突き合わせが空になって drift 検知が無言で死ぬ。
+# 中身の一覧が契約なので、両方向を = で突き合わせる。
+Assert-That ($canonicalPlatforms.Count -eq $pluginMetas.Count) `
+    "the canonical platform list matches this checks list ($($canonicalPlatforms.Count) vs $($pluginMetas.Count))"
 $metaCheckMissing = @($canonicalPlatforms | Where-Object { $_ -notin $pluginMetas.Platform })
 Assert-That ($metaCheckMissing.Count -eq 0) `
     "every shipped platform has its .meta checked here (missing: $($metaCheckMissing -join ', '))"
+# 逆方向。ここにだけ在って正本に無い platform は、配らない物を検査している。
+$metaCheckExtra = @($pluginMetas.Platform | Where-Object { $_ -notin $canonicalPlatforms })
+Assert-That ($metaCheckExtra.Count -eq 0) `
+    "this check has no platform the canonical list lacks (extra: $($metaCheckExtra -join ', '))"
 
 Push-Location $repoRoot
 try {
@@ -300,12 +306,47 @@ try {
                 "$($entry.Platform): the Editor platform is disabled (モバイルはエディタで動かない)"
         }
 
-        # 自分の platform だけが 1、他は 0。
+        # 既知のキーが在って、自分の platform だけが 1、他は 0。
         foreach ($key in $allPlatformKeys) {
             $want = if ($key -eq $entry.Key) { '1' } else { '0' }
             $m = [regex]::Match($metaText, "(?m)^\s*$key`:\s+enabled:\s*(\d)")
             Assert-That ($m.Success -and $m.Groups[1].Value -eq $want) `
                 "$($entry.Platform): $key is enabled=$want"
+        }
+
+        <#
+            **列挙したキーだけを見ない。** 上の loop は $allPlatformKeys に
+            書いたキーしか見ないので、**知らないキーが有効でも通る。**
+            実測: Windows の .meta に `WebGL: enabled: 1` を差し込んでも
+            117 件すべて PASS した。これは「著者が列挙した形だけを見て、
+            隣接する形が枠外に落ちる」——このリポジトリが繰り返し潰してきた
+            欠陥そのものである。
+
+            .meta が実際に持つキーを全部読み、Editor 以外は自分の Key だけが
+            1 であることを要求する。**知らない platform に配られない**
+            ことまで見る。
+        #>
+        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:?
+(.*?)(?=^  [a-zA-Z])')
+        Assert-That $pdBlock.Success `
+            "$($entry.Platform): the platformData block is readable"
+        if ($pdBlock.Success) {
+            $actualKeys = @([regex]::Matches($pdBlock.Groups[1].Value, '(?m)^    ([A-Za-z][A-Za-z0-9]*):\s*$') |
+                ForEach-Object { $_.Groups[1].Value })
+            # 読めたのに空、を通さない（空なら以降が常に成立する）。
+            Assert-That ($actualKeys.Count -ge $allPlatformKeys.Count) `
+                "$($entry.Platform): platformData has at least the known keys ($($actualKeys.Count) found)"
+            $unexpectedlyEnabled = @()
+            foreach ($key in $actualKeys) {
+                if ($key -eq 'Editor') { continue }   # 上で別に見ている
+                $m2 = [regex]::Match($metaText, "(?m)^\s*$key`:\s+enabled:\s*(\d)")
+                $want2 = if ($key -eq $entry.Key) { '1' } else { '0' }
+                if (-not $m2.Success -or $m2.Groups[1].Value -ne $want2) {
+                    $unexpectedlyEnabled += $key
+                }
+            }
+            Assert-That ($unexpectedlyEnabled.Count -eq 0) `
+                "$($entry.Platform): every platformData key is gated as expected (wrong: $($unexpectedlyEnabled -join ', '))"
         }
     }
 
