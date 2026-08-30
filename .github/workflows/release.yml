@@ -318,7 +318,7 @@ jobs:
               Write-Error "missing platform bundle(s): $($missing -join ', ')"
               exit 1
           }
-          Write-Host "==> all three platform bundles are present"
+          Write-Host "==> all $($expected.Count) platform bundles are present"
 
       # 全部入りの package を作る。**これが配る正である。**
       #

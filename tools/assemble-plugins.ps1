@@ -183,7 +183,16 @@ foreach ($src in $sources) {
 Write-Host "==> assembled $copied files into $destPlugins" -ForegroundColor Green
 
 # 何が揃ったかを見せる。揃っていないことは packer が -AllPlatforms で止める。
+#
+# **拡張子で binary を見分けない。** 以前は ('.dll','.dylib','.so') で
+# 拾っており、**iOS の .a が報告から漏れて 5 platform 揃っていても 4 件と
+# 表示された**（PR での空撃ちで実測）。判定側は通っていたので害は表示だけ
+# だが、**数え直そうとした人に嘘の手がかりを渡す。**
+# この script が既に持っている $Allowed（.meta を除いたもの）から導く。
+$binaryRelatives = @($Allowed | Where-Object { $_ -notlike '*.meta' })
 $present = @(Get-ChildItem -LiteralPath $destPlugins -Recurse -File |
-             Where-Object { $_.Extension -in '.dll', '.dylib', '.so' } |
-             ForEach-Object { $_.Name })
+             ForEach-Object {
+                 $rel = [IO.Path]::GetRelativePath($destPlugins, $_.FullName).Replace([char]92, [char]47)
+                 if ($rel -in $binaryRelatives) { $_.Name }
+             })
 Write-Host "==> binaries: $(if ($present) { ($present | Sort-Object) -join ', ' } else { '(なし)' })"
