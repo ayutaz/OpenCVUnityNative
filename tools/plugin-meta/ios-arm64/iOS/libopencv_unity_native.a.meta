@@ -38,11 +38,12 @@ PluginImporter:
       enabled: 0
       settings:
         CPU: None
-    iPhone:
+    iOS:
       enabled: 1
       settings:
         AddToEmbeddedBinaries: false
-        CPU: ARM64
+        CompileFlags: 
+        FrameworkDependencies: 
   userData: 
   assetBundleName: 
   assetBundleVariant: 

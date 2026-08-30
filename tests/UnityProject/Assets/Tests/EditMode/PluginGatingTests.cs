@@ -232,6 +232,24 @@ public class PluginGatingTests
 
         var allTargets = Slots.Select(s => s.Target).Distinct().ToList();
 
+        // **どの対象を実際に見たかを出力に残す。**
+        //
+        // `GetCompatibleWithPlatform` は `.meta` の値を返すので、その対象の
+        // ビルドサポートがエディタに入っていなくても答えは返る（実測: この
+        // Windows 機では StandaloneOSX / StandaloneLinux64 / iOS が
+        // supported=False だが、`.meta` どおりの値が返る）。
+        //
+        // **つまり supported=False は「検査できていない」ではない。** それでも
+        // 出しておくのは、将来 Unity の挙動が変わって「モジュールが無いと
+        // false を返す」ようになったとき、**この検査が黙って無感になる**のを
+        // 出力から見分けられるようにするためである。
+        foreach (var t in allTargets)
+        {
+            var grp = BuildPipeline.GetBuildTargetGroup(t);
+            TestContext.WriteLine(
+                $"target {t}: supported={BuildPipeline.IsBuildTargetSupported(grp, t)}");
+        }
+
         foreach (var importer in importers)
         {
             var slot = SlotOf(importer.assetPath);

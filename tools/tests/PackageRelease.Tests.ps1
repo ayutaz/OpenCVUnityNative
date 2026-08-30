@@ -219,10 +219,18 @@ try {
             これも「著者が列挙した形だけを見る」欠陥の再発である。
         #>
         $editor = [regex]::Match($metaText, '(?m)^\s*Editor:\s+enabled:\s*(\d)([\s\S]*?)(?=^\s{4}\w+:)')
-        Assert-That ($editor.Success -and $editor.Groups[1].Value -eq '1') `
-            "$($entry.Platform): the Editor platform is enabled"
-        Assert-That ($editor.Success -and $editor.Groups[2].Value -match "OS:\s*$($entry.EditorOS)\b") `
-            "$($entry.Platform): the Editor entry is limited to OS $($entry.EditorOS)"
+        if ($entry.EditorOS) {
+            Assert-That ($editor.Success -and $editor.Groups[1].Value -eq '1') `
+                "$($entry.Platform): the Editor platform is enabled"
+            Assert-That ($editor.Success -and $editor.Groups[2].Value -match "OS:\s*$($entry.EditorOS)\b") `
+                "$($entry.Platform): the Editor entry is limited to OS $($entry.EditorOS)"
+        }
+        else {
+            # **モバイルはエディタで動かない。** 有効にすると Unity が
+            # エディタ上でその binary を読もうとする。
+            Assert-That ($editor.Success -and $editor.Groups[1].Value -eq '0') `
+                "$($entry.Platform): the Editor platform is disabled (モバイルはエディタで動かない)"
+        }
 
         # 自分の platform だけが 1、他は 0。
         foreach ($key in $allPlatformKeys) {
@@ -325,17 +333,21 @@ try {
         開発機に 3 つ揃うのは M3.5 以降ふつうに起こる（全部入りのレーンを
         1 回走らせれば残る）ので、**木の状態に頼らず、退避してから確かめる。**
     #>
+    #
+    # **一覧を直書きしない。** M4 で 5 platform に増えたとき、ここは 3 件の
+    # ままだった —— **モバイルの binary が残ったまま単体 platform で固めようと
+    # して、packer が正しく拒否した**（実測。テストの側が古かった）。
+    # 上で $expectedRelative から導いた $allBinaries を使う。
     $singleStash = @()
-    foreach ($rel in @(
-        'Runtime/Plugins/x86_64/opencv_unity_native.dll'
-        'Runtime/Plugins/macOS/libopencv_unity_native.dylib'
-        'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so'
-    )) {
-        $mine = switch ($thisPlatform) {
-            'windows-x64' { 'Runtime/Plugins/x86_64/opencv_unity_native.dll' }
-            'macos-arm64' { 'Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
-            'linux-x64'   { 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so' }
+    $mine = 'Runtime/Plugins/' + ($allBinaries | Where-Object {
+        switch ($thisPlatform) {
+            'windows-x64' { $_ -like 'x86_64/*' }
+            'macos-arm64' { $_ -like 'macOS/*' }
+            'linux-x64'   { $_ -like 'Linux/*' }
+            default       { $false }
         }
+    } | Select-Object -First 1)
+    foreach ($rel in @($allBinaries | ForEach-Object { "Runtime/Plugins/$_" })) {
         if ($rel -eq $mine) { continue }
         $full = Join-Path $repoRoot "Packages/com.ayutaz.opencv-unity-native/$rel"
         if (Test-Path -LiteralPath $full) {
