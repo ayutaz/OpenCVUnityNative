@@ -29,7 +29,7 @@ param(
     # ファイル名に付ける platform 名（例 windows-x64）。省略すると付かない。
     [string] $Platform,
 
-    # 3 platform 分の binary が入った「全部入り」を作る。-Platform とは排他。
+    # 全 platform 分の binary が入った「全部入り」を作る。-Platform とは排他。
     #
     # **配る正はこちらである。** Unity は同じ package ID を 1 つしか導入できず、
     # platform ごとに分かれた tarball では「エディタは Windows、実機は Android」
