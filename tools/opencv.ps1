@@ -95,10 +95,37 @@ function Invoke-Build {
         $generatorArgs += @('-A', $Config.Toolchain.Architecture)
     }
 
+    <#
+        **クロスコンパイルの platform には toolchain file を渡す。**
+
+        `-DANDROID_ABI` のような変数は **NDK の android.toolchain.cmake が読む**
+        のであって、CMake 本体は見ない。toolchain file 抜きで渡すと未使用の
+        cache 変数になるだけで、**OpenCV は runner の gcc で host 向けに
+        ビルドされる** —— それが `opencv-5.0.0-android-arm64-<hash>` という
+        名前で公開される。**成功したように見えて中身が別物になる。**
+
+        plugin 側（CMakePresets の toolchainFile）は塞いであったが、
+        **OpenCV 側が塞がれていなかった**（レビューで発見）。同じ toolchain file を
+        使う —— 別々に持つと、片方だけ直したときに気づけない。
+    #>
+    $crossToolchains = @{
+        'android-arm64' = 'cmake/toolchains/android-arm64.cmake'
+        'ios-arm64'     = 'cmake/toolchains/ios-arm64.cmake'
+    }
+    $toolchainArgs = @()
+    if ($crossToolchains.ContainsKey($Config.Platform)) {
+        $tc = Join-Path $RepoRoot $crossToolchains[$Config.Platform]
+        if (-not (Test-Path -LiteralPath $tc)) {
+            throw "toolchain file が見つかりません: $tc（$($Config.Platform) はクロスビルドなので必須）"
+        }
+        $toolchainArgs = @("-DCMAKE_TOOLCHAIN_FILE=$tc")
+        Write-Host "==> cross-compiling for $($Config.Platform) via $tc" -ForegroundColor Cyan
+    }
+
     $cmakeArgs = @(
         '-S', $sourceRoot
         '-B', $buildRoot
-    ) + $generatorArgs + @(
+    ) + $generatorArgs + $toolchainArgs + @(
         "-DCMAKE_BUILD_TYPE=$($Config.Toolchain.BuildType)"
         "-DCMAKE_INSTALL_PREFIX=$OpenCvRoot"
         "-DBUILD_LIST=$($Config.Modules -join ',')"

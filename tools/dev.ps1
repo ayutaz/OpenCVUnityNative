@@ -27,7 +27,21 @@ param(
         ふりをしない —— それをやると、レーンは緑なのに何も確かめていない
         状態になる。
     #>
-    [string]$PluginSource
+    [string]$PluginSource,
+
+    <#
+        **ビルドの対象 platform。** 省略すると実行中の host（Get-OpenCvPlatform）。
+
+        既存の 3 platform は「実行中の OS = 対象」だったので host 判定で足りたが、
+        **モバイルはクロスコンパイル**なので一致しない。明示しないと
+        「Windows の構成で Android をビルドする」が静かに成立する ——
+        成功したように見えて中身が別物になる。
+
+        `build` だけが受ける。テストのレーンは host で実行するものなので、
+        クロスの対象を渡す意味が無い（渡されたら止める）。
+    #>
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [string]$Platform
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,15 +56,33 @@ Set-StrictMode -Version Latest
 
 $RepoRoot      = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
-$Platform      = Get-OpenCvPlatform
+<#
+    **対象 platform。** -Platform が渡されればそれ、無ければ実行中の host。
+
+    $HostPlatform は「いま動いている OS」で、$Platform は「何向けにビルドするか」
+    である。**クロスコンパイルでは両者が一致しない** —— 一致すると決めてかかると、
+    出力ファイル名も plugin の置き場所も host のものになる。
+#>
+$HostPlatform  = Get-OpenCvPlatform
+if (-not $Platform) { $Platform = $HostPlatform }
 
 # native library のファイル名は platform で変わる。**1 箇所で決める** —
 # 各所に .dll と書くと、platform を足したときに書き換え漏れが起きる
 # （実測: M3 のレビューで dev.ps1 の 2 箇所と NativeLibraryResolver.cs が
 # 漏れており、macOS / Linux の job は L1 も L3 も走らずに落ちる状態だった）。
-$NativeLibraryName = if ($IsWindows) { 'opencv_unity_native.dll' }
-                     elseif ($IsMacOS) { 'libopencv_unity_native.dylib' }
-                     else { 'libopencv_unity_native.so' }
+#
+# **host ではなく対象 platform で決まる。** クロスビルドでは「Windows で
+# 動かして Android の .so を作る」があるので、$IsWindows で分岐すると
+# .dll を探しに行って見つからない。
+$NativeLibraryName = switch ($Platform) {
+    'windows-x64'   { 'opencv_unity_native.dll' }
+    'macos-arm64'   { 'libopencv_unity_native.dylib' }
+    'linux-x64'     { 'libopencv_unity_native.so' }
+    'android-arm64' { 'libopencv_unity_native.so' }
+    # iOS は静的ライブラリ。アプリの外から共有ライブラリを読み込めない。
+    'ios-arm64'     { 'libopencv_unity_native.a' }
+    default { throw "unknown platform '$Platform': ライブラリのファイル名が決まっていない。" }
+}
 $Preset        = "$Platform-debug"
 $AsanPreset    = "$Platform-asan"
 $ResultsDir    = Join-Path $RepoRoot 'artifacts/test-results'
@@ -58,7 +90,11 @@ $ResultsDir    = Join-Path $RepoRoot 'artifacts/test-results'
 # L3 (P/Invoke) が読む native ライブラリの出力先。Visual Studio generator は
 # 構成名のサブディレクトリ（Debug/）を作るが、Ninja（macOS / Linux）は単一構成
 # generator なので作らない。Copy-NativePluginForUnity の $source 判定と同じ形。
-$NativeOutDir  = if ($IsWindows) {
+#
+# **Visual Studio generator だけが構成名のサブディレクトリを作る。** それを
+# 使うのは windows-x64 の preset だけで、他はすべて Ninja である —— host が
+# Windows でも、Android 向けの preset は Ninja なのでサブディレクトリを作らない。
+$NativeOutDir  = if ($Platform -eq 'windows-x64') {
     Join-Path $RepoRoot "build/$Preset/native/Debug"
 } else {
     Join-Path $RepoRoot "build/$Preset/native"
@@ -154,11 +190,14 @@ function Test-ToolsSlow {
 
 function Build-Native {
     Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
-    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+    # **対象 platform の OpenCV を引く。** host のものを引くと、Android 向けの
+    # ビルドに x86_64 の .a をリンクしようとする（Test-Asan は host 専用なので
+    # あちらは既定のままでよい）。
+    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig -Platform $Platform)
     if (-not (Test-Path -LiteralPath (Join-Path $opencvRoot 'build-manifest.json'))) {
         Write-DevFailure (@(
             "OpenCV が '$opencvRoot' にありません。"
-            "先に './tools/opencv.ps1 restore' を実行してください。"
+            "先に './tools/opencv.ps1 restore -Platform $Platform' を実行してください。"
         ) -join "`n")
     }
 
@@ -202,9 +241,12 @@ function Copy-NativePluginForUnity {
 
     # Unity の native plugin 置き場も platform ごとに分かれる。
     $pluginDir = switch ($Platform) {
-        'windows-x64' { 'x86_64' }
-        'macos-arm64' { 'macOS' }
-        'linux-x64'   { 'Linux/x86_64' }
+        'windows-x64'   { 'x86_64' }
+        'macos-arm64'   { 'macOS' }
+        'linux-x64'     { 'Linux/x86_64' }
+        'android-arm64' { 'Android/arm64-v8a' }
+        'ios-arm64'     { 'iOS' }
+        default { throw "unknown platform '$Platform': plugin の置き場所が決まっていない。" }
     }
     $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
     $destDir = Join-Path $pluginRoot $pluginDir
@@ -672,7 +714,7 @@ function Test-UnityTarball {
             「合否の判定は assert-unity-results.ps1 をローカルと CI の両方が
             通る」とも食い違う。
 
-            全部入りのときは、**結果として `native plugins present: 3` が
+            全部入りのときは、**結果として `native plugins present: 5` が
             出ていること**まで要求する。合図が届かなければ gating は
             「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた場合と
             1 バイトも違わない —— 入力を検査しても届いたことの証明にはならない。
@@ -691,7 +733,7 @@ function Test-UnityTarball {
         )
         $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
         if ($allPlatforms) {
-            $assertArgs += @('-RequireOutput', 'native plugins present: 3 [')
+            $assertArgs += @('-RequireOutput', 'native plugins present: 5 [')
         }
         Invoke-Checked {
             & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs
@@ -813,6 +855,22 @@ function Test-ManagedProbe {
     Invoke-Checked {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-managed-probe.ps1')
     } 'run L3 crash/hang probes (test-managed-probe)'
+}
+
+<#
+    **クロスの対象を受け取れるのは build だけ。**
+
+    テストのレーンは実行中の host で走るので、クロスの対象を渡されても
+    走らせようがない。黙って host 向けに走らせると「Android を検査したつもり」
+    になる —— このリポジトリが繰り返し潰してきた「通るのに何も証明していない」
+    形そのものである。
+#>
+if ($PSBoundParameters.ContainsKey('Platform') -and $Command -ne 'build') {
+    Write-DevFailure (@(
+        "-Platform は build のときだけ使えます（渡された command: $Command）。"
+        'テストのレーンは実行中の host で走るので、クロスの対象を渡す意味がありません。'
+        "クロスビルドした成果物を検査するなら、実機か CI の該当 job で行うこと。"
+    ) -join "`n")
 }
 
 # 'test' は fail-fast である。Invoke-Checked が最初の失敗で throw するため、

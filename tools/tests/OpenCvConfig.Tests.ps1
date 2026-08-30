@@ -934,7 +934,7 @@ if ($markerName) {
     })
     Assert-That ($declaredOutputs.Count -eq 1) `
         "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
-    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 3 \[' }).Count -eq 1) `
+    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 5 \[' }).Count -eq 1) `
         "ci-unity.yml requires the tests to report three platforms (saw: $($declaredOutputs -join ', '))"
 }
 
@@ -1629,12 +1629,26 @@ foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
 #>
 $nativeCMakeLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'native/CMakeLists.txt') |
                       Where-Object { $_ -notmatch '^\s*#' })
+<#
+    iOS の分岐は 2 つある。**どちらも欠けてはならない。**
+
+      1. ライブラリの種類を STATIC にする（共有ライブラリは iOS で読み込めない）
+      2. **OpenCV を .a に束ねる** —— CMake は STATIC ライブラリに依存アーカイブを
+         取り込まないので、これが無いと自分の object しか入らず、Unity が Xcode で
+         リンクした時点で未解決シンボルになる（M4 のレビューで発見）
+
+    **1 だけあって 2 が無い状態がいちばん危ない。** ビルドも「形の検査」も通り、
+    実機に載せる段で初めて壊れる。
+#>
 Assert-That (@($nativeCMakeLines | Where-Object {
     $_ -match 'CMAKE_SYSTEM_NAME\s+STREQUAL\s+"iOS"'
-}).Count -eq 1) 'native/CMakeLists.txt branches on iOS in exactly one place'
+}).Count -eq 2) 'native/CMakeLists.txt branches on iOS twice (種類の指定と、OpenCV の束ね)'
 Assert-That (@($nativeCMakeLines | Where-Object {
     $_ -match 'OCVU_LIBRARY_KIND\s+STATIC'
 }).Count -eq 1) 'native/CMakeLists.txt builds a STATIC library for iOS (共有ライブラリは iOS で読み込めない)'
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'OCVU_LIBTOOL'
+}).Count -ge 1) 'native/CMakeLists.txt bundles OpenCV into the iOS .a (CMake は依存アーカイブを取り込まない)'
 Assert-That (@($nativeCMakeLines | Where-Object {
     $_ -match 'add_library\(opencv_unity_native\s+SHARED'
 }).Count -eq 0) 'the shipped library kind is not hardcoded to SHARED any more'

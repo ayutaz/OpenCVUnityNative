@@ -58,6 +58,43 @@ public class PluginGatingTests
         return System.IO.File.Exists(path);
     }
 
+    /// <summary>
+    /// 全部入りに入る plugin と、その振り分け先。
+    ///
+    /// **ファイル名で引かない。** Android と Linux はどちらも
+    /// `libopencv_unity_native.so` で、**ファイル名では区別が付かない** ——
+    /// 名前で引く辞書だと、Android の binary が現れた瞬間に Linux の期待値と
+    /// 突き合わされて落ちる（M4 のレビューで発見）。**パスの一部**で引く。
+    /// </summary>
+    private sealed class PluginSlot
+    {
+        public string PathFragment;   // Runtime/Plugins からの相対で一意になる断片
+        public string EditorOs;       // GetEditorData("OS")。エディタで動かない platform は null
+        public BuildTarget Target;
+    }
+
+    private static readonly PluginSlot[] Slots =
+    {
+        new PluginSlot { PathFragment = "/x86_64/opencv_unity_native.dll",
+                         EditorOs = "Windows", Target = BuildTarget.StandaloneWindows64 },
+        new PluginSlot { PathFragment = "/macOS/libopencv_unity_native.dylib",
+                         EditorOs = "OSX", Target = BuildTarget.StandaloneOSX },
+        new PluginSlot { PathFragment = "/Linux/x86_64/libopencv_unity_native.so",
+                         EditorOs = "Linux", Target = BuildTarget.StandaloneLinux64 },
+        // **モバイルはエディタで動かない。** GetEditorData("OS") は空文字を返す
+        // —— エディタ向けの振り分けを持たないことが正しい状態である。
+        new PluginSlot { PathFragment = "/Android/arm64-v8a/libopencv_unity_native.so",
+                         EditorOs = "", Target = BuildTarget.Android },
+        new PluginSlot { PathFragment = "/iOS/libopencv_unity_native.a",
+                         EditorOs = "", Target = BuildTarget.iOS },
+    };
+
+    private static PluginSlot SlotOf(string assetPath)
+    {
+        var normalised = assetPath.Replace('\\', '/');
+        return Slots.FirstOrDefault(s => normalised.EndsWith(s.PathFragment, System.StringComparison.Ordinal));
+    }
+
     private static List<PluginImporter> LoadImporters()
     {
         // Packages 配下は AssetDatabase から見えるので、GUID 検索で拾える。
@@ -109,7 +146,9 @@ public class PluginGatingTests
             return;
         }
 
-        Assert.AreEqual(3, importers.Count,
+        // **数を直書きしない。** Slots が正本で、platform を足したときに
+        // 片方だけ古くなるのを避ける。
+        Assert.AreEqual(Slots.Length, importers.Count,
             $"{ExpectAllPlatformsMarker} が置かれているのに 3 platform 分が揃っていない。" +
             $"見えたもの: [{string.Join(", ", names)}]");
     }
@@ -159,21 +198,13 @@ public class PluginGatingTests
         var importers = LoadImporters();
         Assume.That(importers, Is.Not.Empty);
 
-        var expected = new Dictionary<string, string>
-        {
-            { "opencv_unity_native.dll", "Windows" },
-            { "libopencv_unity_native.dylib", "OSX" },
-            { "libopencv_unity_native.so", "Linux" },
-        };
-
         foreach (var importer in importers)
         {
-            var fileName = System.IO.Path.GetFileName(importer.assetPath);
-            Assert.IsTrue(expected.ContainsKey(fileName),
-                $"知らない native plugin が入っている: {importer.assetPath}");
+            var slot = SlotOf(importer.assetPath);
+            Assert.IsNotNull(slot, $"知らない native plugin が入っている: {importer.assetPath}");
 
-            Assert.AreEqual(expected[fileName], importer.GetEditorData("OS"),
-                $"{fileName} のエディタ向け OS 指定が違う。" +
+            Assert.AreEqual(slot.EditorOs, importer.GetEditorData("OS"),
+                $"{importer.assetPath} のエディタ向け OS 指定が違う。" +
                 "全部入りの package では、これが取り違えの原因になる。");
         }
     }
@@ -199,21 +230,12 @@ public class PluginGatingTests
         var importers = LoadImporters();
         Assume.That(importers, Is.Not.Empty);
 
-        // ファイル名から、その plugin が属するべき platform を決める。
-        // **名前で判断するのは、それが Unity の解決とも一致する軸だからである。**
-        var expected = new Dictionary<string, BuildTarget>
-        {
-            { "opencv_unity_native.dll", BuildTarget.StandaloneWindows64 },
-            { "libopencv_unity_native.dylib", BuildTarget.StandaloneOSX },
-            { "libopencv_unity_native.so", BuildTarget.StandaloneLinux64 },
-        };
-
-        var allTargets = expected.Values.Distinct().ToList();
+        var allTargets = Slots.Select(s => s.Target).Distinct().ToList();
 
         foreach (var importer in importers)
         {
-            var fileName = System.IO.Path.GetFileName(importer.assetPath);
-            if (!expected.TryGetValue(fileName, out var mine))
+            var slot = SlotOf(importer.assetPath);
+            if (slot == null)
             {
                 Assert.Fail($"知らない native plugin が入っている: {importer.assetPath}");
                 continue;
@@ -222,15 +244,15 @@ public class PluginGatingTests
             foreach (var target in allTargets)
             {
                 var isCompatible = importer.GetCompatibleWithPlatform(target);
-                if (target == mine)
+                if (target == slot.Target)
                 {
                     Assert.IsTrue(isCompatible,
-                        $"{fileName} は {target} で有効であるべき");
+                        $"{importer.assetPath} は {target} で有効であるべき");
                 }
                 else
                 {
                     Assert.IsFalse(isCompatible,
-                        $"{fileName} が {target} でも有効になっている。" +
+                        $"{importer.assetPath} が {target} でも有効になっている。" +
                         "全部入りの package では、これが取り違えの原因になる。");
                 }
             }
