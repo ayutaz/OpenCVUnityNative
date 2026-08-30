@@ -181,14 +181,46 @@ if ($pkg.PSObject.Properties.Name -contains 'samples') {
 #>
 $metaBase = 'tools/plugin-meta'
 $pluginMetas = @(
-    @{ Platform = 'windows-x64'; Key = 'Win64';        EditorOS = 'Windows'
+    @{ Platform = 'windows-x64';   Key = 'Win64';        EditorOS = 'Windows'
        Meta = "$metaBase/windows-x64/x86_64/opencv_unity_native.dll.meta" }
-    @{ Platform = 'macos-arm64'; Key = 'OSXUniversal'; EditorOS = 'OSX'
+    @{ Platform = 'macos-arm64';   Key = 'OSXUniversal'; EditorOS = 'OSX'
        Meta = "$metaBase/macos-arm64/macOS/libopencv_unity_native.dylib.meta" }
-    @{ Platform = 'linux-x64';   Key = 'Linux64';      EditorOS = 'Linux'
+    @{ Platform = 'linux-x64';     Key = 'Linux64';      EditorOS = 'Linux'
        Meta = "$metaBase/linux-x64/Linux/x86_64/libopencv_unity_native.so.meta" }
+    @{ Platform = 'android-arm64'; Key = 'Android';      EditorOS = ''
+       Meta = "$metaBase/android-arm64/Android/arm64-v8a/libopencv_unity_native.so.meta" }
+    @{ Platform = 'ios-arm64';     Key = 'iOS';          EditorOS = ''
+       Meta = "$metaBase/ios-arm64/iOS/libopencv_unity_native.a.meta" }
 )
-$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win')
+$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win', 'Android', 'iOS')
+
+<#
+    **この一覧が、いま配っている platform を全部並べていること。**
+
+    M4 でモバイルを足したとき、上の 2 つは 3 platform のまま残った。
+    害は 2 つある: Android / iOS の .meta は**中身を 1 度も見られず**、
+    desktop の .meta は**モバイル向けに無効であることを問われなかった。**
+
+    **その穴に実物が落ちた。** iOS の .meta の platform キーを `iPhone:`
+    （Unity 2019 以前の名前）と書いた誤りを、この検査は最後まで通した ——
+    見ていないファイルの誤りは、どんなに厳しく読んでも出てこない。
+    捕まえたのは Unity 自身に問う PluginGatingTests だけである。
+
+    **数を写さず、正本から読む。** platform が増えたらここが赤くなる。
+#>
+$packSource = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1') -Raw
+$packBlock = [regex]::Match($packSource, '(?ms)^\$PlatformBinaries\s*=\s*\[ordered\]@\{(.*?)^\}')
+if (-not $packBlock.Success) {
+    throw "tools/pack-upm-tarball.ps1 から `$PlatformBinaries を読めませんでした。書き方が変わっています。"
+}
+$canonicalPlatforms = @([regex]::Matches($packBlock.Groups[1].Value, "(?m)^\s*'([^']+)'\s*=") |
+    ForEach-Object { $_.Groups[1].Value })
+# 読めたのに空、を通さない（空なら以降の突き合わせが常に成立する）。
+Assert-That ($canonicalPlatforms.Count -ge 3) `
+    "the canonical platform list was parsed from pack-upm-tarball.ps1 ($($canonicalPlatforms.Count) entries)"
+$metaCheckMissing = @($canonicalPlatforms | Where-Object { $_ -notin $pluginMetas.Platform })
+Assert-That ($metaCheckMissing.Count -eq 0) `
+    "every shipped platform has its .meta checked here (missing: $($metaCheckMissing -join ', '))"
 
 Push-Location $repoRoot
 try {

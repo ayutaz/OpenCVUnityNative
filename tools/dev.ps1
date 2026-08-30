@@ -598,22 +598,42 @@ function Test-UnityTarball {
         # 実行中 platform の綴りを 1 箇所で持っているので、それを使う。
         # 「何かしら」で見ると、古い binary が Plugins に残っているだけで
         # 通ってしまう。
-        # 全部入りなら 3 つ揃っていること。**1 つでも通る形にしない** ——
-        # それでは全部入りを確かめたことにならない。
+        <#
+            全部入りなら**正本の全件**が揃っていること。**1 つでも通る形に
+            しない** —— それでは全部入りを確かめたことにならない。
+
+            **数も拡張子も書かない。** 以前はここに `3` と
+            `\.(dll|dylib|so)$` が直書きされており、M4 で 5 platform に
+            なったとき **2 通りに壊れた**: 期待する数が 3 のまま古くなり、
+            拡張子の列挙は iOS の `.a` を binary と認めなかった。
+            **packer 側の同じ欠陥は直したのに、こちらは残っていた。**
+
+            正本は同じファイルの $script:AllPlatformBinaries である。
+            そこから期待するパスを作れば、platform が増えたときに
+            この検査も一緒に増える。
+        #>
         if ($allPlatforms) {
-            $allBins = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
-            if ($allBins.Count -ne 3) {
+            $wantBins = @($script:AllPlatformBinaries |
+                ForEach-Object { "package/Runtime/Plugins/$_" })
+            $allBins = @($listed | Where-Object { $_ -in $wantBins })
+            if ($allBins.Count -ne $wantBins.Count) {
+                $absent = @($wantBins | Where-Object { $_ -notin $allBins })
                 Write-DevFailure (@(
-                    "全部入りの tarball に binary が $($allBins.Count) 個しかありません（3 個であるべき）: $tgz"
-                    "入っていたもの: $(if ($allBins) { $allBins -join ', ' } else { '(なし)' })"
+                    "全部入りの tarball に binary が $($allBins.Count) 個しかありません（$($wantBins.Count) 個であるべき）: $tgz"
+                    "入っていないもの: $($absent -join ', ')"
+                    "archive に在った binary: $(if ($allBins) { $allBins -join ', ' } else { '(なし)' })"
                 ) -join "`n")
             }
-            Write-Host "==> tarball contains all three platform binaries" -ForegroundColor Green
+            Write-Host "==> tarball contains all $($wantBins.Count) platform binaries" -ForegroundColor Green
         }
 
         $binaries = @($listed | Where-Object { $_ -like "*/$NativeLibraryName" })
         if ($binaries.Count -lt 1) {
-            $anyBinary = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+            # 診断も正本から。拡張子を列挙すると iOS の .a が「binary では
+            # ない」ことになり、**失敗の原因を探す人に嘘の手がかりを渡す。**
+            $anyBinary = @($listed | Where-Object {
+                $rel = $_ -replace '^package/Runtime/Plugins/', ''
+                $rel -in $script:AllPlatformBinaries })
             Write-DevFailure (@(
                 "tarball に $NativeLibraryName が入っていません: $tgz"
                 "入っていた binary: $(if ($anyBinary) { $anyBinary -join ', ' } else { '(なし)' })"
