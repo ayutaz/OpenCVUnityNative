@@ -14,6 +14,12 @@ param(
         release から取るのが今のところ唯一の経路である:
 
             gh release download --pattern "*macos-arm64.tgz" --pattern "*linux-x64.tgz"   # 版を固定しない = 最新
+
+        **どの版を混ぜたかは出力から分からない。** 版を固定しないのは、古い版を
+        名指しし続けて「Windows だけ新しい」混成を作らないためだが、代わりに
+        「いつ落としたか」で中身が変わる。`gh release list --limit 1` で版を
+        確かめてから使うこと —— **ABI 版は関数を足しても上がらない**ので、
+        C# 側の完全一致検査ではこのずれを検出できない。
             tar -xzf ...   # package/Runtime/Plugins が出てくる
             ./tools/dev.ps1 test-unity-tarball -PluginSource "<mac>/package;<linux>/package"
 
