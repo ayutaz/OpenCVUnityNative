@@ -1,5 +1,22 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
+
+<#
+    **例外で途中終了したら、成功と報告しない。**
+
+    実測（M4 のレビュー中）: $allBinaries を定義前に使っていたため、
+    ファイルの 451〜693 行が丸ごと飛んでいた。それでも $failures は空なので
+    末尾の判定を通り、**'all assertions passed' と出て exit 0 になっていた。**
+
+    **assertion を数えるだけでは、走らなかった assertion を数えられない。**
+    走った件数の下限と、未処理の例外の両方を見る。
+#>
+trap {
+    [Console]::Error.WriteLine("`n未処理の例外でテストが中断しました:")
+    [Console]::Error.WriteLine($_.ToString())
+    [Console]::Error.WriteLine($_.ScriptStackTrace)
+    exit 1
+}
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 <#
@@ -27,7 +44,9 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script = Join-Path $repoRoot 'tools/package-release.ps1'
 $failures = @()
 
+$script:assertionCount = 0
 function Assert-That([bool]$condition, [string]$what) {
+    $script:assertionCount++
     if ($condition) { Write-Host "  PASS  $what" -ForegroundColor Green }
     else { Write-Host "  FAIL  $what" -ForegroundColor Red; $script:failures += $what }
 }
@@ -446,16 +465,42 @@ try {
     # **一覧を直書きしない。** M4 で 5 platform に増えたとき、ここは 3 件の
     # ままだった —— **モバイルの binary が残ったまま単体 platform で固めようと
     # して、packer が正しく拒否した**（実測。テストの側が古かった）。
-    # 上で $expectedRelative から導いた $allBinaries を使う。
+    # **一覧はここで定義する。** 以前は 90 行ほど下で定義していたのに
+    # ここで使っており、StrictMode の「未設定の変数」で例外になって
+    # **451〜693 行が丸ごと実行されていなかった**（M4 のレビュー中に実測）。
+    # しかも $failures は空のままなので、テストは 'all assertions passed' と
+    # 報告して exit 0 になっていた。
+    $allBinaries = @(
+        'x86_64/opencv_unity_native.dll'
+        'macOS/libopencv_unity_native.dylib'
+        'Linux/x86_64/libopencv_unity_native.so'
+        'Android/arm64-v8a/libopencv_unity_native.so'
+        'iOS/libopencv_unity_native.a'
+    )
+    Assert-That ($allBinaries.Count -eq $canonicalPlatforms.Count) `
+        "the synthesized tree covers every shipped platform ($($allBinaries.Count) vs $($canonicalPlatforms.Count))"
     $singleStash = @()
-    $mine = 'Runtime/Plugins/' + ($allBinaries | Where-Object {
-        switch ($thisPlatform) {
-            'windows-x64' { $_ -like 'x86_64/*' }
-            'macos-arm64' { $_ -like 'macOS/*' }
-            'linux-x64'   { $_ -like 'Linux/*' }
-            default       { $false }
-        }
-    } | Select-Object -First 1)
+    # **switch の中で $_ を使わない。** switch は $_ を自分の入力
+    # （ここでは $thisPlatform）に束縛し直すので、Where-Object の要素は
+    # 見えなくなる。以前はこう書いてあり、`'windows-x64' -like 'x86_64/*'`
+    # を評価していたので **$mine が常に空**になり、自分の platform の binary
+    # まで退避されて packer が正当に拒否していた。
+    # **この誤りは長く残った** —— 上の $allBinaries の順序の欠陥で、この
+    # 領域自体が実行されていなかったからである（M4 のレビュー中に両方発覚）。
+    $minePrefix = switch ($thisPlatform) {
+        'windows-x64' { 'x86_64/' }
+        'macos-arm64' { 'macOS/' }
+        'linux-x64'   { 'Linux/' }
+        default       { $null }
+    }
+    Assert-That ($null -ne $minePrefix) `
+        "the running platform has a known plugin directory ($thisPlatform)"
+    $mine = 'Runtime/Plugins/' + @($allBinaries | Where-Object { $_ -like "$minePrefix*" } |
+                                   Select-Object -First 1)
+    # **空のまま進めない。** 空だと全 binary が退避され、packer が正当に
+    # 拒否して「テストが壊れている」ことを「実装が壊れている」と読み違える。
+    Assert-That ($mine -ne 'Runtime/Plugins/') `
+        "this platform's binary was identified in the list ($mine)"
     foreach ($rel in @($allBinaries | ForEach-Object { "Runtime/Plugins/$_" })) {
         if ($rel -eq $mine) { continue }
         $full = Join-Path $repoRoot "Packages/com.ayutaz.opencv-unity-native/$rel"
@@ -532,14 +577,13 @@ try {
     $pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
     # **正本は tools/dev.ps1 の $script:AllPlatformBinaries と
     # tools/pack-upm-tarball.ps1 の $PlatformBinaries である。** ここに書くのは
-    # 3 箇所目なので、上の「3 箇所で一致する」検査がずれを捕まえる。
-    $allBinaries = @(
-        'x86_64/opencv_unity_native.dll'
-        'macOS/libopencv_unity_native.dylib'
-        'Linux/x86_64/libopencv_unity_native.so'
-        'Android/arm64-v8a/libopencv_unity_native.so'
-        'iOS/libopencv_unity_native.a'
-    )
+    # 3 箇所目なので、下の「packaging 側が一致する」検査がずれを捕まえる。
+    #
+    # **ただしこのファイルの中に手で写した一覧が在ること自体は、
+    # 6 つ目の platform で置いていかれる側になる。** hook はファイル単位で
+    # 見るので、同じファイルの 2 つ目以降の一覧は見えない。件数を正本と
+    # 突き合わせて、その穴を塞ぐ（中身は独立に書いたままにする ——
+    # 導出にすると、正本から 1 件消えたときに黙って追随してしまう）。
 
     <#
         **binary だけでなく `.meta` も揃える。**
@@ -723,7 +767,7 @@ if (Test-Path -LiteralPath $notesPath) {
 # --- 全部入りの platform 一覧が 3 箇所で一致する（M4 Task 7）---
 #
 # **platform を足すときに直す場所が 3 つある**（packer / assembler / dev.ps1）。
-# roadmap は「2 か所を直すことになる」と書いていたが、実際は dev.ps1 の
+# roadmap は「2 か所を直すことになる」と書いていたが誤りで、実際は dev.ps1 の
 # 「揃っているか」を見る側もある。**ずれると、揃っていないのに全部入りとして
 # 扱う（またはその逆）が起きる。**
 $packText     = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1') -Raw
@@ -737,6 +781,12 @@ $expectedRelative = @(
     'Android/arm64-v8a/libopencv_unity_native.so'
     'iOS/libopencv_unity_native.a'
 )
+# **手で書いた一覧を、正本の件数と突き合わせる。** 中身は独立に書く
+# （3 ファイルの一致を見るのがこの検査の役目なので、どれかから導出すると
+# 検査が自分の対象に追随してしまう）。だが件数が正本とずれたままだと、
+# 6 つ目の platform を足したときにここだけ 5 件のまま黙って通る。
+Assert-That ($expectedRelative.Count -eq $canonicalPlatforms.Count) `
+    "this list covers every shipped platform ($($expectedRelative.Count) vs $($canonicalPlatforms.Count))"
 
 <#
     **引用符ごと厳密に照合する。**
@@ -810,4 +860,16 @@ if ($failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
     exit 1
 }
+
+# **途中で飛ばされていないことを、件数の下限で見る。** 上の trap は
+# 未処理の例外を捕まえるが、条件分岐で静かに丸ごと飛ぶ形は捕まえられない。
+# 現在の実測はこの下限より十分に多い（減ったら調べること）。
+$minimumAssertions = 120
+if ($script:assertionCount -lt $minimumAssertions) {
+    [Console]::Error.WriteLine(
+        "`nassertion が $($script:assertionCount) 件しか走っていません（下限 $minimumAssertions）。" +
+        "どこかで丸ごと飛ばされている可能性があります。")
+    exit 1
+}
+Write-Host "`n$($script:assertionCount) assertions ran" -ForegroundColor DarkGray
 Write-Host "`nall assertions passed" -ForegroundColor Green

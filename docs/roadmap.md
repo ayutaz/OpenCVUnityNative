@@ -1070,7 +1070,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
   通る。** M3.5 が作るのは Desktop 3 platform 分なので、**platform を足す作業は
   ここに残る**（`tools/pack-upm-tarball.ps1` と `tools/assemble-plugins.ps1` の**両方**が
   未知の platform を明示的に拒むので、黙って抜けることはない —— **裏を返すと、
-  platform を足すときは 2 か所を直すことになる**）。**このレーンが示せるのは「入っていること」と「他を
+  platform を足すときはそこも直すことになる。直す場所の一覧は `add-a-platform` skill が持つ**）。**このレーンが示せるのは「入っていること」と「他を
   壊さないこと」までで、モバイルの binary が動くことは示せない** —— それは同じ M4 の
   実機 smoke test の担当である。ここまで通って初めて「エディタは Windows、実機は
   Android」が利用者の手元で成立する
@@ -1091,9 +1091,10 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
   残る —— `tools/opencv-config.psd1` の `Toolchains` に `android-x64` を足し、
   `CMakePresets.json` に preset を足せば通る
 
-**この決定は覆せる。** M4 Task 1 で対象 platform を host から切り離したので、
-足すのは構成の 2 箇所と packaging の 3 箇所である（`tools/tests/PackageRelease.Tests.ps1`
-がその 3 箇所の一致を見ている）。
+**この決定は覆せる。** M4 Task 1 で対象 platform を host から切り離してある。
+直す場所の一覧は `add-a-platform` skill が持つ（**ここに数を再掲しない** ——
+2 箇所に書けば 2 箇所が同時に古くなる）。`tools/tests/PackageRelease.Tests.ps1`
+が packaging 側の一致を機械的に見る。
 
 **iOS のシミュレータ（x86_64 / arm64-simulator）も含めない。** 別の sysroot
 なので同じ `.a` では動かず、**実機で動かすためのパッケージ**である。
@@ -1108,23 +1109,33 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 1 | Android arm64-v8a と iOS arm64 の native artifact を CI が生成する | **満たすが未実証**。`build-opencv.yml` / `ci-native.yml` / `release.yml` に配線したが、**この構成の CI はまだ 1 度も走っていない**。開発機に NDK も Xcode も無いので、読解でしか確かめていない |
-| 2 | Android の 16 KB page size を CI で検証する | **満たすが未実証**。`tools/verify-android-page-size.ps1` は**合成 ELF で 4 通り**（16384 は通る / 4096 は落ちる / PT_LOAD 0 件は落ちる / ファイル不在は落ちる）を実測した。**ただし実物の `.so` にはまだ一度も当てていない** |
+| 1 | Android arm64-v8a と iOS arm64 の native artifact を CI が生成する | **満たす**（2026-08-31）。`build-opencv.yml` が 5 platform 分の OpenCV を作り、`ci-native.yml` の `mobile` job が両方の plugin をクロスビルドして CI で緑になった（run 33319185326）。iOS の `.a` は 424 member・16,782,128 バイト |
+| 2 | Android の 16 KB page size を CI で検証する | **満たす**（2026-08-31）。合成 ELF の 4 通りに加え、**実物の `.so` に当たった** —— CI が `==> libopencv_unity_native.so: PT_LOAD 3 件、最小 p_align = 16384（>= 16384）` を出した（run 33319185326） |
 | 3 | iOS の `__Internal` static link と stripping 後の P/Invoke を**実機で**確認 | **閉じていない**。`native/CMakeLists.txt` が iOS で `STATIC` を作る分岐は入れたが、**実機が要る**（署名と端末）。手順は [実機検証](./m4-device-verification.md) §1 |
 | 4 | lifecycle / memory pressure | **閉じていない**。同上、§2 |
-| 5 | `WebCamTexture` から `CvMat` を作れる | **満たす**。`WebCamTextureConverter`（3 overload）。EditMode 8 件が通り（16 → 24 件）、**上下反転をやめると `RowOrderIsFlippedSoTheMatOriginIsTopLeft` だけが落ちる**ことを実測した |
-| 6 | macOS の Plugin Import Settings を Unity で実測 | **満たすが未実証**。`ci-native.yml` の `mobile` job が macos-14 で走るが、**Unity は起動しない**（クロスビルドのみ）。M3.5 で `.meta` の解釈自体は他 OS の Unity から実測済みで、残るのは macOS 上で Unity を動かすこと |
+| 5 | `WebCamTexture` から `CvMat` を作れる | **満たす**。`WebCamTextureConverter`（3 overload）。EditMode 9 件が通り、**上下反転をやめると `RowOrderIsFlippedSoTheMatOriginIsTopLeft` だけが落ちる**ことを実測した。Player でも 1 件通している（M4 のレビューで、この API が Editor しか通っていないと分かったため） |
+| 6 | macOS の Plugin Import Settings を Unity で実測 | **閉じていない**。`ci-native.yml` の `mobile` job は macos-14 で走るが **Unity は起動しない**（クロスビルドのみ）。M3.5 で `.meta` の解釈自体は他 OS の Unity から実測済みで、残るのは **macOS 上で Unity を動かすこと**。M4 でそこまで踏まなかった |
 | 7 | Windows IL2CPP を CI で回すかの結論 | **閉じていない**。**probe をまだ投げていない。** roadmap が「上流の issue を読んだ結果を根拠にしない」と明記しているので、実測なしに結論を書かない |
 | 8 | 対応 CPU アーキテクチャの決定 | **満たす**。Android arm64-v8a のみ / iOS 実機 arm64 のみ（上記「対応 CPU アーキテクチャの決定」） |
 
-**条件 1・2・6 を「満たす」に数えない理由。** M2 の条件 7 と M3.5 の条件 3 に当てたのと
-同じ基準である ——「ファイルが存在する」は「CI で実行された」ではない。
-**この構成の CI が緑になった時点で判定を更新する。**
+**条件 1・2 は 2026-08-31 に「満たす」へ変えた。** この構成の CI が緑になり、
+**実物の成果物に検査が当たった**からである（run 33319185326）。それまでは
+M2 の条件 7 / M3.5 の条件 3 と同じ基準で「満たすが未実証」としていた ——
+「ファイルが存在する」は「CI で実行された」ではない。
 
-**モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通ること**（roadmap の
-最後の条件）も、**モバイルの binary がまだ 1 つも存在しないので確かめていない。**
-packaging 側（`pack-upm-tarball.ps1` / `assemble-plugins.ps1` / `dev.ps1`）は 5 platform を
-知る形にし、3 箇所の一致を `tools/tests/PackageRelease.Tests.ps1` が見ている。
+**条件 6 は「満たすが未実証」から「閉じていない」に下げた。** macOS runner で
+クロスビルドはするが Unity を起動しないので、**この条件が言っていることは
+何も確かめていない。** 「配線した」を「満たす」に数えていたのが誤りである。
+
+**モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通ること**
+（roadmap の最後の条件）は **満たす**。5 platform 分を束ねた tarball を
+使い捨ての Unity プロジェクトに導入して `==> UPM tarball install: 25 passed`
+（2026-08-31、このマシン）。**ただしこのレーンはどの workflow からも走らない** ——
+game-ci の action の外で Unity を起動する必要があり、CI に載せるのは別作業である。
+`milestone-complete` の「CI では原理的に閉じない条件」と同じ扱いで、**人が回す**。
+実際、M4 でモバイルを足した時点からこのレーンは壊れており（期待する binary の数が
+`3` と直書きされ、iOS の `.a` を binary と認めなかった）、**無関係な作業の途中で
+1 度手で回すまで誰も知らなかった。**
 
 
 **非ゴール**

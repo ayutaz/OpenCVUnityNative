@@ -71,6 +71,12 @@ if ($platforms.Count -lt 3) { Write-Error '...'; exit 1 }   # 読めなければ
 **写している場所は「直す場所」を 1 つ増やし、導出に変えれば 1 つ減る。**
 新しく platform 一覧を書きたくなったら、まず正本から読めないかを考えること。
 
+**意図して一部の platform だけを扱う場合は、逃げ道がある。**
+`check-platform-list-drift.sh` hook は正本の 3 件以上を名指ししているファイルに
+全件を要求するので、`tools/verify-artifact-linkage.ps1` のように「desktop だけ
+実装し、未知は既定で落とす」形は近くに `PLATFORM_LIST_OK:` と理由を書いて許す。
+**理由を書かせるのが目的**で、黙って除外できる形にはしていない。
+
 **数を信用しない。** この表の「17」も、次に platform を足す人にとっては古い。
 `git grep -c -E '<既存の platform 名>'` で数え直すこと。**文書に書かれた数は、
 足したときに一緒に増えるとは限らない** —— roadmap は長らく「2 か所」と書いて

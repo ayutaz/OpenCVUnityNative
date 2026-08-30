@@ -46,8 +46,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke、44 件） | 約 11 秒 |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 18 秒（増分。2026-08-28 実測。M1 時点の約 11 秒より伸びているが、原因は未特定——増えたのは L1 側で計測済みの再コンパイル対象と同じファイル群で、M3 固有の変更ではない） |
 | `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
-| `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、16 件） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値で、6000.3.16f1・16 件では未計測**） |
-| `./tools/dev.ps1 test-unity-player` | L5（Unity IL2CPP Player のビルドと実行） | 約 54 秒（増分・キャッシュ温状態。2026-08-28 実測。cold 実測はまだ無く、roadmap の想定は 5〜20 分。**Unity 6000.0.82f1 での値**） |
+| `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、**33 件**） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値。** その後 M3.5 で 16 件、M4 で 33 件になったが所要時間は取り直していない） |
+| `./tools/dev.ps1 test-unity-player` | L5（Unity IL2CPP Player のビルドと実行、**18 件**） | 約 54 秒（増分・キャッシュ温状態。2026-08-28 実測。cold 実測はまだ無く、roadmap の想定は 5〜20 分。**Unity 6000.0.82f1・10 件での値**） |
 | `./tools/dev.ps1 test-unity-tarball` | **UPM tarball の導入検証。** tarball だけを指した使い捨ての Unity プロジェクトを作り、そこで EditMode を走らせる。**`-PluginSource` に他 platform の plugin 木（';' 区切り）を渡すと全部入りとして固めてから検証する** —— 渡さなければ従来どおり 1 platform 分で走り、**黙って全部入りのふりはしない** | 約 3 分（2026-08-28 実測。Library/ を持って行かないので Unity が import からやり直す。**Unity 6000.0.82f1・1 platform でのもの**）|
 | `./tools/dev.ps1 clean` | `build/` を削除 | — |
 
@@ -444,7 +444,7 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 | skill | いつ使うか |
 | --- | --- |
 | `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約 |
-| `add-a-platform` | **対象 platform を足す・外す・変えるとき。** 一覧を持つ場所は **17 箇所**あり（M4 で実測。roadmap は長らく「2 か所」と書いていた）、語彙が違うので grep 1 回では揃わない。`.meta` のキー名 / ファイル名の platform 間衝突 / クロスでの `find_package` の閉じ込め / 静的ライブラリの依存の束ね / 新しい third-party など、**クロスビルドが緑になってから CI で 8 回落ちた**罠を、踏んだ順に並べてある |
+| `add-a-platform` | **対象 platform を足す・外す・変えるとき。** 一覧を持つ場所は **17 箇所**あり（M4 で実測。roadmap が長らく書いていた「2 か所」は誤りだった）、語彙が違うので grep 1 回では揃わない。`.meta` のキー名 / ファイル名の platform 間衝突 / クロスでの `find_package` の閉じ込め / 静的ライブラリの依存の束ね / 新しい third-party など、**クロスビルドが緑になってから CI で 8 回落ちた**罠を、踏んだ順に並べてある |
 | `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定。**M4 で 2 つ加わった** —— 実機が要る条件は「満たすが未実証」ですらなく人が実行する手順書に落とす / **必須チェックの充足は成功件数ではなく名前で突き合わせる**（GitHub は `skipped` と `neutral` も pass として通す）|
 | `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした。**M4 で 6 つの節が加わった** —— 壊す前にコミットする / 置換が空振りしていないか確かめる / 手前に別の門があると番人に到達しない / 述語のゆるさ（構造的に常に真・部分一致・大文字小文字・散文に当たる）/ **自分でパースする検査は本物の解釈を代理できない** / **正本を写さず正本から読む** |
 

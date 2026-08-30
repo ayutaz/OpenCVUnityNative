@@ -117,15 +117,22 @@ public static class AbiSurfaceChecks
         using var src = CvMat.Create(2, 2, CvMatType.Gray8);
         src.CopyFrom(new byte[4], 2);
 
-        Assert.Throws<CvNativeException>(() => CvCodecs.Encode(src, ".notanimage"));
+        // **型だけで満足しない。** CvCodecs.Encode は 2 か所から
+        // CvNativeException を投げるので、型を見るだけでは
+        // 「拡張子を断られた」経路を通ったことにならない。
+        var ex = Assert.Throws<CvNativeException>(() => CvCodecs.Encode(src, ".notanimage"));
+        Assert.AreEqual(CvStatus.OpenCvError, ex.Status,
+            "扱えない拡張子は OpenCV 側のエラーとして返る");
     }
 
     public static void BuildInformation_ComesBackThroughTheTwoCallIdiom()
     {
         var info = CvNative.GetBuildInformation();
 
-        // 2 回呼びが壊れると、空文字か切り詰めた文字列が返る。
-        Assert.IsNotNull(info);
+        // **IsNotNull は書かない。** CvNative.ReadString は失敗時に
+        // string.Empty を返すので、null 判定は構造的に常に真になる。
+        // 2 回呼びが壊れると空文字か切り詰めた文字列が返るので、そこを見る。
+        Assert.AreNotEqual(string.Empty, info, "2 回呼びが失敗すると空文字が返る");
         Assert.Greater(info.Length, 64, "build information は長い文字列である");
         StringAssert.Contains("OpenCV", info);
     }
