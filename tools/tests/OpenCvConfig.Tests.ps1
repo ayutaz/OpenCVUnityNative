@@ -688,9 +688,24 @@ if ($expectedImage) {
 #
 # だから他の検査と同じ機構に載せる: job を取り、**コメントを除いた行**で、
 # step 単位に数える。
-$unityJobs = @($allJobs | Where-Object { $_.Stem -eq 'ci-unity' })
-Assert-That ($unityJobs.Count -gt 0) `
+$ciUnityJobs = @($allJobs | Where-Object { $_.Stem -eq 'ci-unity' })
+Assert-That ($ciUnityJobs.Count -gt 0) `
     'ci-unity has at least one job (0 件なら下の検査は空振りする)'
+
+# **対象は「Unity を実際に起動する job」に限る。**
+#
+# 2026-08-30 から ci-unity には他 2 platform の plugin をビルドするだけの job が
+# 在る。そちらはコンテナも移植性の検査も使わない —— 作った binary は Unity に
+# 読み込まれず、`.meta` の解釈だけが問われるからである。ci-unity の全 job を
+# 対象にしたままだと、この 2 本は関係の無い job で落ちる。
+#
+# **絞ったぶん、絞った先が空でないことを必ず見る。** 述語を書き損じて 0 件に
+# なると、下の検査はまとめて空振りし、しかも緑になる。
+$unityJobs = @($ciUnityJobs | Where-Object {
+    @($_.Commands | Where-Object { $_ -match 'uses:\s*game-ci/unity-test-runner@' }).Count -gt 0
+})
+Assert-That ($unityJobs.Count -gt 0) `
+    'ci-unity has at least one job that launches Unity (0 件なら下の検査は空振りする)'
 
 foreach ($job in $unityJobs) {
     $imageSteps = @()
@@ -721,6 +736,60 @@ foreach ($job in $unityJobs) {
 
     Assert-That ($portabilitySteps.Count -eq 1) `
         "$($job.Workflow) job '$($job.Name)' runs verify-plugin-portability.ps1 in exactly one step before Unity (saw $($portabilitySteps.Count))"
+}
+
+
+# --- ci-unity が 3 platform 同居で Unity を走らせる ---
+#
+# M3.5 は「全部入りの package で、Unity が自分の platform の binary だけを読む」
+# ことを見る検査（PluginGatingTests、EditMode 6 件）を足した。**ところが自動で
+# 走る唯一の場所には Linux の .so しか無く、6 件は要素 1 個の集合を検査して
+# 緑になっていた** —— 取り違えが起こりうる状況が CI では一度も成立しない。
+# roadmap の M3.5 条件 3 を「満たすが未実証」に留めていた理由がこれである。
+#
+# 2 つを見る:
+#   1. 他 platform を重ねる step が在ること
+#   2. 「3 つ揃っているはず」という合図をテストに渡す step が在ること
+#
+# **2 が無くなると静かに弱くなる。** 合図が無いときテストは「1 つ以上」しか
+# 要求しないので、重ねるのをやめても・重ね損ねても緑のままになる。
+#
+# 合図の名前は **C# 側の定数を正本として読む**。ここに文字列を書くと、
+# 名前を変えたときに「workflow は書くがテストは読まない」状態が緑で通る。
+$gatingTestPath = Join-Path $repoRoot 'tests/UnityProject/Assets/Tests/EditMode/PluginGatingTests.cs'
+$markerName = $null
+if ((Test-Path -LiteralPath $gatingTestPath) -and
+    ((Get-Content -LiteralPath $gatingTestPath -Raw) -match 'ExpectAllPlatformsMarker\s*=\s*"([^"]+)"')) {
+    $markerName = $Matches[1]
+}
+Assert-That ($null -ne $markerName) `
+    'PluginGatingTests declares the all-platforms marker name (読めなければ下の検査は空振りする)'
+
+if ($markerName) {
+    foreach ($job in $unityJobs) {
+        $assembleSteps = @()
+        $markerSteps = @()
+        foreach ($step in $job.Steps) {
+            $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+            if (@($cmds | Where-Object { $_ -match '\./tools/assemble-plugins\.ps1(\s|$)' }).Count -gt 0) {
+                $assembleSteps += , $cmds
+            }
+            if (@($cmds | Where-Object { $_ -match [regex]::Escape($markerName) }).Count -gt 0) {
+                $markerSteps += , $cmds
+            }
+        }
+
+        Assert-That ($assembleSteps.Count -eq 1) `
+            "$($job.Workflow) job '$($job.Name)' assembles the other platforms in exactly one step (saw $($assembleSteps.Count))"
+        Assert-That ($markerSteps.Count -eq 1) `
+            "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand three platforms (saw $($markerSteps.Count))"
+    }
+
+    # ローカルのレーンも同じ合図を書く。**名前が分かれると、片方だけが
+    # 全部入りを検査していることになる。**
+    $devText = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
+    Assert-That ($devText -match [regex]::Escape($markerName)) `
+        "tools/dev.ps1 writes the same marker ('$markerName') as the tests read"
 }
 
 

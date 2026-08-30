@@ -562,11 +562,20 @@ function Test-UnityTarball {
             PluginGatingTests が捕まえたい欠陥（別 platform の .meta が自分の
             platform でも有効）は、**3 platform 分が同居していないと原理的に
             現れない。** 1 platform 分の木でも同じ 5 件が緑になるので、
-            **出力からはどちらを確かめたのか分からない。** この環境変数が
-            立っているときだけ「3 つ揃っていること」を要求させる。
+            **出力からはどちらを確かめたのか分からない。** この合図が
+            置かれているときだけ「3 つ揃っていること」を要求させる。
+
+            **環境変数ではなくファイルで渡す。** CI では Unity を起動するのが
+            game-ci の action で、**コンテナへ渡る環境変数は固定の一覧である** ——
+            任意の名前は届かない。届かなければテストは「合図が無い」分岐に落ち、
+            **要素 1 個でも緑になる**。同じ合図をローカルと CI の両方で使える形に
+            しておく（ワークスペースはコンテナに mount される）。
         #>
-        if ($allPlatforms) { $env:OCVU_EXPECT_ALL_PLATFORMS = '1' }
-        try {
+        if ($allPlatforms) {
+            Set-Content -LiteralPath (Join-Path $project 'ocvu-expect-all-platforms') `
+                        -Value '1' -NoNewline -Encoding utf8
+        }
+
         $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -PassThru -NoNewWindow
         if (-not $proc.WaitForExit($timeoutMs)) {
             try { $proc.Kill($true) } catch { }
@@ -597,9 +606,6 @@ function Test-UnityTarball {
                 "ログ: $log"
             ) -join "`n")
         }
-
-        }
-        finally { Remove-Item Env:\OCVU_EXPECT_ALL_PLATFORMS -ErrorAction SilentlyContinue }
 
         <#
             **テストが通ったことは、tarball で解決された証拠にならない。**
