@@ -26,6 +26,38 @@ public class PluginGatingTests
 {
     private const string PluginRoot = "Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins";
 
+    /// <summary>
+    /// 「いま検査しているのは全部入りである」という合図。**プロジェクト直下の
+    /// ファイルで受け取る。環境変数ではない。**
+    ///
+    /// CI で Unity を起動するのは game-ci の action で、**これがコンテナへ渡す
+    /// 環境変数は固定の一覧である**（`ImageEnvironmentFactory.getEnvironmentVariables`。
+    /// UNITY_* / GITHUB_* / RUNNER_* など）。任意の名前は渡らないので、workflow の
+    /// `env:` に書いても Unity 側には届かない。**届かないと、この検査は「合図が
+    /// 無い」分岐に落ちて要素 1 個でも緑になる** —— 塞ごうとしている穴とまったく
+    /// 同じ壊れ方を、検査自身がする。
+    ///
+    /// ワークスペースはコンテナに mount されるので、**ファイルなら CI でも
+    /// ローカルでも同じ経路で届く。**
+    ///
+    /// game-ci には `customParameters` という正規の受け渡し口もあり、Unity の
+    /// コマンドライン引数として届く（`Environment.GetCommandLineArgs()` で
+    /// 読める）。**それを採らなかったのは、コンテナ側の entrypoint がそれを
+    /// 実際に Unity の引数へ渡すかを確かめられなかったからである** ——
+    /// 環境変数の一覧は action の dist から実測できたが、entrypoint の
+    /// スクリプトは同じ形では読めなかった。mount されたワークスペースは
+    /// docker run の引数から直接確かめられるので、そちらに寄せた。
+    /// </summary>
+    private const string ExpectAllPlatformsMarker = "ocvu-expect-all-platforms";
+
+    private static bool ExpectsAllPlatforms()
+    {
+        // Application.dataPath は <project>/Assets。合図はその 1 つ上に置く
+        // （Assets の下に置くと .meta が要る）。
+        var path = System.IO.Path.Combine(Application.dataPath, "..", ExpectAllPlatformsMarker);
+        return System.IO.File.Exists(path);
+    }
+
     private static List<PluginImporter> LoadImporters()
     {
         // Packages 配下は AssetDatabase から見えるので、GUID 検索で拾える。
@@ -59,8 +91,9 @@ public class PluginGatingTests
     ///
     /// 同じ 5 件が両方の構成で緑になると、**出力からはどちらを確かめたのか
     /// 分からない。** そこで見た数を必ず表に出す。3 つ揃っていることを要求する
-    /// のは `OCVU_EXPECT_ALL_PLATFORMS` が立っているときだけで、それを立てるのは
-    /// 全部入りを組んだレーン（`dev.ps1 test-unity-tarball`）である。
+    /// のは <see cref="ExpectAllPlatformsMarker"/> が置かれているときだけで、
+    /// それを置くのは全部入りを組んだレーン（`dev.ps1 test-unity-tarball` と
+    /// `ci-unity.yml` の Unity job）である。
     /// </summary>
     [Test]
     public void ReportsHowManyPlatformsWereActuallyPresent()
@@ -69,8 +102,7 @@ public class PluginGatingTests
         var names = importers.Select(i => System.IO.Path.GetFileName(i.assetPath)).OrderBy(n => n);
         TestContext.WriteLine($"native plugins present: {importers.Count} [{string.Join(", ", names)}]");
 
-        var expectAll = System.Environment.GetEnvironmentVariable("OCVU_EXPECT_ALL_PLATFORMS");
-        if (string.IsNullOrEmpty(expectAll))
+        if (!ExpectsAllPlatforms())
         {
             // 1 platform 分でも構わないが、**何を見たかは記録に残す。**
             Assert.That(importers.Count, Is.GreaterThanOrEqualTo(1));
@@ -78,7 +110,7 @@ public class PluginGatingTests
         }
 
         Assert.AreEqual(3, importers.Count,
-            "OCVU_EXPECT_ALL_PLATFORMS が立っているのに 3 platform 分が揃っていない。" +
+            $"{ExpectAllPlatformsMarker} が置かれているのに 3 platform 分が揃っていない。" +
             $"見えたもの: [{string.Join(", ", names)}]");
     }
 

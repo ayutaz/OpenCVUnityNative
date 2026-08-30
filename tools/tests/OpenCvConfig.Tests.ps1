@@ -688,9 +688,24 @@ if ($expectedImage) {
 #
 # だから他の検査と同じ機構に載せる: job を取り、**コメントを除いた行**で、
 # step 単位に数える。
-$unityJobs = @($allJobs | Where-Object { $_.Stem -eq 'ci-unity' })
-Assert-That ($unityJobs.Count -gt 0) `
+$ciUnityJobs = @($allJobs | Where-Object { $_.Stem -eq 'ci-unity' })
+Assert-That ($ciUnityJobs.Count -gt 0) `
     'ci-unity has at least one job (0 件なら下の検査は空振りする)'
+
+# **対象は「Unity を実際に起動する job」に限る。**
+#
+# 2026-08-30 から ci-unity には他 2 platform の plugin をビルドするだけの job が
+# 在る。そちらはコンテナも移植性の検査も使わない —— 作った binary は Unity に
+# 読み込まれず、`.meta` の解釈だけが問われるからである。ci-unity の全 job を
+# 対象にしたままだと、この 2 本は関係の無い job で落ちる。
+#
+# **絞ったぶん、絞った先が空でないことを必ず見る。** 述語を書き損じて 0 件に
+# なると、下の検査はまとめて空振りし、しかも緑になる。
+$unityJobs = @($ciUnityJobs | Where-Object {
+    @($_.Commands | Where-Object { $_ -match 'uses:\s*game-ci/unity-test-runner@' }).Count -gt 0
+})
+Assert-That ($unityJobs.Count -gt 0) `
+    'ci-unity has at least one job that launches Unity (0 件なら下の検査は空振りする)'
 
 foreach ($job in $unityJobs) {
     $imageSteps = @()
@@ -721,6 +736,181 @@ foreach ($job in $unityJobs) {
 
     Assert-That ($portabilitySteps.Count -eq 1) `
         "$($job.Workflow) job '$($job.Name)' runs verify-plugin-portability.ps1 in exactly one step before Unity (saw $($portabilitySteps.Count))"
+}
+
+
+# --- ci-unity が 3 platform 同居で Unity を走らせる ---
+#
+# M3.5 は「全部入りの package で、Unity が自分の platform の binary だけを読む」
+# ことを見る検査（PluginGatingTests、EditMode 6 件）を足した。**ところが自動で
+# 走る唯一の場所には Linux の .so しか無く、6 件は要素 1 個の集合を検査して
+# 緑になっていた** —— 取り違えが起こりうる状況が CI では一度も成立しない。
+# roadmap の M3.5 条件 3 を「満たすが未実証」に留めていた理由がこれである。
+#
+# 2 つを見る:
+#   1. 他 platform を重ねる step が在ること
+#   2. 「3 つ揃っているはず」という合図をテストに渡す step が在ること
+#
+# **2 が無くなると静かに弱くなる。** 合図が無いときテストは「1 つ以上」しか
+# 要求しないので、重ねるのをやめても・重ね損ねても緑のままになる。
+#
+# 合図の名前は **C# 側の定数を正本として読む**。ここに文字列を書くと、
+# 名前を変えたときに「workflow は書くがテストは読まない」状態が緑で通る。
+$gatingTestPath = Join-Path $repoRoot 'tests/UnityProject/Assets/Tests/EditMode/PluginGatingTests.cs'
+$markerName = $null
+if (Test-Path -LiteralPath $gatingTestPath) {
+    # **コメントを落としてから読む。** 全文に当てると、説明の中に書かれた
+    # 定義の見た目（`ExpectAllPlatformsMarker = "…"`）を正本と取り違える。
+    # このファイルが他の 3 箇所で潰したのと同じ形である。
+    $gatingCode = @(Get-Content -LiteralPath $gatingTestPath |
+                    Where-Object { $_ -notmatch '^\s*(//|///|\*|/\*)' }) -join "`n"
+    if ($gatingCode -match 'ExpectAllPlatformsMarker\s*=\s*"([^"]+)"') {
+        $markerName = $Matches[1]
+    }
+}
+Assert-That ($null -ne $markerName) `
+    'PluginGatingTests declares the all-platforms marker name (読めなければ下の検査は空振りする)'
+
+if ($markerName) {
+    foreach ($job in $unityJobs) {
+        $assembleSteps = @()
+        $markerSteps = @()
+        foreach ($step in $job.Steps) {
+            $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+            if (@($cmds | Where-Object { $_ -match '\./tools/assemble-plugins\.ps1(\s|$)' }).Count -gt 0) {
+                $assembleSteps += , $cmds
+            }
+            if (@($cmds | Where-Object { $_ -match [regex]::Escape($markerName) }).Count -gt 0) {
+                $markerSteps += , $cmds
+            }
+        }
+
+        Assert-That ($assembleSteps.Count -eq 1) `
+            "$($job.Workflow) job '$($job.Name)' assembles the other platforms in exactly one step (saw $($assembleSteps.Count))"
+        Assert-That ($markerSteps.Count -eq 1) `
+            "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand three platforms (saw $($markerSteps.Count))"
+
+        # **「合図を書いた」は「テストが走った」ではない。**
+        #
+        # 合図を置いても、PluginGatingTests が assembly から外れれば誰も
+        # 読まない。そのとき CI は `==> [EditMode] 10 passed` で緑になる ——
+        # failed は 0 で passed は 1 以上だからである。**このブランチの主張
+        # （CI が 3 要素の集合に gating を当てる）が丸ごと消えても、誰も
+        # 赤くならない。** 走ったことを結果 XML で確かめさせる。
+        $requireSteps = @()
+        foreach ($step in $job.Steps) {
+            $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+            # **-match は既定で大文字小文字を区別しない。** 素の 'RequireTest'
+            # だと、同じ step にある `matrix.requireTest`（小文字の r）に当たって
+            # しまい、**受け渡しを消しても緑になる**（実測）。-cmatch にしたうえで
+            # 「引数として渡す」「値を代入する」のどちらかの形を要求する。
+            if (@($cmds | Where-Object { $_ -cmatch '(-RequireTest\b|RequireTest\s*=)' }).Count -gt 0 -and
+                @($cmds | Where-Object { $_ -cmatch '(-RequireOutput\b|RequireOutput\s*=)' }).Count -gt 0) {
+                $requireSteps += , $cmds
+            }
+        }
+        Assert-That ($requireSteps.Count -eq 1) `
+            "$($job.Workflow) job '$($job.Name)' passes both RequireTest and RequireOutput to assert-unity-results.ps1 in exactly one step (saw $($requireSteps.Count))"
+
+        # **依存が落ちたときに skip で済ませない。**
+        #
+        # GitHub は required status check を "successful, skipped, or neutral"
+        # で通す（2026-08-30 に文書で確認）。素の `needs:` だけだと、材料を作る
+        # job が落ちた瞬間にこの job は skip になり、**必須チェックが緑と同じ
+        # 意味を持ったまま merge を許す。** job 側に `cancelled()` を含む `if:`
+        # を置くと、依存が落ちても走って赤くなる。
+        $needsLines = @($job.Commands | Where-Object { $_ -match '^    needs:' })
+        if ($needsLines.Count -gt 0) {
+            <#
+                **`cancelled()` の語が在るかを見ると逆効果になる。**
+
+                レビューで 3 通り実測された。ゆるい述語（行のどこかに
+                `cancelled()`）は次の 2 つを通してしまう:
+
+                  if: ${{ cancelled() }}                              ← `!` の脱落
+                  if: ${{ github.event_name == 'push' && !cancelled() }}
+
+                前者は「キャンセルされたときだけ走る」= 事実上ゼロ、後者は
+                「PR では走らない」。**どちらも必須チェック 2 本を毎回 skip に
+                する** —— 素の `needs:` より悪い（あちらは依存が落ちたときだけ
+                skip、こちらは無条件）。番人を足したつもりで穴を恒久化する。
+
+                同じファイルの `if: always()` の検査が既にこれを解いている
+                （複合条件を通さない）。同じ厳しさをここにも当てる。
+
+                **`always()` を受理しないのは意図である。** この workflow は
+                `cancel-in-progress: true` を宣言しているので、`always()` に
+                すると追い越された古い run が Unity のビルドを最後まで走らせ、
+                その宣言の目的を打ち消す。
+            #>
+            $guard = @($job.Commands | Where-Object {
+                # `${{ }}` を必須にする。裸の `if: !cancelled()` は YAML の
+                # タグ指示子として解析エラーになるし、`}}` 欠落も同じく壊れる。
+                # **受理する形を 1 つに絞る。**
+                $_ -match '^    if:\s*\$\{\{\s*!\s*cancelled\(\)\s*\}\}\s*$'
+            })
+            Assert-That ($guard.Count -gt 0) `
+                "$($job.Workflow) job '$($job.Name)' has needs: and guards against skipping with exactly if: !cancelled() (ゆるい条件は必須チェックを常時 skip にしうる)"
+        }
+    }
+
+    # ローカルのレーンも同じ合図を書く。**名前が分かれると、片方だけが
+    # 全部入りを検査していることになる。**
+    #
+    # **全文の -match では、コメント 1 行で満たせる。** レビューで実測された:
+    # 書く処理を消して `# ocvu-expect-all-platforms を書くのは無効化している`
+    # と置くだけで緑になり、tarball レーンは 3 platform を固めておきながら
+    # 何も証明しなくなる。**このファイルが 2 箇所で自分の失敗として記録して
+    # いる形そのもの**なので、workflow 側と同じ機構（コメントを落として行を
+    # 数える）に載せる。
+    $devLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') |
+                  Where-Object { $_ -notmatch '^\s*#' })
+    # 名前が出てくるのは 1 行だけ（合図のパスを組み立てる行）。そこから
+    # 導出した変数に対して Set-Content と Remove-Item の両方があること ——
+    # **書くだけの実装は、置き去りを消せない。**
+    $devNames = @($devLines | Where-Object { $_ -match [regex]::Escape($markerName) })
+    Assert-That ($devNames.Count -eq 1) `
+        "tools/dev.ps1 names the marker ('$markerName') in exactly one statement (saw $($devNames.Count))"
+    Assert-That (@($devLines | Where-Object { $_ -match 'Set-Content\s+-LiteralPath\s+\$marker' }).Count -eq 1) `
+        'tools/dev.ps1 writes the marker in exactly one statement'
+    Assert-That (@($devLines | Where-Object { $_ -match 'Remove-Item\s+-LiteralPath\s+\$marker' }).Count -eq 1) `
+        'tools/dev.ps1 removes the marker when the tree is not all-platform (書くだけでは置き去りを消せない)'
+
+    # **4 箇所目は .gitignore である。** ここだけ突き合わせないと、名前を
+    # 変えたときに古い綴りが残り、合図ファイルが追跡対象に現れる。誰かが
+    # commit すると、**1 platform しか無いローカルのレーンが全部 3 つを
+    # 要求して落ちる**（.gitignore のコメント自身がその危険を書いている）。
+    # **「書いてあるか」ではなく「無視されるか」を git に聞く。** 全文の
+    # -match は、8 行上で捨てたばかりの形である —— コメント行でも満たせるし、
+    # `!` を付けた否定行（= 能動的に追跡へ戻す）でも満たせる。後者のほうが
+    # 悪い: 誰かが commit すると 1 platform しか無いローカルのレーンが 3 つを
+    # 要求して落ちる。意味そのものを聞けば、どちらも捕まる。
+    & git -C $repoRoot check-ignore -q "tests/UnityProject/$markerName"
+    Assert-That ($LASTEXITCODE -eq 0) `
+        "git ignores the marker at tests/UnityProject/$markerName (書いてあることではなく、無視されることを見る)"
+
+    # 要求する名前が実際に宣言されていること。**空文字だけになると、
+    # assert-unity-results.ps1 の照合は部分一致なので何にでも当たり、
+    # 「要求したことになっているが何も要求していない」状態になる。**
+    $unityWorkflow = @(Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-unity.yml'))
+    $declaredRequires = @($unityWorkflow | Where-Object {
+        $_ -match '^\s*requireTest:\s*\S' -and $_ -notmatch "requireTest:\s*''"
+    })
+    Assert-That ($declaredRequires.Count -eq 1) `
+        "ci-unity.yml declares exactly one non-empty requireTest lane (saw $($declaredRequires.Count))"
+    Assert-That (@($declaredRequires | Where-Object { $_ -match 'PluginGatingTests' }).Count -eq 1) `
+        "ci-unity.yml requires the plugin gating tests to have run (saw: $($declaredRequires -join ', '))"
+
+    # **入力ではなく結果を要求していること。** テストが走って通っても、合図が
+    # 届かなければ「1 つ以上」の分岐を通っただけかもしれない。そのときの出力は
+    # 意図どおり動いた場合と 1 バイトも違わない。
+    $declaredOutputs = @($unityWorkflow | Where-Object {
+        $_ -match '^\s*requireOutput:\s*\S' -and $_ -notmatch "requireOutput:\s*''"
+    })
+    Assert-That ($declaredOutputs.Count -eq 1) `
+        "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
+    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 3 \[' }).Count -eq 1) `
+        "ci-unity.yml requires the tests to report three platforms (saw: $($declaredOutputs -join ', '))"
 }
 
 

@@ -835,7 +835,7 @@ Asset Store での配布。
 | --- | --- | --- |
 | 1 | 全 platform の binary を 1 つに収めた tarball を `release.yml` が作る | **満たす（留保あり）**。`tools/assemble-plugins.ps1` と `pack-upm-tarball.ps1 -AllPlatforms` はローカルで実測（3 binary が同梱されていることを、作った archive の中を数えて確認）。**`release.yml` 側の配線も 2026-08-30 に通した**（run 33289128197、`workflow_dispatch`。いまの 2 job 構成での実績）—— 組み立て 3 binary、tarball 61 entries、staged 17 assets、`SHA256SUMS` 17 行（大きさは条件 4 の行にある）。Release は作られていない（publish job は tag に限る）|
 | 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 16 passed`（2026-08-30、このマシン）。**このレーンはどの workflow にも入っていない**（ローカル専用。M3 から変わっていない） |
-| 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たすが未実証**。`PluginGatingTests`（EditMode 6 件）が `PluginImporter` に `.meta` の解釈を問い、**3 platform 同居の状態では壊すと 16 中 3 件が落ちる**ことをローカルで確認した。**しかし自動で走る唯一の場所（`ci-unity.yml`）には 1 platform 分の binary しか無く、そこでは 6 件が無条件に緑になる** —— 取り違えが起こりうる状況が CI では一度も成立しない。`OCVU_EXPECT_ALL_PLATFORMS` を立てて 3 つを要求するのは `dev.ps1 test-unity-tarball` だけで、**そのレーンはどの workflow にも入っていない**。詳細は下記 |
+| 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たすが未実証**（M3.5 時点の判定。**2026-08-30 に閉じにかかっているが、その構成で CI が緑になるまで動かさない** —— 下の「条件 3 を閉じる」）。`PluginGatingTests`（EditMode 6 件）は書いたが、**自動で走る唯一の場所（`ci-unity.yml`）には 1 platform 分の binary しか無く、6 件が要素 1 個の集合を検査して緑になっていた**。`ci-unity` が他 2 platform を自分でビルドして重ねる形にし、gating が走ったことまで結果 XML で確かめるようにした（下記）。**この判定はその CI が緑になった時点で更新する** —— 「ファイルが存在する」は「CI で実行された」ではない |
 | 4 | OpenUPM へ登録できる形にする | **(a)(b) は満たす、(c) は未了**。(a) asset 名から版番号を落とした（`com.ayutaz.opencv-unity-native.tgz`）。(b) `pack-upm-tarball.ps1 -MaxBytes`（既定 512 MB）が上限を見る —— 全部入りの実測は 9.6 MB（9,608,334 バイト）。(c) 登録申請は、新しい asset 名を含む Release を公開した後になる（[登録の準備](./openupm-registration.md)。**OpenUPM 側の受理はこの条件に含めない**） |
 | 5 | `imgcodecs` を C ABI に出す（メモリ上の byte 列） | **満たす**。`ocvu_imencode` / `ocvu_imdecode`（公開 ABI 18 → 20 本、allowlist は 9 → 11 本）。L1 8 ケース / L3 8 ケース、C# は `CvCodecs`。**着手して初めて `imgcodecs` がリンクされていなかったことが分かった**（下記） |
 | 6 | Unity 6.3 LTS（6000.3.x）で L4 / L5 が通る | **満たす**。`6000.3.16f1` で L4 が 16 passed、L5（IL2CPP Player）が 10 passed（2026-08-30、このマシン）。`package.json` の `unity` も `6000.3` にした。**L5 は最初に落ちた** —— 6.3 のエディタに IL2CPP モジュールが無く `Currently selected scripting backend (IL2CPP) is not installed` で Player のビルドが止まったので、Hub の CLI で入れてから通した |
@@ -875,7 +875,7 @@ tar -xzf /tmp/ocvu/*linux-x64.tgz   -C /tmp/ocvu/linux
 
 ---
 
-**したがって M3.5 は 6 件中 4 件を満たし、1 件が「満たすが未実証」、1 件が部分達成である。**
+**したがって M3.5 は 6 件中 4 件を満たし、1 件が「満たすが未実証」、1 件が部分達成である**（これは **2026-08-30 の M3.5 完了時点の判定**である。条件 3 を閉じにかかった後続の作業は下の「条件 3 を閉じる」を参照）。
 
 **条件 3 を「満たす」に数えない理由を明記する。** 検査は書いたし、3 platform
 同居の状態で壊すと落ちることも確かめた。だが**自動で走る場所ではその状況が
@@ -884,11 +884,29 @@ tar -xzf /tmp/ocvu/*linux-x64.tgz   -C /tmp/ocvu/linux
 「CI で実行された」ではない。手作業でしか成立しない証拠を「実測で満たした」と
 数えると、その基準が一貫しなくなる。
 
+### 条件 3 を閉じる
+
 **閉じるには `ci-unity.yml` で 3 platform を組む必要がある。** Linux の CI は
-自分の `.so` しかビルドしないので、他 2 つを公開済み release から取って
-`assemble-plugins.ps1` に食わせ、`OCVU_EXPECT_ALL_PLATFORMS` を立てることになる。
-**このブランチではやっていない** —— 必須チェックに公開済み release への依存を
-持ち込む判断が要るためで、それは別に決める。
+自分の `.so` しかビルドしないので、他 2 つをどこかから持ってこなければならない。
+
+**2026-08-30 にその形を作った。ただし「閉じた」とはまだ書かない** ——
+**この構成で CI が緑になったことがまだ無い**からである。「ファイルが存在する」は
+「CI で実行された」ではない、という基準を M2 の条件 7 と `nightly.yml` に当てて
+いるので、ここにも同じものを当てる。取ってくる先として 3 つを比べた:
+
+| | やり方 | 引き換えに |
+| --- | --- | --- |
+| A | 公開済み Release から落とす | **merge を止めるチェックが外部の公開物に依存する。** Release を消す・名前を変えるだけで main が固まる |
+| B | **`ci-unity` 自身が windows / macOS でビルドする**（採用） | CI 時間が増える（`ci-native` と同じビルドを重ねて行う）。依存は増えない |
+| C | `nightly` に置く | **赤くても merge を止められない** —— このリポジトリが繰り返し踏んでいる穴 |
+
+**合図の渡し方も変わった。** `OCVU_EXPECT_ALL_PLATFORMS` という環境変数は
+**CI では届かない** —— game-ci がコンテナへ渡す環境変数は 34 個の固定一覧で、
+任意の名前は入らない（`@v4` の `dist/index.js` で実測）。届かなければテストは
+「合図が無い」分岐に落ち、**要素 1 個でも緑になる** —— 塞ごうとしている穴と
+同じ壊れ方を合図の側がする。プロジェクト直下のファイル
+（`ocvu-expect-all-platforms`）に替えた。ワークスペースはコンテナに mount
+されるので、ローカルと CI で同じ経路になる。
 
 残るもう 1 つは条件 4 の (c)（OpenUPM 登録申請）で、
 **公開済みの Release が要るので PR の中では閉じない。**
@@ -898,9 +916,11 @@ Unity のレーンは **CI 上でも `==> [EditMode] 16 passed` / `==> [Standalo
 （run 33264535794、Linux、6000.3.16f1）。上の判定のうち条件 5・6 は CI でも確定した。
 
 **ただし CI が green になったことは、条件 3 が満たされたことを意味しない。**
-CI の EditMode は Linux の plugin 1 つだけで走るので、`PluginGatingTests` の 6 件は
-**要素 1 個の集合を検査して緑になっただけ**である —— これは予測どおりの結果で、
-「緑だから効いている」が成り立たない例そのものである。
+**PR #34 の時点では** CI の EditMode は Linux の plugin 1 つだけで走ったので、
+`PluginGatingTests` の 6 件は**要素 1 個の集合を検査して緑になっただけ**だった ——
+これは予測どおりの結果で、「緑だから効いている」が成り立たない例そのものである。
+（**2026-08-30 に `ci-unity` が 3 platform を自分で組む形にした。** 上の
+「条件 3 を閉じる」を参照）
 
 **M3 で「ローカルでは緑だった欠陥が CI で 3 件出た」ことを記録したが、M3.5 では
 それが PR 前のレビューで 2 件出た**（`test-tools-slow` が CI の Windows / macOS で

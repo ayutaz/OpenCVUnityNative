@@ -61,9 +61,135 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # **他 2 platform の plugin をここでビルドする。**
+  #
+  # M3.5 で「全部入りの package で、Unity が自分の platform の binary だけを
+  # 読む」ことを見る検査（PluginGatingTests）を足したが、**自動で走る唯一の
+  # 場所であるこの workflow には Linux の .so しか無かった。** 6 件の検査が
+  # 要素 1 個の集合を見て緑になるだけで、取り違えが起こりうる状況が CI では
+  # 一度も成立していなかった（roadmap の M3.5 条件 3）。
+  #
+  # **公開済みの Release から他 platform を取ってくる形は採らない。**
+  # それだと merge を止めるチェックが外部の公開物に依存し、Release を消したり
+  # 名前を変えたりすると main が固まる。自分でビルドすれば依存は増えない。
+  #
+  # ここで作るのは **CI の中でだけ使う binary** で、配る物ではない
+  # （配る物は release.yml が作る）。移植性の検査を掛けないのはそのためで、
+  # この 2 つは Unity に読み込まれず、`.meta` の解釈だけが問われる。
+  plugin:
+    name: Plugin ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    # workflow 全体には game-ci のための `checks: write` があるが、この job は
+    # 使わない。最小権限にしておく。
+    permissions:
+      contents: read
+      actions: read   # opencv.ps1 restore が gh run download を呼ぶ
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+          - platform: macos-arm64
+            runner: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # **macOS の preset は Ninja を使う**（CMakePresets.json の
+      # macos-arm64-debug）。runner に Ninja は入っていないので、入れないと
+      # configure の時点で落ちる。ci-native の macOS job と同じ手当てである。
+      - name: Install Ninja
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      # OpenCV の cache が無いと、job のたびに artifact を探す API 呼び出しが
+      # 起きる。**レート制限に当たると、成果物にもコードにも問題が無いのに
+      # CI が全部赤くなる**（実測、2026-08-29。Dependabot の PR 9 件と v0.1.1 の
+      # リリースが同時に落ちた）。
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          # **-Platform を渡さない。** この job は対象 platform の上で走って
+          # いるので、Get-OpenCvPlatform が自分で判定する。渡すと restore 側の
+          # 判定と二重の正本になり、matrix の綴りを間違えたときに「cache は
+          # 別 platform、restore は自分の platform」という食い違いが起きる。
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      - name: Build the native plugin
+        shell: pwsh
+        run: ./tools/dev.ps1 build
+
+      # **binary と .meta を対で運ぶ。** binary の無い .meta を置くと Unity が
+      # 孤児と見なして消す（M3 のレビュー M4 で実測）。dev.ps1 build が
+      # tools/plugin-meta/ から対で置くので、この木をそのまま渡す。
+      - name: Upload the plugin tree
+        uses: actions/upload-artifact@v7
+        with:
+          name: unity-plugin-${{ matrix.platform }}
+          path: Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins
+          if-no-files-found: error
+          # **配る物ではない。** public repo なので誰でも落とせるが、これは
+          # CI の中でだけ使う debug ビルドである。既定の 90 日ぶん残すと
+          # release の成果物と取り違えられる。
+          retention-days: 1
+
   unity:
     name: Unity ${{ matrix.lane }} (Linux)
     runs-on: ubuntu-24.04
+    # Linux の .so はこの job が自分でビルドする（下記のとおりコンテナの中で）。
+    # 他 2 platform は上の job から artifact で受け取る。
+    needs: plugin
+
+    # **`needs:` を足しただけでは、依存が落ちたときに merge が止まらない。**
+    #
+    # GitHub の文書はこう書いている: "Required status checks must have a
+    # successful, skipped, or neutral status before collaborators can make
+    # changes to a protected branch."（2026-08-30 に確認）——
+    # **skip は「通った」扱いである。**
+    #
+    # したがって素の `needs: plugin` だと、plugin のビルドが落ちた瞬間に
+    # この job は skip になり、必須チェックである "Unity EditMode (Linux)" と
+    # "Unity Standalone (Linux)" が**緑と同じ意味を持ったまま merge を許す。**
+    # plugin job 自体は赤くなるが、そちらは必須チェックではない。
+    #
+    # `!cancelled()` にすると、依存が落ちても走る。走れば材料が無いので
+    # **Unity を起動する前に落ちる —— skip ではなく赤になる。** そのために
+    # 材料を集める 2 step を checkout の直後に置いてある（下記）。どの step で
+    # 落ちるかと、そこまでの所要時間は書かない —— どちらも測っていない。
+    #
+    # **`always()` にしない。** この workflow は `cancel-in-progress: true` を
+    # 宣言しており、PR に push するたびに先行 run がキャンセルされる。
+    # `always()` だと追い越された古い run が Unity のビルドを最後まで走らせ、
+    # その宣言の目的を打ち消す。
+    #
+    # **残る穴を隠さず書く**: 人が手で run をキャンセルしたとき、まだ始まって
+    # いないこの job が `skipped`（= 必須チェックを通す）になるのか
+    # `cancelled`（= 通さない）になるのかは**確かめていない。** 前者なら、
+    # 手動キャンセルした run は未検証のまま緑に見える。その run は re-run する
+    # こと。
+    #
+    # ブランチ保護の設定ではなく workflow の構造で塞いでいるのは、**設定は
+    # ファイルに現れず、差分としてレビューできないから**である。
+    if: ${{ !cancelled() }}
     # **native plugin は Unity が動くコンテナと同じ世代でビルドする。**
     #
     # runner（ubuntu-24.04, glibc 2.39）でビルドした .so は、game-ci の
@@ -84,12 +210,32 @@ jobs:
           - lane: EditMode
             testMode: EditMode
             imageFlavour: base
+            # **このレーンだけが gating を走らせる。** PluginGatingTests は
+            # UnityEditor に依存する Editor 専用のテストなので、Player の
+            # 中では走らない。走ったことを結果 XML で確かめる（下の
+            # 「Assert the results」）。
+            # **クラス名だけでは足りない。** -RequireTest は「1 件でも Passed が
+            # あるか」を見るので、gating を実際に行う 4 件を消して残り 2 件
+            # （0 件で緑にしない検査と、数を報告する検査）だけにしても満たせる。
+            # 名指しする。';' 区切り。
+            requireTest: 'PluginGatingTests.ExactlyOnePluginTargetsThisEditorOs;PluginGatingTests.EachPluginTargetsOnlyItsOwnEditorOs;PluginGatingTests.NoPluginIsEnabledForEveryPlatform;PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget'
+            # **入力ではなく結果を見る。** 合図が届かなければ gating は
+            # 「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた
+            # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
+            # 合図の経路が壊れた時点で赤くなる。**このレーンは 3 platform を
+            # 重ねてから走るので、無条件に 3 を要求してよい。**
+            # 末尾の '[' まで含めるのは境界のため。'present: 3' だけだと
+            # 'present: 30' にも当たる。
+            requireOutput: 'native plugins present: 3 ['
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
           # managedStrippingLevel.Standalone: 2）、ここで設定する必要はない。
           - lane: Standalone
             testMode: Standalone
+            # Editor 専用のテストは Player に入らないので、要求しない。
+            requireTest: ''
+            requireOutput: ''
             # Linux の IL2CPP Player を作るので、その道具が入ったイメージが要る。
             # base では IL2CPP のビルドができない。
             imageFlavour: linux-il2cpp
@@ -97,6 +243,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # **材料は先に集める。**
+      #
+      # 依存（plugin job）が落ちても、上の `if: !cancelled()` でこの job は
+      # 走る。そのときここまでで落ちれば、Linux の container build（apt +
+      # cmake + OpenCV restore + native build）を 2 レーン分捨てずに済む。
+      # plugin の失敗は rate limit や brew の一時障害という**再発しやすい形**
+      # なので、捨てる量が効いてくる。
+      #
+      # 先に重ねても後段は壊れない —— `dev.ps1 build` は自分の platform の
+      # binary と `tools/plugin-meta/<platform>/` しか Copy-Item -Force せず、
+      # Plugins/ を掃除しないので、他 platform のファイルはそのまま残る。
+      - name: Download the other platforms' plugins
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unity-plugin-*
+          path: other-plugins
+
+      - name: Assemble all three platforms into one package
+        shell: pwsh
+        run: |
+          $sources = @('windows-x64', 'macos-arm64') |
+                     ForEach-Object { "other-plugins/unity-plugin-$_" }
+          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
       # **Unity のバージョンを workflow に直書きしない。** 直書きすると
       # ProjectVersion.txt と二重管理になり、片方だけ上げたときに気づけない
@@ -132,7 +302,9 @@ jobs:
         shell: pwsh
         run: |
           Import-Module ./tools/OpenCvConfig.psm1 -Force
-          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'linux-x64')
+          # -Platform を渡さない（plugin job と同じ理由。restore 側の自動判定と
+          # 二重の正本にしない）。この job は ubuntu の上で走っている。
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
           "config-hash=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Cache OpenCV
@@ -192,6 +364,34 @@ jobs:
               Write-Host "==> present: $f"
           }
 
+      # **重ねられたことを Unity より先に確かめ、そのうえでテストに合図を渡す。**
+      #
+      # 合図をファイルにしているのは、**game-ci がコンテナへ渡す環境変数が固定の
+      # 一覧だから**である（ImageEnvironmentFactory）。`env:` に任意の名前を書いても
+      # Unity 側には届かず、テストは「合図が無い」分岐に落ちて **要素 1 個でも
+      # 緑になる** —— 塞ごうとしている穴と同じ壊れ方を、合図の側がする。
+      # ワークスペースはコンテナに mount されるので、ファイルなら確実に届く。
+      - name: Check all three are in place, and tell the tests to expect three
+        shell: pwsh
+        run: |
+          $root = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+          $expected = @(
+              'x86_64/opencv_unity_native.dll'
+              'macOS/libopencv_unity_native.dylib'
+              'Linux/x86_64/libopencv_unity_native.so'
+          )
+          foreach ($rel in $expected) {
+              foreach ($f in @("$root/$rel", "$root/$rel.meta")) {
+                  if (-not (Test-Path -LiteralPath $f)) {
+                      Write-Error "missing: $f"
+                      exit 1
+                  }
+                  Write-Host "==> present: $f"
+              }
+          }
+          Set-Content -LiteralPath 'tests/UnityProject/ocvu-expect-all-platforms' `
+                      -Value '1' -NoNewline
+
       - name: Run ${{ matrix.lane }} tests
         uses: game-ci/unity-test-runner@v4
         id: tests
@@ -225,7 +425,19 @@ jobs:
               Write-Error 'no test result XML was produced under artifacts/unity-${{ matrix.lane }}'
               exit 1
           }
-          ./tools/assert-unity-results.ps1 -ResultsPath $xml.FullName -Lane '${{ matrix.lane }}'
+          $params = @{
+              ResultsPath = $xml.FullName
+              Lane        = '${{ matrix.lane }}'
+          }
+          # **空文字を渡さない。** 部分一致なので、空だと何にでも一致して
+          # 「要求したことになっているが何も要求していない」状態になる。
+          if ('${{ matrix.requireTest }}') {
+              $params.RequireTest = '${{ matrix.requireTest }}' -split ';'
+          }
+          if ('${{ matrix.requireOutput }}') {
+              $params.RequireOutput = '${{ matrix.requireOutput }}'
+          }
+          ./tools/assert-unity-results.ps1 @params
 
       - name: Upload test results
         if: always()

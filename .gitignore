@@ -40,3 +40,9 @@ tests/UnityProject/Logs/
 tests/UnityProject/UserSettings/
 tests/UnityProject/*.csproj
 tests/UnityProject/*.sln
+
+# 「いま検査しているのは全部入りである」という合図。ci-unity.yml の Unity job が
+# 3 platform を重ねた後に置き、PluginGatingTests がこれを見て「3 つ揃っている
+# こと」を要求する。**追跡すると、1 platform 分しか無いローカルのレーンでも
+# 3 つを要求してしまう。**
+tests/UnityProject/ocvu-expect-all-platforms

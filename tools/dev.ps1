@@ -356,6 +356,57 @@ function Get-UnityEditorPath {
     無いこと自体も失敗として扱う — Unity がテストを書き出す前に落ちた
     ことを意味し、それは成功ではない。
 #>
+<#
+    「3 つ揃っているはず」という合図を、**木から導出して**置く。
+
+    ## なぜ「消す」ではなく「導出する」なのか
+
+    最初は EditMode / Player のレーンで無条件に消していた。CI の手順を
+    ローカルで再現した人が `tests/UnityProject/` に置き去りを作るからである。
+    **しかしそれは、3 platform 同居の開発機で検査を黙って無効にする。**
+
+    `test-unity-tarball -PluginSource` は実リポジトリの `Runtime/Plugins` に
+    重ねて後始末をしない（roadmap にもそう書いてある）。つまり**条件 2 の証拠を
+    再現した開発機では、その後の EditMode は 3 platform 同居の木で走る。**
+    そこで合図を消すと「ちょうど 3 つ」の assertion が無効になり、出力は
+    1 platform のときと見分けが付かない —— しかも `-RequireTest` の行が
+    「gating は走った」と積極的に安心させる。
+
+    導出にすれば、置き去りがあってもなくても結果が同じになる。**合図は
+    状態ではなく、木から計算される値である。**
+#>
+<#
+    **gating を実際に行うテストの名前。** クラス名だけを要求すると、この 4 件を
+    消して残り 2 件（0 件で緑にしない検査と、数を報告する検査）だけにしても
+    満たせてしまう。`ci-unity.yml` の matrix にも同じ 4 件が並ぶ。
+#>
+$script:GatingTestNames = @(
+    'PluginGatingTests.ExactlyOnePluginTargetsThisEditorOs'
+    'PluginGatingTests.EachPluginTargetsOnlyItsOwnEditorOs'
+    'PluginGatingTests.NoPluginIsEnabledForEveryPlatform'
+    'PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget'
+)
+
+function Sync-AllPlatformsMarker {
+    param([Parameter(Mandatory)][string] $ProjectPath)
+
+    $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+    $present = @(
+        'x86_64/opencv_unity_native.dll'
+        'macOS/libopencv_unity_native.dylib'
+        'Linux/x86_64/libopencv_unity_native.so'
+    ) | Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) }
+
+    $marker = Join-Path $ProjectPath 'ocvu-expect-all-platforms'
+    if ($present.Count -eq 3) {
+        Set-Content -LiteralPath $marker -Value '1' -NoNewline -Encoding utf8
+        Write-Host '==> 3 platform 分が揃っているので、テストに 3 つを要求させる' -ForegroundColor Cyan
+    } else {
+        Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    }
+}
+
+
 function Test-UnityEditMode {
     Build-Native
 
@@ -364,6 +415,10 @@ function Test-UnityEditMode {
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
     $results = Join-Path $ResultsDir 'unity-editmode.xml'
     $log     = Join-Path $ResultsDir 'unity-editmode.log'
+
+    # 合図は木から導出する（置き去りがあってもなくても結果が変わらない）。
+    Sync-AllPlatformsMarker -ProjectPath $project
+
 
     # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
     $unityArgs = @(
@@ -391,7 +446,8 @@ function Test-UnityEditMode {
     #>
     Invoke-Checked {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
-            -ResultsPath $results -Lane 'editmode' -LogPath $log
+            -ResultsPath $results -Lane 'editmode' -LogPath $log `
+            -RequireTest ($script:GatingTestNames -join ';')
     } 'assert the editmode results'
 }
 
@@ -512,6 +568,8 @@ function Test-UnityTarball {
         # 使い捨ての Unity プロジェクトを作る。Library/ 等は持って行かない。
         $project = Join-Path $work 'UnityProject'
         $source  = Join-Path $RepoRoot 'tests/UnityProject'
+        # 合図はここでは除かない。**コピーの後で木から導出して置き直す**ので、
+        # 置き去りが混ざっても結果は変わらない（Sync-AllPlatformsMarker）。
         $skip    = @('Library', 'Temp', 'Logs', 'obj', 'Build', 'UserSettings')
         New-Item -ItemType Directory -Force -Path $project | Out-Null
         Get-ChildItem -LiteralPath $source -Force |
@@ -568,11 +626,17 @@ function Test-UnityTarball {
             PluginGatingTests が捕まえたい欠陥（別 platform の .meta が自分の
             platform でも有効）は、**3 platform 分が同居していないと原理的に
             現れない。** 1 platform 分の木でも同じ 5 件が緑になるので、
-            **出力からはどちらを確かめたのか分からない。** この環境変数が
-            立っているときだけ「3 つ揃っていること」を要求させる。
+            **出力からはどちらを確かめたのか分からない。** この合図が
+            置かれているときだけ「3 つ揃っていること」を要求させる。
+
+            **環境変数ではなくファイルで渡す。** CI では Unity を起動するのが
+            game-ci の action で、**コンテナへ渡る環境変数は固定の一覧である** ——
+            任意の名前は届かない。届かなければテストは「合図が無い」分岐に落ち、
+            **要素 1 個でも緑になる**。同じ合図をローカルと CI の両方で使える形に
+            しておく（ワークスペースはコンテナに mount される）。
         #>
-        if ($allPlatforms) { $env:OCVU_EXPECT_ALL_PLATFORMS = '1' }
-        try {
+        Sync-AllPlatformsMarker -ProjectPath $project
+
         $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -PassThru -NoNewWindow
         if (-not $proc.WaitForExit($timeoutMs)) {
             try { $proc.Kill($true) } catch { }
@@ -584,28 +648,42 @@ function Test-UnityTarball {
         }
         $exit = $proc.ExitCode
 
+        <#
+            **判定は共通の script に寄せる。**
+
+            ここだけ自前で XML を読んでいたので、`-RequireTest` を足したときに
+            **3 platform を実際に同居させて走らせる唯一のローカルレーンだけが、
+            gating が走ったことを要求しない**状態になっていた。CLAUDE.md の
+            「合否の判定は assert-unity-results.ps1 をローカルと CI の両方が
+            通る」とも食い違う。
+
+            全部入りのときは、**結果として `native plugins present: 3` が
+            出ていること**まで要求する。合図が届かなければ gating は
+            「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた場合と
+            1 バイトも違わない —— 入力を検査しても届いたことの証明にはならない。
+        #>
         if (-not (Test-Path -LiteralPath $results)) {
             Write-DevFailure "Unity が結果 XML を出しませんでした: $results`nログ: $log"
         }
-        [xml]$xml = Get-Content -LiteralPath $results
-        $failed = [int]$xml.'test-run'.failed
-        $passed = [int]$xml.'test-run'.passed
-        if ($exit -ne 0 -or $failed -ne 0) {
-            Write-DevFailure "tarball 導入後の EditMode テストが失敗しました（exit $exit、failed $failed）。`nログ: $log"
-        }
-        # 0 件で緑にしない理由は Test-UnityEditMode と同じ。tarball 経路では
-        # 「UPM が解決に失敗してテストごと消える」が最も起きやすい失敗である。
-        if ($passed -lt 1) {
-            Write-DevFailure (@(
-                "tarball から導入した package のテストが 1 件も実行されませんでした（passed=$passed）。"
-                'UPM が package を解決できていないか、テスト assembly がコンパイル対象から'
-                '外れています。0 件の実行は成功ではありません。'
-                "ログ: $log"
-            ) -join "`n")
+        if ($exit -ne 0) {
+            Write-DevFailure "tarball 導入後の EditMode テストが exit $exit で終了しました。`nログ: $log"
         }
 
+        $assertArgs = @(
+            '-ResultsPath', $results
+            '-Lane', 'tarball'
+            '-LogPath', $log
+        )
+        $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
+        if ($allPlatforms) {
+            $assertArgs += @('-RequireOutput', 'native plugins present: 3 [')
         }
-        finally { Remove-Item Env:\OCVU_EXPECT_ALL_PLATFORMS -ErrorAction SilentlyContinue }
+        Invoke-Checked {
+            & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs
+        } 'assert the tarball results'
+
+        [xml]$xml = Get-Content -LiteralPath $results
+        $passed = [int]$xml.'test-run'.passed
 
         <#
             **テストが通ったことは、tarball で解決された証拠にならない。**
@@ -664,6 +742,10 @@ function Test-UnityPlayer {
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
     $results = Join-Path $ResultsDir 'unity-player.xml'
     $log     = Join-Path $ResultsDir 'unity-player.log'
+
+    # 合図は木から導出する（置き去りがあってもなくても結果が変わらない）。
+    Sync-AllPlatformsMarker -ProjectPath $project
+
 
     # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
     # M2 が確かめたい stripping の問題が再現しない。
