@@ -274,7 +274,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する。**16 KB 対応は 2027-02-01 から Google Play の要件**（それより前に満たす。止まるのは利用者のリリースである）。macOS の `.meta` 実測と Windows IL2CPP の結論もここ |
 | M5 | binding specification と generator。**`imgcodecs` は M3.5 で出した**（`ocvu_imencode` / `ocvu_imdecode`、2026-08-30）ので、ここには残っていない |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
-| M7 | Optional profiles と性能。**OpenCV 5 の新しい DNN エンジンはここ** —— 競合が持たない最大の差になりうるが、Unity には推論の代替があるので前倒ししない（roadmap の M7 節） |
+| M7 | Optional profiles と性能。**OpenCV 5 の新しい DNN エンジンはここ** —— 競合が持たない最大の差になりうるが、Unity には推論の代替があるので前倒ししない。**2026-08-30 の上流調査で「5.0 で DNN を作り込むと 5.1 で作り直しになる」根拠が付き、`dnn` を足す前に native bridge を module 単位に分ける決定を入れた。** 決定の内訳・前提条件・一次情報は roadmap の M7 節にある（**ここに再掲しない** —— 2 箇所が同時に古くなる） |
 
 **M2 以降の完了条件には、native 単体テストだけでなく実際の Unity Player から C# → P/Invoke → C ABI → OpenCV を通る smoke test を含める。** M2 はこれをローカルで満たしたうえで、2026-08-29 に CI（Linux）でも実行して条件 7 を満たした。**ただし「CI で走っている」は「赤ければ止まる」ではない** —— `ci-unity` が merge を止めるかどうかは下記「機構として強制されていること」を見ること。
 

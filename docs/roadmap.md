@@ -733,7 +733,7 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 | 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった。動く根拠も動かない根拠も持っていない** | **M4** |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決める** |
 | 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
-| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある | **M7**（位置づけを下記に明記） |
+| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
 
 ### #1 を最優先に置く理由
 
@@ -1029,6 +1029,11 @@ API 拡張を手書きから**レビュー可能な仕様からの生成**に切
 **ゴール**
 binding specification から C ABI 宣言 / C# P/Invoke / API 対応表 / conformance test が生成される（L0 の導入）。
 
+**M7 の決定 1（module 分離）がここに食い込む。** `dnn` を足す前に C ABI を
+module 単位に割ると決めたので、**generator が生成するのは単一ヘッダではなく
+module ごとのヘッダになりうる。** どちらが先に着手されるかで設計が変わるので、
+着手時に M7 節の決定 1 を読むこと。
+
 **完了条件**
 
 - spec を正本として生成物が作られ、golden test で一致が検証される
@@ -1096,11 +1101,168 @@ opt-in profile として足すものではない。**M3.5 で完了した** —�
 M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここで扱う「codec」は
 動画のそれ（FFmpeg / GStreamer を引き込む videoio 系）を指す。
 
+### 上流が動いている: OpenCV 5.1 の DNN / GPU（2026-08-30 に調査）
+
+**確認済み事実**（一次情報をこちらで当たった。2026-08-30）
+
+| 事実 | 出典 |
+| --- | --- |
+| **公式のポリシー: 5.x は API 互換を保つが、ABI 互換は保たない**（`Preserve API compatibility ✔️ / Preserve ABI compatibility ✖️`、本文にも `API compatibility must be preserved`） | [opencv wiki Branches](https://github.com/opencv/opencv/wiki/Branches) |
+| **5.0 の新 DNN エンジンは CPU 専用**: *"The new engine currently runs on CPU only. GPU support will be added in subsequent releases. In the meantime, users who need GPU acceleration can either force the classic engine or build OpenCV with ORT and NVIDIA execution providers."* | [opencv wiki OpenCV-5](https://github.com/opencv/opencv/wiki/OpenCV-5) |
+| **その classic エンジンが 5.x から削除された。** PR #29341 "Remove ENGINE CLASSIC, switching to ENGINE NEW as default engine"、merged `2026-07-29T07:30:29Z`、base `5.x`、milestone **5.1**、**61 ファイル / +307 −4698** | GitHub API `pulls/29341` |
+| **`enum EngineType` の値が総入れ替えになった**（下表） | `modules/dnn/include/opencv2/dnn/dnn.hpp` を `5.0.0` と `5.x` で読み比べ |
+| PR #29658 "Adding CUDNNJIT Support in OpenCV" が **`5.x` へ merge**（`2026-08-27T06:31:21Z`）、milestone **5.1**。**差分は 9 ファイル・+136 −8 で、ほぼ build system** —— `FindCUDNNJIT.cmake`（新規 71 行）、CUDA 検出 2 ファイル（+42）、`OpenCVMinDepVersions.cmake` 1 行（**`set(MIN_VER_CUDNNJIT 9.0)`** —— cuDNN 9.0 以上が要る）/ `cvconfig.h.in` 1 行、`modules/dnn/CMakeLists.txt`（+7 −7）、hook 1 行、`cuda4dnn/csl/cudnn/cudnn.hpp` **5 行**（唯一の C++ で、`HAVE_CUDNNJIT` のときに別ヘッダを include する条件分岐）。**推論のコードは含まれない** | GitHub API `pulls/29658` と同 `files` |
+| PR #29451 "Extending CUDA support in UMat"、merged `2026-07-29T05:49:36Z`、3 ファイル・+429 −0 | GitHub API `pulls/29451` |
+| Technical Committee 議事録（**2026-08-12 の回**）: *"PR #29658: CUDNN JIT: 9.3x speedup on Resnet 50 (RTX 6000 vs Intel Xeon)."* | [opencv wiki 2026](https://github.com/opencv/opencv/wiki/2026) |
+| 同（**2026-07-29 の回**）: *"DNN engine classic removal is DONE and merged finally"* / *"ONNX coverage is 72.9% now"* | 同 wiki |
+| **同型の 2 例目**: 5.0 は *"TFLite is still supported via the classic engine"* と案内しているが、その classic は削除された。5.x の `tflite_importer.cpp` は `ENGINE_AUTO` / `ENGINE_OPENCV` だけを受け、それ以外は warning を出す | [opencv wiki OpenCV-5](https://github.com/opencv/opencv/wiki/OpenCV-5) と `modules/dnn/src/tflite/tflite_importer.cpp@5.x` |
+| 5.1 の milestone は **open、期日なし**（open / closed の内訳は変動するので記録しない） | GitHub API `milestones` |
+
+**`enum EngineType` は値が付け替わっている**（`int` として C ABI を越える値なので、
+**コンパイルは通り、意味だけが黙って変わる**）。
+
+| | 5.0.0 | 現在の 5.x |
+| --- | --- | --- |
+| `ENGINE_AUTO` | **3** | **0** |
+| `ENGINE_CLASSIC` | 1 | **削除** |
+| `ENGINE_NEW` | 2 | **`ENGINE_OPENCV` に改名、値 1** |
+| `ENGINE_ORT` | **4** | **2** |
+
+これは `docs/abi-ownership-and-versioning.md` §2 が「bump する変更」に挙げている
+**「既存 status code の数値または意味が変わる」と同じ形**である。
+
+**同じ数字を `OPENCV_FORCE_DNN_ENGINE` という環境変数も使っている**（`OpenCV-5` が
+`1` classic / `2` new / `3` auto / `4` ORT と案内している）。**こちらは再ビルドすら
+要らない** —— 5.0 の手順書どおりに設定した利用者の環境で、5.1 は別のエンジンを引く。
+5.x の `resolveOnnxEngine`（`modules/dnn/src/onnx/onnx_importer.cpp`）を読んで機械的に導いた:
+
+| 5.0 で渡していた値 | 5.0 の意味 | 5.x での帰結 |
+| --- | --- | --- |
+| `1` | classic エンジン | **`ENGINE_OPENCV`**（classic は無いので、別物が動く） |
+| `2` | 新エンジン | **`ENGINE_ORT`** —— **ONNX Runtime に切り替わる。最も危険** |
+| `3` | auto | どの分岐にも当たらず無視され、既定の `ENGINE_OPENCV` に落ちる（**結果は同じ**） |
+| `4` | ORT | 強制の条件（`1` か `2`）に当たらず**黙って無視される** —— ORT を頼んだのに組み込みエンジンが動く |
+
+**`3` だけは壊れない。** 引数として `3` を渡した場合も warning 1 行で `ENGINE_OPENCV` に
+落ちるだけである。**黙って変わるのは `1` / `2` / `4` のほうである。**
+
+**判断に効いているのは 9.3 倍ではなく、この 3 つである。**
+
+1. **公式が案内する 2 本の GPU 経路のうち、1 本が消えた。** 5.0 の案内は
+   *"either **force the classic engine** or **build OpenCV with ORT and NVIDIA execution providers**"*
+   の 2 本で、**前者の classic エンジンが 5.x から削除された**（#29341）。
+   **後者は残っている**（`ENGINE_ORT` は 5.x の `dnn.hpp` に健在、`OpenCV-5` は
+   `-DWITH_ONNXRUNTIME=ON -DDOWNLOAD_ONNXRUNTIME_GPU=ON` を案内している）。
+   **残ったほうは決定 5 に直結する** —— ONNX Runtime GPU という別の再頒布物を引き込むからである。
+2. **`OPENCV_FORCE_DNN_ENGINE` の値が、再ビルドすら要らないまま意味を変える。**
+   `int` の列挙値だけでなく、**利用者が手元で設定する環境変数**が同じ数字を使っている（下表）。
+   5.0 の手順書どおりに設定した利用者が、5.1 では別のエンジンを引く。
+3. **公開列挙子が削除・改名された。** `ENGINE_CLASSIC` と `ENGINE_NEW` は 5.x の
+   `dnn.hpp` に存在せず、互換 alias も無い（実測）。**`Branches` wiki は「5.x は API 互換を
+   保つ」と明文で書いているが、#29341 はその明文を破っている** —— つまり
+   **壊れるのはバイナリだけでなくソースもである。** 明文のポリシーを実測より強い保証として
+   読んではいけない、という実例でもある。
+
+**ABI 非互換の明言そのものは、この判断には効かない。** このプラグインは OpenCV を静的リンクして
+`ocvu_` の C ABI だけを外に出すので、**上流の ABI はこの境界を越えない。** 5.0 → 5.1 で再リンクが
+要るのは、tag ごとに毎回やっていることである。**効くのは版を跨ぐ話のほう**（決定 3）で、
+そちらでは「構成ハッシュに tag を混ぜてある理由」として正しく効く。
+
+**壊れるものと壊れないものは分けられる。** 壊れるのは **engine / backend の選択**（列挙子、
+環境変数、GPU 経路）で、**壊れないのは推論の入口**（`readNetFromONNX` / `Net::forward` /
+`blobFromImage` は 5.x にも同じ名前で在る）。
+
+**9.3 倍が言っていないこと。** ここを取り違えると判断を誤る。
+
+**まず、同じ議事録に留保がある。** 2026-08-19 の回で opencv.ai のメンテナが
+*"experimenting with CUDNN JIT, have some troubles with building it"* と書いている
+（生の `2026.md:130` で確認。**この行を最初は落としていた**）。
+
+**そして、この数字を出した実装がどこにあるのかは追えていない。** 議事録は #29658 と
+**#29656 "Added Backend Agnostic fusion in DNN"**（milestone 5.1、+1681 −47、**`open`**）を
+並べて 3 回報告しているが、**#29656 は cuDNN JIT とは別の作業である** —— 17 ファイルの
+どれも `cuda` / `cudnn` に触れておらず、PR 本文自身が *"only the third CPU-specific"* /
+*"CPU implementations behind it"* と書いている。**並んでいるのは同じ寄稿者の作業項目だから**で
+あって、一方が他方の本体だからではない。**「本体はこれだ」と結び付けない。**
+
+- **GPU と CPU の比較である。** 「cuDNN JIT が既存の CUDA backend より 9.3 倍速い」ではない。
+  **こちらが得られる差分の大きさは、この数字からは読めない。**
+- 方法論が無い（batch size、精度、Xeon の型番、OpenCV の版、比較した backend）。**議事録の 1 行**である
+- **merge されたのは検出と接続だけ**なので、この数字を出した実装がどこにあるのかは追えていない。
+  「support が入った」は「実行経路が入った」ではない —— **`imgcodecs` で踏んだ「ビルドに入っている」と
+  「リンクしている」の取り違えと同じ形**である（M3.5 節）
+
+### 決定: native bridge を module 単位に分ける
+
+**上の事実は「dnn 周辺はいま動いている最中である」ことを裏づける** —— 旧エンジンは
+既に削除され、CUDA / UMat の統合は進行中で、期日も安定性の約束も無い。したがって
+**5.0 に固定した DNN ラッパーを作り込まない。** 次を決める。
+
+1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
+   `dnn` は別ヘッダ・別 `.cpp`・別 CMake target に置く。共通の型・status・version だけを
+   `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る。**
+2. **C# 側も別 assembly にする。** `Runtime/Core` / `Runtime/Interop` の分離
+   （`UnityEngine` を参照しない）と同じ理由で、**dnn が入らないビルドで参照が壊れない**形にする。
+3. **OpenCV の版を跨げるようにする。** 構成ハッシュには tag が入るので、tag を変えれば
+   古い artifact は使われなくなる（tag は M1 から入っている。M3 Task 1 が足したのは
+   `Platform` である）。**しかしこれは「2 つの版が同時に成立する」
+   ではない** —— 現状は**同時に 1 つだけ**である。並走させるには次が要る:
+
+   - `tools/opencv-config.psd1` の `Tag` は**単数**で、`Get-OpenCvConfig` は版の軸を持たない
+   - `.github/workflows/build-opencv.yml` の job 名が `OpenCV 5.0.0 …` の直書き（matrix は platform だけ）
+   - **版文字列を直に assert している 5 箇所**を書き換える必要がある ——
+     `native/tests/test_opencv_link.cpp`、`tests/Managed/CvUnity.Tests.Managed/OpenCvInfoTests.cs`、
+     `tests/UnityProject/Assets/Tests/EditMode/VerticalSliceTests.cs`、
+     `tests/UnityProject/Assets/Tests/PlayMode/PlayerSmokeTests.cs`、
+     `tools/tests/OpenCvConfig.Tests.ps1`
+
+   **つまり「確認」ではなく、config に軸を 1 本増やす設計作業である。**
+4. **`dnn` を allowlist に足すのは、上の 1〜3 が済んでから。** 現在の `Modules` は
+   `core / imgproc / imgcodecs / objdetect / features` で **dnn は入っていない**。足すと OpenCV 側の
+   ビルド時間と成果物サイズが変わる。**あわせて `THIRD_PARTY_NOTICES.md` の作業が要る** ——
+   同文書が明文で指示している: *"If a future `Modules` list adds `dnn` or `gapi`, re-run these
+   searches — they will very likely start matching, and these two need to move up into the
+   reproduced sections above."* dlpack と flatbuffers はいま「ライセンスディレクトリにあるが
+   リンクされていない」側に分類されており、**`dnn` を足すとその分類が崩れる**（protobuf も入る）。
+5. **CUDA / cuDNN を同梱するなら、2 つの前提条件を先に潰す。** どちらも技術判断ではない。
+
+   - **再配布の可否（未確認）。** 「本体が Apache-2.0」と「binary 内の全依存が Apache-2.0」は
+     別問題である（計画書 §8.2。ただし同節が扱うのは FFmpeg / JPEG / PNG 等で、**CUDA / cuDNN には
+     触れていない**）。cuDNN は NVIDIA のライセンス条項の下にあるが、**その条項を読んでいない。**
+     ここは「確かめていない」であって「配れない」ではない
+   - **大きさ（ライセンスより先に効く）。** **実測（2026-08-30、PyPI の
+     `nvidia-cudnn-cu12` 9.25.1.1）: 1 platform あたり 698〜772 MB**（win_amd64 698.4 /
+     manylinux x86_64 716.4 / aarch64 772.1）。`tools/pack-upm-tarball.ps1` の上限は
+     **512 MB** で、現在の全部入りは 9.6 MB である。**1 platform 分だけで既に上限を超える** ——
+     ライセンスが解決しても、いまの形では配れない。同梱するのか、利用者側での導入を
+     前提にするのかを決める必要がある。**ORT + NVIDIA execution provider の経路
+     （根拠 1 で残ったほう）も同じ問いに突き当たる。**
+
+   確かめるまで、CUDA backend を完了条件に入れない。
+
+**まだ決めていないこと**（M5 / M7 で決める）
+
+- **`OCVU_ABI_VERSION` は単一の整数のまま**である（正本は
+  `docs/abi-ownership-and-versioning.md` §2 の「決定」。ここで再オープンしない）。
+  module 分離がこの決定に影響しうるなら、**正本のほうに留保を書く**
+- dnn を**別 package**（`…-dnn`）で配るか、同じ package の optional profile にするか。
+  **全部入り tarball を配る正にしたのは M3.5 の決着**なので、dnn を足すことは
+  **「中身を足す」ではなく「形を変える」**ことになりうる
+- GPU backend を持つ版の platform matrix（CUDA の版 × OS）。現在の 3 platform × 1 構成が何倍になるか
+
+**差別化としての位置づけは変えない。** 競合が書き直し前のエンジンを載せている点は
+[競合調査](./unity-opencv-integration-research-and-plan.md) §3 / §4.6 のとおりで、
+**Unity 利用者には推論エンジンの代替がある**という理由も変わらない。**変わったのは
+「5.0 で作り込むと 5.1 で作り直しになる」という具体的な根拠が付いたこと**である。
+
 **完了条件**
 
 - profile ごとの native artifact、manifest、third-party notices
 - RenderTexture / native texture pointer / AsyncGPUReadback を使う低コピー経路の評価
 - package size、startup time、frame time、allocation の benchmark を公開
+- **`dnn` を足す前に、C ABI と C# の module 分離が済んでいること**（上の 1〜2）
+- **CUDA / cuDNN を同梱するなら、再配布条件の確認が済んでいること**（上の 5）。
+  確認できないなら**同梱しない**と決めて記録する
 
 ---
 

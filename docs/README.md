@@ -8,6 +8,7 @@
   - 確定事項（backend 言語、package ID、対象 Unity、OpenCV 入手方法、CI 方針、Windows のランタイムライブラリ linkage）
   - M0〜M7（2026-08-29 に足した **M3.5** を含む）の各マイルストーンの目的・ゴール・完了条件・非ゴール
   - **差別化の穴**（2026-08-29 の再調査。競合が全員 OpenCV 4 系のままであること、差別化の穴 10 件（掲げている差別化のうち達成していないものと、競合が持っていて本案が持たないものの合算）と、その担当。**うち 3 件は M3.5 で解消し、1 件が部分達成になった**）
+  - **M7 の上流調査**（2026-08-30。OpenCV 5.1 に向けて `dnn` がどう動いているかを一次情報で確かめ、`dnn` を足す前に native bridge を module 単位に分ける決定を入れた）
   - ローカルループと CI の役割分担、GitHub Actions のワークフロー構成（M3 の後に `ci-lint` / `codeql` / `nightly` と Dependabot を追加。**`nightly` は schedule でまだ 1 度も走っていない**）
   - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）、[M3.5 配布の形と最小の穴](./superpowers/plans/2026-08-30-m3.5-distribution-shape.md)（全部入り tarball / `imgcodecs` / Unity 6.3。**残っているのは OpenUPM の登録申請だけ**——詳細は roadmap の M3.5 節）
 - [API リファレンス](./api-reference.md)
