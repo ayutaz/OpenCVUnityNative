@@ -78,6 +78,13 @@ $Allowed = @(
     'Linux/x86_64/libopencv_unity_native.so.meta'
     'Linux/x86_64.meta'
     'Linux.meta'
+    'Android/arm64-v8a/libopencv_unity_native.so'
+    'Android/arm64-v8a/libopencv_unity_native.so.meta'
+    'Android/arm64-v8a.meta'
+    'Android.meta'
+    'iOS/libopencv_unity_native.a'
+    'iOS/libopencv_unity_native.a.meta'
+    'iOS.meta'
 )
 
 # binary とその .meta の対応。片方だけ運ぶことを防ぐ。

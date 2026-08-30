@@ -91,6 +91,10 @@ $PlatformBinaries = [ordered]@{
     'windows-x64' = 'Runtime/Plugins/x86_64/opencv_unity_native.dll'
     'macos-arm64' = 'Runtime/Plugins/macOS/libopencv_unity_native.dylib'
     'linux-x64'   = 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so'
+    'android-arm64' = 'Runtime/Plugins/Android/arm64-v8a/libopencv_unity_native.so'
+    # **iOS だけ拡張子が違う。** アプリの外から .dylib を読み込めないので
+    # 静的ライブラリを配り、IL2CPP のバイナリへ静的リンクさせる。
+    'ios-arm64'     = 'Runtime/Plugins/iOS/libopencv_unity_native.a'
 }
 
 <#
@@ -112,6 +116,13 @@ $AllowedPluginFiles = @(
     'Linux/x86_64/libopencv_unity_native.so.meta'
     'Linux/x86_64.meta'
     'Linux.meta'
+    'Android/arm64-v8a/libopencv_unity_native.so'
+    'Android/arm64-v8a/libopencv_unity_native.so.meta'
+    'Android/arm64-v8a.meta'
+    'Android.meta'
+    'iOS/libopencv_unity_native.a'
+    'iOS/libopencv_unity_native.a.meta'
+    'iOS.meta'
 )
 
 <#
@@ -137,8 +148,17 @@ function Test-PluginTreeContents {
             $unexpected += "知らないファイル: $rel"
             continue
         }
-        # binary は、この platform のものだけが在ってよい。
-        if ($rel -match '\.(dll|dylib|so)$' -and "Runtime/Plugins/$rel" -notin $ExpectedBinaries) {
+        <#
+            binary は、この platform のものだけが在ってよい。
+
+            **拡張子で判定しない。** 以前は (dll|dylib|so) で拾っていたが、
+            iOS の静的ライブラリは .a なので「binary ではない」と扱われ、
+            **別 platform の混入を素通しした**（M4 で足したときに実測）。
+            $PlatformBinaries が持つ相対パスの集合で判定する ——
+            **どれが binary かの正本はそこ 1 箇所である。**
+        #>
+        $relFull = "Runtime/Plugins/$rel"
+        if ($relFull -in $PlatformBinaries.Values -and $relFull -notin $ExpectedBinaries) {
             $unexpected += "別 platform の binary: $rel"
         }
     }
@@ -227,7 +247,7 @@ if ($AllPlatforms) {
         [Console]::Error.WriteLine(@(
             '全部入りに必要な binary が揃っていません:'
             ($missing | ForEach-Object { "  - $_" })
-            'tools/assemble-plugins.ps1 で 3 platform 分を重ねてから固めること。'
+            "tools/assemble-plugins.ps1 で $($PlatformBinaries.Count) platform 分を重ねてから固めること。"
         ) -join "`n")
         exit 1
     }
@@ -321,19 +341,39 @@ if ($entries -notcontains 'package/package.json') {
 }
 
 <#
-    全部入りなら、3 つの binary が実際に archive の中に在ることまで見る。
+    全部入りなら、**期待した数の binary が実際に archive の中に在る**ことまで見る。
     ディレクトリを見ただけでは、tar が取りこぼした場合に気づけない。
+
+    **数を直書きしない。** $PlatformBinaries から導く —— platform を足したときに
+    片方だけ直して片方が古いまま、という状態を作らない。
+
+    拡張子で拾うのもやめた。iOS の静的ライブラリは .a で、拡張子の一覧を
+    別に持つと**そこも直し忘れる**。$PlatformBinaries が持つファイル名で照合する。
 #>
 if ($AllPlatforms) {
-    $packedBinaries = @($entries | Where-Object { $_ -match '\.(dll|dylib|so)$' })
-    if ($packedBinaries.Count -ne 3) {
+    $expectedNames = @($PlatformBinaries.Values | ForEach-Object { Split-Path -Leaf $_ })
+    $packedBinaries = @($entries | Where-Object {
+        (Split-Path -Leaf $_) -in $expectedNames
+    })
+    # **重複を数えない。** 同じファイル名（Android と Linux はどちらも
+    # libopencv_unity_native.so）が別ディレクトリに在るので、名前ではなく
+    # 相対パスの一致で数える。
+    $packedPaths = @($PlatformBinaries.Values | Where-Object {
+        $rel = $_
+        @($entries | Where-Object { $_ -like "package/$rel" }).Count -gt 0
+    })
+    if ($packedPaths.Count -ne $PlatformBinaries.Count) {
+        $absent = @($PlatformBinaries.GetEnumerator() |
+                    Where-Object { $_.Value -notin $packedPaths } |
+                    ForEach-Object { "$($_.Key): $($_.Value)" })
         [Console]::Error.WriteLine(@(
-            "全部入りの archive に binary が $($packedBinaries.Count) 個しかありません（3 個であるべき）。"
-            "入っていたもの: $(if ($packedBinaries) { $packedBinaries -join ', ' } else { '(なし)' })"
+            "全部入りの archive に binary が $($packedPaths.Count) 個しかありません（$($PlatformBinaries.Count) 個であるべき）。"
+            '入っていないもの:'
+            ($absent | ForEach-Object { "  - $_" })
         ) -join "`n")
         exit 1
     }
-    Write-Host "==> archive contains all three binaries" -ForegroundColor Green
+    Write-Host "==> archive contains all $($PlatformBinaries.Count) platform binaries" -ForegroundColor Green
 }
 
 <#

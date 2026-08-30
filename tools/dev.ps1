@@ -357,6 +357,27 @@ function Get-UnityEditorPath {
     ことを意味し、それは成功ではない。
 #>
 <#
+    **全部入りに入るべき binary の一覧。正本はここ 1 箇所。**
+
+    以前は 2 箇所に同じ 3 行を書いていた。platform を足したときに片方だけ
+    直して片方が古いまま、という状態を作らないために 1 つにまとめる
+    （M4 で 3 -> 5 に増えたときに実際に踏みかけた）。
+
+    **tools/pack-upm-tarball.ps1 の $PlatformBinaries と同じ集合であること。**
+    あちらは packer の正本で、こちらは「揃っているか」を見る側である。
+    ずれると、揃っていないのに全部入りとして扱う（またはその逆）が起きる。
+    tools/tests/PackageRelease.Tests.ps1 が両者を突き合わせる。
+#>
+$script:AllPlatformBinaries = @(
+    'x86_64/opencv_unity_native.dll'
+    'macOS/libopencv_unity_native.dylib'
+    'Linux/x86_64/libopencv_unity_native.so'
+    'Android/arm64-v8a/libopencv_unity_native.so'
+    'iOS/libopencv_unity_native.a'
+)
+
+
+<#
     「3 つ揃っているはず」という合図を、**木から導出して**置く。
 
     ## なぜ「消す」ではなく「導出する」なのか
@@ -391,16 +412,13 @@ function Sync-AllPlatformsMarker {
     param([Parameter(Mandatory)][string] $ProjectPath)
 
     $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
-    $present = @(
-        'x86_64/opencv_unity_native.dll'
-        'macOS/libopencv_unity_native.dylib'
-        'Linux/x86_64/libopencv_unity_native.so'
-    ) | Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) }
+    $present = @($script:AllPlatformBinaries |
+                 Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) })
 
     $marker = Join-Path $ProjectPath 'ocvu-expect-all-platforms'
-    if ($present.Count -eq 3) {
+    if ($present.Count -eq $script:AllPlatformBinaries.Count) {
         Set-Content -LiteralPath $marker -Value '1' -NoNewline -Encoding utf8
-        Write-Host '==> 3 platform 分が揃っているので、テストに 3 つを要求させる' -ForegroundColor Cyan
+        Write-Host "==> $($present.Count) platform 分が揃っているので、テストに $($present.Count) つを要求させる" -ForegroundColor Cyan
     } else {
         Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
     }
@@ -495,13 +513,10 @@ function Test-UnityTarball {
             何を見たか」は別である。
         #>
         $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
-        $present = @(
-            'x86_64/opencv_unity_native.dll'
-            'macOS/libopencv_unity_native.dylib'
-            'Linux/x86_64/libopencv_unity_native.so'
-        ) | Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) }
-        if ($present.Count -eq 3) {
-            Write-Host "==> 3 platform 分が既に揃っているので全部入りとして検査する" -ForegroundColor Cyan
+        $present = @($script:AllPlatformBinaries |
+                     Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) })
+        if ($present.Count -eq $script:AllPlatformBinaries.Count) {
+            Write-Host "==> $($present.Count) platform 分が既に揃っているので全部入りとして検査する" -ForegroundColor Cyan
             $allPlatforms = $true
         }
     }

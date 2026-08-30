@@ -409,10 +409,15 @@ try {
     New-Item -ItemType Directory -Force -Path $allOut | Out-Null
 
     $pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+    # **正本は tools/dev.ps1 の $script:AllPlatformBinaries と
+    # tools/pack-upm-tarball.ps1 の $PlatformBinaries である。** ここに書くのは
+    # 3 箇所目なので、上の「3 箇所で一致する」検査がずれを捕まえる。
     $allBinaries = @(
         'x86_64/opencv_unity_native.dll'
         'macOS/libopencv_unity_native.dylib'
         'Linux/x86_64/libopencv_unity_native.so'
+        'Android/arm64-v8a/libopencv_unity_native.so'
+        'iOS/libopencv_unity_native.a'
     )
 
     <#
@@ -455,7 +460,8 @@ try {
     try {
         $allPacked = & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms |
                      Select-Object -Last 1
-        Assert-That ($LASTEXITCODE -eq 0) '-AllPlatforms packs when all three binaries are present'
+        Assert-That ($LASTEXITCODE -eq 0) `
+            "-AllPlatforms packs when all $($allBinaries.Count) binaries are present"
 
         if ($allPacked -and (Test-Path -LiteralPath $allPacked)) {
             # **名前に版番号を入れない。** OpenUPM の githubReleaseAssetName は
@@ -467,16 +473,24 @@ try {
             try { $allEntries = @(& tar -tzf (Split-Path -Leaf $allPacked)) }
             finally { Pop-Location }
 
-            $packedBins = @($allEntries | Where-Object { $_ -match '\.(dll|dylib|so)$' })
-            Assert-That ($packedBins.Count -eq 3) `
-                "the all-in-one archive carries three binaries (saw $($packedBins.Count))"
+            # **拡張子で拾わない。** iOS の静的ライブラリは .a なので、
+            # (dll|dylib|so) の一覧では黙って抜ける。相対パスで照合する。
+            $packedBins = @($allBinaries | Where-Object {
+                $rel = $_
+                @($allEntries | Where-Object { $_ -eq "package/Runtime/Plugins/$rel" }).Count -eq 1
+            })
+            Assert-That ($packedBins.Count -eq $allBinaries.Count) `
+                "the all-in-one archive carries all $($allBinaries.Count) binaries (saw $($packedBins.Count))"
 
             # **>= ではなく = で見る。** 「3 つ以上」だと、7 つ在るべきところが
             # 4 つでも通ってしまう。この archive の中身は一覧そのものが契約である。
             $packedMetas = @($allEntries |
                 Where-Object { $_ -like 'package/Runtime/Plugins/*' -and $_ -like '*.meta' })
-            Assert-That ($packedMetas.Count -eq 7) `
-                "the all-in-one archive carries all seven plugin metas (saw $($packedMetas.Count): $($packedMetas -join ', '))"
+            # **数を直書きしない。** tools/plugin-meta/ にある .meta の総数から
+            # 導く —— platform を足したときに片方だけ古くなるのを避ける。
+            $expectedMetaCount = @(Get-ChildItem (Join-Path $repoRoot 'tools/plugin-meta') -Recurse -File -Filter '*.meta').Count
+            Assert-That ($packedMetas.Count -eq $expectedMetaCount) `
+                "the all-in-one archive carries all $expectedMetaCount plugin metas (saw $($packedMetas.Count): $($packedMetas -join ', '))"
         }
 
         # 負 1: binary が 1 つ欠けたら止まる。
@@ -584,6 +598,80 @@ if (Test-Path -LiteralPath $notesPath) {
     Assert-That ($workflow -notmatch '--notes\s+"') `
         'release.yml does not inline the notes (escaping them by hand is where they break)'
 }
+
+# --- 全部入りの platform 一覧が 3 箇所で一致する（M4 Task 7）---
+#
+# **platform を足すときに直す場所が 3 つある**（packer / assembler / dev.ps1）。
+# roadmap は「2 か所を直すことになる」と書いていたが、実際は dev.ps1 の
+# 「揃っているか」を見る側もある。**ずれると、揃っていないのに全部入りとして
+# 扱う（またはその逆）が起きる。**
+$packText     = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1') -Raw
+$assembleText = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/assemble-plugins.ps1') -Raw
+$devText      = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
+
+$expectedRelative = @(
+    'x86_64/opencv_unity_native.dll'
+    'macOS/libopencv_unity_native.dylib'
+    'Linux/x86_64/libopencv_unity_native.so'
+    'Android/arm64-v8a/libopencv_unity_native.so'
+    'iOS/libopencv_unity_native.a'
+)
+
+foreach ($rel in $expectedRelative) {
+    Assert-That ($packText -match [regex]::Escape($rel)) "pack-upm-tarball.ps1 knows $rel"
+    Assert-That ($assembleText -match [regex]::Escape($rel)) `
+        "assemble-plugins.ps1 carries $rel (packer だけでは全部入りに入らない)"
+    Assert-That ($devText -match [regex]::Escape($rel)) `
+        "dev.ps1 counts $rel when deciding whether the tree is all-platform"
+}
+
+# **iOS の静的ライブラリを拡張子で取りこぼさない。** .a は dll/dylib/so の
+# どれでもないので、拡張子の一覧で拾う実装だと黙って抜ける。
+<#
+    **説明文に書いてあるだけで満たせない形にする。**
+
+    最初は行に (dll|dylib|so) が出るかだけを見ていたが、**`<# #>` の中の
+    説明文に当たって落ちた** —— 行頭 # を落とすだけではブロックコメントを
+    除けない。このリポジトリが繰り返し潰してきた穴と同じ形である。
+
+    実際の欠陥は「**-match の演算子で拡張子を判定している**」ことなので、
+    その形だけを禁じる。散文はいくら書いてよい。
+#>
+$packLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1'))
+Assert-That (@($packLines | Where-Object { $_ -match "-match\s+'[^']*dll\|dylib\|so" }).Count -eq 0) `
+    'pack-upm-tarball.ps1 does not -match a dll/dylib/so extension list to identify shipped binaries (iOS の .a が抜ける)'
+
+<#
+    **.meta の GUID が重複していないこと。**
+
+    重複すると Unity が片方を無視する。**どちらが無視されるかは決まっていない**
+    ので、「ある環境では動くが別の環境では動かない」という最も追いにくい形になる。
+#>
+$metaGuids = @()
+foreach ($m in Get-ChildItem (Join-Path $repoRoot 'tools/plugin-meta') -Recurse -Filter '*.meta') {
+    if ((Get-Content -LiteralPath $m.FullName -Raw) -match 'guid:\s*([0-9a-f]{32})') {
+        $metaGuids += $Matches[1]
+    }
+}
+Assert-That ($metaGuids.Count -ge 12) `
+    "plugin-meta has at least 12 .meta files with a guid (saw $($metaGuids.Count))"
+Assert-That ((@($metaGuids | Sort-Object -Unique)).Count -eq $metaGuids.Count) `
+    'every .meta guid is unique (重複すると Unity が片方を黙って無視する)'
+
+# binary と .meta は対で運ばれる。**binary の無い .meta を置くと Unity に
+# 消される**（M3 のレビュー M4）ので、対応する .meta が実在することを見る。
+$metaExpectations = @{
+    'windows-x64'   = 'x86_64/opencv_unity_native.dll.meta'
+    'macos-arm64'   = 'macOS/libopencv_unity_native.dylib.meta'
+    'linux-x64'     = 'Linux/x86_64/libopencv_unity_native.so.meta'
+    'android-arm64' = 'Android/arm64-v8a/libopencv_unity_native.so.meta'
+    'ios-arm64'     = 'iOS/libopencv_unity_native.a.meta'
+}
+foreach ($entry in $metaExpectations.GetEnumerator()) {
+    $metaPath = Join-Path $repoRoot "tools/plugin-meta/$($entry.Key)/$($entry.Value)"
+    Assert-That (Test-Path -LiteralPath $metaPath) "tools/plugin-meta/$($entry.Key) has $($entry.Value)"
+}
+
 if ($failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
     exit 1
