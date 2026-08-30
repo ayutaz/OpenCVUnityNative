@@ -28,11 +28,12 @@ M3.5 で 2 つの前提が揃った。
 ## 提出前に満たす必要があること
 
 - [ ] **新しい名前で公開済みのリリースが 1 つあること。**
-      現在の最新 v0.1.1 の asset は旧命名なので、**M3.5 をマージしてタグを打った後**でないと
-      OpenUPM のビルドが asset を見つけられない
-- [ ] `package.json` の `version` をそのタグに合わせて上げること（現在 `0.1.1`）
-- [ ] 全部入りの tarball が 512 MB 未満であること
-      （`tools/pack-upm-tarball.ps1` が既定で検査する。実測 8.4 MB）
+      最新の v0.1.1 の asset は旧命名なので、**`v0.2.0` を打って公開するまで**は
+      OpenUPM のビルドが asset を見つけられない。M3.5 自体は既に main に入っている（PR #34）
+- [ ] `package.json` の `version` をそのタグに合わせること。
+      **`0.2.0` に上げてある**が、tag はまだ打っていないので突き合わせは済んでいない
+- [x] 全部入りの tarball が 512 MB 未満であること。
+      **空撃ちが既定の `-MaxBytes` で実際に通した**（run 33286928144、2026-08-30。実測 9.6 MB）
 
 ## 提出するもの
 
@@ -54,7 +55,7 @@ hunter: ayutaz
 image: null
 gitTagPrefix: 'v'
 gitTagIgnore: null
-minVersion: ''
+minVersion: '0.2.0'
 # **binary は git の追跡外にあるので、tag からソースを固める既定の経路では
 # 実体が入らない。** Release に添付した tarball をそのまま公開してもらう。
 trackingMode: githubRelease
@@ -63,9 +64,14 @@ githubReleaseAssetName: com.ayutaz.opencv-unity-native.tgz
 readme: 'main:README.md'
 ```
 
+**提出の直前に、`minVersion` が実在するタグかを確かめること。** リリース前に
+修正が入って `v0.2.1` から出すことになれば、この値は静かに誤りになり、OpenUPM 側では
+「存在しない版を最小とする定義」になる。`gh release view v<minVersion>` が引ければよい。
+
 `minVersion` は、**新しい asset 名で出す最初のタグ**を書くのが正しい。
-それより前のタグには全部入りの asset が無く、OpenUPM のビルドが失敗するためである。
-タグを決めてから埋めること。
+それより前のタグ（v0.1.0 / v0.1.1）には全部入りの asset が無く、OpenUPM の
+ビルドが失敗するためである。**`0.2.0` を埋めてある** —— 全部入りの asset を
+持つ最初のタグがこれになる。
 
 ## 受理は完了条件に含まない
 
