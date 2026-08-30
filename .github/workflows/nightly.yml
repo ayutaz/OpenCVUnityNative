@@ -203,7 +203,18 @@ jobs:
           Import-Module ./tools/OpenCvConfig.psm1 -Force
 
           $missing = @()
-          foreach ($platform in @('windows-x64', 'macos-arm64', 'linux-x64')) {
+          # **列挙を写さない。正本から読む。**
+          # ここは step の名前が "every platform" と言っているのに
+          # 3 platform を直書きしており、M4 でモバイルを足したときに
+          # 置いていかれた。artifact が黙って消えても気づかない状態だった。
+          $platforms = @((Import-PowerShellDataFile ./tools/opencv-config.psd1).Toolchains.Keys | Sort-Object)
+          if ($platforms.Count -lt 3) {
+              Write-Error "opencv-config.psd1 から platform を読めませんでした（$($platforms.Count) 件）。"
+              exit 1
+          }
+          Write-Host "==> checking $($platforms.Count) platforms: $($platforms -join ', ')"
+
+          foreach ($platform in $platforms) {
               $config = Get-OpenCvConfig -Platform $platform
               $hash = Get-OpenCvConfigHash -Config $config
               $name = "opencv-$($config.Tag)-$platform-$hash"

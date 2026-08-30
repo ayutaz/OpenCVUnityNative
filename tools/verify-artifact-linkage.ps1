@@ -394,8 +394,10 @@ switch ($Platform) {
         Test-StaticArchiveLinkage -Root $Root -PlatformLabel 'macos-arm64'
     }
     default {
-        # 未対応 platform を黙って通さない。4 つ目の platform が増えたときの
-        # 安全網として、実装済みの 3 platform を足した後も残す。
+        # 未対応 platform を黙って通さない。**M4 でモバイルが増えたとき、
+        # この既定がそのまま安全網として働いた** —— 呼ぶ側（release.yml）が
+        # android / ios を名指しで skip するまで、ここが失敗させていた。
+        # linkage 検証を実装しているのは desktop の 3 platform だけである。
         Write-VerifyFailure (@(
             "linkage verification is not implemented for platform '$Platform'."
             'この検査は未対応 platform を成功にしない。実装するまで失敗させる。'

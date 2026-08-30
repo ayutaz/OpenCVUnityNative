@@ -11,8 +11,9 @@ Set-StrictMode -Version Latest
 
     ライセンスの配置は platform で変わる（tools/verify-opencv-artifact.ps1 と
     同じ理解）:
-      Windows      etc/licenses/<file>
-      macOS/Linux  share/licenses/opencv5/<file>
+      Windows          etc/licenses/<file>
+      macOS/Linux/iOS  share/licenses/opencv5/<file>
+      Android          sdk/etc/licenses/<file>
     片方しか見ない実装は、Unix 系のビルドで SBOM が黙って空になる。この
     マシンには macOS / Linux の実機artifactが無いので、配置だけを模した
     合成ツリーで両方の経路を確かめる。
@@ -113,6 +114,41 @@ else {
     Assert-That $false 'the Unix-layout SBOM picks up zlib from share/licenses/opencv5'
 }
 Remove-Item -Recurse -Force $populatedUnixRoot, $tmp -ErrorAction SilentlyContinue
+
+# --- SBOM: Android レイアウト（sdk/etc/licenses/）からも component が拾われる ---
+#
+# **M4 のレビューで見つかった穴。** Android の OpenCV は install の木ごと
+# sdk/ の下に作り直すので、ライセンスは sdk/etc/licenses/ に置かれる（実測:
+# build-opencv のログに sdk/etc/licenses/cpufeatures-LICENSE が出る）。
+# verify-opencv-artifact.ps1 には sdk/ を教えたのに、package-release.ps1 には
+# 教えていなかった。
+#
+# **CI が全部緑のまま残った。** release.yml は tag と手動でしか起動せず、
+# 5 platform 構成では一度も走っていなかったので、「tag を打った瞬間に
+# android-arm64 の job が落ちて Release が 1 件も作られない」状態だった。
+# ここで見ておけば、tag を打つ前に赤くなる。
+$androidRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'sdk/etc/licenses'
+'cpufeatures license text' | Set-Content -LiteralPath (Join-Path $androidRoot 'sdk/etc/licenses/cpufeatures-LICENSE') -Encoding utf8
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $androidRoot -Platform 'android-arm64' | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'a populated sdk/etc/licenses (Android layout) succeeds'
+if (Test-Path -LiteralPath (Join-Path $tmp 'sbom.spdx.json')) {
+    $androidSbom = Get-Content -LiteralPath (Join-Path $tmp 'sbom.spdx.json') -Raw | ConvertFrom-Json
+    $androidNames = @($androidSbom.packages | ForEach-Object { $_.name })
+    Assert-That (@($androidNames | Where-Object { $_ -like '*cpufeatures*' }).Count -gt 0) `
+        'the Android-layout SBOM picks up cpufeatures from sdk/etc/licenses'
+}
+else {
+    Assert-That $false 'the Android-layout SBOM picks up cpufeatures from sdk/etc/licenses'
+}
+Remove-Item -Recurse -Force $androidRoot, $tmp -ErrorAction SilentlyContinue
+
+# --- SBOM: Android レイアウトが存在するが空なら失敗する ---
+$emptyAndroidRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'sdk/etc/licenses'
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $emptyAndroidRoot -Platform 'android-arm64' 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an empty sdk/etc/licenses (Android layout) fails rather than emitting an empty SBOM'
+Remove-Item -Recurse -Force $emptyAndroidRoot, $tmp -ErrorAction SilentlyContinue
 
 # --- checksums: native plugin が無ければ失敗する（黙って空の checksums.txt を出さない） ---
 #

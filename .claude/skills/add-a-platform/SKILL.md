@@ -55,6 +55,22 @@ plugin のクロスビルドが緑になってから **CI で 8 回落ちた。*
 加えて `tools/tests/OpenCvConfig.Tests.ps1` と `tools/tests/PackageRelease.Tests.ps1`
 が、上のいくつかの一致と数を見ている。**そちらの数も一緒に増える。**
 
+**この表を短くする方法が 1 つだけある: 写すのをやめて導出する。**
+M4 のレビューで 18 番目が見つかった —— `.github/workflows/nightly.yml` の
+「Check every platform's artifact」が 3 platform を直書きしており、**step の
+名前が "every platform" と言っているのに 5 中 3 しか見ていなかった。**
+artifact が黙って期限切れになっても気づかない状態である。
+
+直し方は表に足すことではなく、**正本から読ませて表から外すこと**だった:
+
+```powershell
+$platforms = @((Import-PowerShellDataFile ./tools/opencv-config.psd1).Toolchains.Keys | Sort-Object)
+if ($platforms.Count -lt 3) { Write-Error '...'; exit 1 }   # 読めなければ落とす
+```
+
+**写している場所は「直す場所」を 1 つ増やし、導出に変えれば 1 つ減る。**
+新しく platform 一覧を書きたくなったら、まず正本から読めないかを考えること。
+
 **数を信用しない。** この表の「17」も、次に platform を足す人にとっては古い。
 `git grep -c -E '<既存の platform 名>'` で数え直すこと。**文書に書かれた数は、
 足したときに一緒に増えるとは限らない** —— roadmap は長らく「2 か所」と書いて

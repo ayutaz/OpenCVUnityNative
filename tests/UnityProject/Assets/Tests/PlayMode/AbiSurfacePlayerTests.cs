@@ -7,8 +7,9 @@ using UnityEngine.TestTools;
 /// **ここが本命である。** IL2CPP の stripping が P/Invoke 宣言を削ると、
 /// このレーンだけが <c>EntryPointNotFoundException</c> になる。M4 の点検まで、
 /// cvt_color / resize / mat_clone / imencode / imdecode / get_build_information /
-/// debug_throw は Player から一度も呼ばれていなかった —— 消えても誰も
-/// 気づかない状態だった。
+/// debug_throw の **7 本**は Player から一度も呼ばれていなかった —— 消えても
+/// 誰も気づかない状態だった。数え方と、通していない 2 本については
+/// <see cref="AbiSurfaceChecks"/> の説明を見ること。
 /// </summary>
 public class AbiSurfacePlayerTests
 {

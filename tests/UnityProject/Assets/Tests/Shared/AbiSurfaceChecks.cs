@@ -7,11 +7,25 @@ using UnityEngine;
 /// <summary>
 /// **Unity のどちらのレーンからも一度も呼ばれていなかった公開 API を呼ぶ。**
 ///
-/// M4 の点検で実測した: 宣言されている 20 本の P/Invoke のうち 8 本が、
-/// Editor でも Player でも一度も到達していなかった —— cvt_color / resize /
-/// mat_clone / imencode / imdecode / get_build_information / debug_throw と
-/// status 表の 2 本である。L1 と L3 は見ているので「テストが無い」わけでは
-/// ないが、**このリポジトリが守ると宣言しているのは
+/// M4 の点検で実測した。package が宣言する P/Invoke は **19 本**
+/// （<c>[DllImport]</c> は 21 個あるが、<c>mat_copy_from_buffer</c> と
+/// <c>mat_copy_to_buffer</c> は byte[] 版と IntPtr 版で 2 重に宣言されている。
+/// また <c>ocvu_debug_crash</c> は C ABI には在るが package は宣言しないので、
+/// <c>CLAUDE.md</c> の「公開 ABI は 20 本」とは数え方が違う）。
+///
+/// そのうち **7 本が、Editor でも Player でも一度も到達していなかった**:
+/// cvt_color / resize / mat_clone / imencode / imdecode /
+/// get_build_information / debug_throw。このクラスがその 7 本を通す。
+///
+/// 残る 2 本（<c>ocvu_get_status_count</c> / <c>ocvu_get_status_value</c>）は
+/// **出荷する C# のどこからも呼ばれていない** —— 呼ぶ側が無く、
+/// <c>NativeMethods</c> は internal なので Unity のテストからも到達できない。
+/// **したがってここでも通していない。** stripping がこの 2 本を消しても
+/// 壊れるものは無いが、「通した」と書かないために明記しておく
+/// （status 表の同期は L3 の <c>StatusCodeSyncTests</c> が見ている）。
+///
+/// L1 と L3 は上記をすべて見ているので「テストが無い」わけではない。
+/// しかし**このリポジトリが守ると宣言しているのは
 /// 「P/Invoke 宣言が stripping で消えないこと」**であって、それを確かめられる
 /// のは IL2CPP の Player だけである。呼ばれない宣言は、消えても誰も気づかない。
 ///
