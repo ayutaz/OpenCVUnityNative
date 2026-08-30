@@ -1004,6 +1004,53 @@ foreach ($t in $toolsTests) {
 }
 
 
+# --- Release を作る job は、job 単位で tag に限られていること ---
+#
+# **step 単位の `if:` で公開を止めない。** このリポジトリは同じ形で既に
+# 一度踏んでいる（移植性検査。下の節を参照）——「step が在る」だけを見る
+# 検査は、条件を書き損じても緑のまま通り、しかも打ち間違いは GitHub に
+# とって正当な式なのでどこも赤くならない。
+#
+# **公開はそれより結果が重い。** 失敗は両方向に静かである:
+#
+#   常に false になる打ち間違い → tag を打っても Release が作られないのに
+#                                 job は緑で、ログも成功時と変わらない
+#   常に true になる打ち間違い → 空撃ちで Release が作られる
+#
+# job 単位に置けば、この走査で見られる。**event まで見ることを要求する**のは、
+# `workflow_dispatch` の ref 選択に tag も出るためである —— tag を選んで手動
+# 起動すると `github.ref` は `refs/tags/v…` になるので、ref だけの条件では
+# 「空撃ちでは Release を作らない」が成り立たない。
+$releaseCreators = @()
+foreach ($job in $allJobs) {
+    if (@($job.Commands | Where-Object { $_ -match 'gh\s+release\s+(create|upload|edit|delete)' }).Count -eq 0) { continue }
+    $releaseCreators += $job
+}
+Assert-That ($releaseCreators.Count -gt 0) `
+    'some job creates a GitHub Release (0 件なら下の検査は空振りする)'
+
+foreach ($job in $releaseCreators) {
+    $gate = @($job.Commands | Where-Object { $_ -match '^    if:.*refs/tags/' })
+    Assert-That ($gate.Count -eq 1) `
+        "$($job.Workflow) job '$($job.Name)' gates the release on a tag at the job level (saw $($gate.Count))"
+    if ($gate.Count -ne 1) { continue }
+
+    Assert-That ($gate[0] -match "github\.event_name\s*==\s*'push'") `
+        "$($job.Workflow) job '$($job.Name)' also requires the push event (workflow_dispatch は tag の ref を選べる): $($gate[0].Trim())"
+
+    # 公開する step 側に条件を残さない。**判定が 2 箇所にあると、片方だけを
+    # 直したときに食い違う。**
+    $stepGates = @()
+    foreach ($step in $job.Steps) {
+        $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+        if (@($cmds | Where-Object { $_ -match 'gh\s+release\s+' }).Count -eq 0) { continue }
+        $stepGates += @($cmds | Where-Object { $_ -match '^\s{8}if:' })
+    }
+    Assert-That ($stepGates.Count -eq 0) `
+        "$($job.Workflow) job '$($job.Name)' does not also gate the release step with a step-level if: (判定を 2 箇所に置かない)"
+}
+
+
 # --- 配る binary を作る job が移植性を検査する ---
 #
 # **v0.1.0 でこの欠陥を実際に配った。** ubuntu-24.04 で作った .so が

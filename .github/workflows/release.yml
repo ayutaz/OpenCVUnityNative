@@ -21,8 +21,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# **書き込みは Release を作る job だけが持つ。**
+# 空撃ちは任意のブランチから起動できるので、既定を read にしておく
+# （publish job だけが contents: write を宣言する）。
 permissions:
-  contents: write   # Release の作成に要る
+  contents: read
   actions: read     # gh run download に要る
 
 concurrency:
@@ -202,23 +205,24 @@ jobs:
             Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/
           if-no-files-found: error
 
-  publish:
-    name: Publish the release
+  # **配る物を組み立てるところまでは、tag でなくても走る。**
+  #
+  # 以前は組み立ても公開も 1 つの job にあり、その job ごと tag に限っていた。
+  # その形だと、全部入りの組み立て・asset の staging・SHA256SUMS の生成という
+  # **最も壊れやすい部分が、空撃ちでは 1 行も実行されなかった** —— 動くかどうかが
+  # 分かるのは tag を打った後だけで、これは「配る直前に初めて走る配線」そのもの
+  # である（M3 で導入できない tarball を踏んだのと同じ形）。
+  #
+  # **job を 2 つに割ってある。step 単位の `if:` で公開を止めない。**
+  # このリポジトリは step 単位の `if:` が誤りを隠すことを既に踏んでおり
+  # （移植性検査。tools/tests/OpenCvConfig.Tests.ps1 を参照）、条件を書き損じても
+  # GitHub にとっては正当な式なのでどこも赤くならない。**公開はそれより結果が
+  # 重い。** 判定を job 単位に置けば、既存の job 単位の走査で機械が見られる。
+  assemble:
+    name: Assemble the release assets
     runs-on: ubuntu-24.04
     needs: package
     timeout-minutes: 15
-    # **この job は workflow_dispatch でも走る。Release を作る最後の step だけが
-    # tag に限られる。**
-    #
-    # 以前は job ごと tag に限っていた。その形だと、全部入りの組み立て・asset の
-    # staging・SHA256SUMS の生成という**最も壊れやすい部分が、空撃ちでは 1 行も
-    # 実行されなかった** —— 動くかどうかが分かるのは tag を打った後だけで、これは
-    # 「配る直前に初めて走る配線」そのものである（M3 で導入できない tarball を
-    # 踏んだのと同じ形）。
-    #
-    # 誤って空の Release を作る心配は、下の「Publish as a draft」に同じ条件を
-    # 置くことで変わらず防げる。**判定が 1 段下がっただけで、公開の条件は
-    # 変わっていない。**
 
     steps:
       - uses: actions/checkout@v7
@@ -243,27 +247,6 @@ jobs:
               exit 1
           }
           Write-Host "==> all three platform bundles are present"
-
-      # tag と package.json の版が一致していること。
-      #
-      # **人が数える約束を 1 つ増やさない。** OpenUPM は git tag から版を見つけ、
-      # UPM が読むのは tarball の中の package.json である。ずれると、
-      # OpenUPM 上の版と実際に入る版が食い違う（platform 別 tarball の
-      # 名前も古い版を名乗る）。M3 が踏んだ asset 名の衝突と同じ形なので、
-      # 機械に数えさせる。
-      - name: Check the tag matches package.json
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        run: |
-          $tag = '${{ github.ref_name }}' -replace '^v', ''
-          $pkg = (Get-Content -LiteralPath 'Packages/com.ayutaz.opencv-unity-native/package.json' -Raw |
-                  ConvertFrom-Json).version
-          Write-Host "tag=$tag package.json=$pkg"
-          if ($tag -ne $pkg) {
-              Write-Error "tag '$tag' と package.json の version '$pkg' が食い違っています。どちらかを直してから打ち直すこと。"
-              exit 1
-          }
-          Write-Host '==> tag and package.json agree'
 
       # 全部入りの package を作る。**これが配る正である。**
       #
@@ -387,6 +370,68 @@ jobs:
           }
           Write-Host "==> SHA256SUMS.txt covers $($written.Count) assets"
 
+      # **空撃ちで作った物を、実際に触れる形で残す。**
+      #
+      # 目的は「tag を打つ前に成果物の中身を確認できる」ことだった。ログの行
+      # （`==> staged 17 assets`）だけでは、確認できるのは「例外を出さずに
+      # 終わった」ところまでで、**出来た物そのものには誰も触れない。**
+      # M3 が踏んだ「導入できない tarball」は、tar が正常終了した後に、実際に
+      # Unity へ入れて初めて見つかった。同じ層の欠陥はログでは捕まらない。
+      #
+      # これを落とせば `dev.ps1 test-unity-tarball` に食わせられる ——
+      # **手で混ぜた物ではなく、CI が組んだ実物**に対して導入を確かめられる。
+      - name: Upload the staged assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: assets/
+          if-no-files-found: error
+
+  # **Release を作るのはこの job だけ。job 単位で tag に限る。**
+  #
+  # `github.event_name` まで見るのは、`workflow_dispatch` の ref 選択に tag も
+  # 出るためである。tag を選んで手動起動すると `github.ref` は
+  # `refs/tags/v…` になるので、ref だけを見る条件では「空撃ちでは Release を
+  # 作らない」が成り立たない。
+  publish:
+    name: Publish the release
+    runs-on: ubuntu-24.04
+    needs: assemble
+    timeout-minutes: 15
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # 書き込み権限を持つのはここだけにする。
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download the staged assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: assets
+
+      # tag と package.json の版が一致していること。
+      #
+      # **人が数える約束を 1 つ増やさない。** OpenUPM は git tag から版を見つけ、
+      # UPM が読むのは tarball の中の package.json である。ずれると、
+      # OpenUPM 上の版と実際に入る版が食い違う（platform 別 tarball の
+      # 名前も古い版を名乗る）。M3 が踏んだ asset 名の衝突と同じ形なので、
+      # 機械に数えさせる。
+      - name: Check the tag matches package.json
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}' -replace '^v', ''
+          $pkg = (Get-Content -LiteralPath 'Packages/com.ayutaz.opencv-unity-native/package.json' -Raw |
+                  ConvertFrom-Json).version
+          Write-Host "tag=$tag package.json=$pkg"
+          if ($tag -ne $pkg) {
+              Write-Error "tag '$tag' と package.json の version '$pkg' が食い違っています。どちらかを直してから打ち直すこと。"
+              exit 1
+          }
+          Write-Host '==> tag and package.json agree'
+
       # **下書きとして作る。公開は人が押す。**
       #
       # tag を打った時点で外に出てしまうと、中身が違っていたときに
@@ -402,9 +447,6 @@ jobs:
       # --draft を外す判断は、この workflow が何度か通って形が安定して
       # からでよい。
       - name: Publish as a draft
-        # **Release を作るのは tag のときだけ。** 上の job から降りてきた条件で、
-        # 空撃ち（workflow_dispatch）はここで止まる。
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
