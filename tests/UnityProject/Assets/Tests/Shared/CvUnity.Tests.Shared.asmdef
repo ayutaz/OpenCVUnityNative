@@ -1,12 +1,11 @@
 {
-    "name": "CvUnity.Tests.PlayMode",
+    "name": "CvUnity.Tests.Shared",
     "rootNamespace": "",
     "references": [
         "UnityEngine.TestRunner",
         "CvUnity.Core",
         "CvUnity.Interop",
-        "CvUnity.UnityIntegration",
-        "CvUnity.Tests.Shared"
+        "CvUnity.UnityIntegration"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
