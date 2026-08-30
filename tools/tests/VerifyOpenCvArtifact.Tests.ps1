@@ -2,6 +2,11 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# 日本語の失敗メッセージを出すので、ANSI コードページに書き出させない。
+# 指定しないと cp932 / cp1252 で書かれ、CI では日本語部分が可逆でない形で
+# 失われる —— 失敗メッセージが読めないなら、それが在る意味が無い。
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $verify = Join-Path $repoRoot 'tools/verify-opencv-artifact.ps1'
 

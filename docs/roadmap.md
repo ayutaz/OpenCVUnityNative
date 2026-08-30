@@ -1101,6 +1101,32 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 `CMAKE_OSX_SYSROOT` を `iphonesimulator` にして自分でビルドする。
 
 
+
+### M4 の判定（2026-08-30 時点）
+
+**8 件中 3 件を満たし、3 件が「満たすが未実証」、2 件は実機が要るため閉じていない。**
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 1 | Android arm64-v8a と iOS arm64 の native artifact を CI が生成する | **満たすが未実証**。`build-opencv.yml` / `ci-native.yml` / `release.yml` に配線したが、**この構成の CI はまだ 1 度も走っていない**。開発機に NDK も Xcode も無いので、読解でしか確かめていない |
+| 2 | Android の 16 KB page size を CI で検証する | **満たすが未実証**。`tools/verify-android-page-size.ps1` は**合成 ELF で 4 通り**（16384 は通る / 4096 は落ちる / PT_LOAD 0 件は落ちる / ファイル不在は落ちる）を実測した。**ただし実物の `.so` にはまだ一度も当てていない** |
+| 3 | iOS の `__Internal` static link と stripping 後の P/Invoke を**実機で**確認 | **閉じていない**。`native/CMakeLists.txt` が iOS で `STATIC` を作る分岐は入れたが、**実機が要る**（署名と端末）。手順は [実機検証](./m4-device-verification.md) §1 |
+| 4 | lifecycle / memory pressure | **閉じていない**。同上、§2 |
+| 5 | `WebCamTexture` から `CvMat` を作れる | **満たす**。`WebCamTextureConverter`（3 overload）。EditMode 8 件が通り（16 → 24 件）、**上下反転をやめると `RowOrderIsFlippedSoTheMatOriginIsTopLeft` だけが落ちる**ことを実測した |
+| 6 | macOS の Plugin Import Settings を Unity で実測 | **満たすが未実証**。`ci-native.yml` の `mobile` job が macos-14 で走るが、**Unity は起動しない**（クロスビルドのみ）。M3.5 で `.meta` の解釈自体は他 OS の Unity から実測済みで、残るのは macOS 上で Unity を動かすこと |
+| 7 | Windows IL2CPP を CI で回すかの結論 | **閉じていない**。**probe をまだ投げていない。** roadmap が「上流の issue を読んだ結果を根拠にしない」と明記しているので、実測なしに結論を書かない |
+| 8 | 対応 CPU アーキテクチャの決定 | **満たす**。Android arm64-v8a のみ / iOS 実機 arm64 のみ（上記「対応 CPU アーキテクチャの決定」） |
+
+**条件 1・2・6 を「満たす」に数えない理由。** M2 の条件 7 と M3.5 の条件 3 に当てたのと
+同じ基準である ——「ファイルが存在する」は「CI で実行された」ではない。
+**この構成の CI が緑になった時点で判定を更新する。**
+
+**モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通ること**（roadmap の
+最後の条件）も、**モバイルの binary がまだ 1 つも存在しないので確かめていない。**
+packaging 側（`pack-upm-tarball.ps1` / `assemble-plugins.ps1` / `dev.ps1`）は 5 platform を
+知る形にし、3 箇所の一致を `tools/tests/PackageRelease.Tests.ps1` が見ている。
+
+
 **非ゴール**
 カメラ入力の独自実装。Web。**配布の形式そのものの変更**（全部入りにする方針は
 M3.5 で決着させておく。M4 で足すのはその中身であって、形ではない）。

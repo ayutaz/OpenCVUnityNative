@@ -298,6 +298,31 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 | `cv::` の関数だけがリンクエラー（`LNK2019` / undefined reference） | そのモジュールが `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` に無い。**「OpenCV がそのモジュールを含んでビルドされている」と「この plugin がそれをリンクしている」は別である** —— `tools/opencv-config.psd1` の `Modules` に載っていれば OpenCV 側は当然ビルドされ、`ocvu_get_build_information()` も `To be built:` にその名前を出す。それを根拠にすると誤る（M3.5 の `imgcodecs` がこれで、リンカが `cv::imencode` / `cv::imdecode` を未解決にして初めて分かった） |
 | ヘッダの `#define` が OpenCV の定数とずれる | `static_assert` で固定していない。`OCVU_IMREAD_*` のように OpenCV の値をそのまま出す定数は、実装 `.cpp` の先頭に `static_assert(OCVU_X == cv::X, "...")` を書き、写し間違いをコンパイル時に落とす（`native/src/ocvu_imgcodecs.cpp`、`native/src/ocvu_imgproc.cpp`） |
 
+| クロスビルドだけリンクエラー / 挙動が違う | 対象 platform が host と一致しないことを忘れている。`dev.ps1 build` は既定で**実行中の OS 向け**にビルドするので、モバイルは `-Platform android-arm64` のように明示する（M4 で host から切り離した）。`OCVU_BUILD_TESTS` はクロスの preset で `OFF` —— **クロスビルドした GoogleTest は host で実行できない**ので、L1 の代わりは実機の smoke test である（`docs/m4-device-verification.md`） |
+| iOS で `DllNotFoundException` / シンボルが見つからない | iOS はアプリの外から共有ライブラリを読み込めない。`native/CMakeLists.txt` は `CMAKE_SYSTEM_NAME STREQUAL "iOS"` のとき **`STATIC`** を作り、Unity が IL2CPP のバイナリへ静的リンクして `DllImport("__Internal")` で解決する。**`SHARED` のままでもビルドは成功する**ので、Unity に入れて初めて壊れる |
+
+## platform を足すとき
+
+**ABI 関数の話ではないが、同じファイル群を触るのでここに置く。**
+
+新しい platform を足すときに直す場所は **5 つ**ある。**1 つでも漏れると、
+「揃っていないのに全部入りとして扱う」か「知らないファイルとして拒む」の
+どちらかが起きる。**
+
+| 場所 | 何を |
+| --- | --- |
+| `tools/opencv-config.psd1` | `Toolchains` と `PlatformCMakeArgs` |
+| `CMakePresets.json` | configure / build preset（**クロスなら `toolchainFile` を指す。指さないと host 向けにビルドされ、成功したように見えて中身が別物になる**） |
+| `tools/pack-upm-tarball.ps1` | `$PlatformBinaries` と `$AllowedPluginFiles` |
+| `tools/assemble-plugins.ps1` | `$Allowed` |
+| `tools/dev.ps1` | `$script:AllPlatformBinaries`（全部入りとして扱うかの判定）と `Copy-NativePluginForUnity` の出力先 |
+
+加えて `tools/plugin-meta/<platform>/` に `.meta` を作る。**GUID は既存と重複させない**
+——重複すると Unity が片方を無視し、**どちらが無視されるかは決まっていない。**
+
+`tools/tests/PackageRelease.Tests.ps1` が後半 3 つの一致と GUID の一意性を見る。
+**roadmap は長らく「2 か所」と書いていたが、実際は 3 か所だった**（M4 で判明）。
+
 ## 参照
 
 - `native/include/opencv_unity_native.h` — 公開 ABI と `OCVU_STATUS_LIST`

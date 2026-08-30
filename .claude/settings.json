@@ -41,6 +41,12 @@
             "command": "sh .claude/hooks/check-assertions-reachable.sh",
             "timeout": 15,
             "statusMessage": "assertion が終了コードに効くか検査中"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-shared-temp-paths.sh",
+            "timeout": 15,
+            "statusMessage": "並行実行で潰し合う一時ファイルを検査中"
           }
         ]
       }

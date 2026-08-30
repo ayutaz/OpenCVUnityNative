@@ -443,9 +443,9 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 
 | skill | いつ使うか |
 | --- | --- |
-| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約 |
-| `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定 |
-| `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした |
+| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約。**platform を足すときに直す 5 箇所**もここにある（M4 で「2 か所」という記述が誤りだと分かった）|
+| `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定。**M4 で「CI では原理的に閉じない条件」の扱いが加わった** —— 実機が要るものは「満たすが未実証」ですらなく、人が実行する手順書に落とす |
+| `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした。**M4 で 4 つの節が加わった** —— 壊す前にコミットする / 置換が空振りしていないか確かめる / 手前に別の門があると番人に到達しない / 述語のゆるさ（構造的に常に真・部分一致・大文字小文字・散文に当たる）|
 
 **hook**（`.claude/settings.json`）
 
@@ -456,9 +456,12 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 | `check-exception-barrier.sh` | PostToolUse (Write/Edit) | `ocvu_status` を返す `extern "C"` 関数の `OCVU_TRY_BEGIN` 囲い忘れを指摘 |
 | `check-powershell-encoding.sh` | PostToolUse (Write/Edit) | 非 ASCII を出力する `.ps1` / `.psm1` の `[Console]::OutputEncoding` 未設定を指摘。M1 で 3 つの別々のスクリプトに順に現れた |
 | `check-assertions-reachable.sh` | PostToolUse (Write/Edit) | `*.Tests.ps1` で、終了コードを決めた後ろに置かれ**落ちようがない** assertion を指摘 |
+| `check-shared-temp-paths.sh` | PostToolUse (Write/Edit) | `tools/tests/*.Tests.ps1` の**固定名の一時ファイル**を指摘。`dev.ps1 test` はレーンを並べて走らせるので、名前を固定すると 2 つの実行が潰し合う —— **落ちるのは無関係な assertion**で、再実行すると緑になるためフレークとして片付けられる（M4 で実測）|
 
-後の 2 つが検出するのは、どちらも M1 で実際に起きたものである。前者は修正が隣の
-ファイルに在っても再発し、後者は PASS 表示が出るので目視では気づけなかった。
+**後の 3 つは、どれも実際に起きたものを機械に見させている。** `check-powershell-encoding.sh`
+と `check-assertions-reachable.sh` は M1 で、`check-shared-temp-paths.sh` は M4 で
+踏んだ。1 つ目は修正が隣のファイルに在っても再発し、2 つ目は PASS 表示が出るので
+目視では気づけず、3 つ目は**再実行すると緑になる**ので原因の追跡が最も難しかった。
 「近くのコードを読めば分かる」類ではないから機械に見させている。
 
 hook は PowerShell ではなく **sh** で書いてある。この環境では pwsh の起動に
