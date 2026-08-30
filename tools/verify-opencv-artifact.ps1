@@ -229,7 +229,10 @@ $InertLicenseFiles = @(
 $InertValgrindFiles = @('valgrind.supp', 'valgrind_3rdparty.supp')
 
 # root 直下にある、この検証自身が書く manifest と OpenCV 本体の LICENSE。
-$InertRootFiles = @('LICENSE', 'build-manifest.json')
+#
+# **README.android は Android の install だけが root に置く。** 中身は
+# NDK 向けの使い方の説明で、binary でも license でもない。
+$InertRootFiles = @('LICENSE', 'build-manifest.json', 'README.android')
 
 $rootFull = (Resolve-Path -LiteralPath $Root).ProviderPath.TrimEnd('\', '/')
 
@@ -264,7 +267,22 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # 正しい成果物を拒否するか、逆に緩めすぎて由来を見なくなる。** どちらの配置でも
     # 「opencv2/ の下に在ること」は共通なので、そこを条件にする。
     # include/ 直下や opencv2/ を経由しないものは分類されず reject される。
-    if ($relative -match '^include/(opencv[0-9]*/)?opencv2/' -and $ext -in @('.h', '.hpp')) { return $true }
+    #
+    # **Android はさらに別の配置である**（実測、M4 の CI）:
+    #   Windows      include/opencv2/
+    #   macOS/Linux  include/opencv4/opencv2/
+    #   Android      sdk/native/jni/include/opencv2/
+    #
+    # Android の install は sdk/ の下に木を丸ごと作り直す。**「opencv2/ の下」
+    # という共通点だけを条件にすると、任意の場所の opencv2/ を通してしまう**
+    # ので、prefix を明示的に並べる —— 配置が増えるたびにここへ足す、という
+    # 形にしておけば「知らない場所に置かれたヘッダ」は拒否され続ける。
+    if ($relative -match '^(sdk/native/jni/)?include/(opencv[0-9]*/)?opencv2/' -and
+        $ext -in @('.h', '.hpp')) { return $true }
+
+    # Android の NDK 用 makefile。名前と場所の両方で認識する。
+    # **拡張子だけで通さない** —— .mk はどこにでも置けるからである。
+    if ($relative -match '^sdk/native/jni/opencv(-[a-z0-9_-]+)?\.mk$') { return $true }
 
     # notice/text: etc/licenses/ 配下の、名前そのものを allowlist にした
     # ファイルだけ。拡張子や場所だけでは判定しない — $InertLicenseFiles を見よ。
@@ -285,7 +303,9 @@ function Test-IsInert([System.IO.FileInfo]$file) {
     # Unix 系はパッケージ名のディレクトリを 1 階層挟む。任意の深さを許すと
     # 「licenses という語がどこかに在れば通る」になってしまうので、
     # 0 段か 1 段だけに限る。名前 allowlist は変わらず主たる門である。
-    if ($relative -match '^(etc|share)/licenses/([^/]+/)?[^/]+$' -and $file.Name -in $InertLicenseFiles) { return $true }
+    #   Android      sdk/etc/licenses/<name>
+    if ($relative -match '^(sdk/)?(etc|share)/licenses/([^/]+/)?[^/]+$' -and
+        $file.Name -in $InertLicenseFiles) { return $true }
 
     # valgrind の抑制ファイル: 名前で認識する。Unix 系の install だけが置く。
     if ($file.Name -in $InertValgrindFiles) { return $true }
