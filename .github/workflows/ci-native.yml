@@ -373,12 +373,15 @@ jobs:
               $members = & ar t $lib
               $opencvMembers = @($members | Where-Object { $_ -match '^(opencv_|.*opencv.*\.o$)' })
               if ($opencvMembers.Count -lt 1) {
-                  Write-Error @"
-              .a に OpenCV の object が 1 つも入っていません: $lib
-              member 数: $($members.Count)（先頭 10 件: $(($members | Select-Object -First 10) -join ', ')）
-              CMake は STATIC ライブラリに依存アーカイブを取り込みません。
-              このまま配ると、Unity が Xcode でリンクした時点で未解決シンボルになります。
-"@
+                  # **here-string を使わない。** 終端の "@ は列 0 に置く必要があり、
+                  # YAML のブロックスカラーの中では構造を壊す（実測）。
+                  $msg = @(
+                      ".a に OpenCV の object が 1 つも入っていません: $lib"
+                      "member 数: $($members.Count)（先頭 10 件: $(($members | Select-Object -First 10) -join ', ')）"
+                      'CMake は STATIC ライブラリに依存アーカイブを取り込みません。'
+                      'このまま配ると、Unity が Xcode でリンクした時点で未解決シンボルになります。'
+                  ) -join [Environment]::NewLine
+                  Write-Error $msg
                   exit 1
               }
               Write-Host "==> $lib carries $($opencvMembers.Count) OpenCV objects out of $($members.Count) members"

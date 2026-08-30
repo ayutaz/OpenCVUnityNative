@@ -80,6 +80,39 @@ public class WebCamTextureConverterTests
             "Color32 の R,G,B,A がその順で並ぶこと");
     }
 
+    /// <summary>
+    /// **反転しない選択肢が実際に反転しないこと。**
+    ///
+    /// TextureConverter.ToTexture は Unity の並びをそのまま書き戻すので、
+    /// **反転済みの Mat を渡すと表示が上下逆になる。** カメラ → 処理 → 表示の
+    /// 往復では flipVertically: false を使う、というのが API の契約である
+    /// （WebCamTextureConverter の型ドキュメントを参照）。
+    ///
+    /// 契約を書くだけでは守られない。**既定値を反転なしに変えたときにこの
+    /// テストが落ち、逆に反転を消したときは上の RowOrderIsFlipped... が落ちる。**
+    /// 2 つで両方向を挟む。
+    /// </summary>
+    [Test]
+    public void FlipCanBeTurnedOffForTheRoundTripBackToATexture()
+    {
+        var pixels = new Color32[]
+        {
+            new Color32(10, 0, 0, 255), new Color32(11, 0, 0, 255),
+            new Color32(20, 0, 0, 255), new Color32(21, 0, 0, 255),
+        };
+
+        using var mat = WebCamTextureConverter.ToMat(pixels, width: 2, height: 2,
+                                                     flipVertically: false);
+
+        var got = new byte[2 * 2 * 4];
+        mat.CopyTo(got, mat.Cols * 4);
+
+        Assert.AreEqual(10, got[0], "反転しないときは Unity の並びがそのまま残ること");
+        Assert.AreEqual(11, got[4]);
+        Assert.AreEqual(20, got[8]);
+        Assert.AreEqual(21, got[12]);
+    }
+
     [Test]
     public void PixelCountMustMatchTheGivenSize()
     {

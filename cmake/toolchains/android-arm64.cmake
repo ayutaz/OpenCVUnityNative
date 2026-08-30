@@ -36,3 +36,23 @@ if(NOT EXISTS "${ANDROID_NDK}/build/cmake/android.toolchain.cmake")
 endif()
 
 include("${ANDROID_NDK}/build/cmake/android.toolchain.cmake")
+
+# **16 KB page size。ここで設定する。**
+#
+# 最初は tools/opencv-config.psd1 の PlatformCMakeArgs に書いていたが、
+# **あれは OpenCV 本体のビルドにしか渡らない** —— しかも OpenCV は
+# BUILD_SHARED_LIBS=OFF なので共有ライブラリを 1 つも作らず、
+# CMAKE_SHARED_LINKER_FLAGS は何にも当たらなかった（レビューで発見）。
+#
+# 実際に配る libopencv_unity_native.so を作るのはこの toolchain を使う
+# ビルドなので、**掛けるべき場所はここである。**
+#
+# Android 15 (API 35) 以降を対象とするアプリは Google Play 上で 16 KB に
+# 対応していなければならず、2027-02-01 から未対応の更新は公開できなくなる。
+# **止まるのは利用者のリリースである** —— この .so が利用者のアプリに入るため。
+#
+# NDK r28 以降は既定で 16 KB だが、明示しておく。**既定に頼ると NDK を
+# 下げたときに黙って壊れる。** 検査は tools/verify-android-page-size.ps1。
+#
+# NDK の toolchain を include した「後」に足す —— 前に置くと上書きされる。
+string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")

@@ -84,10 +84,17 @@ jobs:
       # を使うので不要。
       # Linux はコンテナのセットアップで入るので macOS だけ。
       - name: Install Ninja
-        if: matrix.platform == 'macos-arm64'
-        shell: pwsh
+        # macOS / iOS / Android の preset はすべて Ninja。**Windows だけが
+        # Visual Studio generator で、Linux はコンテナ側で入る。**
+        if: matrix.platform != 'windows-x64' && matrix.platform != 'linux-x64'
+        # **brew は ubuntu に無い。** android-arm64 は ubuntu runner で
+        # コンテナ外なので、setup-linux-container.sh も走らない。
         run: |
-          brew install ninja
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ninja
+          else
+            sudo apt-get update && sudo apt-get install -y ninja-build
+          fi
 
       - name: Resolve the configuration
         id: config

@@ -76,14 +76,6 @@
             Architecture = 'arm64-v8a'
             BuildType    = 'Release'
 
-            <#
-                Unity 6.3 が Android の minSdk を 23 -> 25 に上げた
-                （tests/UnityProject/ProjectSettings/ProjectSettings.asset）。
-                それより低い API を対象にしても Unity 側が受け取らないので
-                揃える。**この値は構成ハッシュに入る** —— 変えれば別の
-                artifact になる。
-            #>
-            AndroidPlatform = 'android-25'
         }
 
         <#
@@ -99,9 +91,6 @@
             Generator    = 'Ninja'
             Architecture = 'arm64'
             BuildType    = 'Release'
-
-            # Unity 6.3 が iOS の target を 13.0 -> 15.0 に上げた。
-            IosDeploymentTarget = '15.0'
         }
     }
 
@@ -130,17 +119,17 @@
             # 共有ライブラリへ静的ライブラリを取り込むため（linux と同じ）。
             '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
             <#
-                **16 KB page size。** Android 15 (API 35) 以降を対象とする
-                アプリは Google Play 上で 16 KB に対応していなければならず、
-                2027-02-01 から未対応の更新は公開できなくなる。
-                **止まるのは利用者のリリースである** —— こちらが配る .so が
-                利用者のアプリに入るため。
+                **16 KB page size の flag はここに書かない。**
 
-                NDK r28 以降は既定で 16 KB だが、明示しておく。既定に頼ると
-                NDK を下げたときに黙って壊れる。検査は
-                tools/verify-android-page-size.ps1 が行う。
+                最初はここに -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384
+                を置いていたが、**ここは OpenCV 本体のビルドにしか渡らない** ——
+                しかも OpenCV は BUILD_SHARED_LIBS=OFF なので共有ライブラリを
+                1 つも作らず、**この flag は何にも当たらなかった**（レビューで発見）。
+
+                実際に配る libopencv_unity_native.so を作るのは
+                cmake/toolchains/android-arm64.cmake を使うビルドなので、
+                **flag はそちらに置いてある。**
             #>
-            '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384'
         )
         'ios-arm64' = @(
             '-DCMAKE_SYSTEM_NAME=iOS'

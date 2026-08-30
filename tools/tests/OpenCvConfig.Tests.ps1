@@ -948,7 +948,37 @@ if ($markerName) {
 # 「コンテナ化したときに一緒に消すべきもの」は目で追うと漏れる。job が
 # container: を持つなら、その job の run: に sudo が無いことを機械が見る。
 foreach ($job in $allJobs) {
-    if (@($job.Lines | Where-Object { $_ -match '^    container:' }).Count -eq 0) { continue }
+    $containerLines = @($job.Lines | Where-Object { $_ -match '^    container:' })
+    if ($containerLines.Count -eq 0) { continue }
+
+    <#
+        **container: が条件式のとき、その job は「常にコンテナ」ではない。**
+
+        M4 で build-opencv の container を
+        `${{ matrix.platform == 'linux-x64' && 'ubuntu:22.04' || '' }}` に
+        したまま、モバイル（コンテナ外の ubuntu runner）で `sudo apt-get` を
+        使う step を足したところ、この検査が落ちた。**検査は正しく反応したが、
+        前提のほうが変わっていた。**
+
+        条件式の container を持つ job では、**コンテナに入る platform を
+        除外する `if:` が付いた step の sudo は許す。** 付いていない sudo は
+        従来どおり止める —— そちらは実際にコンテナの中で走るからである。
+    #>
+    $conditionalContainer = @($containerLines | Where-Object { $_ -match '\$\{\{' }).Count -gt 0
+
+    if ($conditionalContainer) {
+        # step ごとに見る。`if:` を持たない step の sudo だけを数える。
+        $sudoLines = @()
+        foreach ($step in $job.Steps) {
+            $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+            $guarded = @($cmds | Where-Object { $_ -match '^\s*(-\s+)?if:\s*\S' }).Count -gt 0
+            if ($guarded) { continue }
+            $sudoLines += @($cmds | Where-Object { $_ -match '(^|\s)sudo\s' })
+        }
+        Assert-That ($sudoLines.Count -eq 0) `
+            "$($job.Workflow) job '$($job.Name)' has a conditional container and uses sudo only in guarded steps (saw $($sudoLines.Count) unguarded)"
+        continue
+    }
 
     $sudoLines = @($job.Commands | Where-Object { $_ -match '(^|\s)sudo\s' })
     Assert-That ($sudoLines.Count -eq 0) `

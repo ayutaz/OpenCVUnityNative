@@ -87,7 +87,9 @@ jobs:
 
       # Linux はコンテナのセットアップで入るので macOS だけ。
       - name: Install Ninja
-        if: matrix.platform == 'macos-arm64'
+        # macOS / iOS / Android の preset はすべて Ninja。**Windows だけが
+        # Visual Studio generator である。**
+        if: matrix.platform != 'windows-x64' && matrix.platform != 'linux-x64'
         shell: pwsh
         run: brew install ninja
 
@@ -129,9 +131,34 @@ jobs:
       - name: Verify the artifact linkage
         shell: pwsh
         run: |
-          Import-Module ./tools/OpenCvConfig.psm1 -Force
-          $root = Get-OpenCvRoot -Config (Get-OpenCvConfig)
-          ./tools/verify-artifact-linkage.ps1 -Root $root
+          $platform = '${{ matrix.platform }}'
+          <#
+              **linkage の検査は desktop 3 platform だけ。**
+
+              verify-artifact-linkage.ps1 は DEFAULTLIB / nm -u / lipo で
+              「送った CMake flag ではなく実物の .lib/.a を読む」形の検査だが、
+              **その読み方は desktop の toolchain に固有である** —— Android の
+              .a は NDK の、iOS の .a は Xcode の形で、同じ判定は当てはまらない。
+
+              **モバイルを黙って通さない。** 明示的に skip と書き、未知の
+              platform は失敗させる（検査するかしないかを決めるまで進めない）。
+              モバイルには別の検査がある: Android は 16 KB page size、
+              iOS は .a に OpenCV が入っていること（ci-native.yml の mobile job）。
+          #>
+          if ($platform -in @('windows-x64', 'macos-arm64', 'linux-x64')) {
+              Import-Module ./tools/OpenCvConfig.psm1 -Force
+              # **対象 platform を渡す。** 渡さないと Get-OpenCvPlatform が
+              # host を返し、android-arm64 の job（ubuntu）では linux-x64 の
+              # ハッシュを引いて**存在しないディレクトリを検査対象にする。**
+              $root = Get-OpenCvRoot -Config (Get-OpenCvConfig -Platform $platform)
+              ./tools/verify-artifact-linkage.ps1 -Root $root
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+          } elseif ($platform -in @('android-arm64', 'ios-arm64')) {
+              Write-Host "==> skipped on ${platform} (linkage の判定は desktop の toolchain に固有。別の検査が ci-native の mobile job にある)"
+          } else {
+              Write-Error "unknown platform '${platform}': linkage を検査するかどうかが決まっていない。"
+              exit 1
+          }
 
       # **配る物を作る経路にも、移植性の検査を掛ける。**
       #
@@ -190,7 +217,7 @@ jobs:
 
       - name: Build the release bundle
         shell: pwsh
-        run: ./tools/package-release.ps1 -OutputDir release-out
+        run: ./tools/package-release.ps1 -OutputDir release-out -Platform ${{ matrix.platform }}
 
       # UPM が導入できる形にまとめる。package.json のあるディレクトリが
       # tarball の root に来る必要がある（npm pack と同じ構造）。

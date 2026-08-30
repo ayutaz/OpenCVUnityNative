@@ -271,10 +271,26 @@ if ($AllPlatforms) {
         }
     }
     # ディレクトリの .meta も要る。無いと Unity がフォルダを import できない。
-    foreach ($rel in @('Runtime/Plugins/x86_64.meta',
-                       'Runtime/Plugins/macOS.meta',
-                       'Runtime/Plugins/Linux.meta',
-                       'Runtime/Plugins/Linux/x86_64.meta')) {
+    <#
+        **フォルダの .meta を直書きしない。** binary 側は $PlatformBinaries から
+        自動で伸びるのに、ここだけ 4 件の直書きが残っていた —— M4 で 2 platform を
+        足したとき Android / iOS のフォルダ .meta が枠外に落ちた（レビューで発見）。
+
+        binary のパスから、その祖先ディレクトリの .meta を導く。
+    #>
+    #
+    # **Split-Path は Windows で `\` を返す。** 区切りを正規化してから比べないと
+    # 'Runtime/Plugins' との一致が成立せず、ループが 1 段行き過ぎて
+    # `Runtime/Plugins.meta`（存在しない）まで要求する（実測）。
+    $folderMetas = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($binRel in $PlatformBinaries.Values) {
+        $dir = (Split-Path -Parent $binRel) -replace '\\', '/'
+        while ($dir -and $dir -ne 'Runtime/Plugins') {
+            $null = $folderMetas.Add("$dir.meta")
+            $dir = (Split-Path -Parent $dir) -replace '\\', '/'
+        }
+    }
+    foreach ($rel in @($folderMetas | Sort-Object)) {
         if (-not (Test-Path -LiteralPath (Join-Path $packageDir $rel))) {
             $missingMeta += $rel
         }
@@ -290,7 +306,7 @@ if ($AllPlatforms) {
         exit 1
     }
 
-    Write-Host "==> all three platform binaries present with their metas, no extras" -ForegroundColor Green
+    Write-Host "==> all $($PlatformBinaries.Count) platform binaries present with their metas, no extras" -ForegroundColor Green
 }
 
 # 使い捨ての staging に package/ として置き直す。
