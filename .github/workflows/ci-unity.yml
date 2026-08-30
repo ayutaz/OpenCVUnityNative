@@ -138,6 +138,26 @@ jobs:
     # Linux の .so はこの job が自分でビルドする（下記のとおりコンテナの中で）。
     # 他 2 platform は上の job から artifact で受け取る。
     needs: plugin
+
+    # **`needs:` を足しただけでは、依存が落ちたときに merge が止まらない。**
+    #
+    # GitHub の文書はこう書いている: "Required status checks must have a
+    # successful, skipped, or neutral status before collaborators can make
+    # changes to a protected branch."（2026-08-30 に確認）——
+    # **skip は「通った」扱いである。**
+    #
+    # したがって素の `needs: plugin` だと、plugin のビルドが落ちた瞬間に
+    # この job は skip になり、必須チェックである "Unity EditMode (Linux)" と
+    # "Unity Standalone (Linux)" が**緑と同じ意味を持ったまま merge を許す。**
+    # plugin job 自体は赤くなるが、そちらは必須チェックではない。
+    #
+    # `!cancelled()` にすると、依存が落ちても走る。走れば下の「重ねる」step が
+    # 材料の無いまま失敗するので、**skip ではなく赤になる。** Unity を起動する
+    # 前に落ちるので、無駄になるのは 1〜2 分である。
+    #
+    # ブランチ保護の設定ではなく workflow の構造で塞いでいるのは、**設定は
+    # ファイルに現れず、差分としてレビューできないから**である。
+    if: ${{ !cancelled() }}
     # **native plugin は Unity が動くコンテナと同じ世代でビルドする。**
     #
     # runner（ubuntu-24.04, glibc 2.39）でビルドした .so は、game-ci の

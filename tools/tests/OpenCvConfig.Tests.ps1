@@ -783,6 +783,20 @@ if ($markerName) {
             "$($job.Workflow) job '$($job.Name)' assembles the other platforms in exactly one step (saw $($assembleSteps.Count))"
         Assert-That ($markerSteps.Count -eq 1) `
             "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand three platforms (saw $($markerSteps.Count))"
+
+        # **依存が落ちたときに skip で済ませない。**
+        #
+        # GitHub は required status check を "successful, skipped, or neutral"
+        # で通す（2026-08-30 に文書で確認）。素の `needs:` だけだと、材料を作る
+        # job が落ちた瞬間にこの job は skip になり、**必須チェックが緑と同じ
+        # 意味を持ったまま merge を許す。** job 側に `cancelled()` を含む `if:`
+        # を置くと、依存が落ちても走って赤くなる。
+        $needsLines = @($job.Commands | Where-Object { $_ -match '^    needs:' })
+        if ($needsLines.Count -gt 0) {
+            $guard = @($job.Commands | Where-Object { $_ -match '^    if:.*cancelled\(\)' })
+            Assert-That ($guard.Count -gt 0) `
+                "$($job.Workflow) job '$($job.Name)' has needs: and guards against skipping with an if: on cancelled() (skip は required check を通してしまう)"
+        }
     }
 
     # ローカルのレーンも同じ合図を書く。**名前が分かれると、片方だけが
