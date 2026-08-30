@@ -115,6 +115,17 @@ if ($passed -lt 1) {
     )
 }
 
+<#
+    **';' 区切りも受ける。**
+
+    `pwsh -NoProfile -File` から呼ぶと配列が正しく渡らず、**2 つ目以降が
+    黙って捨てられる**（実測。4 件を渡したのに 1 件しか要求されなかった）。
+    黙って弱くなるので、呼ぶ側の作法に依存しない形にする。workflow は
+    splat で配列を渡し、dev.ps1 は ';' で繋いだ 1 つの文字列を渡す。
+#>
+$RequireTest   = @($RequireTest   | ForEach-Object { $_ -split ';' } | ForEach-Object { $_.Trim() })
+$RequireOutput = @($RequireOutput | ForEach-Object { $_ -split ';' } | ForEach-Object { $_.Trim() })
+
 # **空文字を弾く。** -like "**" は何にでも当たるので、空を渡すと
 # 「要求したことになっているが何も要求していない」状態が exit 0 で通り、
 # しかも安心させる行まで出る。呼ぶ側でガードしても、判定を分けないという

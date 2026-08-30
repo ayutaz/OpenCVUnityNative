@@ -214,7 +214,11 @@ jobs:
             # UnityEditor に依存する Editor 専用のテストなので、Player の
             # 中では走らない。走ったことを結果 XML で確かめる（下の
             # 「Assert the results」）。
-            requireTest: PluginGatingTests
+            # **クラス名だけでは足りない。** -RequireTest は「1 件でも Passed が
+            # あるか」を見るので、gating を実際に行う 4 件を消して残り 2 件
+            # （0 件で緑にしない検査と、数を報告する検査）だけにしても満たせる。
+            # 名指しする。';' 区切り。
+            requireTest: 'PluginGatingTests.ExactlyOnePluginTargetsThisEditorOs;PluginGatingTests.EachPluginTargetsOnlyItsOwnEditorOs;PluginGatingTests.NoPluginIsEnabledForEveryPlatform;PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget'
             # **入力ではなく結果を見る。** 合図が届かなければ gating は
             # 「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた
             # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
@@ -296,7 +300,9 @@ jobs:
         shell: pwsh
         run: |
           Import-Module ./tools/OpenCvConfig.psm1 -Force
-          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform 'linux-x64')
+          # -Platform を渡さない（plugin job と同じ理由。restore 側の自動判定と
+          # 二重の正本にしない）。この job は ubuntu の上で走っている。
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
           "config-hash=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Cache OpenCV
@@ -424,7 +430,7 @@ jobs:
           # **空文字を渡さない。** 部分一致なので、空だと何にでも一致して
           # 「要求したことになっているが何も要求していない」状態になる。
           if ('${{ matrix.requireTest }}') {
-              $params.RequireTest = '${{ matrix.requireTest }}'
+              $params.RequireTest = '${{ matrix.requireTest }}' -split ';'
           }
           if ('${{ matrix.requireOutput }}') {
               $params.RequireOutput = '${{ matrix.requireOutput }}'

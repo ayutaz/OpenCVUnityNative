@@ -369,6 +369,18 @@ function Get-UnityEditorPath {
     導出にすれば、置き去りがあってもなくても結果が同じになる。**合図は
     状態ではなく、木から計算される値である。**
 #>
+<#
+    **gating を実際に行うテストの名前。** クラス名だけを要求すると、この 4 件を
+    消して残り 2 件（0 件で緑にしない検査と、数を報告する検査）だけにしても
+    満たせてしまう。`ci-unity.yml` の matrix にも同じ 4 件が並ぶ。
+#>
+$script:GatingTestNames = @(
+    'PluginGatingTests.ExactlyOnePluginTargetsThisEditorOs'
+    'PluginGatingTests.EachPluginTargetsOnlyItsOwnEditorOs'
+    'PluginGatingTests.NoPluginIsEnabledForEveryPlatform'
+    'PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget'
+)
+
 function Sync-AllPlatformsMarker {
     param([Parameter(Mandatory)][string] $ProjectPath)
 
@@ -429,7 +441,7 @@ function Test-UnityEditMode {
     Invoke-Checked {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
             -ResultsPath $results -Lane 'editmode' -LogPath $log `
-            -RequireTest 'PluginGatingTests'
+            -RequireTest ($script:GatingTestNames -join ';')
     } 'assert the editmode results'
 }
 
@@ -655,8 +667,8 @@ function Test-UnityTarball {
             '-ResultsPath', $results
             '-Lane', 'tarball'
             '-LogPath', $log
-            '-RequireTest', 'PluginGatingTests'
         )
+        $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
         if ($allPlatforms) {
             $assertArgs += @('-RequireOutput', 'native plugins present: 3')
         }
