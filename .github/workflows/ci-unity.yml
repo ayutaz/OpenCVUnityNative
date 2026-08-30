@@ -80,6 +80,11 @@ jobs:
     name: Plugin ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    # workflow 全体には game-ci のための `checks: write` があるが、この job は
+    # 使わない。最小権限にしておく。
+    permissions:
+      contents: read
+      actions: read   # opencv.ps1 restore が gh run download を呼ぶ
 
     strategy:
       fail-fast: false
@@ -138,6 +143,10 @@ jobs:
           name: unity-plugin-${{ matrix.platform }}
           path: Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins
           if-no-files-found: error
+          # **配る物ではない。** public repo なので誰でも落とせるが、これは
+          # CI の中でだけ使う debug ビルドである。既定の 90 日ぶん残すと
+          # release の成果物と取り違えられる。
+          retention-days: 1
 
   unity:
     name: Unity ${{ matrix.lane }} (Linux)
@@ -159,10 +168,20 @@ jobs:
     # plugin job 自体は赤くなるが、そちらは必須チェックではない。
     #
     # `!cancelled()` にすると、依存が落ちても走る。走れば材料が無いので
-    # **Unity を起動する前の step で落ちる —— skip ではなく赤になる。**
-    # 無駄になるのは 1〜2 分である。どの step で落ちるかは書かない
-    # （download-artifact が 0 件一致で失敗するか警告で済ますかは文書に
-    # 定義が無く、確かめていない）。
+    # **Unity を起動する前に落ちる —— skip ではなく赤になる。** そのために
+    # 材料を集める 2 step を checkout の直後に置いてある（下記）。どの step で
+    # 落ちるかと、そこまでの所要時間は書かない —— どちらも測っていない。
+    #
+    # **`always()` にしない。** この workflow は `cancel-in-progress: true` を
+    # 宣言しており、PR に push するたびに先行 run がキャンセルされる。
+    # `always()` だと追い越された古い run が Unity のビルドを最後まで走らせ、
+    # その宣言の目的を打ち消す。
+    #
+    # **残る穴を隠さず書く**: 人が手で run をキャンセルしたとき、まだ始まって
+    # いないこの job が `skipped`（= 必須チェックを通す）になるのか
+    # `cancelled`（= 通さない）になるのかは**確かめていない。** 前者なら、
+    # 手動キャンセルした run は未検証のまま緑に見える。その run は re-run する
+    # こと。
     #
     # ブランチ保護の設定ではなく workflow の構造で塞いでいるのは、**設定は
     # ファイルに現れず、差分としてレビューできないから**である。
@@ -207,6 +226,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # **材料は先に集める。**
+      #
+      # 依存（plugin job）が落ちても、上の `if: !cancelled()` でこの job は
+      # 走る。そのときここまでで落ちれば、Linux の container build（apt +
+      # cmake + OpenCV restore + native build）を 2 レーン分捨てずに済む。
+      # plugin の失敗は rate limit や brew の一時障害という**再発しやすい形**
+      # なので、捨てる量が効いてくる。
+      #
+      # 先に重ねても後段は壊れない —— `dev.ps1 build` は自分の platform の
+      # binary と `tools/plugin-meta/<platform>/` しか Copy-Item -Force せず、
+      # Plugins/ を掃除しないので、他 platform のファイルはそのまま残る。
+      - name: Download the other platforms' plugins
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unity-plugin-*
+          path: other-plugins
+
+      - name: Assemble all three platforms into one package
+        shell: pwsh
+        run: |
+          $sources = @('windows-x64', 'macos-arm64') |
+                     ForEach-Object { "other-plugins/unity-plugin-$_" }
+          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
       # **Unity のバージョンを workflow に直書きしない。** 直書きすると
       # ProjectVersion.txt と二重管理になり、片方だけ上げたときに気づけない
@@ -301,21 +344,6 @@ jobs:
               }
               Write-Host "==> present: $f"
           }
-
-      # ここから 3 platform 同居にする。**Linux 1 つだけで Unity を走らせている
-      # 限り、PluginGatingTests は要素 1 個の集合を検査して緑になる。**
-      - name: Download the other platforms' plugins
-        uses: actions/download-artifact@v8
-        with:
-          pattern: unity-plugin-*
-          path: other-plugins
-
-      - name: Assemble all three platforms into one package
-        shell: pwsh
-        run: |
-          $sources = @('windows-x64', 'macos-arm64') |
-                     ForEach-Object { "other-plugins/unity-plugin-$_" }
-          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
       # **重ねられたことを Unity より先に確かめ、そのうえでテストに合図を渡す。**
       #

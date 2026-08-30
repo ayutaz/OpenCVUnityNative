@@ -39,6 +39,14 @@ public class PluginGatingTests
     ///
     /// ワークスペースはコンテナに mount されるので、**ファイルなら CI でも
     /// ローカルでも同じ経路で届く。**
+    ///
+    /// game-ci には `customParameters` という正規の受け渡し口もあり、Unity の
+    /// コマンドライン引数として届く（`Environment.GetCommandLineArgs()` で
+    /// 読める）。**それを採らなかったのは、コンテナ側の entrypoint がそれを
+    /// 実際に Unity の引数へ渡すかを確かめられなかったからである** ——
+    /// 環境変数の一覧は action の dist から実測できたが、entrypoint の
+    /// スクリプトは同じ形では読めなかった。mount されたワークスペースは
+    /// docker run の引数から直接確かめられるので、そちらに寄せた。
     /// </summary>
     private const string ExpectAllPlatformsMarker = "ocvu-expect-all-platforms";
 

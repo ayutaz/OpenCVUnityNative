@@ -359,6 +359,22 @@ function Test-UnityEditMode {
     $results = Join-Path $ResultsDir 'unity-editmode.xml'
     $log     = Join-Path $ResultsDir 'unity-editmode.log'
 
+    <#
+        **置き去りの合図を消す。**
+
+        ci-unity.yml の Unity job は `tests/UnityProject/ocvu-expect-all-platforms`
+        という**まさにこのパス**に合図を書く。CI の手順をローカルで再現した人は
+        それを残す。gitignore 済みなので `git status` は clean のままで、
+        `git clean -fd` でも消えない（`-x` が要る）。
+
+        残っていると、1 platform 分しか無いこのレーンが 3 つを要求して落ちる。
+        原因はファイル名から辿れるが、「なぜ突然」は分からない。**このレーンが
+        全部入りを検査することは無い**ので、無条件に消してよい。
+    #>
+    Remove-Item -LiteralPath (Join-Path $project 'ocvu-expect-all-platforms') `
+                -Force -ErrorAction SilentlyContinue
+
+
     # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
     $unityArgs = @(
         '-projectPath', $project,
@@ -507,7 +523,11 @@ function Test-UnityTarball {
         # 使い捨ての Unity プロジェクトを作る。Library/ 等は持って行かない。
         $project = Join-Path $work 'UnityProject'
         $source  = Join-Path $RepoRoot 'tests/UnityProject'
-        $skip    = @('Library', 'Temp', 'Logs', 'obj', 'Build', 'UserSettings')
+        # 合図は**持って行かない**。このレーンは全部入りのときだけ自分で書く
+        # ので、元のプロジェクトに置き去りがあると 1 platform でも 3 つを
+        # 要求してしまう。
+        $skip    = @('Library', 'Temp', 'Logs', 'obj', 'Build', 'UserSettings',
+                     'ocvu-expect-all-platforms')
         New-Item -ItemType Directory -Force -Path $project | Out-Null
         Get-ChildItem -LiteralPath $source -Force |
             Where-Object { $_.Name -notin $skip } |
@@ -665,6 +685,22 @@ function Test-UnityPlayer {
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
     $results = Join-Path $ResultsDir 'unity-player.xml'
     $log     = Join-Path $ResultsDir 'unity-player.log'
+
+    <#
+        **置き去りの合図を消す。**
+
+        ci-unity.yml の Unity job は `tests/UnityProject/ocvu-expect-all-platforms`
+        という**まさにこのパス**に合図を書く。CI の手順をローカルで再現した人は
+        それを残す。gitignore 済みなので `git status` は clean のままで、
+        `git clean -fd` でも消えない（`-x` が要る）。
+
+        残っていると、1 platform 分しか無いこのレーンが 3 つを要求して落ちる。
+        原因はファイル名から辿れるが、「なぜ突然」は分からない。**このレーンが
+        全部入りを検査することは無い**ので、無条件に消してよい。
+    #>
+    Remove-Item -LiteralPath (Join-Path $project 'ocvu-expect-all-platforms') `
+                -Force -ErrorAction SilentlyContinue
+
 
     # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
     # M2 が確かめたい stripping の問題が再現しない。
