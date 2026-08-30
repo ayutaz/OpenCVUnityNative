@@ -756,6 +756,60 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ---
 
+## cpufeatures (Android NDK)
+
+License: BSD 3-Clause (`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）cpufeatures-LICENSE`)
+
+Linked into: `libcpufeatures.a` (its own static library alongside the
+`libopencv_*.a`), **Android builds only**. It does not appear in the
+Windows, macOS, Linux or iOS trees.
+
+This is the Android NDK's runtime CPU feature detection library
+(`sources/android/cpufeatures`), which OpenCV links on Android to choose
+NEON / dot-product paths at run time. Copyright and license verified against
+the NDK source on 2026-08-30:
+<https://android.googlesource.com/platform/ndk/+/master/sources/android/cpufeatures/cpu-features.c>
+
+OpenCV's Android install also ships `cpufeatures-README.md` in the same
+licenses directory. It is the library's usage documentation, not a separate
+licence — both files are covered by the BSD-3-Clause text below.
+
+**BSD-3-Clause requires the copyright notice and disclaimer to be
+reproduced in binary redistributions**, which is what the text below does.
+
+```
+Copyright (C) 2010 The Android Open Source Project
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+ * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+ * Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in
+   the documentation and/or other materials provided with the
+   distribution.
+ * Neither the name of The Android Open Source Project nor the names
+   of its contributors may be used to endorse or promote products derived
+   from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+```
+
+---
+
 ## Present in `etc/licenses/` but not linked into this build
 
 Two of the 13 files are license texts for components that OpenCV's build

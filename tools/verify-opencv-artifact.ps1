@@ -120,6 +120,17 @@ $PermittedThirdPartyLibs = @(
     'kleidicv_thread'
     # Tegra HAL: OpenCV 本体に同梱される arm 向け HAL の入れ物。Apache-2.0。
     'tegra_hal'
+
+    # --- Android のビルドにだけ現れる ---
+    #
+    # cpufeatures: Android NDK が同梱する実行時 CPU 判定ライブラリ
+    # （sources/android/cpufeatures）。**BSD-3-Clause、The Android Open Source
+    # Project**（2026-08-30 に一次情報で確認:
+    # https://android.googlesource.com/platform/ndk/+/master/sources/android/cpufeatures/cpu-features.c）。
+    #
+    # **binary 形式での再頒布に著作権表示と免責の同梱を求める**ので、
+    # THIRD_PARTY_NOTICES.md に全文を入れてある。Apache-2.0 と両立する。
+    'cpufeatures'
 )
 
 # 名前に現れたら拒否理由を具体的に説明できるもの。
@@ -218,6 +229,10 @@ $InertLicenseFiles = @(
     'libpng-README'
     'mscr-chi_table_LICENSE.txt'
     'zlib-LICENSE'
+
+    # Android のビルドにだけ現れる（NDK の cpufeatures）。
+    'cpufeatures-LICENSE'
+    'cpufeatures-README.md'
 )
 # Valgrind の抑制ファイル。Unix 系の install だけが置く（Windows のビルドには
 # 現れない — 実測で確認）。実行可能コードではなく、Valgrind に「この警告は
