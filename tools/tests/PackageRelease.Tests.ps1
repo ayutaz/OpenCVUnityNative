@@ -617,11 +617,20 @@ $expectedRelative = @(
     'iOS/libopencv_unity_native.a'
 )
 
+<#
+    **引用符ごと厳密に照合する。**
+
+    最初は部分一致で見ていたが、`'iOS/libopencv_unity_native.a.meta'` が
+    `iOS/libopencv_unity_native.a` を含むので、**binary の行を消しても通った**
+    （実測）。「.meta は在るが binary が無い」は、まさにこの検査が捕まえたい
+    状態である —— binary の無い .meta を置くと Unity がそれを消す。
+#>
 foreach ($rel in $expectedRelative) {
-    Assert-That ($packText -match [regex]::Escape($rel)) "pack-upm-tarball.ps1 knows $rel"
-    Assert-That ($assembleText -match [regex]::Escape($rel)) `
+    $quoted = "'" + [regex]::Escape($rel) + "'"
+    Assert-That ($packText -match $quoted) "pack-upm-tarball.ps1 knows $rel"
+    Assert-That ($assembleText -match $quoted) `
         "assemble-plugins.ps1 carries $rel (packer だけでは全部入りに入らない)"
-    Assert-That ($devText -match [regex]::Escape($rel)) `
+    Assert-That ($devText -match $quoted) `
         "dev.ps1 counts $rel when deciding whether the tree is all-platform"
 }
 
