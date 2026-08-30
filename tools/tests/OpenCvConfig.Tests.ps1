@@ -1537,10 +1537,20 @@ Assert-That ($LASTEXITCODE -eq 0) 'a 16384-aligned ELF passes the page size chec
 & pwsh -NoProfile -File $pageScript -PluginPath $elfBad *> $null
 Assert-That ($LASTEXITCODE -ne 0) 'a 4096-aligned ELF FAILS the page size check (落ちないなら検査は無意味)'
 
-# **0 件で緑にしない。** PT_LOAD を 1 つも読めていない状態を「違反なし」と
-# 読むと、検査が丸ごと空振りしたまま成功として出力される。
-& pwsh -NoProfile -File $pageScript -PluginPath $elfNone *> $null
+<#
+    **0 件で緑にしない。**
+
+    ただし**終了コードだけを見ても、この番人が在るかは分からない** ——
+    番人を外しても StrictMode 下の Measure-Object が空の入力で throw して
+    exit 1 になるからである（実測）。区別できないものを検査したことにしない。
+
+    番人の値打ちは「読み方が想定と違った」と**読める形で**落ちることなので、
+    メッセージまで見る。
+#>
+$noneOut = & pwsh -NoProfile -File $pageScript -PluginPath $elfNone 2>&1 | Out-String
 Assert-That ($LASTEXITCODE -ne 0) 'an ELF with zero PT_LOAD segments FAILS (0 件は「違反なし」ではない)'
+Assert-That ($noneOut -match 'PT_LOAD') `
+    'the zero-PT_LOAD failure names PT_LOAD (生の例外で落ちるのと区別が付く形で落ちること)'
 
 # 存在しないファイルも失敗させる。**「検査対象が無いので合格」にしない。**
 & pwsh -NoProfile -File $pageScript -PluginPath (Join-Path $tmpDir 'ocvu-does-not-exist.so') *> $null
