@@ -101,9 +101,32 @@ if (-not $ChecksumsOnly) {
     （3 つの artifact を束ねるだけで opencv.ps1 restore を走らせない）。
 #>
 # --- checksums ---
+
+# **配る binary の名前を、正本から読む。写さない。**
+# 読めなければ落とす —— 空の一覧で進むと、以降の走査が 1 件も拾わず、
+# 「plugin が無い」という誤った診断になる。
+$packerPath = Join-Path $repoRoot 'tools/pack-upm-tarball.ps1'
+$packerText = Get-Content -LiteralPath $packerPath -Raw
+$packerBlock = [regex]::Match($packerText, '(?ms)^\$PlatformBinaries\s*=\s*\[ordered\]@\{(.*?)^\}')
+if (-not $packerBlock.Success) {
+    [Console]::Error.WriteLine("tools/pack-upm-tarball.ps1 から `$PlatformBinaries を読めませんでした。書き方が変わっています。")
+    exit 1
+}
+$knownPluginNames = @([regex]::Matches($packerBlock.Groups[1].Value, "=\s*'Runtime/Plugins/([^']+)'") |
+    ForEach-Object { Split-Path -Leaf $_.Groups[1].Value } | Sort-Object -Unique)
+if ($knownPluginNames.Count -lt 3) {
+    [Console]::Error.WriteLine("配る binary の名前を $($knownPluginNames.Count) 件しか読めませんでした（3 件以上あるはず）。")
+    exit 1
+}
 $pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native'
 $lines = @(Get-ChildItem -LiteralPath $pluginRoot -Recurse -File |
-    Where-Object { $_.Extension -in @('.dll', '.dylib', '.so') } |
+    # **拡張子を列挙しない。** iOS の静的ライブラリは .a なので、
+    # ('.dll','.dylib','.so') では **binary が 1 つも見つからず**、
+    # 「先に dev.ps1 build を実行してください」という的外れな指示が出る。
+    # 実測: release.yml の空撃ちで ios-arm64 がこれで落ちた（run 33340116600）。
+    # **配る経路は tag と手動でしか走らないので、CI は緑のままだった。**
+    # 正本（pack-upm-tarball.ps1 の $PlatformBinaries）が持つファイル名で照合する。
+    Where-Object { $_.Name -in $knownPluginNames } |
     ForEach-Object {
         $h = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         $rel = $_.FullName.Substring($pluginRoot.Length).TrimStart('\', '/') -replace '\\', '/'
