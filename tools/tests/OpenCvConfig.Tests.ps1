@@ -1482,7 +1482,10 @@ function New-TestElf {
     param(
         [Parameter(Mandatory)][string] $Path,
         [Parameter(Mandatory)][long] $PAlign,
-        [int] $PhNum = 1
+        [int] $PhNum = 1,
+        # program header の p_type。既定は PT_LOAD(1)。PT_NOTE(4) を渡すと
+        # 「header はあるが PT_LOAD は 0 件」の ELF が作れる。
+        [uint32] $PType = 1
     )
 
     # ELF64 little-endian、program header が PT_LOAD $PhNum 個だけの最小構成。
@@ -1503,7 +1506,7 @@ function New-TestElf {
 
     for ($i = 0; $i -lt $PhNum; $i++) {
         $off = $phoff + $i * $phentsize
-        [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $off)            # p_type = PT_LOAD
+        [BitConverter]::GetBytes($PType).CopyTo($bytes, $off)              # p_type
         [BitConverter]::GetBytes([uint64]$PAlign).CopyTo($bytes, $off + 0x30) # p_align
     }
 
@@ -1518,7 +1521,15 @@ $elfNone = Join-Path $tmpDir 'ocvu-align-none.so'
 
 New-TestElf -Path $elfOk  -PAlign 16384
 New-TestElf -Path $elfBad -PAlign 4096
-New-TestElf -Path $elfNone -PAlign 16384 -PhNum 0
+<#
+    **PT_LOAD が 0 件の ELF を、program header ごと 0 個にして作らない。**
+
+    最初は -PhNum 0 で作っていたが、それでは script 冒頭の
+    「program header が読めません」で先に落ちるので、**「0 件で緑にしない」の
+    番人には一度も到達していなかった**（実測: その番人を無効化しても検査は
+    緑のままだった）。header は 1 つ置き、種類だけ PT_NOTE にする。
+#>
+New-TestElf -Path $elfNone -PAlign 16384 -PhNum 1 -PType 4
 
 & pwsh -NoProfile -File $pageScript -PluginPath $elfOk *> $null
 Assert-That ($LASTEXITCODE -eq 0) 'a 16384-aligned ELF passes the page size check'
