@@ -94,6 +94,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # **macOS の preset は Ninja を使う**（CMakePresets.json の
+      # macos-arm64-debug）。runner に Ninja は入っていないので、入れないと
+      # configure の時点で落ちる。ci-native の macOS job と同じ手当てである。
+      - name: Install Ninja
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
       # OpenCV の cache が無いと、job のたびに artifact を探す API 呼び出しが
       # 起きる。**レート制限に当たると、成果物にもコードにも問題が無いのに
       # CI が全部赤くなる**（実測、2026-08-29。Dependabot の PR 9 件と v0.1.1 の
