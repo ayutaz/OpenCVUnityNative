@@ -1434,11 +1434,29 @@ foreach ($mobile in $MobilePlatforms) {
     Assert-That ($hash -match '^[0-9a-f]{12}$') "$mobile hash is 12 lowercase hex characters"
 }
 
-# **構成ハッシュが platform 間で衝突しない。** 衝突すると、Android の artifact 名で
-# iOS の木が展開されるような事故が静かに成立する。
-$allHashes = @($AllTargetPlatforms | ForEach-Object { Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform $_) })
-Assert-That ((@($allHashes | Sort-Object -Unique)).Count -eq $AllTargetPlatforms.Count) `
-    "all $($AllTargetPlatforms.Count) target platforms hash differently (衝突すると別 platform の artifact が展開される)"
+<#
+    **構成ハッシュが platform 間で衝突しない。**
+
+    衝突すると、Android の artifact 名で iOS の木が展開されるような事故が
+    静かに成立する。
+
+    **ただし「5 つのハッシュが全部違う」を assert しても何も証明しない** ——
+    Config には Platform が入っており、ハッシュは Config 全体から取るので、
+    platform が違えば必ず違うハッシュになる。**構造的に常に真な検査は検査で
+    はない**（実測: android の toolchain を丸ごと ios と同じにしても通った）。
+
+    落ちうる形にする: **Platform を抜いたらハッシュが変わること**を見る。
+    これが成り立たなくなるのは、誰かが Get-OpenCvConfigHash を「選んだキーだけ
+    ハッシュする」形に変えたときで、そのとき初めて衝突が現実になる。
+#>
+foreach ($p in $AllTargetPlatforms) {
+    $cfg = Get-OpenCvConfig -Platform $p
+    $withPlatform = Get-OpenCvConfigHash -Config $cfg
+
+    $withoutPlatform = $cfg | Select-Object -Property * -ExcludeProperty Platform
+    Assert-That ((Get-OpenCvConfigHash -Config $withoutPlatform) -ne $withPlatform) `
+        "the hash for $p depends on Platform (依存しなくなると別 platform の artifact が展開される)"
+}
 
 # **未知の platform は黙って通さない。** 既定に倒すと、対応していない対象で
 # 「Windows の構成で Android をビルドする」が静かに成立する。
