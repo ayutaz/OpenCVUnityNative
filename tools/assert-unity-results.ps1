@@ -115,11 +115,27 @@ if ($passed -lt 1) {
     )
 }
 
+# **空文字を弾く。** -like "**" は何にでも当たるので、空を渡すと
+# 「要求したことになっているが何も要求していない」状態が exit 0 で通り、
+# しかも安心させる行まで出る。呼ぶ側でガードしても、判定を分けないという
+# 不変条件の下ではここに要る。
+foreach ($required in @($RequireTest + $RequireOutput)) {
+    if ([string]::IsNullOrWhiteSpace($required)) {
+        Write-Failure @(
+            "[$Lane] -RequireTest / -RequireOutput に空の値が渡されました。"
+            '**何も要求しない要求**は、通っても何の証拠にもならない。渡さないこと。'
+        )
+    }
+}
+
 foreach ($required in $RequireTest) {
     # fullname で見る（クラス名・名前空間を含む）。部分一致にしてあるのは、
     # 呼ぶ側にクラス名だけを書かせるためである。
     $matching = @($xml.SelectNodes('//test-case') |
-                  Where-Object { $_.GetAttribute('fullname') -like "*$required*" })
+                  # -clike にする。-like は大小文字を区別せず、* ? [ を
+                  # ワイルドカードとして解釈する（この波が -cmatch で潰したのと
+                  # 同じ罠をここに残さない）。
+                  Where-Object { $_.GetAttribute('fullname') -clike "*$required*" })
     # **Passed であることまで見る。** Skipped / Inconclusive は failed に
     # 数えられないので、存在だけを見ると [Ignore] で満たせてしまう。
     $seen = @($matching | Where-Object { $_.GetAttribute('result') -eq 'Passed' })

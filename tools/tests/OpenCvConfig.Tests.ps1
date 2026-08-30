@@ -838,7 +838,10 @@ if ($markerName) {
                 その宣言の目的を打ち消す。
             #>
             $guard = @($job.Commands | Where-Object {
-                $_ -match '^    if:\s*(\$\{\{\s*)?!\s*cancelled\(\)\s*(\}\})?\s*$'
+                # `${{ }}` を必須にする。裸の `if: !cancelled()` は YAML の
+                # タグ指示子として解析エラーになるし、`}}` 欠落も同じく壊れる。
+                # **受理する形を 1 つに絞る。**
+                $_ -match '^    if:\s*\$\{\{\s*!\s*cancelled\(\)\s*\}\}\s*$'
             })
             Assert-That ($guard.Count -gt 0) `
                 "$($job.Workflow) job '$($job.Name)' has needs: and guards against skipping with exactly if: !cancelled() (ゆるい条件は必須チェックを常時 skip にしうる)"
@@ -856,19 +859,29 @@ if ($markerName) {
     # 数える）に載せる。
     $devLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') |
                   Where-Object { $_ -notmatch '^\s*#' })
-    $devWrites = @($devLines | Where-Object {
-        $_ -match 'Set-Content' -and $_ -match [regex]::Escape($markerName)
-    })
-    Assert-That ($devWrites.Count -eq 1) `
-        "tools/dev.ps1 writes the marker ('$markerName') in exactly one statement (saw $($devWrites.Count))"
+    # 名前が出てくるのは 1 行だけ（合図のパスを組み立てる行）。そこから
+    # 導出した変数に対して Set-Content と Remove-Item の両方があること ——
+    # **書くだけの実装は、置き去りを消せない。**
+    $devNames = @($devLines | Where-Object { $_ -match [regex]::Escape($markerName) })
+    Assert-That ($devNames.Count -eq 1) `
+        "tools/dev.ps1 names the marker ('$markerName') in exactly one statement (saw $($devNames.Count))"
+    Assert-That (@($devLines | Where-Object { $_ -match 'Set-Content\s+-LiteralPath\s+\$marker' }).Count -eq 1) `
+        'tools/dev.ps1 writes the marker in exactly one statement'
+    Assert-That (@($devLines | Where-Object { $_ -match 'Remove-Item\s+-LiteralPath\s+\$marker' }).Count -eq 1) `
+        'tools/dev.ps1 removes the marker when the tree is not all-platform (書くだけでは置き去りを消せない)'
 
     # **4 箇所目は .gitignore である。** ここだけ突き合わせないと、名前を
     # 変えたときに古い綴りが残り、合図ファイルが追跡対象に現れる。誰かが
     # commit すると、**1 platform しか無いローカルのレーンが全部 3 つを
     # 要求して落ちる**（.gitignore のコメント自身がその危険を書いている）。
-    $ignoreText = Get-Content -LiteralPath (Join-Path $repoRoot '.gitignore') -Raw
-    Assert-That ($ignoreText -match [regex]::Escape($markerName)) `
-        ".gitignore ignores the marker ('$markerName')"
+    # **「書いてあるか」ではなく「無視されるか」を git に聞く。** 全文の
+    # -match は、8 行上で捨てたばかりの形である —— コメント行でも満たせるし、
+    # `!` を付けた否定行（= 能動的に追跡へ戻す）でも満たせる。後者のほうが
+    # 悪い: 誰かが commit すると 1 platform しか無いローカルのレーンが 3 つを
+    # 要求して落ちる。意味そのものを聞けば、どちらも捕まる。
+    & git -C $repoRoot check-ignore -q "tests/UnityProject/$markerName"
+    Assert-That ($LASTEXITCODE -eq 0) `
+        "git ignores the marker at tests/UnityProject/$markerName (書いてあることではなく、無視されることを見る)"
 
     # 要求する名前が実際に宣言されていること。**空文字だけになると、
     # assert-unity-results.ps1 の照合は部分一致なので何にでも当たり、

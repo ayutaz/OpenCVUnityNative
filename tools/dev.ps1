@@ -350,6 +350,45 @@ function Get-UnityEditorPath {
     無いこと自体も失敗として扱う — Unity がテストを書き出す前に落ちた
     ことを意味し、それは成功ではない。
 #>
+<#
+    「3 つ揃っているはず」という合図を、**木から導出して**置く。
+
+    ## なぜ「消す」ではなく「導出する」なのか
+
+    最初は EditMode / Player のレーンで無条件に消していた。CI の手順を
+    ローカルで再現した人が `tests/UnityProject/` に置き去りを作るからである。
+    **しかしそれは、3 platform 同居の開発機で検査を黙って無効にする。**
+
+    `test-unity-tarball -PluginSource` は実リポジトリの `Runtime/Plugins` に
+    重ねて後始末をしない（roadmap にもそう書いてある）。つまり**条件 2 の証拠を
+    再現した開発機では、その後の EditMode は 3 platform 同居の木で走る。**
+    そこで合図を消すと「ちょうど 3 つ」の assertion が無効になり、出力は
+    1 platform のときと見分けが付かない —— しかも `-RequireTest` の行が
+    「gating は走った」と積極的に安心させる。
+
+    導出にすれば、置き去りがあってもなくても結果が同じになる。**合図は
+    状態ではなく、木から計算される値である。**
+#>
+function Sync-AllPlatformsMarker {
+    param([Parameter(Mandatory)][string] $ProjectPath)
+
+    $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+    $present = @(
+        'x86_64/opencv_unity_native.dll'
+        'macOS/libopencv_unity_native.dylib'
+        'Linux/x86_64/libopencv_unity_native.so'
+    ) | Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) }
+
+    $marker = Join-Path $ProjectPath 'ocvu-expect-all-platforms'
+    if ($present.Count -eq 3) {
+        Set-Content -LiteralPath $marker -Value '1' -NoNewline -Encoding utf8
+        Write-Host '==> 3 platform 分が揃っているので、テストに 3 つを要求させる' -ForegroundColor Cyan
+    } else {
+        Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    }
+}
+
+
 function Test-UnityEditMode {
     Build-Native
 
@@ -359,20 +398,8 @@ function Test-UnityEditMode {
     $results = Join-Path $ResultsDir 'unity-editmode.xml'
     $log     = Join-Path $ResultsDir 'unity-editmode.log'
 
-    <#
-        **置き去りの合図を消す。**
-
-        ci-unity.yml の Unity job は `tests/UnityProject/ocvu-expect-all-platforms`
-        という**まさにこのパス**に合図を書く。CI の手順をローカルで再現した人は
-        それを残す。gitignore 済みなので `git status` は clean のままで、
-        `git clean -fd` でも消えない（`-x` が要る）。
-
-        残っていると、1 platform 分しか無いこのレーンが 3 つを要求して落ちる。
-        原因はファイル名から辿れるが、「なぜ突然」は分からない。**このレーンが
-        全部入りを検査することは無い**ので、無条件に消してよい。
-    #>
-    Remove-Item -LiteralPath (Join-Path $project 'ocvu-expect-all-platforms') `
-                -Force -ErrorAction SilentlyContinue
+    # 合図は木から導出する（置き去りがあってもなくても結果が変わらない）。
+    Sync-AllPlatformsMarker -ProjectPath $project
 
 
     # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
@@ -523,11 +550,9 @@ function Test-UnityTarball {
         # 使い捨ての Unity プロジェクトを作る。Library/ 等は持って行かない。
         $project = Join-Path $work 'UnityProject'
         $source  = Join-Path $RepoRoot 'tests/UnityProject'
-        # 合図は**持って行かない**。このレーンは全部入りのときだけ自分で書く
-        # ので、元のプロジェクトに置き去りがあると 1 platform でも 3 つを
-        # 要求してしまう。
-        $skip    = @('Library', 'Temp', 'Logs', 'obj', 'Build', 'UserSettings',
-                     'ocvu-expect-all-platforms')
+        # 合図はここでは除かない。**コピーの後で木から導出して置き直す**ので、
+        # 置き去りが混ざっても結果は変わらない（Sync-AllPlatformsMarker）。
+        $skip    = @('Library', 'Temp', 'Logs', 'obj', 'Build', 'UserSettings')
         New-Item -ItemType Directory -Force -Path $project | Out-Null
         Get-ChildItem -LiteralPath $source -Force |
             Where-Object { $_.Name -notin $skip } |
@@ -592,10 +617,7 @@ function Test-UnityTarball {
             **要素 1 個でも緑になる**。同じ合図をローカルと CI の両方で使える形に
             しておく（ワークスペースはコンテナに mount される）。
         #>
-        if ($allPlatforms) {
-            Set-Content -LiteralPath (Join-Path $project 'ocvu-expect-all-platforms') `
-                        -Value '1' -NoNewline -Encoding utf8
-        }
+        Sync-AllPlatformsMarker -ProjectPath $project
 
         $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -PassThru -NoNewWindow
         if (-not $proc.WaitForExit($timeoutMs)) {
@@ -703,20 +725,8 @@ function Test-UnityPlayer {
     $results = Join-Path $ResultsDir 'unity-player.xml'
     $log     = Join-Path $ResultsDir 'unity-player.log'
 
-    <#
-        **置き去りの合図を消す。**
-
-        ci-unity.yml の Unity job は `tests/UnityProject/ocvu-expect-all-platforms`
-        という**まさにこのパス**に合図を書く。CI の手順をローカルで再現した人は
-        それを残す。gitignore 済みなので `git status` は clean のままで、
-        `git clean -fd` でも消えない（`-x` が要る）。
-
-        残っていると、1 platform 分しか無いこのレーンが 3 つを要求して落ちる。
-        原因はファイル名から辿れるが、「なぜ突然」は分からない。**このレーンが
-        全部入りを検査することは無い**ので、無条件に消してよい。
-    #>
-    Remove-Item -LiteralPath (Join-Path $project 'ocvu-expect-all-platforms') `
-                -Force -ErrorAction SilentlyContinue
+    # 合図は木から導出する（置き去りがあってもなくても結果が変わらない）。
+    Sync-AllPlatformsMarker -ProjectPath $project
 
 
     # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
