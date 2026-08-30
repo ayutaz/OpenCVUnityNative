@@ -76,11 +76,17 @@ if(OCVU_WITH_OPENCV)
             list(APPEND OCVU_BUNDLE_INPUTS "$<TARGET_FILE:${_lib}>")
         endforeach()
 
-        # OpenCV が bundle する third-party（libpng / libjpeg-turbo / zlib 等）は
-        # OpenCV_LIBS の target には現れないので、インストール木から直接拾う。
+        # OpenCV が bundle する third-party（libpng / libjpeg-turbo / zlib /
+        # kleidicv 等）は OpenCV_LIBS の target には現れないので、インストール木
+        # から直接拾う。**実測した配置**（M4 の CI artifact、iOS）:
+        #
+        #   <root>/lib/opencv5/3rdparty/*.a   ← 実際にここ
+        #   <root>/lib/*.a                     ← opencv_* 本体
+        #
+        # 版番号つきのディレクトリ名（opencv5）を決め打ちにせず、glob で拾う。
         file(GLOB OCVU_OPENCV_3RDPARTY
-             "${OCVU_OPENCV_ROOT}/lib/opencv4/3rdparty/*.a"
-             "${OCVU_OPENCV_ROOT}/lib/*.a"
+             "${OCVU_OPENCV_ROOT}/lib/opencv*/3rdparty/*.a"
+             "${OCVU_OPENCV_ROOT}/lib/3rdparty/*.a"
              "${OCVU_OPENCV_ROOT}/share/OpenCV/3rdparty/lib/*.a")
         list(APPEND OCVU_BUNDLE_INPUTS ${OCVU_OPENCV_3RDPARTY})
 
