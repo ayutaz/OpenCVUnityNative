@@ -1194,6 +1194,69 @@ foreach ($t in $toolsTests) {
 }
 
 
+# --- Release を作る job は、job 単位で tag に限られていること ---
+#
+# **step 単位の `if:` で公開を止めない。** このリポジトリは同じ形で既に
+# 一度踏んでいる（移植性検査。下の節を参照）——「step が在る」だけを見る
+# 検査は、条件を書き損じても緑のまま通り、しかも打ち間違いは GitHub に
+# とって正当な式なのでどこも赤くならない。
+#
+# **公開はそれより結果が重い。** 失敗は両方向に静かである:
+#
+#   常に false になる打ち間違い → tag を打っても Release が作られないのに
+#                                 job は緑で、ログも成功時と変わらない
+#   常に true になる打ち間違い → 空撃ちで Release が作られる
+#
+# job 単位に置けば、この走査で見られる。**event まで見ることを要求する**のは、
+# `workflow_dispatch` の ref 選択に tag も出るためである —— tag を選んで手動
+# 起動すると `github.ref` は `refs/tags/v…` になるので、ref だけの条件では
+# 「空撃ちでは Release を作らない」が成り立たない。
+$releaseCreators = @()
+foreach ($job in $allJobs) {
+    if (@($job.Commands | Where-Object { $_ -match 'gh\s+release\s+(create|upload|edit|delete)' }).Count -eq 0) { continue }
+    $releaseCreators += $job
+}
+Assert-That ($releaseCreators.Count -gt 0) `
+    'some job creates a GitHub Release (0 件なら下の検査は空振りする)'
+
+# **条件は 1 字ずつ突き合わせる。部分一致にしない。**
+#
+# 最初は「`refs/tags/` を含むか」「`event_name == 'push'` を含むか」で見ていた。
+# レビューで 3 通り実測され、**どれも素通りした**:
+#
+#   `&&` を `||` にする   → tag を選んだ手動起動で Release が作られる
+#   `startsWith` を否定する → tag を打っても作られないのに job は緑
+#   step 開始行に `- if:` を書き戻す → 「2 箇所に置かない」が空振り
+#
+# 部分一致は**論理構造を一切見ない**ので、書き損じが全部通る。公開の条件は
+# 1 つしかないのだから、その 1 形だけを受理する。
+$ExpectedReleaseGate = "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+
+foreach ($job in $releaseCreators) {
+    $gate = @($job.Commands | Where-Object { $_ -match '^    if:\s*\S' } | ForEach-Object { $_.Trim() })
+    Assert-That ($gate.Count -eq 1) `
+        "$($job.Workflow) job '$($job.Name)' has exactly one job-level if: (saw $($gate.Count))"
+    if ($gate.Count -ne 1) { continue }
+
+    Assert-That ($gate[0] -ceq $ExpectedReleaseGate) `
+        "$($job.Workflow) job '$($job.Name)' gates the release exactly as '$ExpectedReleaseGate' (saw: '$($gate[0])')"
+
+    # 公開する step 側に条件を残さない。**判定が 2 箇所にあると、片方だけを
+    # 直したときに食い違う。** step の `if:` は 8 スペースの他に、step 開始行に
+    # 直接書く `      - if:` の形もある —— 同じファイルの Get-StepIf が既に
+    # 両方を扱っているので、そちらと同じ形を使う（3 つ目を書き下ろして
+    # 落としたのが上の C である）。
+    $stepGates = @()
+    foreach ($step in $job.Steps) {
+        $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+        if (@($cmds | Where-Object { $_ -match 'gh\s+release\s+' }).Count -eq 0) { continue }
+        $stepGates += @(Get-StepIf -Step $cmds | Where-Object { $_ })
+    }
+    Assert-That ($stepGates.Count -eq 0) `
+        "$($job.Workflow) job '$($job.Name)' does not also gate the release step with a step-level if: (判定を 2 箇所に置かない。saw: $($stepGates -join ' / '))"
+}
+
+
 # --- 配る binary を作る job が移植性を検査する ---
 #
 # **v0.1.0 でこの欠陥を実際に配った。** ubuntu-24.04 で作った .so が

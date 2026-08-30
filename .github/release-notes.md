@@ -44,6 +44,19 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 package の**中身**を対象にしているので、展開後に使う。`SHA256SUMS.txt` は
 ダウンロードする物そのものを対象にしている。
 
+## 前の版（v0.1.1）から変わったこと
+
+- **画像の encode / decode が入った**（`CvCodecs.Encode` / `CvCodecs.Decode`）。
+  扱うのはメモリ上の byte 列だけで、ファイルパスは受けない
+- **配る正が「全部入りの tarball 1 つ」になった**（`com.ayutaz.opencv-unity-native.tgz`）。
+  3 platform の binary が同居するので、「エディタは Windows、実機は別 platform」が
+  1 つの package で表現できる
+- **Unity の下限が 6000.0 から 6000.3 へ上がった。** `package.json` の `unity` が
+  `6000.3` なので、**6000.0 の利用者はこの版を導入できない。** 6000.0 LTS の通常
+  サポートは 2026-10 に終わる。検証しているのは 6000.3.16f1 の 1 版だけである
+
+`OCVU_ABI_VERSION` は 1 のまま変わっていない（関数を足しただけなので）。
+
 ## この版の範囲
 
 - **対応 platform**: Windows x64 / macOS arm64 / Linux x64。**mobile と Web は未対応**
