@@ -733,7 +733,7 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 | 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった。動く根拠も動かない根拠も持っていない** | **M4** |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決める** |
 | 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
-| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた** —— 5.0 が GPU の逃げ道として案内する classic エンジンが 5.x で削除済み、`enum EngineType` の値が総入れ替え、ABI 互換は保たないと公式に明言。詳細は M7 節 | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
+| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
 
 ### #1 を最優先に置く理由
 
@@ -1108,6 +1108,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 | PR #29451 "Extending CUDA support in UMat"、merged `2026-07-29T05:49:36Z`、3 ファイル・+429 −0 | GitHub API `pulls/29451` |
 | Technical Committee 議事録（**2026-08-12 の回**）: *"PR #29658: CUDNN JIT: 9.3x speedup on Resnet 50 (RTX 6000 vs Intel Xeon)."* | [opencv wiki 2026](https://github.com/opencv/opencv/wiki/2026) |
 | 同（**2026-07-29 の回**）: *"DNN engine classic removal is DONE and merged finally"* / *"ONNX coverage is 72.9% now"* | 同 wiki |
+| **同型の 2 例目**: 5.0 は *"TFLite is still supported via the classic engine"* と案内しているが、その classic は削除された。5.x の `tflite_importer.cpp` は `ENGINE_AUTO` / `ENGINE_OPENCV` だけを受け、それ以外は warning を出す | [opencv wiki OpenCV-5](https://github.com/opencv/opencv/wiki/OpenCV-5) と `modules/dnn/src/tflite/tflite_importer.cpp@5.x` |
 | 5.1 の milestone は **open、期日なし**（open / closed の内訳は変動するので記録しない） | GitHub API `milestones` |
 
 **`enum EngineType` は値が付け替わっている**（`int` として C ABI を越える値なので、
@@ -1121,21 +1122,48 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 | `ENGINE_ORT` | **4** | **2** |
 
 これは `docs/abi-ownership-and-versioning.md` §2 が「bump する変更」に挙げている
-**「既存 status code の数値または意味が変わる」と同じ形**である。5.0 向けに
-`engine` を `int32_t` で受ける ABI を書いて `3`(AUTO) を通していたら、
-**5.1 ではその値は未定義になる。**
+**「既存 status code の数値または意味が変わる」と同じ形**である。
+
+**同じ数字を `OPENCV_FORCE_DNN_ENGINE` という環境変数も使っている**（`OpenCV-5` が
+`1` classic / `2` new / `3` auto / `4` ORT と案内している）。**こちらは再ビルドすら
+要らない** —— 5.0 の手順書どおりに設定した利用者の環境で、5.1 は別のエンジンを引く。
+5.x の `resolveOnnxEngine`（`modules/dnn/src/onnx/onnx_importer.cpp`）を読んで機械的に導いた:
+
+| 5.0 で渡していた値 | 5.0 の意味 | 5.x での帰結 |
+| --- | --- | --- |
+| `1` | classic エンジン | **`ENGINE_OPENCV`**（classic は無いので、別物が動く） |
+| `2` | 新エンジン | **`ENGINE_ORT`** —— **ONNX Runtime に切り替わる。最も危険** |
+| `3` | auto | どの分岐にも当たらず無視され、既定の `ENGINE_OPENCV` に落ちる（**結果は同じ**） |
+| `4` | ORT | 強制の条件（`1` か `2`）に当たらず**黙って無視される** —— ORT を頼んだのに組み込みエンジンが動く |
+
+**`3` だけは壊れない。** 引数として `3` を渡した場合も warning 1 行で `ENGINE_OPENCV` に
+落ちるだけである。**黙って変わるのは `1` / `2` / `4` のほうである。**
 
 **判断に効いているのは 9.3 倍ではなく、この 3 つである。**
 
-1. **5.0 が案内する GPU の逃げ道が、5.1 では存在しない。** 公式は「新エンジンは CPU 専用、
-   GPU が要るなら **classic エンジンを強制せよ**」と書いているが、**その classic エンジンは
-   5.x から削除された**（#29341）。5.0 に固定して GPU 経路を作り込むと、公式が案内する
-   唯一の方法ごと次の版で消える。
-2. **列挙の値が総入れ替えになった**（上表）。`int` で境界を越える値なので、**再コンパイルは
-   通り、意味だけが変わる。** このリポジトリが「bump する変更」と呼んでいる形そのものである。
-3. **ABI 互換は保たないと公式に明言がある。** 5.0 → 5.1 は dnn と無関係に再リンクが要る ——
-   構成ハッシュに tag を混ぜてある理由そのものである。**API 互換は保つ**とも明言があるので、
-   壊れるのは**ソース**ではなく**バイナリ**の側である。
+1. **公式が案内する 2 本の GPU 経路のうち、1 本が消えた。** 5.0 の案内は
+   *"either **force the classic engine** or **build OpenCV with ORT and NVIDIA execution providers**"*
+   の 2 本で、**前者の classic エンジンが 5.x から削除された**（#29341）。
+   **後者は残っている**（`ENGINE_ORT` は 5.x の `dnn.hpp` に健在、`OpenCV-5` は
+   `-DWITH_ONNXRUNTIME=ON -DDOWNLOAD_ONNXRUNTIME_GPU=ON` を案内している）。
+   **残ったほうは決定 5 に直結する** —— ONNX Runtime GPU という別の再頒布物を引き込むからである。
+2. **`OPENCV_FORCE_DNN_ENGINE` の値が、再ビルドすら要らないまま意味を変える。**
+   `int` の列挙値だけでなく、**利用者が手元で設定する環境変数**が同じ数字を使っている（下表）。
+   5.0 の手順書どおりに設定した利用者が、5.1 では別のエンジンを引く。
+3. **公開列挙子が削除・改名された。** `ENGINE_CLASSIC` と `ENGINE_NEW` は 5.x の
+   `dnn.hpp` に存在せず、互換 alias も無い（実測）。**`Branches` wiki は「5.x は API 互換を
+   保つ」と明文で書いているが、#29341 はその明文を破っている** —— つまり
+   **壊れるのはバイナリだけでなくソースもである。** 明文のポリシーを実測より強い保証として
+   読んではいけない、という実例でもある。
+
+**ABI 非互換の明言そのものは、この判断には効かない。** このプラグインは OpenCV を静的リンクして
+`ocvu_` の C ABI だけを外に出すので、**上流の ABI はこの境界を越えない。** 5.0 → 5.1 で再リンクが
+要るのは、tag ごとに毎回やっていることである。**効くのは版を跨ぐ話のほう**（決定 3）で、
+そちらでは「構成ハッシュに tag を混ぜてある理由」として正しく効く。
+
+**壊れるものと壊れないものは分けられる。** 壊れるのは **engine / backend の選択**（列挙子、
+環境変数、GPU 経路）で、**壊れないのは推論の入口**（`readNetFromONNX` / `Net::forward` /
+`blobFromImage` は 5.x にも同じ名前で在る）。
 
 **9.3 倍が言っていないこと。** ここを取り違えると判断を誤る。
 
@@ -1143,10 +1171,12 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 *"experimenting with CUDNN JIT, have some troubles with building it"* と書いている
 （生の `2026.md:130` で確認。**この行を最初は落としていた**）。
 
-**そして本体はまだ入っていない。** 議事録が #29658 と並べて 3 回報告している
-**PR #29656 "Added Backend Agnostic fusion in DNN"（milestone 5.1、+1681 −47）は
-`open` のままである**（GitHub API、2026-08-30 実測）。「support が merge された」と
-「実行経路が入った」が別であることの実例がこれである。
+**そして、この数字を出した実装がどこにあるのかは追えていない。** 議事録は #29658 と
+**#29656 "Added Backend Agnostic fusion in DNN"**（milestone 5.1、+1681 −47、**`open`**）を
+並べて 3 回報告しているが、**#29656 は cuDNN JIT とは別の作業である** —— 17 ファイルの
+どれも `cuda` / `cudnn` に触れておらず、PR 本文自身が *"only the third CPU-specific"* /
+*"CPU implementations behind it"* と書いている。**並んでいるのは同じ寄稿者の作業項目だから**で
+あって、一方が他方の本体だからではない。**「本体はこれだ」と結び付けない。**
 
 - **GPU と CPU の比較である。** 「cuDNN JIT が既存の CUDA backend より 9.3 倍速い」ではない。
   **こちらが得られる差分の大きさは、この数字からは読めない。**
@@ -1193,10 +1223,13 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
      別問題である（計画書 §8.2。ただし同節が扱うのは FFmpeg / JPEG / PNG 等で、**CUDA / cuDNN には
      触れていない**）。cuDNN は NVIDIA のライセンス条項の下にあるが、**その条項を読んでいない。**
      ここは「確かめていない」であって「配れない」ではない
-   - **大きさ（ライセンスより先に効く）。** cuDNN の再頒布物はギガバイト級で、
-     `tools/pack-upm-tarball.ps1` の上限は 512 MB、現在の全部入りは 9.6 MB である。
-     **ライセンスが解決しても、いまの形では配れない。** 同梱するのか、利用者側での導入を
-     前提にするのかを決める必要がある
+   - **大きさ（ライセンスより先に効く）。** **実測（2026-08-30、PyPI の
+     `nvidia-cudnn-cu12` 9.25.1.1）: 1 platform あたり 698〜772 MB**（win_amd64 698.4 /
+     manylinux x86_64 716.4 / aarch64 772.1）。`tools/pack-upm-tarball.ps1` の上限は
+     **512 MB** で、現在の全部入りは 9.6 MB である。**1 platform 分だけで既に上限を超える** ——
+     ライセンスが解決しても、いまの形では配れない。同梱するのか、利用者側での導入を
+     前提にするのかを決める必要がある。**ORT + NVIDIA execution provider の経路
+     （根拠 1 で残ったほう）も同じ問いに突き当たる。**
 
    確かめるまで、CUDA backend を完了条件に入れない。
 
