@@ -1029,25 +1029,41 @@ foreach ($job in $allJobs) {
 Assert-That ($releaseCreators.Count -gt 0) `
     'some job creates a GitHub Release (0 件なら下の検査は空振りする)'
 
+# **条件は 1 字ずつ突き合わせる。部分一致にしない。**
+#
+# 最初は「`refs/tags/` を含むか」「`event_name == 'push'` を含むか」で見ていた。
+# レビューで 3 通り実測され、**どれも素通りした**:
+#
+#   `&&` を `||` にする   → tag を選んだ手動起動で Release が作られる
+#   `startsWith` を否定する → tag を打っても作られないのに job は緑
+#   step 開始行に `- if:` を書き戻す → 「2 箇所に置かない」が空振り
+#
+# 部分一致は**論理構造を一切見ない**ので、書き損じが全部通る。公開の条件は
+# 1 つしかないのだから、その 1 形だけを受理する。
+$ExpectedReleaseGate = "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+
 foreach ($job in $releaseCreators) {
-    $gate = @($job.Commands | Where-Object { $_ -match '^    if:.*refs/tags/' })
+    $gate = @($job.Commands | Where-Object { $_ -match '^    if:\s*\S' } | ForEach-Object { $_.Trim() })
     Assert-That ($gate.Count -eq 1) `
-        "$($job.Workflow) job '$($job.Name)' gates the release on a tag at the job level (saw $($gate.Count))"
+        "$($job.Workflow) job '$($job.Name)' has exactly one job-level if: (saw $($gate.Count))"
     if ($gate.Count -ne 1) { continue }
 
-    Assert-That ($gate[0] -match "github\.event_name\s*==\s*'push'") `
-        "$($job.Workflow) job '$($job.Name)' also requires the push event (workflow_dispatch は tag の ref を選べる): $($gate[0].Trim())"
+    Assert-That ($gate[0] -ceq $ExpectedReleaseGate) `
+        "$($job.Workflow) job '$($job.Name)' gates the release exactly as '$ExpectedReleaseGate' (saw: '$($gate[0])')"
 
     # 公開する step 側に条件を残さない。**判定が 2 箇所にあると、片方だけを
-    # 直したときに食い違う。**
+    # 直したときに食い違う。** step の `if:` は 8 スペースの他に、step 開始行に
+    # 直接書く `      - if:` の形もある —— 同じファイルの Get-StepIf が既に
+    # 両方を扱っているので、そちらと同じ形を使う（3 つ目を書き下ろして
+    # 落としたのが上の C である）。
     $stepGates = @()
     foreach ($step in $job.Steps) {
         $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
         if (@($cmds | Where-Object { $_ -match 'gh\s+release\s+' }).Count -eq 0) { continue }
-        $stepGates += @($cmds | Where-Object { $_ -match '^\s{8}if:' })
+        $stepGates += @(Get-StepIf -Step $cmds | Where-Object { $_ })
     }
     Assert-That ($stepGates.Count -eq 0) `
-        "$($job.Workflow) job '$($job.Name)' does not also gate the release step with a step-level if: (判定を 2 箇所に置かない)"
+        "$($job.Workflow) job '$($job.Name)' does not also gate the release step with a step-level if: (判定を 2 箇所に置かない。saw: $($stepGates -join ' / '))"
 }
 
 

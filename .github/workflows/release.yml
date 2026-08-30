@@ -418,9 +418,11 @@ jobs:
     needs: assemble
     timeout-minutes: 15
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    # 書き込み権限を持つのはここだけにする。
+    # 書き込み権限を持つのはここだけにする。**job の permissions は workflow
+    # 既定の上書きであって追加ではない**ので、要るものを全部書く。
     permissions:
       contents: write
+      actions: read
 
     steps:
       - uses: actions/checkout@v7
@@ -430,6 +432,32 @@ jobs:
         with:
           name: release-assets
           path: assets
+
+      # **往復で欠けていないかを数え直す。**
+      #
+      # asset は assemble job が数えて（17 件）artifact に載せ、この job が
+      # 落として `gh release create` に渡す。**その間で 1 つ落ちても、ここまでは
+      # 誰も気づかない** —— upload / download はファイルが少ないことを失敗に
+      # しない。数えるのは安いので、配る直前にもう一度数える。
+      - name: Check the assets survived the round trip
+        shell: pwsh
+        run: |
+          $assets = @(Get-ChildItem assets -File)
+          Write-Host "==> $($assets.Count) assets arrived"
+          $assets | ForEach-Object { Write-Host "    $($_.Name)" }
+          # 17 件 + assemble が書いた SHA256SUMS.txt = 18
+          if ($assets.Count -ne 18) {
+              Write-Error "expected 18 assets (17 staged + SHA256SUMS.txt) but got $($assets.Count); the artifact round trip lost or added something"
+              exit 1
+          }
+          if (-not (Test-Path 'assets/com.ayutaz.opencv-unity-native.tgz')) {
+              Write-Error 'the all-in-one tarball did not survive the round trip'
+              exit 1
+          }
+          if (-not (Test-Path 'assets/SHA256SUMS.txt')) {
+              Write-Error 'SHA256SUMS.txt did not survive the round trip'
+              exit 1
+          }
 
       # tag と package.json の版が一致していること。
       #
