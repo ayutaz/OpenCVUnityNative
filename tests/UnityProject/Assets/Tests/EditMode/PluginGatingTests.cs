@@ -149,7 +149,7 @@ public class PluginGatingTests
         // **数を直書きしない。** Slots が正本で、platform を足したときに
         // 片方だけ古くなるのを避ける。
         Assert.AreEqual(Slots.Length, importers.Count,
-            $"{ExpectAllPlatformsMarker} が置かれているのに 3 platform 分が揃っていない。" +
+            $"{ExpectAllPlatformsMarker} が置かれているのに {Slots.Length} platform 分が揃っていない。" +
             $"見えたもの: [{string.Join(", ", names)}]");
     }
 

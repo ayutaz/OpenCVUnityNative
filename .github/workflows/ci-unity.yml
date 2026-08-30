@@ -229,10 +229,10 @@ jobs:
             # **入力ではなく結果を見る。** 合図が届かなければ gating は
             # 「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた
             # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
-            # 合図の経路が壊れた時点で赤くなる。**このレーンは 3 platform を
-            # 重ねてから走るので、無条件に 3 を要求してよい。**
-            # 末尾の '[' まで含めるのは境界のため。'present: 3' だけだと
-            # 'present: 30' にも当たる。
+            # 合図の経路が壊れた時点で赤くなる。**このレーンは 5 platform を
+            # 重ねてから走るので、無条件に 5 を要求してよい。**
+            # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
+            # 'present: 50' にも当たる。
             requireOutput: 'native plugins present: 5 ['
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
@@ -268,7 +268,7 @@ jobs:
           pattern: unity-plugin-*
           path: other-plugins
 
-      - name: Assemble all three platforms into one package
+      - name: Assemble every platform into one package
         shell: pwsh
         run: |
           # **5 platform すべてを重ねる。** PluginGatingTests が Slots の数
@@ -381,7 +381,7 @@ jobs:
       # Unity 側には届かず、テストは「合図が無い」分岐に落ちて **要素 1 個でも
       # 緑になる** —— 塞ごうとしている穴と同じ壊れ方を、合図の側がする。
       # ワークスペースはコンテナに mount されるので、ファイルなら確実に届く。
-      - name: Check all three are in place, and tell the tests to expect three
+      - name: Check every platform is in place, and tell the tests to expect them all
         shell: pwsh
         run: |
           $root = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'

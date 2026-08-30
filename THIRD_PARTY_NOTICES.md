@@ -20,14 +20,17 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
   | | ライブラリ | ライセンス |
   | --- | --- | --- |
   | Windows | `x64/vc17/staticlib/*.lib` | `etc/licenses/` |
-  | macOS / Linux | `lib/*.a` | `share/licenses/opencv5/` |
+  | macOS / Linux / iOS | `lib/*.a` | `share/licenses/opencv5/` |
+  | Android | `sdk/native/staticlibs/arm64-v8a/*.a` | `sdk/etc/licenses/` |
 - Modules built for this configuration (`tools/opencv-config.psd1`):
   `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, plus `flann` and
   `geometry`, pulled in transitively (`tools/verify-opencv-artifact.ps1`
   `$AcceptedTransitiveModules`).
 - **Universe considered**: every file under
   `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）` in the restored artifact
-  (`./tools/opencv.ps1 restore`) — **13 files** as of this hash. This is the
+  (`./tools/opencv.ps1 restore`) — **13 files** on the desktop and iOS configurations, **15 on Android**
+  (`cpufeatures-LICENSE` and `cpufeatures-README.md`, both from the NDK) as of
+  this hash. This is the
   set OpenCV's own install step attributes as third-party, and it is now the
   allowlist `tools/verify-opencv-artifact.ps1`'s `$InertLicenseFiles`
   enforces: a new file appearing there that isn't in that list fails the
@@ -36,7 +39,7 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
   reproduced below only if this document says so explicitly, in the
   "present but not linked" section near the end. Anything else missing from
   both sections is an omission, not a considered exclusion — file an issue.
-- **How each of the 13 files was classified** (reproduce below vs. not
+- **How each of those files was classified** (reproduce below vs. not
   linked): a plain-text search (`grep -a -o`) for a symbol-mangling
   substring specific to that component's own C++ namespace or function
   names — not a generic word — across every `.lib` under
@@ -812,14 +815,14 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ## Present in `etc/licenses/` but not linked into this build
 
-Two of the 13 files are license texts for components that OpenCV's build
+Two of those files are license texts for components that OpenCV's build
 system attributes generally, but a symbol-table search of every `.lib`
 under the platform's library directory (see the table above) for identifiers
 specific to each found nothing.
 Both belong to OpenCV modules (`dnn`, `gapi`) that are **not** in this
 configuration's `Modules` list (`tools/opencv-config.psd1`), so their code
 was never compiled into anything this package ships. Their license text is
-listed here for completeness — so the 13-file inventory is fully
+listed here for completeness — so the inventory is fully
 accounted for — but is not reproduced, because nothing of theirs ships.
 
 - **dlpack** (Apache License 2.0) —

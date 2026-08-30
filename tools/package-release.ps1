@@ -38,10 +38,10 @@ param(
         checksums.txt だけを出す。
 
         **全部入りの package 用である。** SBOM と build-manifest は復元済みの
-        OpenCV artifact（= 実行中 platform のもの）から作るので、3 platform を
+        OpenCV artifact（= 実行中 platform のもの）から作るので、全 platform を
         束ねる job には元が無い。**統合版を捏造せずに、出せるものだけ出す。**
 
-        checksums.txt は package を走査して作るので、3 platform 分の binary が
+        checksums.txt は package を走査して作るので、全 platform 分の binary が
         置かれていればそのまま 3 行になる。SBOM / build-manifest /
         THIRD_PARTY_NOTICES は platform ごとの物が Release に付くので、
         全部入りの中身の説明はそちらが担う。
@@ -209,7 +209,7 @@ if (-not (Test-Path -LiteralPath $noticesSource)) {
 <#
     **通知に platform 固有のヘッダを足してから同梱する。**
 
-    リポジトリの THIRD_PARTY_NOTICES.md は 1 つで、3 platform とも同じ本文を
+    リポジトリの THIRD_PARTY_NOTICES.md は 1 つで、全 platform が同じ本文を
     配っていた。ところが実際に入っている component は platform で違う——
     v0.1.0 の実測では、macOS の成果物に clapack が無い（Apple の Accelerate を
     使うため）のに、macOS の配布物は CLAPACK のライセンス全文を含んでいた。
@@ -239,7 +239,7 @@ $noticesHeader = @(
     ''
     ($components | ForEach-Object { "- ``$_``" })
     ''
-    '**以下の本文は 3 platform 共通で、上の一覧に無い component の節も含む。**'
+    '**以下の本文は全 platform 共通で、上の一覧に無い component の節も含む。**'
     'それらはこの platform の成果物には入っていない。本文を platform ごとに'
     '削らないのは、削る判断そのものが間違えやすく、過剰に載せる側の誤りは'
     '害が小さいからである。どれが実際に入っているかは上の一覧が正本になる。'

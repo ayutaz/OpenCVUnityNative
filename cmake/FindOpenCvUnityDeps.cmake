@@ -47,9 +47,14 @@ set(OpenCV_STATIC ON)
 # 探索の根に自分の木を足し、package の探索だけ BOTH に緩める。
 # **library / include のモードは触らない** —— そちらまで緩めると、
 # host の .a やヘッダを拾う経路が開く。
+# **グローバルに緩めない。** 以前は CMAKE_FIND_ROOT_PATH_MODE_PACKAGE を
+# BOTH にしていたが、これは include() 先のスコープ以降ずっと効く ——
+# OpenCVConfig.cmake が内部で find_dependency() を呼ぶと host を掴む経路が
+# 開く（COMPONENTS を増やしたときに顕在化する）。M4 のレビューで指摘。
+# 代わりに、この find_package の呼び出しにだけ NO_CMAKE_FIND_ROOT_PATH を
+# 付ける（下記）。探索の根に自分の木を足すのは引き続き必要。
 if(CMAKE_CROSSCOMPILING)
     list(APPEND CMAKE_FIND_ROOT_PATH "${OCVU_OPENCV_ROOT}")
-    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
     message(STATUS "cross-compiling: added ${OCVU_OPENCV_ROOT} to CMAKE_FIND_ROOT_PATH")
 endif()
 
@@ -73,9 +78,12 @@ foreach(_candidate IN LISTS OCVU_OPENCV_CONFIG_CANDIDATES)
     endif()
 endforeach()
 
+# NO_CMAKE_FIND_ROOT_PATH: この呼び出しに限って sysroot への読み替えを外す。
+# PATHS は既に絶対パスで、NO_DEFAULT_PATH が他の経路を閉じている。
 find_package(OpenCV ${OCVU_OPENCV_REQUIRED_VERSION} EXACT REQUIRED
     COMPONENTS core imgproc imgcodecs
     NO_DEFAULT_PATH
+    NO_CMAKE_FIND_ROOT_PATH
     PATHS ${OCVU_OPENCV_CONFIG_CANDIDATES})
 
 message(STATUS "OpenCV ${OpenCV_VERSION} from ${OCVU_OPENCV_ROOT}")

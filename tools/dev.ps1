@@ -627,7 +627,24 @@ function Test-UnityTarball {
             Write-Host "==> tarball contains all $($wantBins.Count) platform binaries" -ForegroundColor Green
         }
 
-        $binaries = @($listed | Where-Object { $_ -like "*/$NativeLibraryName" })
+        # **ファイル名では引かない。** linux-x64 と android-arm64 は
+        # どちらも libopencv_unity_native.so なので、Linux で走らせたとき
+        # **Android の binary しか入っていない tarball でも通る**
+        # （M4 のレビューで指摘）。platform ごとの相対パスで引く。
+        $mineRelative = switch ($Platform) {
+            'windows-x64'   { 'x86_64/opencv_unity_native.dll' }
+            'macos-arm64'   { 'macOS/libopencv_unity_native.dylib' }
+            'linux-x64'     { 'Linux/x86_64/libopencv_unity_native.so' }
+            'android-arm64' { 'Android/arm64-v8a/libopencv_unity_native.so' }
+            'ios-arm64'     { 'iOS/libopencv_unity_native.a' }
+            default { throw "unknown platform '$Platform': tarball の中で何を探すか決まっていない。" }
+        }
+        # **正本と食い違っていないこと。** 上の対応表は 2 つ目の一覧なので、
+        # 正本に無いパスを書いたら気づけるようにする。
+        if ($mineRelative -notin $script:AllPlatformBinaries) {
+            Write-DevFailure "'$mineRelative' が \$script:AllPlatformBinaries にありません（対応表がずれています）"
+        }
+        $binaries = @($listed | Where-Object { $_ -eq "package/Runtime/Plugins/$mineRelative" })
         if ($binaries.Count -lt 1) {
             # 診断も正本から。拡張子を列挙すると iOS の .a が「binary では
             # ない」ことになり、**失敗の原因を探す人に嘘の手がかりを渡す。**

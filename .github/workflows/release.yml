@@ -90,8 +90,17 @@ jobs:
         # macOS / iOS / Android の preset はすべて Ninja。**Windows だけが
         # Visual Studio generator である。**
         if: matrix.platform != 'windows-x64' && matrix.platform != 'linux-x64'
-        shell: pwsh
-        run: brew install ninja
+        # **brew は ubuntu に無い。** android-arm64 は ubuntu runner で
+        # コンテナ外なので、setup-linux-container.sh も走らない。
+        # build-opencv.yml が同じ分岐を持っている —— **こちらだけ
+        # `brew install ninja` のままで、M4 のレビューで見つかった。**
+        # この経路は tag と手動でしか走らないので CI は緑のままだった。
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ninja
+          else
+            sudo apt-get update && sudo apt-get install -y ninja-build
+          fi
 
       # **OpenCV は毎回 API から取らない。** restore は木が既に在れば
       # download を丸ごと省く（Invoke-Restore の先頭で検証して return する）。

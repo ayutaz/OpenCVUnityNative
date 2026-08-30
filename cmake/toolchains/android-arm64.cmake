@@ -54,5 +54,15 @@ include("${ANDROID_NDK}/build/cmake/android.toolchain.cmake")
 # NDK r28 以降は既定で 16 KB だが、明示しておく。**既定に頼ると NDK を
 # 下げたときに黙って壊れる。** 検査は tools/verify-android-page-size.ps1。
 #
+# **_INIT に足す。** toolchain file で CMAKE_SHARED_LINKER_FLAGS（_INIT で
+# ない方）を書いても、project() が _INIT から cache entry を作る際に
+# 負けて消えうる。_INIT が toolchain file 側の正規の入口である。
 # NDK の toolchain を include した「後」に足す —— 前に置くと上書きされる。
-string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT " -Wl,-z,max-page-size=16384")
+
+# **この flag が効いていること自体は、まだ分けて確かめていない。**
+# CI は実物の .so で p_align = 16384 を実測しているが、NDK r27 以降は
+# 既定で 16 KB 整列の可能性があり、**その実測は「flag が効いた証拠」には
+# ならない。** 分けるには一時的に 4096 にして
+# tools/verify-android-page-size.ps1 が赤くなるのを見る必要がある
+# （M4 のレビューでの指摘。未実施）。
