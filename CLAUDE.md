@@ -119,7 +119,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `ci-native.yml` | push(main) / PR / 手動 | L1 + L3 を 3 platform で。macOS / Linux job には `test-tools-slow` も配線 | **3 platform とも green**（M3 の PR #8 以降） |
 | `ci-sanitizers.yml` | push(main) / PR / 手動 | L2。Windows は ASan、Linux は ASan+LSan（リーク検出はこのレーンだけが担う） | green |
 | `build-opencv.yml` | 手動 + 構成ファイルの変更 | allowlist 構成の OpenCV を 3 platform でビルドし artifact 公開 | 稼働中 |
-| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**Unity は ubuntu で走る**が、**2026-08-30 から `windows-2022` と `macos-14` で他 2 platform の plugin もビルドし、Unity job がそれを重ねてから走る**（全部入りの gating を要素 3 個の集合に当てるため。roadmap の M3.5 条件 3）（Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた。上記参照）。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通）。Unity の版は `ProjectVersion.txt` から取るので、載せ替えても workflow は変えなくてよい | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green）。**ただしM3.5 で Unity を 6000.3.16f1 へ、EditMode を 16 件へ替えた後も green**（run の詳細は `docs/roadmap.md` の M3.5 節。**同じ事実を 2 箇所に書かない**） |
+| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**Unity は ubuntu で走る**が、**2026-08-30 から `windows-2022` と `macos-14` で他 2 platform の plugin もビルドし、Unity job がそれを重ねてから走る**（全部入りの gating を要素 3 個の集合に当てるため。roadmap の M3.5 条件 3）（Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた。上記参照）。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通）。Unity の版は `ProjectVersion.txt` から取るので、載せ替えても workflow は変えなくてよい | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green）。**ただしM3.5 で Unity を 6000.3.16f1 へ、EditMode を 16 件へ替えた後も green**（run の詳細は `docs/roadmap.md` の M3.5 節。**同じ事実を 2 箇所に書かない**）。**2026-08-30 の 3 platform 構成での実績はまだ無い** —— この行の green はすべてそれ以前のものである |
 | `ci-lint.yml` | push(main) / PR / 手動 | 4 job: actionlint（workflow の構文・式・`run:` の中の shell）/ shellcheck（hook と CI のスクリプト）/ PSScriptAnalyzer（`tools/` の PowerShell、Error のみ）/ 文書の相対リンク検査（コードブロックの中は見ない。0 件なら「壊れていない」ではなく走査が効いていないとして落とす）。**静的に読めば分かる誤りを CI 1 周（10〜20 分）かけて確かめていた**のを埋める。数分で終わるので重いレーンより先に落ちる | green |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C#。C++ は**配布する `opencv_unity_native` だけ**をビルドする——`paths-ignore` は C++ に効かず（解析対象は「実際にコンパイルされたもの」）、テストごとビルドすると FetchContent の GoogleTest の指摘が混ざるため。C# は P/Invoke していること自体への 2 規則を `query-filters` で外す（**設計どおりの指摘に本物が埋もれる**ため。実測で open 107 件中 84 件がこれで、その陰に本物が 4 件あった）。OpenCV の cache は `if: matrix.language == 'c-cpp'` で c-cpp の leg に限る——csharp の leg は OpenCV を一度も開かないので、揃えないと cache hit 時に使わない木を落として展開し、miss 時は post step が `Path Validation Error` を出して何も保存しない（後者は「なぜ cache が温まらないのか」を調べる人に偽の手がかりを渡す） | green。埋もれていた本物 4 件の現状は下記 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。**3 job 定義**（速いレーンの job は `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）: Linux 成果物の移植性（`ubuntu:22.04` でビルドし直して GLIBC の要求を見る）/ Windows・macOS の速いレーン（`dev.ps1 test`。結果を `if: always()` で artifact 化する。名前は `matrix.runner` で分ける——`matrix.name` は空白を含み、分けないと 2 つの job が同じ artifact 名を取り合う）/ OpenCV artifact の期限切れ確認 | **schedule で起動した実績はまだ無い。** 手動起動が 2 回あり、1 回目（run 33230097557、2026-08-29 02:54Z）は 4 job 中 3 job が API レート制限で失敗、2 回目（run 33233610215、同 04:21Z、修正後）は 4 job とも success |
@@ -369,7 +369,8 @@ CI が赤くて直した場合、その修正差分にもレビューが要る�
 「必須でないもの」）。他の節と `docs/roadmap.md` は、事実を繰り返さずここを指す。
 **別の場所に同じ事実を書き足さないこと。**
 
-例外が 1 つある。`README.md` の "Not every lane blocks a merge." は外部の
+例外が 1 つある。`README.md` の "Almost every lane that runs on a pull request
+blocks a merge." の段落は外部の
 利用者向けに英語で同じことを述べており、ここを指すわけにいかない
 （`CLAUDE.md` はエージェント向けの文書である）。**必須チェックを増減したら
 そこも一緒に直すこと。** リポジトリ内で二重に書かれているのはこの 1 箇所だけ、
