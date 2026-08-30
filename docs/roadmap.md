@@ -733,7 +733,7 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 | 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった。動く根拠も動かない根拠も持っていない** | **M4** |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決める** |
 | 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
-| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある | **M7**（位置づけを下記に明記） |
+| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.1 に向けて dnn 周辺がまだ動いていることが確認できた**（cuDNN JIT の検出が merge 済み、milestone 5.1、期日なし） | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
 
 ### #1 を最優先に置く理由
 
@@ -1069,11 +1069,70 @@ opt-in profile として足すものではない。**M3.5 で完了した** —�
 M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここで扱う「codec」は
 動画のそれ（FFmpeg / GStreamer を引き込む videoio 系）を指す。
 
+### 上流が動いている: OpenCV 5.1 の DNN / GPU（2026-08-30 に調査）
+
+**確認済み事実**（一次情報をこちらで当たった。2026-08-30）
+
+| 事実 | 出典 |
+| --- | --- |
+| PR #29658 "Adding CUDNNJIT Support in OpenCV" が **`5.x` へ merge された**（`2026-08-27T06:31:21Z`）。milestone は **5.1** | GitHub API `repos/opencv/opencv/pulls/29658` |
+| **その差分は build system だけ。** 9 ファイル、**+136 / −8** 行 —— `cmake/FindCUDNNJIT.cmake`（新規 71 行）、CUDA 検出 2 ファイル（+42）、`OpenCVMinDepVersions.cmake` / `cvconfig.h.in` 各 1 行、`modules/dnn/CMakeLists.txt`（+7 −7）、hook 1 行、`cuda4dnn/csl/cudnn/cudnn.hpp` **5 行** | 同 API の `files` |
+| Technical Committee の議事録（**2026-08-12 の回**）に 1 行: *"PR #29658: CUDNN JIT: 9.3x speedup on Resnet 50 (RTX 6000 vs Intel Xeon)."* | [opencv/opencv wiki 2026](https://github.com/opencv/opencv/wiki/2026) |
+| 5.1 の milestone は **open、期日なし**（open 137 / closed 182） | GitHub API `milestones` |
+| 2026-07-22 の回: *"Adding CUDA support to the new DNN engine focusing on UMat memory integration to optimize device data transfer speeds."* | 同 wiki |
+
+**この数字が言っていないこと。** ここを取り違えると判断を誤る。
+
+- **GPU と CPU の比較である。** 「cuDNN JIT が既存の CUDA backend より 9.3 倍速い」ではない。
+  **こちらが得られる差分の大きさは、この数字からは読めない。**
+- 方法論が無い（batch size、精度、Xeon の型番、OpenCV の版、比較した backend）。**議事録の 1 行**である
+- **merge されたのは検出と接続だけ**なので、この数字を出した実装がどこにあるのかは追えていない。
+  「support が入った」は「実行経路が入った」ではない —— **`imgcodecs` で踏んだ「ビルドに入っている」と
+  「リンクしている」の取り違えと同じ形**である（M3.5 節）
+
+### 決定: native bridge を module 単位に分ける
+
+**上の事実は「5.1 で dnn 周辺はまだ動く」ことを裏づける。** したがって
+**5.0 に固定した DNN ラッパーを作り込まない。** 次を決める。
+
+1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
+   `dnn` は別ヘッダ・別 `.cpp`・別 CMake target に置く。共通の型・status・version だけを
+   `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る。**
+2. **C# 側も別 assembly にする。** `Runtime/Core` / `Runtime/Interop` の分離
+   （`UnityEngine` を参照しない）と同じ理由で、**dnn が入らないビルドで参照が壊れない**形にする。
+3. **OpenCV の版を跨げるようにする。** 構成ハッシュには tag が入るので 5.0 と 5.1 は別 artifact に
+   なる（M3 Task 1）。**その機構は既にある。** 足りないのは、5.0 のレーンを壊さずに 5.1 のレーンを
+   並走させられるかの確認である。
+4. **`dnn` を allowlist に足すのは、上の 1〜3 が済んでから。** 現在の `Modules` は
+   `core / imgproc / imgcodecs / objdetect / features` で **dnn は入っていない**。足すと OpenCV 側の
+   ビルド時間と成果物サイズが変わる。
+5. **CUDA / cuDNN は再配布の条件を確かめるまで着手しない。** 「本体が Apache-2.0」と
+   「binary 内の全依存が Apache-2.0」は別問題である（計画書 §8.2）。**cuDNN は NVIDIA の
+   再配布条項の下にあり、Unity package に同梱できるかを確かめていない。** これは技術判断では
+   なく、**先に潰す前提条件**である。確かめるまで、CUDA backend を完了条件に入れない。
+
+**まだ決めていないこと**（M5 / M7 で決める）
+
+- `OCVU_ABI_VERSION` を module ごとに分けるか、単一のまま保つか。
+  C# 側は**完全一致**で検査しているので、分けると検査も分かれる
+- dnn を**別 package**（`…-dnn`）で配るか、同じ package の optional profile にするか。
+  **全部入り tarball を配る正にしたのは M3.5 の決着**なので、dnn を足すことは
+  **「中身を足す」ではなく「形を変える」**ことになりうる
+- GPU backend を持つ版の platform matrix（CUDA の版 × OS）。現在の 3 platform × 1 構成が何倍になるか
+
+**差別化としての位置づけは変えない。** 競合が書き直し前のエンジンを載せている点は
+[競合調査](./unity-opencv-integration-research-and-plan.md) §3 / §4.6 のとおりで、
+**Unity 利用者には推論エンジンの代替がある**という理由も変わらない。**変わったのは
+「5.0 で作り込むと 5.1 で作り直しになる」という具体的な根拠が付いたこと**である。
+
 **完了条件**
 
 - profile ごとの native artifact、manifest、third-party notices
 - RenderTexture / native texture pointer / AsyncGPUReadback を使う低コピー経路の評価
 - package size、startup time、frame time、allocation の benchmark を公開
+- **`dnn` を足す前に、C ABI と C# の module 分離が済んでいること**（上の 1〜2）
+- **CUDA / cuDNN を同梱するなら、再配布条件の確認が済んでいること**（上の 5）。
+  確認できないなら**同梱しない**と決めて記録する
 
 ---
 
