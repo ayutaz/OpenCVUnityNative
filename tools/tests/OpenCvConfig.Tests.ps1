@@ -813,7 +813,7 @@ if ($markerName) {
         Assert-That ($assembleSteps.Count -eq 1) `
             "$($job.Workflow) job '$($job.Name)' assembles the other platforms in exactly one step (saw $($assembleSteps.Count))"
         Assert-That ($markerSteps.Count -eq 1) `
-            "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand three platforms (saw $($markerSteps.Count))"
+            "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand every platform (saw $($markerSteps.Count))"
 
         # **「合図を書いた」は「テストが走った」ではない。**
         #
@@ -935,7 +935,7 @@ if ($markerName) {
     Assert-That ($declaredOutputs.Count -eq 1) `
         "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
     Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 5 \[' }).Count -eq 1) `
-        "ci-unity.yml requires the tests to report three platforms (saw: $($declaredOutputs -join ', '))"
+        "ci-unity.yml requires the tests to report every platform (saw: $($declaredOutputs -join ', '))"
 }
 
 

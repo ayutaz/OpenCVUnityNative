@@ -75,7 +75,6 @@
             Generator    = 'Ninja'
             Architecture = 'arm64-v8a'
             BuildType    = 'Release'
-
         }
 
         <#

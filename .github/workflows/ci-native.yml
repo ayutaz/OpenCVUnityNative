@@ -351,7 +351,13 @@ jobs:
               # **ar のアーカイブであること。** 共有ライブラリになっていたら
               # iOS では読み込めない —— しかもビルドは成功するので、
               # Unity に入れて初めて壊れる。
-              $head = [System.Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($lib)[0..7])
+              # **全部は読まない。** 16.8 MB の .a に対して ReadAllBytes を
+              # 呼ぶと丸ごとメモリに載せる。要るのは先頭 8 バイトである。
+              $headBytes = [byte[]]::new(8)
+              $fs = [IO.File]::OpenRead($lib)
+              try { $read = $fs.Read($headBytes, 0, 8) } finally { $fs.Dispose() }
+              if ($read -ne 8) { Write-Error "$lib が 8 バイト未満です"; exit 1 }
+              $head = [System.Text.Encoding]::ASCII.GetString($headBytes)
               if ($head -ne '!<arch>' + [char]0x0A) {
                   Write-Error "静的ライブラリではありません（先頭が '!<arch>' ではない）: $lib"
                   exit 1

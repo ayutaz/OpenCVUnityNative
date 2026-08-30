@@ -367,10 +367,6 @@ if ($entries -notcontains 'package/package.json') {
     別に持つと**そこも直し忘れる**。$PlatformBinaries が持つファイル名で照合する。
 #>
 if ($AllPlatforms) {
-    $expectedNames = @($PlatformBinaries.Values | ForEach-Object { Split-Path -Leaf $_ })
-    $packedBinaries = @($entries | Where-Object {
-        (Split-Path -Leaf $_) -in $expectedNames
-    })
     # **重複を数えない。** 同じファイル名（Android と Linux はどちらも
     # libopencv_unity_native.so）が別ディレクトリに在るので、名前ではなく
     # 相対パスの一致で数える。
