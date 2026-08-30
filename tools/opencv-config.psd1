@@ -63,6 +63,34 @@
             #>
             Container    = 'ubuntu:22.04'
         }
+
+        <#
+            Android。**クロスコンパイルなので host と対象が一致しない。**
+            NDK の toolchain file を使う（cmake/toolchains/android-arm64.cmake）。
+
+            arm64-v8a だけを対象にする。x86_64（エミュレータ）を含めるかの
+            判断は roadmap の M4 節に書いてある。
+        #>
+        'android-arm64' = @{
+            Generator    = 'Ninja'
+            Architecture = 'arm64-v8a'
+            BuildType    = 'Release'
+        }
+
+        <#
+            iOS。**共有ライブラリを作らない。** iOS はアプリの外から .dylib を
+            読み込めないので、Unity は静的ライブラリ (.a) を受け取って IL2CPP の
+            バイナリへ静的リンクし、P/Invoke は DllImport("__Internal") で
+            解決する（CLAUDE.md「IL2CPP / AOT を前提とする」）。
+
+            **SHARED のままでもビルドは成功する。** 壊れるのは Unity に入れて
+            からで、これは v0.1.0 が踏んだ「ビルドできた ≠ 動く」と同じ形である。
+        #>
+        'ios-arm64' = @{
+            Generator    = 'Ninja'
+            Architecture = 'arm64'
+            BuildType    = 'Release'
+        }
     }
 
     # platform 固有の CMake flag。共通の CMakeArgs に足される。
@@ -80,6 +108,53 @@
             # 共有ライブラリへ静的ライブラリを取り込むため。
             # 指定しないとリンク時に relocation エラーになる。
             '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
+        )
+        'android-arm64' = @(
+            <#
+                **Android の sample プロジェクトを configure させない。**
+
+                OpenCV の samples/android/*/CMakeLists.txt は `add_android_project`
+                を呼び、Android SDK と Gradle を要求する。BUILD_EXAMPLES=OFF は
+                これを止めない —— 別の変数だからである。**実測（CI）**:
+
+                    CMake Error at samples/android/15-puzzle/CMakeLists.txt:3
+                      (add_android_project)
+
+                この 2 つは「ビルドするモジュール」ではなく「同梱するサンプル /
+                プロジェクト」の話なので、BUILD_LIST では絞れない。
+            #>
+            '-DBUILD_ANDROID_EXAMPLES=OFF'
+            '-DBUILD_ANDROID_PROJECTS=OFF'
+            '-DANDROID_ABI=arm64-v8a'
+            '-DANDROID_PLATFORM=android-25'
+            # STL は静的に。共有だと libc++_shared.so を利用者のアプリに
+            # 同梱してもらう必要があり、他の native plugin と衝突しうる。
+            '-DANDROID_STL=c++_static'
+            # 共有ライブラリへ静的ライブラリを取り込むため（linux と同じ）。
+            '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
+            <#
+                **16 KB page size の flag はここに書かない。**
+
+                最初はここに -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384
+                を置いていたが、**ここは OpenCV 本体のビルドにしか渡らない** ——
+                しかも OpenCV は BUILD_SHARED_LIBS=OFF なので共有ライブラリを
+                1 つも作らず、**この flag は何にも当たらなかった**（レビューで発見）。
+
+                実際に配る libopencv_unity_native.so を作るのは
+                cmake/toolchains/android-arm64.cmake を使うビルドなので、
+                **flag はそちらに置いてある。**
+            #>
+        )
+        'ios-arm64' = @(
+            '-DCMAKE_SYSTEM_NAME=iOS'
+            '-DCMAKE_OSX_ARCHITECTURES=arm64'
+            # 配布先の下限を固定する。Unity 6.3 の要求に合わせる。
+            '-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0'
+            # 実機向け。シミュレータは別の sysroot なので同じ .a では動かない。
+            '-DCMAKE_OSX_SYSROOT=iphoneos'
+            # bitcode は Xcode 14 で廃止された。明示的に切らないと古い CMake が
+            # 有効化しようとする。
+            '-DCMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE=NO'
         )
     }
 

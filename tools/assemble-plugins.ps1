@@ -78,13 +78,27 @@ $Allowed = @(
     'Linux/x86_64/libopencv_unity_native.so.meta'
     'Linux/x86_64.meta'
     'Linux.meta'
+    'Android/arm64-v8a/libopencv_unity_native.so'
+    'Android/arm64-v8a/libopencv_unity_native.so.meta'
+    'Android/arm64-v8a.meta'
+    'Android.meta'
+    'iOS/libopencv_unity_native.a'
+    'iOS/libopencv_unity_native.a.meta'
+    'iOS.meta'
 )
 
 # binary とその .meta の対応。片方だけ運ぶことを防ぐ。
+#
+# **$Allowed に足すだけでは、この対応表には入らない。** M4 で 2 platform を
+# 足したとき $Allowed は 7 件増えたのにここは 3 件のままで、**「binary と
+# .meta は対で運ぶ」という保証がモバイルでだけ無効になっていた**
+# （レビューで発見）。binary の無い .meta を Unity は消す。
 $BinaryToMeta = @{
-    'x86_64/opencv_unity_native.dll'               = 'x86_64/opencv_unity_native.dll.meta'
-    'macOS/libopencv_unity_native.dylib'           = 'macOS/libopencv_unity_native.dylib.meta'
-    'Linux/x86_64/libopencv_unity_native.so'       = 'Linux/x86_64/libopencv_unity_native.so.meta'
+    'x86_64/opencv_unity_native.dll'                  = 'x86_64/opencv_unity_native.dll.meta'
+    'macOS/libopencv_unity_native.dylib'              = 'macOS/libopencv_unity_native.dylib.meta'
+    'Linux/x86_64/libopencv_unity_native.so'          = 'Linux/x86_64/libopencv_unity_native.so.meta'
+    'Android/arm64-v8a/libopencv_unity_native.so'     = 'Android/arm64-v8a/libopencv_unity_native.so.meta'
+    'iOS/libopencv_unity_native.a'                    = 'iOS/libopencv_unity_native.a.meta'
 }
 
 $destPlugins = Join-Path $PackageDir 'Runtime/Plugins'

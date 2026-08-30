@@ -2,6 +2,11 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# 日本語の失敗メッセージを出すので、ANSI コードページに書き出させない。
+# 指定しないと cp932 / cp1252 で書かれ、CI では日本語部分が可逆でない形で
+# 失われる —— 失敗メッセージが読めないなら、それが在る意味が無い。
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $verify = Join-Path $repoRoot 'tools/verify-opencv-artifact.ps1'
 
@@ -167,12 +172,30 @@ Assert-That ($LASTEXITCODE -ne 0) 'ittnotify.dll under etc/ is rejected (locatio
 # 追加しても検出できなかった。実測: 合成ツリーに etc/licenses/ffmpeg-LICENSE
 # を置いたところ、旧実装は検出せず exit 0 で通過した。$InertLicenseFiles に
 # よる名前 allowlist 化がこれを塞ぐことを確認する。
-$knownLicenseFiles = @(
-    'SoftFloat-COPYING.txt', 'annoylib-LICENSE', 'clapack-lapack_LICENSE',
-    'dlpack-LICENSE', 'flatbuffers-LICENSE.txt', 'fonts-Rubik_OFL.txt',
-    'libjpeg-turbo-LICENSE.md', 'libjpeg-turbo-README.ijg', 'libjpeg-turbo-README.md',
-    'libpng-LICENSE', 'libpng-README', 'mscr-chi_table_LICENSE.txt', 'zlib-LICENSE'
-)
+<#
+    **一覧を直書きしない。検証器から読む。**
+
+    以前はここに 13 件を書き写していた。M4 で Android の cpufeatures を
+    足したとき、**検証器は 15 件になったのにこちらは 13 件のままで、
+    デスクトップ 3 platform の必須レーンが一斉に落ちた**（CI 実測）——
+    通知文書の突き合わせが $InertLicenseFiles の全件を要求するためである。
+
+    このリポジトリが繰り返し潰してきた「同じ事実を 2 箇所に書く」形なので、
+    正本（tools/verify-opencv-artifact.ps1）から取り出す。
+
+    **読めなかったら落とす。** 空の一覧で先へ進むと、以降の検査が
+    「license ファイルが 1 つも無い木」を見て全部通ってしまう。
+#>
+$verifySource = Get-Content -LiteralPath $verify -Raw
+$licenseBlock = [regex]::Match($verifySource, '(?ms)^\$InertLicenseFiles\s*=\s*@\((.*?)^\)')
+if (-not $licenseBlock.Success) {
+    throw "tools/verify-opencv-artifact.ps1 から `$InertLicenseFiles を読めませんでした。書き方が変わっています。"
+}
+$knownLicenseFiles = @([regex]::Matches($licenseBlock.Groups[1].Value, "'([^']+)'") |
+                       ForEach-Object { $_.Groups[1].Value })
+if ($knownLicenseFiles.Count -lt 10) {
+    throw "`$InertLicenseFiles から $($knownLicenseFiles.Count) 件しか読めませんでした。解析が壊れています。"
+}
 function New-TreeWithLicenses([string[]]$libs, [string[]]$licenseFiles) {
     $root = New-Tree $libs
     $licenseDir = Join-Path $root 'etc/licenses'
@@ -181,7 +204,7 @@ function New-TreeWithLicenses([string[]]$libs, [string[]]$licenseFiles) {
     return $root
 }
 
-# 実物と同じ 13 個の license ファイルを持つツリーは通る。名前 allowlist が
+# 実物と同じ license ファイルを持つツリーは通る（件数は正本から取るので直書きしない）。名前 allowlist が
 # 実在するファイルまで拒否してしまわないことの担保。
 $withLicenses = New-TreeWithLicenses $allowed $knownLicenseFiles
 & pwsh -NoProfile -File $verify -Root $withLicenses | Out-Null

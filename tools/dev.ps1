@@ -27,7 +27,21 @@ param(
         ふりをしない —— それをやると、レーンは緑なのに何も確かめていない
         状態になる。
     #>
-    [string]$PluginSource
+    [string]$PluginSource,
+
+    <#
+        **ビルドの対象 platform。** 省略すると実行中の host（Get-OpenCvPlatform）。
+
+        既存の 3 platform は「実行中の OS = 対象」だったので host 判定で足りたが、
+        **モバイルはクロスコンパイル**なので一致しない。明示しないと
+        「Windows の構成で Android をビルドする」が静かに成立する ——
+        成功したように見えて中身が別物になる。
+
+        `build` だけが受ける。テストのレーンは host で実行するものなので、
+        クロスの対象を渡す意味が無い（渡されたら止める）。
+    #>
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [string]$Platform
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,15 +56,33 @@ Set-StrictMode -Version Latest
 
 $RepoRoot      = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
-$Platform      = Get-OpenCvPlatform
+<#
+    **対象 platform。** -Platform が渡されればそれ、無ければ実行中の host。
+
+    $HostPlatform は「いま動いている OS」で、$Platform は「何向けにビルドするか」
+    である。**クロスコンパイルでは両者が一致しない** —— 一致すると決めてかかると、
+    出力ファイル名も plugin の置き場所も host のものになる。
+#>
+$HostPlatform  = Get-OpenCvPlatform
+if (-not $Platform) { $Platform = $HostPlatform }
 
 # native library のファイル名は platform で変わる。**1 箇所で決める** —
 # 各所に .dll と書くと、platform を足したときに書き換え漏れが起きる
 # （実測: M3 のレビューで dev.ps1 の 2 箇所と NativeLibraryResolver.cs が
 # 漏れており、macOS / Linux の job は L1 も L3 も走らずに落ちる状態だった）。
-$NativeLibraryName = if ($IsWindows) { 'opencv_unity_native.dll' }
-                     elseif ($IsMacOS) { 'libopencv_unity_native.dylib' }
-                     else { 'libopencv_unity_native.so' }
+#
+# **host ではなく対象 platform で決まる。** クロスビルドでは「Windows で
+# 動かして Android の .so を作る」があるので、$IsWindows で分岐すると
+# .dll を探しに行って見つからない。
+$NativeLibraryName = switch ($Platform) {
+    'windows-x64'   { 'opencv_unity_native.dll' }
+    'macos-arm64'   { 'libopencv_unity_native.dylib' }
+    'linux-x64'     { 'libopencv_unity_native.so' }
+    'android-arm64' { 'libopencv_unity_native.so' }
+    # iOS は静的ライブラリ。アプリの外から共有ライブラリを読み込めない。
+    'ios-arm64'     { 'libopencv_unity_native.a' }
+    default { throw "unknown platform '$Platform': ライブラリのファイル名が決まっていない。" }
+}
 $Preset        = "$Platform-debug"
 $AsanPreset    = "$Platform-asan"
 $ResultsDir    = Join-Path $RepoRoot 'artifacts/test-results'
@@ -58,7 +90,11 @@ $ResultsDir    = Join-Path $RepoRoot 'artifacts/test-results'
 # L3 (P/Invoke) が読む native ライブラリの出力先。Visual Studio generator は
 # 構成名のサブディレクトリ（Debug/）を作るが、Ninja（macOS / Linux）は単一構成
 # generator なので作らない。Copy-NativePluginForUnity の $source 判定と同じ形。
-$NativeOutDir  = if ($IsWindows) {
+#
+# **Visual Studio generator だけが構成名のサブディレクトリを作る。** それを
+# 使うのは windows-x64 の preset だけで、他はすべて Ninja である —— host が
+# Windows でも、Android 向けの preset は Ninja なのでサブディレクトリを作らない。
+$NativeOutDir  = if ($Platform -eq 'windows-x64') {
     Join-Path $RepoRoot "build/$Preset/native/Debug"
 } else {
     Join-Path $RepoRoot "build/$Preset/native"
@@ -154,11 +190,14 @@ function Test-ToolsSlow {
 
 function Build-Native {
     Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
-    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig)
+    # **対象 platform の OpenCV を引く。** host のものを引くと、Android 向けの
+    # ビルドに x86_64 の .a をリンクしようとする（Test-Asan は host 専用なので
+    # あちらは既定のままでよい）。
+    $opencvRoot = Get-OpenCvRoot -Config (Get-OpenCvConfig -Platform $Platform)
     if (-not (Test-Path -LiteralPath (Join-Path $opencvRoot 'build-manifest.json'))) {
         Write-DevFailure (@(
             "OpenCV が '$opencvRoot' にありません。"
-            "先に './tools/opencv.ps1 restore' を実行してください。"
+            "先に './tools/opencv.ps1 restore -Platform $Platform' を実行してください。"
         ) -join "`n")
     }
 
@@ -202,9 +241,12 @@ function Copy-NativePluginForUnity {
 
     # Unity の native plugin 置き場も platform ごとに分かれる。
     $pluginDir = switch ($Platform) {
-        'windows-x64' { 'x86_64' }
-        'macos-arm64' { 'macOS' }
-        'linux-x64'   { 'Linux/x86_64' }
+        'windows-x64'   { 'x86_64' }
+        'macos-arm64'   { 'macOS' }
+        'linux-x64'     { 'Linux/x86_64' }
+        'android-arm64' { 'Android/arm64-v8a' }
+        'ios-arm64'     { 'iOS' }
+        default { throw "unknown platform '$Platform': plugin の置き場所が決まっていない。" }
     }
     $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
     $destDir = Join-Path $pluginRoot $pluginDir
@@ -357,6 +399,27 @@ function Get-UnityEditorPath {
     ことを意味し、それは成功ではない。
 #>
 <#
+    **全部入りに入るべき binary の一覧。正本はここ 1 箇所。**
+
+    以前は 2 箇所に同じ 3 行を書いていた。platform を足したときに片方だけ
+    直して片方が古いまま、という状態を作らないために 1 つにまとめる
+    （M4 で 3 -> 5 に増えたときに実際に踏みかけた）。
+
+    **tools/pack-upm-tarball.ps1 の $PlatformBinaries と同じ集合であること。**
+    あちらは packer の正本で、こちらは「揃っているか」を見る側である。
+    ずれると、揃っていないのに全部入りとして扱う（またはその逆）が起きる。
+    tools/tests/PackageRelease.Tests.ps1 が両者を突き合わせる。
+#>
+$script:AllPlatformBinaries = @(
+    'x86_64/opencv_unity_native.dll'
+    'macOS/libopencv_unity_native.dylib'
+    'Linux/x86_64/libopencv_unity_native.so'
+    'Android/arm64-v8a/libopencv_unity_native.so'
+    'iOS/libopencv_unity_native.a'
+)
+
+
+<#
     「3 つ揃っているはず」という合図を、**木から導出して**置く。
 
     ## なぜ「消す」ではなく「導出する」なのか
@@ -391,16 +454,13 @@ function Sync-AllPlatformsMarker {
     param([Parameter(Mandatory)][string] $ProjectPath)
 
     $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
-    $present = @(
-        'x86_64/opencv_unity_native.dll'
-        'macOS/libopencv_unity_native.dylib'
-        'Linux/x86_64/libopencv_unity_native.so'
-    ) | Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) }
+    $present = @($script:AllPlatformBinaries |
+                 Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) })
 
     $marker = Join-Path $ProjectPath 'ocvu-expect-all-platforms'
-    if ($present.Count -eq 3) {
+    if ($present.Count -eq $script:AllPlatformBinaries.Count) {
         Set-Content -LiteralPath $marker -Value '1' -NoNewline -Encoding utf8
-        Write-Host '==> 3 platform 分が揃っているので、テストに 3 つを要求させる' -ForegroundColor Cyan
+        Write-Host "==> $($present.Count) platform 分が揃っているので、テストに $($present.Count) つを要求させる" -ForegroundColor Cyan
     } else {
         Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
     }
@@ -495,13 +555,10 @@ function Test-UnityTarball {
             何を見たか」は別である。
         #>
         $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
-        $present = @(
-            'x86_64/opencv_unity_native.dll'
-            'macOS/libopencv_unity_native.dylib'
-            'Linux/x86_64/libopencv_unity_native.so'
-        ) | Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) }
-        if ($present.Count -eq 3) {
-            Write-Host "==> 3 platform 分が既に揃っているので全部入りとして検査する" -ForegroundColor Cyan
+        $present = @($script:AllPlatformBinaries |
+                     Where-Object { Test-Path -LiteralPath (Join-Path $pluginRoot $_) })
+        if ($present.Count -eq $script:AllPlatformBinaries.Count) {
+            Write-Host "==> $($present.Count) platform 分が既に揃っているので全部入りとして検査する" -ForegroundColor Cyan
             $allPlatforms = $true
         }
     }
@@ -541,22 +598,59 @@ function Test-UnityTarball {
         # 実行中 platform の綴りを 1 箇所で持っているので、それを使う。
         # 「何かしら」で見ると、古い binary が Plugins に残っているだけで
         # 通ってしまう。
-        # 全部入りなら 3 つ揃っていること。**1 つでも通る形にしない** ——
-        # それでは全部入りを確かめたことにならない。
+        <#
+            全部入りなら**正本の全件**が揃っていること。**1 つでも通る形に
+            しない** —— それでは全部入りを確かめたことにならない。
+
+            **数も拡張子も書かない。** 以前はここに `3` と
+            `\.(dll|dylib|so)$` が直書きされており、M4 で 5 platform に
+            なったとき **2 通りに壊れた**: 期待する数が 3 のまま古くなり、
+            拡張子の列挙は iOS の `.a` を binary と認めなかった。
+            **packer 側の同じ欠陥は直したのに、こちらは残っていた。**
+
+            正本は同じファイルの $script:AllPlatformBinaries である。
+            そこから期待するパスを作れば、platform が増えたときに
+            この検査も一緒に増える。
+        #>
         if ($allPlatforms) {
-            $allBins = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
-            if ($allBins.Count -ne 3) {
+            $wantBins = @($script:AllPlatformBinaries |
+                ForEach-Object { "package/Runtime/Plugins/$_" })
+            $allBins = @($listed | Where-Object { $_ -in $wantBins })
+            if ($allBins.Count -ne $wantBins.Count) {
+                $absent = @($wantBins | Where-Object { $_ -notin $allBins })
                 Write-DevFailure (@(
-                    "全部入りの tarball に binary が $($allBins.Count) 個しかありません（3 個であるべき）: $tgz"
-                    "入っていたもの: $(if ($allBins) { $allBins -join ', ' } else { '(なし)' })"
+                    "全部入りの tarball に binary が $($allBins.Count) 個しかありません（$($wantBins.Count) 個であるべき）: $tgz"
+                    "入っていないもの: $($absent -join ', ')"
+                    "archive に在った binary: $(if ($allBins) { $allBins -join ', ' } else { '(なし)' })"
                 ) -join "`n")
             }
-            Write-Host "==> tarball contains all three platform binaries" -ForegroundColor Green
+            Write-Host "==> tarball contains all $($wantBins.Count) platform binaries" -ForegroundColor Green
         }
 
-        $binaries = @($listed | Where-Object { $_ -like "*/$NativeLibraryName" })
+        # **ファイル名では引かない。** linux-x64 と android-arm64 は
+        # どちらも libopencv_unity_native.so なので、Linux で走らせたとき
+        # **Android の binary しか入っていない tarball でも通る**
+        # （M4 のレビューで指摘）。platform ごとの相対パスで引く。
+        $mineRelative = switch ($Platform) {
+            'windows-x64'   { 'x86_64/opencv_unity_native.dll' }
+            'macos-arm64'   { 'macOS/libopencv_unity_native.dylib' }
+            'linux-x64'     { 'Linux/x86_64/libopencv_unity_native.so' }
+            'android-arm64' { 'Android/arm64-v8a/libopencv_unity_native.so' }
+            'ios-arm64'     { 'iOS/libopencv_unity_native.a' }
+            default { throw "unknown platform '$Platform': tarball の中で何を探すか決まっていない。" }
+        }
+        # **正本と食い違っていないこと。** 上の対応表は 2 つ目の一覧なので、
+        # 正本に無いパスを書いたら気づけるようにする。
+        if ($mineRelative -notin $script:AllPlatformBinaries) {
+            Write-DevFailure "'$mineRelative' が \$script:AllPlatformBinaries にありません（対応表がずれています）"
+        }
+        $binaries = @($listed | Where-Object { $_ -eq "package/Runtime/Plugins/$mineRelative" })
         if ($binaries.Count -lt 1) {
-            $anyBinary = @($listed | Where-Object { $_ -match '\.(dll|dylib|so)$' })
+            # 診断も正本から。拡張子を列挙すると iOS の .a が「binary では
+            # ない」ことになり、**失敗の原因を探す人に嘘の手がかりを渡す。**
+            $anyBinary = @($listed | Where-Object {
+                $rel = $_ -replace '^package/Runtime/Plugins/', ''
+                $rel -in $script:AllPlatformBinaries })
             Write-DevFailure (@(
                 "tarball に $NativeLibraryName が入っていません: $tgz"
                 "入っていた binary: $(if ($anyBinary) { $anyBinary -join ', ' } else { '(なし)' })"
@@ -657,7 +751,7 @@ function Test-UnityTarball {
             「合否の判定は assert-unity-results.ps1 をローカルと CI の両方が
             通る」とも食い違う。
 
-            全部入りのときは、**結果として `native plugins present: 3` が
+            全部入りのときは、**結果として `native plugins present: 5` が
             出ていること**まで要求する。合図が届かなければ gating は
             「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた場合と
             1 バイトも違わない —— 入力を検査しても届いたことの証明にはならない。
@@ -676,7 +770,7 @@ function Test-UnityTarball {
         )
         $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
         if ($allPlatforms) {
-            $assertArgs += @('-RequireOutput', 'native plugins present: 3 [')
+            $assertArgs += @('-RequireOutput', 'native plugins present: 5 [')
         }
         Invoke-Checked {
             & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs
@@ -798,6 +892,22 @@ function Test-ManagedProbe {
     Invoke-Checked {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-managed-probe.ps1')
     } 'run L3 crash/hang probes (test-managed-probe)'
+}
+
+<#
+    **クロスの対象を受け取れるのは build だけ。**
+
+    テストのレーンは実行中の host で走るので、クロスの対象を渡されても
+    走らせようがない。黙って host 向けに走らせると「Android を検査したつもり」
+    になる —— このリポジトリが繰り返し潰してきた「通るのに何も証明していない」
+    形そのものである。
+#>
+if ($PSBoundParameters.ContainsKey('Platform') -and $Command -ne 'build') {
+    Write-DevFailure (@(
+        "-Platform は build のときだけ使えます（渡された command: $Command）。"
+        'テストのレーンは実行中の host で走るので、クロスの対象を渡す意味がありません。'
+        "クロスビルドした成果物を検査するなら、実機か CI の該当 job で行うこと。"
+    ) -join "`n")
 }
 
 # 'test' は fail-fast である。Invoke-Checked が最初の失敗で throw するため、

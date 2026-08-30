@@ -1,5 +1,22 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
+
+<#
+    **例外で途中終了したら、成功と報告しない。**
+
+    実測（M4 のレビュー中）: $allBinaries を定義前に使っていたため、
+    ファイルの 451〜693 行が丸ごと飛んでいた。それでも $failures は空なので
+    末尾の判定を通り、**'all assertions passed' と出て exit 0 になっていた。**
+
+    **assertion を数えるだけでは、走らなかった assertion を数えられない。**
+    走った件数の下限と、未処理の例外の両方を見る。
+#>
+trap {
+    [Console]::Error.WriteLine("`n未処理の例外でテストが中断しました:")
+    [Console]::Error.WriteLine($_.ToString())
+    [Console]::Error.WriteLine($_.ScriptStackTrace)
+    exit 1
+}
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 <#
@@ -11,8 +28,9 @@ Set-StrictMode -Version Latest
 
     ライセンスの配置は platform で変わる（tools/verify-opencv-artifact.ps1 と
     同じ理解）:
-      Windows      etc/licenses/<file>
-      macOS/Linux  share/licenses/opencv5/<file>
+      Windows          etc/licenses/<file>
+      macOS/Linux/iOS  share/licenses/opencv5/<file>
+      Android          sdk/etc/licenses/<file>
     片方しか見ない実装は、Unix 系のビルドで SBOM が黙って空になる。この
     マシンには macOS / Linux の実機artifactが無いので、配置だけを模した
     合成ツリーで両方の経路を確かめる。
@@ -26,7 +44,9 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $script = Join-Path $repoRoot 'tools/package-release.ps1'
 $failures = @()
 
+$script:assertionCount = 0
 function Assert-That([bool]$condition, [string]$what) {
+    $script:assertionCount++
     if ($condition) { Write-Host "  PASS  $what" -ForegroundColor Green }
     else { Write-Host "  FAIL  $what" -ForegroundColor Red; $script:failures += $what }
 }
@@ -114,6 +134,41 @@ else {
 }
 Remove-Item -Recurse -Force $populatedUnixRoot, $tmp -ErrorAction SilentlyContinue
 
+# --- SBOM: Android レイアウト（sdk/etc/licenses/）からも component が拾われる ---
+#
+# **M4 のレビューで見つかった穴。** Android の OpenCV は install の木ごと
+# sdk/ の下に作り直すので、ライセンスは sdk/etc/licenses/ に置かれる（実測:
+# build-opencv のログに sdk/etc/licenses/cpufeatures-LICENSE が出る）。
+# verify-opencv-artifact.ps1 には sdk/ を教えたのに、package-release.ps1 には
+# 教えていなかった。
+#
+# **CI が全部緑のまま残った。** release.yml は tag と手動でしか起動せず、
+# 5 platform 構成では一度も走っていなかったので、「tag を打った瞬間に
+# android-arm64 の job が落ちて Release が 1 件も作られない」状態だった。
+# ここで見ておけば、tag を打つ前に赤くなる。
+$androidRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'sdk/etc/licenses'
+'cpufeatures license text' | Set-Content -LiteralPath (Join-Path $androidRoot 'sdk/etc/licenses/cpufeatures-LICENSE') -Encoding utf8
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $androidRoot -Platform 'android-arm64' | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'a populated sdk/etc/licenses (Android layout) succeeds'
+if (Test-Path -LiteralPath (Join-Path $tmp 'sbom.spdx.json')) {
+    $androidSbom = Get-Content -LiteralPath (Join-Path $tmp 'sbom.spdx.json') -Raw | ConvertFrom-Json
+    $androidNames = @($androidSbom.packages | ForEach-Object { $_.name })
+    Assert-That (@($androidNames | Where-Object { $_ -like '*cpufeatures*' }).Count -gt 0) `
+        'the Android-layout SBOM picks up cpufeatures from sdk/etc/licenses'
+}
+else {
+    Assert-That $false 'the Android-layout SBOM picks up cpufeatures from sdk/etc/licenses'
+}
+Remove-Item -Recurse -Force $androidRoot, $tmp -ErrorAction SilentlyContinue
+
+# --- SBOM: Android レイアウトが存在するが空なら失敗する ---
+$emptyAndroidRoot = New-SyntheticOpenCvRoot -LicenseRelativeDir 'sdk/etc/licenses'
+$tmp = New-TempDir 'ocvu-pkg-out'
+& pwsh -NoProfile -File $script -OutputDir $tmp -Root $emptyAndroidRoot -Platform 'android-arm64' 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an empty sdk/etc/licenses (Android layout) fails rather than emitting an empty SBOM'
+Remove-Item -Recurse -Force $emptyAndroidRoot, $tmp -ErrorAction SilentlyContinue
+
 # --- checksums: native plugin が無ければ失敗する（黙って空の checksums.txt を出さない） ---
 #
 # package-release.ps1 は checksums の対象を
@@ -181,14 +236,52 @@ if ($pkg.PSObject.Properties.Name -contains 'samples') {
 #>
 $metaBase = 'tools/plugin-meta'
 $pluginMetas = @(
-    @{ Platform = 'windows-x64'; Key = 'Win64';        EditorOS = 'Windows'
+    @{ Platform = 'windows-x64';   Key = 'Win64';        EditorOS = 'Windows'
        Meta = "$metaBase/windows-x64/x86_64/opencv_unity_native.dll.meta" }
-    @{ Platform = 'macos-arm64'; Key = 'OSXUniversal'; EditorOS = 'OSX'
+    @{ Platform = 'macos-arm64';   Key = 'OSXUniversal'; EditorOS = 'OSX'
        Meta = "$metaBase/macos-arm64/macOS/libopencv_unity_native.dylib.meta" }
-    @{ Platform = 'linux-x64';   Key = 'Linux64';      EditorOS = 'Linux'
+    @{ Platform = 'linux-x64';     Key = 'Linux64';      EditorOS = 'Linux'
        Meta = "$metaBase/linux-x64/Linux/x86_64/libopencv_unity_native.so.meta" }
+    @{ Platform = 'android-arm64'; Key = 'Android';      EditorOS = ''
+       Meta = "$metaBase/android-arm64/Android/arm64-v8a/libopencv_unity_native.so.meta" }
+    @{ Platform = 'ios-arm64';     Key = 'iOS';          EditorOS = ''
+       Meta = "$metaBase/ios-arm64/iOS/libopencv_unity_native.a.meta" }
 )
-$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win')
+$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win', 'Android', 'iOS')
+
+<#
+    **この一覧が、いま配っている platform を全部並べていること。**
+
+    M4 でモバイルを足したとき、上の 2 つは 3 platform のまま残った。
+    害は 2 つある: Android / iOS の .meta は**中身を 1 度も見られず**、
+    desktop の .meta は**モバイル向けに無効であることを問われなかった。**
+
+    **その穴に実物が落ちた。** iOS の .meta の platform キーを `iPhone:`
+    （Unity 2019 以前の名前）と書いた誤りを、この検査は最後まで通した ——
+    見ていないファイルの誤りは、どんなに厳しく読んでも出てこない。
+    捕まえたのは Unity 自身に問う PluginGatingTests だけである。
+
+    **数を写さず、正本から読む。** platform が増えたらここが赤くなる。
+#>
+$packSource = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1') -Raw
+$packBlock = [regex]::Match($packSource, '(?ms)^\$PlatformBinaries\s*=\s*\[ordered\]@\{(.*?)^\}')
+if (-not $packBlock.Success) {
+    throw "tools/pack-upm-tarball.ps1 から `$PlatformBinaries を読めませんでした。書き方が変わっています。"
+}
+$canonicalPlatforms = @([regex]::Matches($packBlock.Groups[1].Value, "(?m)^\s*'([^']+)'\s*=") |
+    ForEach-Object { $_.Groups[1].Value })
+# **件数は「以上」で見ない。** 正規表現の抽出が部分的に壊れて 3 件に減っても
+# -ge 3 は通り、その後の突き合わせが空になって drift 検知が無言で死ぬ。
+# 中身の一覧が契約なので、両方向を = で突き合わせる。
+Assert-That ($canonicalPlatforms.Count -eq $pluginMetas.Count) `
+    "the canonical platform list matches this checks list ($($canonicalPlatforms.Count) vs $($pluginMetas.Count))"
+$metaCheckMissing = @($canonicalPlatforms | Where-Object { $_ -notin $pluginMetas.Platform })
+Assert-That ($metaCheckMissing.Count -eq 0) `
+    "every shipped platform has its .meta checked here (missing: $($metaCheckMissing -join ', '))"
+# 逆方向。ここにだけ在って正本に無い platform は、配らない物を検査している。
+$metaCheckExtra = @($pluginMetas.Platform | Where-Object { $_ -notin $canonicalPlatforms })
+Assert-That ($metaCheckExtra.Count -eq 0) `
+    "this check has no platform the canonical list lacks (extra: $($metaCheckExtra -join ', '))"
 
 Push-Location $repoRoot
 try {
@@ -219,17 +312,60 @@ try {
             これも「著者が列挙した形だけを見る」欠陥の再発である。
         #>
         $editor = [regex]::Match($metaText, '(?m)^\s*Editor:\s+enabled:\s*(\d)([\s\S]*?)(?=^\s{4}\w+:)')
-        Assert-That ($editor.Success -and $editor.Groups[1].Value -eq '1') `
-            "$($entry.Platform): the Editor platform is enabled"
-        Assert-That ($editor.Success -and $editor.Groups[2].Value -match "OS:\s*$($entry.EditorOS)\b") `
-            "$($entry.Platform): the Editor entry is limited to OS $($entry.EditorOS)"
+        if ($entry.EditorOS) {
+            Assert-That ($editor.Success -and $editor.Groups[1].Value -eq '1') `
+                "$($entry.Platform): the Editor platform is enabled"
+            Assert-That ($editor.Success -and $editor.Groups[2].Value -match "OS:\s*$($entry.EditorOS)\b") `
+                "$($entry.Platform): the Editor entry is limited to OS $($entry.EditorOS)"
+        }
+        else {
+            # **モバイルはエディタで動かない。** 有効にすると Unity が
+            # エディタ上でその binary を読もうとする。
+            Assert-That ($editor.Success -and $editor.Groups[1].Value -eq '0') `
+                "$($entry.Platform): the Editor platform is disabled (モバイルはエディタで動かない)"
+        }
 
-        # 自分の platform だけが 1、他は 0。
+        # 既知のキーが在って、自分の platform だけが 1、他は 0。
         foreach ($key in $allPlatformKeys) {
             $want = if ($key -eq $entry.Key) { '1' } else { '0' }
             $m = [regex]::Match($metaText, "(?m)^\s*$key`:\s+enabled:\s*(\d)")
             Assert-That ($m.Success -and $m.Groups[1].Value -eq $want) `
                 "$($entry.Platform): $key is enabled=$want"
+        }
+
+        <#
+            **列挙したキーだけを見ない。** 上の loop は $allPlatformKeys に
+            書いたキーしか見ないので、**知らないキーが有効でも通る。**
+            実測: Windows の .meta に `WebGL: enabled: 1` を差し込んでも
+            117 件すべて PASS した。これは「著者が列挙した形だけを見て、
+            隣接する形が枠外に落ちる」——このリポジトリが繰り返し潰してきた
+            欠陥そのものである。
+
+            .meta が実際に持つキーを全部読み、Editor 以外は自分の Key だけが
+            1 であることを要求する。**知らない platform に配られない**
+            ことまで見る。
+        #>
+        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:?
+(.*?)(?=^  [a-zA-Z])')
+        Assert-That $pdBlock.Success `
+            "$($entry.Platform): the platformData block is readable"
+        if ($pdBlock.Success) {
+            $actualKeys = @([regex]::Matches($pdBlock.Groups[1].Value, '(?m)^    ([A-Za-z][A-Za-z0-9]*):\s*$') |
+                ForEach-Object { $_.Groups[1].Value })
+            # 読めたのに空、を通さない（空なら以降が常に成立する）。
+            Assert-That ($actualKeys.Count -ge $allPlatformKeys.Count) `
+                "$($entry.Platform): platformData has at least the known keys ($($actualKeys.Count) found)"
+            $unexpectedlyEnabled = @()
+            foreach ($key in $actualKeys) {
+                if ($key -eq 'Editor') { continue }   # 上で別に見ている
+                $m2 = [regex]::Match($metaText, "(?m)^\s*$key`:\s+enabled:\s*(\d)")
+                $want2 = if ($key -eq $entry.Key) { '1' } else { '0' }
+                if (-not $m2.Success -or $m2.Groups[1].Value -ne $want2) {
+                    $unexpectedlyEnabled += $key
+                }
+            }
+            Assert-That ($unexpectedlyEnabled.Count -eq 0) `
+                "$($entry.Platform): every platformData key is gated as expected (wrong: $($unexpectedlyEnabled -join ', '))"
         }
     }
 
@@ -325,17 +461,47 @@ try {
         開発機に 3 つ揃うのは M3.5 以降ふつうに起こる（全部入りのレーンを
         1 回走らせれば残る）ので、**木の状態に頼らず、退避してから確かめる。**
     #>
+    #
+    # **一覧を直書きしない。** M4 で 5 platform に増えたとき、ここは 3 件の
+    # ままだった —— **モバイルの binary が残ったまま単体 platform で固めようと
+    # して、packer が正しく拒否した**（実測。テストの側が古かった）。
+    # **一覧はここで定義する。** 以前は 90 行ほど下で定義していたのに
+    # ここで使っており、StrictMode の「未設定の変数」で例外になって
+    # **451〜693 行が丸ごと実行されていなかった**（M4 のレビュー中に実測）。
+    # しかも $failures は空のままなので、テストは 'all assertions passed' と
+    # 報告して exit 0 になっていた。
+    $allBinaries = @(
+        'x86_64/opencv_unity_native.dll'
+        'macOS/libopencv_unity_native.dylib'
+        'Linux/x86_64/libopencv_unity_native.so'
+        'Android/arm64-v8a/libopencv_unity_native.so'
+        'iOS/libopencv_unity_native.a'
+    )
+    Assert-That ($allBinaries.Count -eq $canonicalPlatforms.Count) `
+        "the synthesized tree covers every shipped platform ($($allBinaries.Count) vs $($canonicalPlatforms.Count))"
     $singleStash = @()
-    foreach ($rel in @(
-        'Runtime/Plugins/x86_64/opencv_unity_native.dll'
-        'Runtime/Plugins/macOS/libopencv_unity_native.dylib'
-        'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so'
-    )) {
-        $mine = switch ($thisPlatform) {
-            'windows-x64' { 'Runtime/Plugins/x86_64/opencv_unity_native.dll' }
-            'macos-arm64' { 'Runtime/Plugins/macOS/libopencv_unity_native.dylib' }
-            'linux-x64'   { 'Runtime/Plugins/Linux/x86_64/libopencv_unity_native.so' }
-        }
+    # **switch の中で $_ を使わない。** switch は $_ を自分の入力
+    # （ここでは $thisPlatform）に束縛し直すので、Where-Object の要素は
+    # 見えなくなる。以前はこう書いてあり、`'windows-x64' -like 'x86_64/*'`
+    # を評価していたので **$mine が常に空**になり、自分の platform の binary
+    # まで退避されて packer が正当に拒否していた。
+    # **この誤りは長く残った** —— 上の $allBinaries の順序の欠陥で、この
+    # 領域自体が実行されていなかったからである（M4 のレビュー中に両方発覚）。
+    $minePrefix = switch ($thisPlatform) {
+        'windows-x64' { 'x86_64/' }
+        'macos-arm64' { 'macOS/' }
+        'linux-x64'   { 'Linux/' }
+        default       { $null }
+    }
+    Assert-That ($null -ne $minePrefix) `
+        "the running platform has a known plugin directory ($thisPlatform)"
+    $mine = 'Runtime/Plugins/' + @($allBinaries | Where-Object { $_ -like "$minePrefix*" } |
+                                   Select-Object -First 1)
+    # **空のまま進めない。** 空だと全 binary が退避され、packer が正当に
+    # 拒否して「テストが壊れている」ことを「実装が壊れている」と読み違える。
+    Assert-That ($mine -ne 'Runtime/Plugins/') `
+        "this platform's binary was identified in the list ($mine)"
+    foreach ($rel in @($allBinaries | ForEach-Object { "Runtime/Plugins/$_" })) {
         if ($rel -eq $mine) { continue }
         $full = Join-Path $repoRoot "Packages/com.ayutaz.opencv-unity-native/$rel"
         if (Test-Path -LiteralPath $full) {
@@ -409,11 +575,15 @@ try {
     New-Item -ItemType Directory -Force -Path $allOut | Out-Null
 
     $pluginRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
-    $allBinaries = @(
-        'x86_64/opencv_unity_native.dll'
-        'macOS/libopencv_unity_native.dylib'
-        'Linux/x86_64/libopencv_unity_native.so'
-    )
+    # **正本は tools/dev.ps1 の $script:AllPlatformBinaries と
+    # tools/pack-upm-tarball.ps1 の $PlatformBinaries である。** ここに書くのは
+    # 3 箇所目なので、下の「packaging 側が一致する」検査がずれを捕まえる。
+    #
+    # **ただしこのファイルの中に手で写した一覧が在ること自体は、
+    # 6 つ目の platform で置いていかれる側になる。** hook はファイル単位で
+    # 見るので、同じファイルの 2 つ目以降の一覧は見えない。件数を正本と
+    # 突き合わせて、その穴を塞ぐ（中身は独立に書いたままにする ——
+    # 導出にすると、正本から 1 件消えたときに黙って追随してしまう）。
 
     <#
         **binary だけでなく `.meta` も揃える。**
@@ -455,7 +625,8 @@ try {
     try {
         $allPacked = & pwsh -NoProfile -File $packer -OutputDir $allOut -AllPlatforms |
                      Select-Object -Last 1
-        Assert-That ($LASTEXITCODE -eq 0) '-AllPlatforms packs when all three binaries are present'
+        Assert-That ($LASTEXITCODE -eq 0) `
+            "-AllPlatforms packs when all $($allBinaries.Count) binaries are present"
 
         if ($allPacked -and (Test-Path -LiteralPath $allPacked)) {
             # **名前に版番号を入れない。** OpenUPM の githubReleaseAssetName は
@@ -467,16 +638,24 @@ try {
             try { $allEntries = @(& tar -tzf (Split-Path -Leaf $allPacked)) }
             finally { Pop-Location }
 
-            $packedBins = @($allEntries | Where-Object { $_ -match '\.(dll|dylib|so)$' })
-            Assert-That ($packedBins.Count -eq 3) `
-                "the all-in-one archive carries three binaries (saw $($packedBins.Count))"
+            # **拡張子で拾わない。** iOS の静的ライブラリは .a なので、
+            # (dll|dylib|so) の一覧では黙って抜ける。相対パスで照合する。
+            $packedBins = @($allBinaries | Where-Object {
+                $rel = $_
+                @($allEntries | Where-Object { $_ -eq "package/Runtime/Plugins/$rel" }).Count -eq 1
+            })
+            Assert-That ($packedBins.Count -eq $allBinaries.Count) `
+                "the all-in-one archive carries all $($allBinaries.Count) binaries (saw $($packedBins.Count))"
 
             # **>= ではなく = で見る。** 「3 つ以上」だと、7 つ在るべきところが
             # 4 つでも通ってしまう。この archive の中身は一覧そのものが契約である。
             $packedMetas = @($allEntries |
                 Where-Object { $_ -like 'package/Runtime/Plugins/*' -and $_ -like '*.meta' })
-            Assert-That ($packedMetas.Count -eq 7) `
-                "the all-in-one archive carries all seven plugin metas (saw $($packedMetas.Count): $($packedMetas -join ', '))"
+            # **数を直書きしない。** tools/plugin-meta/ にある .meta の総数から
+            # 導く —— platform を足したときに片方だけ古くなるのを避ける。
+            $expectedMetaCount = @(Get-ChildItem (Join-Path $repoRoot 'tools/plugin-meta') -Recurse -File -Filter '*.meta').Count
+            Assert-That ($packedMetas.Count -eq $expectedMetaCount) `
+                "the all-in-one archive carries all $expectedMetaCount plugin metas (saw $($packedMetas.Count): $($packedMetas -join ', '))"
         }
 
         # 負 1: binary が 1 つ欠けたら止まる。
@@ -584,8 +763,113 @@ if (Test-Path -LiteralPath $notesPath) {
     Assert-That ($workflow -notmatch '--notes\s+"') `
         'release.yml does not inline the notes (escaping them by hand is where they break)'
 }
+
+# --- 全部入りの platform 一覧が 3 箇所で一致する（M4 Task 7）---
+#
+# **platform を足すときに直す場所が 3 つある**（packer / assembler / dev.ps1）。
+# roadmap は「2 か所を直すことになる」と書いていたが誤りで、実際は dev.ps1 の
+# 「揃っているか」を見る側もある。**ずれると、揃っていないのに全部入りとして
+# 扱う（またはその逆）が起きる。**
+$packText     = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1') -Raw
+$assembleText = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/assemble-plugins.ps1') -Raw
+$devText      = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
+
+$expectedRelative = @(
+    'x86_64/opencv_unity_native.dll'
+    'macOS/libopencv_unity_native.dylib'
+    'Linux/x86_64/libopencv_unity_native.so'
+    'Android/arm64-v8a/libopencv_unity_native.so'
+    'iOS/libopencv_unity_native.a'
+)
+# **手で書いた一覧を、正本の件数と突き合わせる。** 中身は独立に書く
+# （3 ファイルの一致を見るのがこの検査の役目なので、どれかから導出すると
+# 検査が自分の対象に追随してしまう）。だが件数が正本とずれたままだと、
+# 6 つ目の platform を足したときにここだけ 5 件のまま黙って通る。
+Assert-That ($expectedRelative.Count -eq $canonicalPlatforms.Count) `
+    "this list covers every shipped platform ($($expectedRelative.Count) vs $($canonicalPlatforms.Count))"
+
+<#
+    **引用符ごと厳密に照合する。**
+
+    最初は部分一致で見ていたが、`'iOS/libopencv_unity_native.a.meta'` が
+    `iOS/libopencv_unity_native.a` を含むので、**binary の行を消しても通った**
+    （実測）。「.meta は在るが binary が無い」は、まさにこの検査が捕まえたい
+    状態である —— binary の無い .meta を置くと Unity がそれを消す。
+#>
+foreach ($rel in $expectedRelative) {
+    $quoted = "'" + [regex]::Escape($rel) + "'"
+    Assert-That ($packText -match $quoted) "pack-upm-tarball.ps1 knows $rel"
+    Assert-That ($assembleText -match $quoted) `
+        "assemble-plugins.ps1 carries $rel (packer だけでは全部入りに入らない)"
+    Assert-That ($devText -match $quoted) `
+        "dev.ps1 counts $rel when deciding whether the tree is all-platform"
+}
+
+# **iOS の静的ライブラリを拡張子で取りこぼさない。** .a は dll/dylib/so の
+# どれでもないので、拡張子の一覧で拾う実装だと黙って抜ける。
+# **説明文に書いてあるだけで満たせない形にする。**
+#
+# 最初は行に (dll|dylib|so) が出るかだけを見ていたが、ブロックコメントの中の
+# 説明文に当たって落ちた —— 行頭 # を落とすだけではブロックコメントを
+# 除けない。このリポジトリが繰り返し潰してきた穴と同じ形である。
+#
+# 実際の欠陥は「-match の演算子で拡張子を判定している」ことなので、
+# その形だけを禁じる。散文はいくら書いてよい。
+#
+# **この説明を行コメントで書いているのは、ブロックコメントにすると
+# 閉じ記号を散文の中に書けないからである** —— 実際、最初はブロックコメントで
+# 書いて途中で閉じてしまい、**5 行の散文がコマンドとして実行されていた。**
+# exit 0 のまま stderr に 33 行出ており、CI の必須レーンで毎回混ざっていた
+# （レビューが実測で見つけた）。
+$packLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'tools/pack-upm-tarball.ps1'))
+Assert-That (@($packLines | Where-Object { $_ -match "-match\s+'[^']*dll\|dylib\|so" }).Count -eq 0) `
+    'pack-upm-tarball.ps1 does not -match a dll/dylib/so extension list to identify shipped binaries (iOS の .a が抜ける)'
+
+<#
+    **.meta の GUID が重複していないこと。**
+
+    重複すると Unity が片方を無視する。**どちらが無視されるかは決まっていない**
+    ので、「ある環境では動くが別の環境では動かない」という最も追いにくい形になる。
+#>
+$metaGuids = @()
+foreach ($m in Get-ChildItem (Join-Path $repoRoot 'tools/plugin-meta') -Recurse -Filter '*.meta') {
+    if ((Get-Content -LiteralPath $m.FullName -Raw) -match 'guid:\s*([0-9a-f]{32})') {
+        $metaGuids += $Matches[1]
+    }
+}
+Assert-That ($metaGuids.Count -ge 12) `
+    "plugin-meta has at least 12 .meta files with a guid (saw $($metaGuids.Count))"
+Assert-That ((@($metaGuids | Sort-Object -Unique)).Count -eq $metaGuids.Count) `
+    'every .meta guid is unique (重複すると Unity が片方を黙って無視する)'
+
+# binary と .meta は対で運ばれる。**binary の無い .meta を置くと Unity に
+# 消される**（M3 のレビュー M4）ので、対応する .meta が実在することを見る。
+$metaExpectations = @{
+    'windows-x64'   = 'x86_64/opencv_unity_native.dll.meta'
+    'macos-arm64'   = 'macOS/libopencv_unity_native.dylib.meta'
+    'linux-x64'     = 'Linux/x86_64/libopencv_unity_native.so.meta'
+    'android-arm64' = 'Android/arm64-v8a/libopencv_unity_native.so.meta'
+    'ios-arm64'     = 'iOS/libopencv_unity_native.a.meta'
+}
+foreach ($entry in $metaExpectations.GetEnumerator()) {
+    $metaPath = Join-Path $repoRoot "tools/plugin-meta/$($entry.Key)/$($entry.Value)"
+    Assert-That (Test-Path -LiteralPath $metaPath) "tools/plugin-meta/$($entry.Key) has $($entry.Value)"
+}
+
 if ($failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($failures.Count) assertion(s) failed")
     exit 1
 }
+
+# **途中で飛ばされていないことを、件数の下限で見る。** 上の trap は
+# 未処理の例外を捕まえるが、条件分岐で静かに丸ごと飛ぶ形は捕まえられない。
+# 現在の実測はこの下限より十分に多い（減ったら調べること）。
+$minimumAssertions = 120
+if ($script:assertionCount -lt $minimumAssertions) {
+    [Console]::Error.WriteLine(
+        "`nassertion が $($script:assertionCount) 件しか走っていません（下限 $minimumAssertions）。" +
+        "どこかで丸ごと飛ばされている可能性があります。")
+    exit 1
+}
+Write-Host "`n$($script:assertionCount) assertions ran" -ForegroundColor DarkGray
 Write-Host "`nall assertions passed" -ForegroundColor Green

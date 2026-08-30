@@ -94,17 +94,22 @@ jobs:
             runner: windows-2022
           - platform: macos-arm64
             runner: macos-14
+          # **モバイルも重ねる。** 配る package には 5 platform 分が入るので、
+          # 3 つだけで gating を検査すると「配る物とは違う形」を見ることになる。
+          - platform: android-arm64
+            runner: ubuntu-24.04
+          - platform: ios-arm64
+            runner: macos-14
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # **macOS の preset は Ninja を使う**（CMakePresets.json の
-      # macos-arm64-debug）。runner に Ninja は入っていないので、入れないと
-      # configure の時点で落ちる。ci-native の macOS job と同じ手当てである。
+      # macOS / Linux の preset は Ninja を使う。runner に入っていないので入れる。
       - name: Install Ninja
-        if: runner.os == 'macOS'
-        run: brew install ninja
+        if: runner.os != 'Windows'
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then brew install ninja; else sudo apt-get update && sudo apt-get install -y ninja-build; fi
 
       # OpenCV の cache が無いと、job のたびに artifact を探す API 呼び出しが
       # 起きる。**レート制限に当たると、成果物にもコードにも問題が無いのに
@@ -115,11 +120,13 @@ jobs:
         shell: pwsh
         run: |
           Import-Module ./tools/OpenCvConfig.psm1 -Force
-          # **-Platform を渡さない。** この job は対象 platform の上で走って
-          # いるので、Get-OpenCvPlatform が自分で判定する。渡すと restore 側の
-          # 判定と二重の正本になり、matrix の綴りを間違えたときに「cache は
-          # 別 platform、restore は自分の platform」という食い違いが起きる。
-          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          # **対象 platform を明示する。** 以前は「この job は対象 platform の
+          # 上で走っているので Get-OpenCvPlatform で足りる」と書いてあったが、
+          # **モバイルはクロスコンパイルなので成り立たない** —— android-arm64 は
+          # ubuntu の上で走るので、渡さないと linux-x64 のハッシュが出る。
+          # cache だけ別 platform を指し、restore は対象を取りに行くという
+          # 食い違いになる（M4 のレビューで発見）。
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig -Platform '${{ matrix.platform }}')
           "config-hash=$hash" >> $env:GITHUB_OUTPUT
 
       - name: Cache OpenCV
@@ -132,11 +139,11 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./tools/opencv.ps1 restore
+        run: ./tools/opencv.ps1 restore -Platform ${{ matrix.platform }}
 
       - name: Build the native plugin
         shell: pwsh
-        run: ./tools/dev.ps1 build
+        run: ./tools/dev.ps1 build -Platform ${{ matrix.platform }}
 
       # **binary と .meta を対で運ぶ。** binary の無い .meta を置くと Unity が
       # 孤児と見なして消す（M3 のレビュー M4 で実測）。dev.ps1 build が
@@ -222,11 +229,11 @@ jobs:
             # **入力ではなく結果を見る。** 合図が届かなければ gating は
             # 「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた
             # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
-            # 合図の経路が壊れた時点で赤くなる。**このレーンは 3 platform を
-            # 重ねてから走るので、無条件に 3 を要求してよい。**
-            # 末尾の '[' まで含めるのは境界のため。'present: 3' だけだと
-            # 'present: 30' にも当たる。
-            requireOutput: 'native plugins present: 3 ['
+            # 合図の経路が壊れた時点で赤くなる。**このレーンは 5 platform を
+            # 重ねてから走るので、無条件に 5 を要求してよい。**
+            # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
+            # 'present: 50' にも当たる。
+            requireOutput: 'native plugins present: 5 ['
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
@@ -261,10 +268,13 @@ jobs:
           pattern: unity-plugin-*
           path: other-plugins
 
-      - name: Assemble all three platforms into one package
+      - name: Assemble every platform into one package
         shell: pwsh
         run: |
-          $sources = @('windows-x64', 'macos-arm64') |
+          # **5 platform すべてを重ねる。** PluginGatingTests が Slots の数
+          # （5）を要求するので、3 つだけ重ねると落ちる —— そして落ちるのが
+          # 正しい。配る package には 5 つ入るからである。
+          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64') |
                      ForEach-Object { "other-plugins/unity-plugin-$_" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
@@ -371,7 +381,7 @@ jobs:
       # Unity 側には届かず、テストは「合図が無い」分岐に落ちて **要素 1 個でも
       # 緑になる** —— 塞ごうとしている穴と同じ壊れ方を、合図の側がする。
       # ワークスペースはコンテナに mount されるので、ファイルなら確実に届く。
-      - name: Check all three are in place, and tell the tests to expect three
+      - name: Check every platform is in place, and tell the tests to expect them all
         shell: pwsh
         run: |
           $root = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
@@ -379,6 +389,8 @@ jobs:
               'x86_64/opencv_unity_native.dll'
               'macOS/libopencv_unity_native.dylib'
               'Linux/x86_64/libopencv_unity_native.so'
+              'Android/arm64-v8a/libopencv_unity_native.so'
+              'iOS/libopencv_unity_native.a'
           )
           foreach ($rel in $expected) {
               foreach ($f in @("$root/$rel", "$root/$rel.meta")) {

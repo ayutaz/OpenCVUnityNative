@@ -372,9 +372,14 @@ Windows の debug ビルドで 8,831,488 → 10,177,536 バイト（+1.35 MB。2
 ### まだ作らないもの
 
 `Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、**`imgcodecs` の
-ファイルパス経路**、`WebCamTexture` 連携。いずれも契約が固まってから足す。
+ファイルパス経路**。いずれも契約が固まってから足す。
 **メモリ上の byte 列の encode / decode は M3.5 で足した（§3.5）。ファイルパスを
 受けない判断の理由は §1.6 にある。**
+
+**`WebCamTexture` 連携はここから外した。** M4 で `WebCamTextureConverter` を
+足したが、**新しい C ABI 関数は 1 本も増えていない** —— `CvMat.Create` と
+`copy_from_buffer` の上に立つ C# だけである。したがって allowlist の対象外で、
+公開 API としての説明は `docs/api-reference.md` §2.6 にある。
 
 ---
 

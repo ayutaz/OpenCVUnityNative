@@ -237,8 +237,33 @@ foreach ($p in @('windows-x64', 'macos-arm64', 'linux-x64')) {
 # cmake --build --preset が失敗する。
 $buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
 $testNames = @($presets.testPresets | ForEach-Object { $_.name })
+
+<#
+    **クロスビルドの preset には test preset を作らない。**
+
+    Android / iOS 向けにビルドした GoogleTest は host で実行できないので、
+    test preset を置いても走らせようがない。**「あるのに誰も走らせていない」
+    レーンを作らない**（M1 のレビュー H2 と同じ形）。
+
+    代わりに L1 の役目を負うのは実機の smoke test である
+    （docs/m4-device-verification.md）。**これは弱い代替であり、そう書いてある。**
+
+    ここに名前を直書きするのではなく、preset が toolchainFile を持つかで
+    判別する —— クロスビルドであることの唯一の印がそれだからである。
+#>
+$crossPresets = @($presets.configurePresets |
+                  Where-Object { $_.PSObject.Properties.Name -contains 'toolchainFile' } |
+                  ForEach-Object { $_.name })
+Assert-That ($crossPresets.Count -gt 0) `
+    'at least one configure preset is a cross build (0 件なら下の除外は空振りしている)'
+
 foreach ($n in $configureNames) {
     Assert-That ($n -in $buildNames) "there is a build preset for '$n'"
+    if ($n -in $crossPresets) {
+        Assert-That (-not ($n -in $testNames)) `
+            "'$n' is a cross build and has no test preset (host で実行できないものを走らせるふりをしない)"
+        continue
+    }
     Assert-That ($n -in $testNames) "there is a test preset for '$n'"
 }
 
@@ -788,7 +813,7 @@ if ($markerName) {
         Assert-That ($assembleSteps.Count -eq 1) `
             "$($job.Workflow) job '$($job.Name)' assembles the other platforms in exactly one step (saw $($assembleSteps.Count))"
         Assert-That ($markerSteps.Count -eq 1) `
-            "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand three platforms (saw $($markerSteps.Count))"
+            "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand every platform (saw $($markerSteps.Count))"
 
         # **「合図を書いた」は「テストが走った」ではない。**
         #
@@ -909,8 +934,8 @@ if ($markerName) {
     })
     Assert-That ($declaredOutputs.Count -eq 1) `
         "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
-    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 3 \[' }).Count -eq 1) `
-        "ci-unity.yml requires the tests to report three platforms (saw: $($declaredOutputs -join ', '))"
+    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 5 \[' }).Count -eq 1) `
+        "ci-unity.yml requires the tests to report every platform (saw: $($declaredOutputs -join ', '))"
 }
 
 
@@ -923,7 +948,37 @@ if ($markerName) {
 # 「コンテナ化したときに一緒に消すべきもの」は目で追うと漏れる。job が
 # container: を持つなら、その job の run: に sudo が無いことを機械が見る。
 foreach ($job in $allJobs) {
-    if (@($job.Lines | Where-Object { $_ -match '^    container:' }).Count -eq 0) { continue }
+    $containerLines = @($job.Lines | Where-Object { $_ -match '^    container:' })
+    if ($containerLines.Count -eq 0) { continue }
+
+    <#
+        **container: が条件式のとき、その job は「常にコンテナ」ではない。**
+
+        M4 で build-opencv の container を
+        `${{ matrix.platform == 'linux-x64' && 'ubuntu:22.04' || '' }}` に
+        したまま、モバイル（コンテナ外の ubuntu runner）で `sudo apt-get` を
+        使う step を足したところ、この検査が落ちた。**検査は正しく反応したが、
+        前提のほうが変わっていた。**
+
+        条件式の container を持つ job では、**コンテナに入る platform を
+        除外する `if:` が付いた step の sudo は許す。** 付いていない sudo は
+        従来どおり止める —— そちらは実際にコンテナの中で走るからである。
+    #>
+    $conditionalContainer = @($containerLines | Where-Object { $_ -match '\$\{\{' }).Count -gt 0
+
+    if ($conditionalContainer) {
+        # step ごとに見る。`if:` を持たない step の sudo だけを数える。
+        $sudoLines = @()
+        foreach ($step in $job.Steps) {
+            $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+            $guarded = @($cmds | Where-Object { $_ -match '^\s*(-\s+)?if:\s*\S' }).Count -gt 0
+            if ($guarded) { continue }
+            $sudoLines += @($cmds | Where-Object { $_ -match '(^|\s)sudo\s' })
+        }
+        Assert-That ($sudoLines.Count -eq 0) `
+            "$($job.Workflow) job '$($job.Name)' has a conditional container and uses sudo only in guarded steps (saw $($sudoLines.Count) unguarded)"
+        continue
+    }
 
     $sudoLines = @($job.Commands | Where-Object { $_ -match '(^|\s)sudo\s' })
     Assert-That ($sudoLines.Count -eq 0) `
@@ -1412,6 +1467,255 @@ if (Test-Path -LiteralPath $codeqlConfigPath) {
             "query-filters exclude exactly the two P/Invoke rules (expected: $($expectedIds -join ', ') / saw: $($actualIds -join ', '))"
     }
 }
+
+
+# --- モバイル platform が構成を引ける（M4 Task 1）---
+#
+# 既存の 3 platform は「実行中の OS = 対象 platform」を前提にしていた
+# （Get-OpenCvPlatform が $IsWindows 等から判定する）。**モバイルはクロス
+# コンパイルなので host と対象が一致しない。** Get-OpenCvPlatform（host 判定）は
+# 変えず、Get-OpenCvConfig -Platform に対象を明示的に渡す形にする。
+$MobilePlatforms = @('android-arm64', 'ios-arm64')
+$AllTargetPlatforms = @('windows-x64', 'macos-arm64', 'linux-x64') + $MobilePlatforms
+
+foreach ($mobile in $MobilePlatforms) {
+    $cfg = Get-OpenCvConfig -Platform $mobile
+    Assert-That ($cfg.Platform -eq $mobile) "Get-OpenCvConfig -Platform $mobile returns that platform"
+    Assert-That ($null -ne $cfg.Toolchain) "$mobile has a toolchain"
+    Assert-That ($cfg.Toolchain.Generator -eq 'Ninja') `
+        "$mobile builds with Ninja (生成物の配置を platform 間で揃える)"
+
+    $hash = Get-OpenCvConfigHash -Config $cfg
+    Assert-That ($hash -match '^[0-9a-f]{12}$') "$mobile hash is 12 lowercase hex characters"
+}
+
+<#
+    **構成ハッシュが platform 間で衝突しない。**
+
+    衝突すると、Android の artifact 名で iOS の木が展開されるような事故が
+    静かに成立する。
+
+    **ただし「5 つのハッシュが全部違う」を assert しても何も証明しない** ——
+    Config には Platform が入っており、ハッシュは Config 全体から取るので、
+    platform が違えば必ず違うハッシュになる。**構造的に常に真な検査は検査で
+    はない**（実測: android の toolchain を丸ごと ios と同じにしても通った）。
+
+    落ちうる形にする: **Platform を抜いたらハッシュが変わること**を見る。
+    これが成り立たなくなるのは、誰かが Get-OpenCvConfigHash を「選んだキーだけ
+    ハッシュする」形に変えたときで、そのとき初めて衝突が現実になる。
+#>
+foreach ($p in $AllTargetPlatforms) {
+    $cfg = Get-OpenCvConfig -Platform $p
+    $withPlatform = Get-OpenCvConfigHash -Config $cfg
+
+    $withoutPlatform = $cfg | Select-Object -Property * -ExcludeProperty Platform
+    Assert-That ((Get-OpenCvConfigHash -Config $withoutPlatform) -ne $withPlatform) `
+        "the hash for $p depends on Platform (依存しなくなると別 platform の artifact が展開される)"
+}
+
+# **未知の platform は黙って通さない。** 既定に倒すと、対応していない対象で
+# 「Windows の構成で Android をビルドする」が静かに成立する。
+$rejected = $false
+try { Get-OpenCvConfig -Platform 'android-armv7' | Out-Null } catch { $rejected = $true }
+Assert-That $rejected 'an unknown platform is rejected, not defaulted'
+
+# **artifact 名に platform が入る。** 入らないと 5 platform が同じ名前を取り合う
+# （M3 の Release asset 名の衝突と同じ形）。
+foreach ($p in $AllTargetPlatforms) {
+    $name = Get-OpenCvArtifactName -Config (Get-OpenCvConfig -Platform $p)
+    Assert-That ($name -like "*-$p-*") "the artifact name for $p embeds the platform (saw: $name)"
+}
+
+
+
+# --- 16 KB page size の検査が、両方向に動く（M4 Task 4）---
+#
+# **実物の .so だけで試さない。** 実物は通る側にしかならないので、
+# 「検査が効いている」と「検査が空振りしている」が区別できない。
+# 最小の ELF を合成して、通る側と落ちる側の両方を見る。
+function New-TestElf {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][long] $PAlign,
+        [int] $PhNum = 1,
+        # program header の p_type。既定は PT_LOAD(1)。PT_NOTE(4) を渡すと
+        # 「header はあるが PT_LOAD は 0 件」の ELF が作れる。
+        [uint32] $PType = 1
+    )
+
+    # ELF64 little-endian、program header が PT_LOAD $PhNum 個だけの最小構成。
+    $phoff = 0x40
+    $phentsize = 0x38
+    $size = $phoff + $phentsize * [Math]::Max($PhNum, 1)
+    $bytes = New-Object byte[] $size
+
+    $bytes[0] = 0x7F; $bytes[1] = 0x45; $bytes[2] = 0x4C; $bytes[3] = 0x46  # \x7fELF
+    $bytes[4] = 2      # EI_CLASS = ELFCLASS64
+    $bytes[5] = 1      # EI_DATA  = little endian
+    $bytes[6] = 1      # EI_VERSION
+    [BitConverter]::GetBytes([uint16]3).CopyTo($bytes, 0x10)      # e_type = ET_DYN
+    [BitConverter]::GetBytes([uint16]0xB7).CopyTo($bytes, 0x12)   # e_machine = AArch64
+    [BitConverter]::GetBytes([uint64]$phoff).CopyTo($bytes, 0x20) # e_phoff
+    [BitConverter]::GetBytes([uint16]$phentsize).CopyTo($bytes, 0x36)
+    [BitConverter]::GetBytes([uint16]$PhNum).CopyTo($bytes, 0x38)
+
+    for ($i = 0; $i -lt $PhNum; $i++) {
+        $off = $phoff + $i * $phentsize
+        [BitConverter]::GetBytes($PType).CopyTo($bytes, $off)              # p_type
+        [BitConverter]::GetBytes([uint64]$PAlign).CopyTo($bytes, $off + 0x30) # p_align
+    }
+
+    [IO.File]::WriteAllBytes($Path, $bytes)
+}
+
+$pageScript = Join-Path $repoRoot 'tools/verify-android-page-size.ps1'
+<#
+    **一時ファイル名を実行ごとに一意にする。**
+
+    固定名にしていたら、2 つの実行が同じパスを共有して潰し合った（実測:
+    片方が消した直後にもう片方が読みに行き、無関係な assertion が落ちた）。
+    `dev.ps1 test` は tools のテストを他と並べて走らせるので、これは
+    起こりうる。**「たまたま赤い」は「コードが理由で赤い」と区別できない。**
+#>
+$tmpDir = [IO.Path]::GetTempPath()
+$runId = [guid]::NewGuid().ToString('n').Substring(0, 8)
+$elfOk   = Join-Path $tmpDir "ocvu-align-ok-$runId.so"
+$elfBad  = Join-Path $tmpDir "ocvu-align-bad-$runId.so"
+$elfNone = Join-Path $tmpDir "ocvu-align-none-$runId.so"
+
+New-TestElf -Path $elfOk  -PAlign 16384
+New-TestElf -Path $elfBad -PAlign 4096
+<#
+    **PT_LOAD が 0 件の ELF を、program header ごと 0 個にして作らない。**
+
+    最初は -PhNum 0 で作っていたが、それでは script 冒頭の
+    「program header が読めません」で先に落ちるので、**「0 件で緑にしない」の
+    番人には一度も到達していなかった**（実測: その番人を無効化しても検査は
+    緑のままだった）。header は 1 つ置き、種類だけ PT_NOTE にする。
+#>
+New-TestElf -Path $elfNone -PAlign 16384 -PhNum 1 -PType 4
+
+& pwsh -NoProfile -File $pageScript -PluginPath $elfOk *> $null
+Assert-That ($LASTEXITCODE -eq 0) 'a 16384-aligned ELF passes the page size check'
+
+& pwsh -NoProfile -File $pageScript -PluginPath $elfBad *> $null
+Assert-That ($LASTEXITCODE -ne 0) 'a 4096-aligned ELF FAILS the page size check (落ちないなら検査は無意味)'
+
+<#
+    **0 件で緑にしない。**
+
+    ただし**終了コードだけを見ても、この番人が在るかは分からない** ——
+    番人を外しても StrictMode 下の Measure-Object が空の入力で throw して
+    exit 1 になるからである（実測）。区別できないものを検査したことにしない。
+
+    番人の値打ちは「読み方が想定と違った」と**読める形で**落ちることなので、
+    メッセージまで見る。
+#>
+$noneOut = & pwsh -NoProfile -File $pageScript -PluginPath $elfNone 2>&1 | Out-String
+Assert-That ($LASTEXITCODE -ne 0) 'an ELF with zero PT_LOAD segments FAILS (0 件は「違反なし」ではない)'
+Assert-That ($noneOut -match 'PT_LOAD') `
+    'the zero-PT_LOAD failure names PT_LOAD (生の例外で落ちるのと区別が付く形で落ちること)'
+
+# 存在しないファイルも失敗させる。**「検査対象が無いので合格」にしない。**
+& pwsh -NoProfile -File $pageScript -PluginPath (Join-Path $tmpDir 'ocvu-does-not-exist.so') *> $null
+Assert-That ($LASTEXITCODE -ne 0) 'a missing plugin FAILS the page size check'
+
+Remove-Item $elfOk, $elfBad, $elfNone -Force -ErrorAction SilentlyContinue
+
+
+
+# --- CMakePresets とクロスビルドの前提（M4 Task 3 / 5）---
+$presets = Get-Content -LiteralPath (Join-Path $repoRoot 'CMakePresets.json') -Raw | ConvertFrom-Json
+$configureNames = @($presets.configurePresets | ForEach-Object { $_.name })
+$buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
+
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+    Assert-That ($configureNames -contains $p) "CMakePresets.json has a configure preset named $p"
+    Assert-That ($buildNames -contains $p) "CMakePresets.json has a build preset named $p"
+}
+
+# **モバイルに ASan の preset を作らない。** クロス環境では走らせないので、
+# 「あるのに誰も走らせていない」状態を作らない。
+foreach ($p in @('android-arm64-asan', 'ios-arm64-asan')) {
+    Assert-That (-not ($configureNames -contains $p)) "there is no $p preset (クロス環境で ASan は走らせない)"
+}
+
+# **モバイルの preset は toolchain file を指す。** 指さないと host 向けに
+# ビルドされ、**成功したように見えて中身が別物になる。**
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+    $preset = $presets.configurePresets | Where-Object { $_.name -eq $p }
+    Assert-That ($preset.PSObject.Properties.Name -contains 'toolchainFile') `
+        "$p sets a toolchainFile (指さないと host 向けにビルドされる)"
+    $tc = $preset.toolchainFile -replace '\$\{sourceDir\}', $repoRoot
+    Assert-That (Test-Path -LiteralPath $tc) "$p の toolchain file が実在する ($tc)"
+}
+
+<#
+    **iOS だけ静的ライブラリを作る。**
+
+    iOS はアプリの外から .dylib を読み込めない。**SHARED のままでもビルドは
+    成功する**ので、Unity に入れて初めて壊れる —— v0.1.0 が踏んだ
+    「ビルドできた ≠ 動く」と同じ形である。分岐が消えていないことを見る。
+#>
+$nativeCMakeLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'native/CMakeLists.txt') |
+                      Where-Object { $_ -notmatch '^\s*#' })
+<#
+    iOS の分岐は 2 つある。**どちらも欠けてはならない。**
+
+      1. ライブラリの種類を STATIC にする（共有ライブラリは iOS で読み込めない）
+      2. **OpenCV を .a に束ねる** —— CMake は STATIC ライブラリに依存アーカイブを
+         取り込まないので、これが無いと自分の object しか入らず、Unity が Xcode で
+         リンクした時点で未解決シンボルになる（M4 のレビューで発見）
+
+    **1 だけあって 2 が無い状態がいちばん危ない。** ビルドも「形の検査」も通り、
+    実機に載せる段で初めて壊れる。
+#>
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'CMAKE_SYSTEM_NAME\s+STREQUAL\s+"iOS"'
+}).Count -eq 2) 'native/CMakeLists.txt branches on iOS twice (種類の指定と、OpenCV の束ね)'
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'OCVU_LIBRARY_KIND\s+STATIC'
+}).Count -eq 1) 'native/CMakeLists.txt builds a STATIC library for iOS (共有ライブラリは iOS で読み込めない)'
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'OCVU_LIBTOOL'
+}).Count -ge 1) 'native/CMakeLists.txt bundles OpenCV into the iOS .a (CMake は依存アーカイブを取り込まない)'
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'add_library\(opencv_unity_native\s+SHARED'
+}).Count -eq 0) 'the shipped library kind is not hardcoded to SHARED any more'
+
+
+
+# --- 5 platform が build-opencv / release / ci-native を通る（M4 Task 2/10）---
+#
+# **matrix から静かに漏れると、restore が「artifact が無い」で落ちる。**
+# しかもそれは、モバイルをビルドしようとした人の手元で初めて起きる。
+$AllTargetPlatformsForWorkflows = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')
+
+foreach ($wf in @('build-opencv.yml', 'release.yml')) {
+    $text = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/$wf") -Raw
+    foreach ($p in $AllTargetPlatformsForWorkflows) {
+        Assert-That ($text -match "(?m)^\s*- platform:\s*$([regex]::Escape($p))\s*$") `
+            "$wf has a matrix entry for $p"
+    }
+}
+
+# **モバイルは ci-native でもクロスビルドされる。** release でしかビルドされないと、
+# 壊れたことが分かるのが tag を打った後になる —— M3.5 で踏んだ
+# 「配る直前に初めて走る配線」と同じ形である。
+$ciNativeText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-native.yml') -Raw
+foreach ($p in @('android-arm64', 'ios-arm64')) {
+    Assert-That ($ciNativeText -match "(?m)^\s*- platform:\s*$([regex]::Escape($p))\s*$") `
+        "ci-native.yml cross-builds $p (release でしか作らないと、壊れたと分かるのが tag の後になる)"
+}
+
+# **Android の 16 KB 検査は、配る binary を作る job でも走る。**
+# ci-native だけだと、tag を打ったときには掛からない —— v0.1.0 の
+# verify-plugin-portability.ps1 がまさにその状態だった。
+$releaseLines = @(Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/release.yml') |
+                  Where-Object { $_ -notmatch '^\s*#' })
+Assert-That (@($releaseLines | Where-Object {
+    $_ -match '^\s*(run:\s*)?(&\s+)?\./tools/verify-android-page-size\.ps1(\s|$)'
+}).Count -eq 1) 'release.yml runs verify-android-page-size.ps1 in exactly one step (配る binary に掛からないと意味が無い)'
 
 
 if ($failures.Count -gt 0) {

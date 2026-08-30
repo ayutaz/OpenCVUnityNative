@@ -5,7 +5,8 @@
         "UnityEngine.TestRunner",
         "CvUnity.Core",
         "CvUnity.Interop",
-        "CvUnity.UnityIntegration"
+        "CvUnity.UnityIntegration",
+        "CvUnity.Tests.Shared"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -13,7 +13,17 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('restore', 'build', 'verify', 'status', 'clean')]
-    [string]$Command = 'restore'
+    [string]$Command = 'restore',
+
+    <#
+        対象 platform。**省略すると実行中の host**（Get-OpenCvPlatform）。
+
+        モバイルはクロスコンパイルなので host と対象が一致しない。明示しないと
+        「Windows の構成で Android をビルドする」が静かに成立する ——
+        **成功したように見えて中身が別物になる。**
+    #>
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [string]$Platform
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +39,7 @@ Set-StrictMode -Version Latest
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'OpenCvConfig.psm1') -Force
 
-$Config       = Get-OpenCvConfig
+$Config       = if ($Platform) { Get-OpenCvConfig -Platform $Platform } else { Get-OpenCvConfig }
 $ConfigHash   = Get-OpenCvConfigHash -Config $Config
 $ArtifactName = Get-OpenCvArtifactName -Config $Config
 $OpenCvRoot   = Get-OpenCvRoot -Config $Config
@@ -85,10 +95,37 @@ function Invoke-Build {
         $generatorArgs += @('-A', $Config.Toolchain.Architecture)
     }
 
+    <#
+        **クロスコンパイルの platform には toolchain file を渡す。**
+
+        `-DANDROID_ABI` のような変数は **NDK の android.toolchain.cmake が読む**
+        のであって、CMake 本体は見ない。toolchain file 抜きで渡すと未使用の
+        cache 変数になるだけで、**OpenCV は runner の gcc で host 向けに
+        ビルドされる** —— それが `opencv-5.0.0-android-arm64-<hash>` という
+        名前で公開される。**成功したように見えて中身が別物になる。**
+
+        plugin 側（CMakePresets の toolchainFile）は塞いであったが、
+        **OpenCV 側が塞がれていなかった**（レビューで発見）。同じ toolchain file を
+        使う —— 別々に持つと、片方だけ直したときに気づけない。
+    #>
+    $crossToolchains = @{
+        'android-arm64' = 'cmake/toolchains/android-arm64.cmake'
+        'ios-arm64'     = 'cmake/toolchains/ios-arm64.cmake'
+    }
+    $toolchainArgs = @()
+    if ($crossToolchains.ContainsKey($Config.Platform)) {
+        $tc = Join-Path $RepoRoot $crossToolchains[$Config.Platform]
+        if (-not (Test-Path -LiteralPath $tc)) {
+            throw "toolchain file が見つかりません: $tc（$($Config.Platform) はクロスビルドなので必須）"
+        }
+        $toolchainArgs = @("-DCMAKE_TOOLCHAIN_FILE=$tc")
+        Write-Host "==> cross-compiling for $($Config.Platform) via $tc" -ForegroundColor Cyan
+    }
+
     $cmakeArgs = @(
         '-S', $sourceRoot
         '-B', $buildRoot
-    ) + $generatorArgs + @(
+    ) + $generatorArgs + $toolchainArgs + @(
         "-DCMAKE_BUILD_TYPE=$($Config.Toolchain.BuildType)"
         "-DCMAKE_INSTALL_PREFIX=$OpenCvRoot"
         "-DBUILD_LIST=$($Config.Modules -join ',')"
@@ -280,10 +317,51 @@ function Invoke-Restore {
         $runId = if ($found -and $found -ne 'null') { $found.Trim() } else { $null }
 
         if (-not $runId) {
+            <#
+                **「まだ無い」と「いま作っている最中」を区別する。**
+
+                OpenCV の構成を変えた PR では、build-opencv と他のレーンが
+                同時に走る。artifact ができるより先に restore が動くので、
+                **「この構成でまだビルドしていない」という同じ文言が出る** ——
+                しかし取るべき行動は逆で、こちらは待って再実行すればよい。
+
+                実測（M4、2026-08-30）: モバイルを足した最初の PR で
+                `Plugin ios-arm64` がこれで落ちた。**artifact は 20 分後に
+                正しく公開された** —— 構成にもコードにも問題は無かった。
+
+                失敗の経路でだけ 1 回余分に API を呼ぶ。レート制限を気にする
+                のは成功の経路である（上の注記を参照）。
+            #>
+            $running = Invoke-GhWithRetry -What 'check for a build-opencv run in progress' -Script {
+                & gh api "repos/:owner/:repo/actions/workflows/build-opencv.yml/runs?status=in_progress&per_page=1" `
+                     --jq '.workflow_runs | length'
+            }
+            $queued = Invoke-GhWithRetry -What 'check for a queued build-opencv run' -Script {
+                & gh api "repos/:owner/:repo/actions/workflows/build-opencv.yml/runs?status=queued&per_page=1" `
+                     --jq '.workflow_runs | length'
+            }
+            $busy = (($running -as [int]) + ($queued -as [int])) -gt 0
+
+            if ($busy) {
+                Write-RestoreFailure (@(
+                    "artifact '$ArtifactName' はまだ公開されていませんが、**build-opencv が現在実行中です。**"
+                    ''
+                    'この構成を変えた直後に、他のレーンが同時に走ったときに起きます。'
+                    'まず build-opencv の完了を待って、このレーンを再実行してください。'
+                    ''
+                    '**ただし、その実行がこの構成を作っているとは限りません。**'
+                    'ここで見ているのは「build-opencv が動いているか」だけで、'
+                    'どの構成をビルドしているかは見ていません。待っても現れない'
+                    'なら、この構成はまだ一度もビルドされていません:'
+                    '  gh workflow run build-opencv.yml'
+                ) -join "`n")
+            }
+
             Write-RestoreFailure (@(
                 "artifact '$ArtifactName' を持つ成功した実行が見つかりません。"
                 ''
                 'この構成でまだビルドしていないか、artifact が失効しています。'
+                '（build-opencv は実行中でも待機中でもありません。）'
                 '  gh workflow run build-opencv.yml'
             ) -join "`n")
         }

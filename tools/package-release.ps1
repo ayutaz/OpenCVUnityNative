@@ -9,9 +9,16 @@
 
     ライセンスの配置は platform で変わる（tools/verify-opencv-artifact.ps1 と
     同じ理解）:
-      Windows      etc/licenses/<file>
-      macOS/Linux  share/licenses/opencv5/<file>
-    片方しか見ないと、Unix 系の SBOM が黙って空になる。**両方を探し、
+      Windows          etc/licenses/<file>
+      macOS/Linux/iOS  share/licenses/opencv5/<file>
+      Android          sdk/etc/licenses/<file>   ← install の木ごと sdk/ の下
+
+    **Android を落としていた。** verify-opencv-artifact.ps1 には sdk/ を
+    教えたのに、こちらには教えていなかった（M4 のレビューで発見）。
+    release.yml は tag と手動でしか起動しないので、CI が全部緑のまま
+    「tag を打った瞬間に android-arm64 の job が落ちて Release が 1 件も
+    作られない」状態が残っていた。
+    どれか 1 つしか見ないと SBOM が黙って空になる。**全部を探し、
     見つかった全ファイルから component を拾う。どちらにも何も無ければ
     失敗する** — 0 件を「申告することが無い」ではなく「検出に失敗した」
     として扱う。
@@ -31,10 +38,10 @@ param(
         checksums.txt だけを出す。
 
         **全部入りの package 用である。** SBOM と build-manifest は復元済みの
-        OpenCV artifact（= 実行中 platform のもの）から作るので、3 platform を
+        OpenCV artifact（= 実行中 platform のもの）から作るので、全 platform を
         束ねる job には元が無い。**統合版を捏造せずに、出せるものだけ出す。**
 
-        checksums.txt は package を走査して作るので、3 platform 分の binary が
+        checksums.txt は package を走査して作るので、全 platform 分の binary が
         置かれていればそのまま 3 行になる。SBOM / build-manifest /
         THIRD_PARTY_NOTICES は platform ごとの物が Release に付くので、
         全部入りの中身の説明はそちらが担う。
@@ -122,11 +129,15 @@ if ($ChecksumsOnly) {
 $licenseDirs = @(@(
     Join-Path $Root 'etc/licenses'
     Join-Path $Root 'share/licenses'
+    # Android は install の木ごと sdk/ の下に作り直す（実測: build-opencv の
+    # ログに sdk/etc/licenses/cpufeatures-LICENSE が出る）。
+    Join-Path $Root 'sdk/etc/licenses'
+    Join-Path $Root 'sdk/share/licenses'
 ) | Where-Object { Test-Path -LiteralPath $_ })
 
 if ($licenseDirs.Count -eq 0) {
     [Console]::Error.WriteLine(@(
-        "no license directory found under $Root (looked for etc/licenses and share/licenses)"
+        "no license directory found under $Root (looked for etc/licenses, share/licenses, sdk/etc/licenses, sdk/share/licenses)"
         'cannot build an SBOM from evidence'
     ) -join "`n")
     exit 1
@@ -198,7 +209,7 @@ if (-not (Test-Path -LiteralPath $noticesSource)) {
 <#
     **通知に platform 固有のヘッダを足してから同梱する。**
 
-    リポジトリの THIRD_PARTY_NOTICES.md は 1 つで、3 platform とも同じ本文を
+    リポジトリの THIRD_PARTY_NOTICES.md は 1 つで、全 platform が同じ本文を
     配っていた。ところが実際に入っている component は platform で違う——
     v0.1.0 の実測では、macOS の成果物に clapack が無い（Apple の Accelerate を
     使うため）のに、macOS の配布物は CLAPACK のライセンス全文を含んでいた。
@@ -228,7 +239,7 @@ $noticesHeader = @(
     ''
     ($components | ForEach-Object { "- ``$_``" })
     ''
-    '**以下の本文は 3 platform 共通で、上の一覧に無い component の節も含む。**'
+    '**以下の本文は全 platform 共通で、上の一覧に無い component の節も含む。**'
     'それらはこの platform の成果物には入っていない。本文を platform ごとに'
     '削らないのは、削る判断そのものが間違えやすく、過剰に載せる側の誤りは'
     '害が小さいからである。どれが実際に入っているかは上の一覧が正本になる。'

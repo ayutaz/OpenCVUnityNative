@@ -2,7 +2,7 @@
 
 **対象範囲: C ABI の 11 関数（M2 の 9 本 + M3.5 の 2 本）と、その上に立つ C# の公開 API
 だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、**`imgcodecs` のファイルパス
-経路**、`WebCamTexture` 連携など）はここに書かない。詳しい経緯は
+経路**など）はここに書かない。**`WebCamTexture` 連携は M4 で足したので §2.6 にある。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5）を、
 所有権契約そのものは同 §1 を参照。
 
@@ -249,7 +249,31 @@ byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の 
 | `static CvMat ToMat(Texture2D texture)` | `texture.GetRawTextureData<byte>()` の先頭アドレスを直接 native に渡し、コピー無しで新しい `CvMat`（`CvMatType.Bgra32`）を作る。**借用契約**: 呼び出しの内側だけで読み、戻った時点で終わる。返された `CvMat` は呼び出し元が `Dispose` する責任を持つ |
 | `static void ToTexture(CvMat mat, Texture2D texture)` | `mat` の内容を `texture` の生データへ直接書き込み、`Apply()` する。`mat.Cols`/`Rows` が `texture` のサイズと一致しない場合は `ArgumentException`。**`mat` のチャンネル数 × 画素数が `texture` の RGBA32 前提（4 バイト/画素）と一致しない場合も `ArgumentException`** — native の検証は `stride`/`length` の整合しか見ないため、この不一致は Unity 層側で追加に検査している（詳細は `TextureConverter.cs` のコメント。実測: 4×3 の Gray8 を RGBA32 相当へ書くと native は成功を返しつつ先頭 12 バイトだけ書き換えていた） |
 
-### 2.6 `CvUnity.Unity.NativeArrayExtensions`
+### 2.6 `CvUnity.Unity.WebCamTextureConverter`
+
+`static class`（`CvUnity.UnityIntegration` アセンブリ、M4 で追加）。
+`WebCamTexture` の画素から `CvMat` を作る。**新しい C ABI 関数は使わない** ——
+`CvMat.Create` + `CopyFrom` の上に立つ純粋な C# である。
+
+| メンバ | 内容 |
+| --- | --- |
+| `static CvMat ToMat(WebCamTexture texture, bool flipVertically = true)` | `GetPixels32()` で画素を取り、`CvMat`（`CvMatType.Bgra32`）を作る。毎フレーム呼ぶと配列を確保し続けるので、下の overload を使うこと |
+| `static CvMat ToMat(WebCamTexture texture, ref Color32[] buffer, bool flipVertically = true)` | 呼ぶ側が持つ配列を再利用する。`buffer` が `null` か長さ不足なら確保し直して返す |
+| `static CvMat ToMat(Color32[] pixels, int width, int height, bool flipVertically = true)` | 画素配列から直接作る。`pixels.Length` が `width * height` と一致しない場合は `ArgumentException` |
+
+**落とし穴が 2 つある。**
+
+1. **既定で上下を反転する。** Unity のテクスチャは左下が原点、OpenCV の `Mat` は
+   左上が原点である。既定（`flipVertically: true`）はその差を吸収するので、
+   得られた `Mat` は OpenCV の慣習どおり「先頭行 = 画像の上端」になる。
+   **その `Mat` をそのまま `TextureConverter.ToTexture` に渡すと上下逆に表示される**
+   —— 往復させるなら `flipVertically: false` を使う。
+2. **型は `Bgra32` だが、中身は RGBA の並びである。** `Color32` は R,G,B,A の順に
+   格納されており、この変換はバイト列をそのまま渡す。`TextureConverter.ToMat` と
+   同じ扱いで、`Texture2D` へ書き戻すぶんには一貫している。**`cv::cvtColor` に
+   BGRA として渡すと赤と青が入れ替わる。**
+
+### 2.7 `CvUnity.Unity.NativeArrayExtensions`
 
 `static class`（`CvUnity.UnityIntegration` アセンブリ）。`CvMat` に対する
 `NativeArray<T>` 向け拡張メソッド。`IntPtr` 版と等価だが、呼び出し側に
@@ -291,11 +315,12 @@ byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の 
 ## 3. 対象外（この文書に書かないもの）
 
 `Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
-経路**、`WebCamTexture` 連携 — いずれも `docs/abi-ownership-and-versioning.md` §3 が
+経路** — いずれも `docs/abi-ownership-and-versioning.md` §3 が
 「まだ作らないもの」として明記しており、この API リファレンスにも存在しない。
 契約が固まり実装されたマイルストーンで、この文書に追記する形にする。
 **メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と
-§2.3 にある。**
+§2.3 にある。`WebCamTexture` 連携は M4 で足したので §2.6 にある** —— どちらも
+ここには残っていない。
 
 ## 参照
 

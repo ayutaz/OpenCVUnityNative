@@ -298,6 +298,18 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 | `cv::` の関数だけがリンクエラー（`LNK2019` / undefined reference） | そのモジュールが `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` に無い。**「OpenCV がそのモジュールを含んでビルドされている」と「この plugin がそれをリンクしている」は別である** —— `tools/opencv-config.psd1` の `Modules` に載っていれば OpenCV 側は当然ビルドされ、`ocvu_get_build_information()` も `To be built:` にその名前を出す。それを根拠にすると誤る（M3.5 の `imgcodecs` がこれで、リンカが `cv::imencode` / `cv::imdecode` を未解決にして初めて分かった） |
 | ヘッダの `#define` が OpenCV の定数とずれる | `static_assert` で固定していない。`OCVU_IMREAD_*` のように OpenCV の値をそのまま出す定数は、実装 `.cpp` の先頭に `static_assert(OCVU_X == cv::X, "...")` を書き、写し間違いをコンパイル時に落とす（`native/src/ocvu_imgcodecs.cpp`、`native/src/ocvu_imgproc.cpp`） |
 
+| クロスビルドだけリンクエラー / 挙動が違う | 対象 platform が host と一致しないことを忘れている。`dev.ps1 build` は既定で**実行中の OS 向け**にビルドするので、モバイルは `-Platform android-arm64` のように明示する（M4 で host から切り離した）。`OCVU_BUILD_TESTS` はクロスの preset で `OFF` —— **クロスビルドした GoogleTest は host で実行できない**ので、L1 の代わりは実機の smoke test である（`docs/m4-device-verification.md`） |
+| iOS で `DllNotFoundException` / シンボルが見つからない | iOS はアプリの外から共有ライブラリを読み込めない。`native/CMakeLists.txt` は `CMAKE_SYSTEM_NAME STREQUAL "iOS"` のとき **`STATIC`** を作り、Unity が IL2CPP のバイナリへ静的リンクして `DllImport("__Internal")` で解決する。**`SHARED` のままでもビルドは成功する**ので、Unity に入れて初めて壊れる |
+
+## platform を足すとき
+
+**`add-a-platform` skill を使うこと。** ABI 関数の話ではないが、同じファイル群を
+触るのでここから指す。
+
+直す場所は **17 箇所**あり（M4 で実測）、`.meta` のキー名・ファイル名の衝突・
+クロスでの `find_package` の閉じ込め・静的ライブラリの依存の束ねなど、
+**ビルドが通ってから CI で 8 回落ちた**罠がそこにまとまっている。
+
 ## 参照
 
 - `native/include/opencv_unity_native.h` — 公開 ABI と `OCVU_STATUS_LIST`

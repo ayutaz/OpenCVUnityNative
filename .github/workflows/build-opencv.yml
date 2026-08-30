@@ -50,6 +50,14 @@ jobs:
             runner: macos-14
           - platform: linux-x64
             runner: ubuntu-24.04
+          # モバイルは**クロスコンパイル**なので、host の OS は対象と一致しない。
+          # Android は NDK が入っている ubuntu で、iOS は Xcode が要るので macOS で
+          # ビルドする。**Linux のようにコンテナへは入れない** —— Android の .so は
+          # NDK の sysroot に対してリンクするので、host の glibc は関係ない。
+          - platform: android-arm64
+            runner: ubuntu-24.04
+          - platform: ios-arm64
+            runner: macos-14
 
     steps:
       # **git だけを checkout より前に入れる。**
@@ -76,10 +84,17 @@ jobs:
       # を使うので不要。
       # Linux はコンテナのセットアップで入るので macOS だけ。
       - name: Install Ninja
-        if: matrix.platform == 'macos-arm64'
-        shell: pwsh
+        # macOS / iOS / Android の preset はすべて Ninja。**Windows だけが
+        # Visual Studio generator で、Linux はコンテナ側で入る。**
+        if: matrix.platform != 'windows-x64' && matrix.platform != 'linux-x64'
+        # **brew は ubuntu に無い。** android-arm64 は ubuntu runner で
+        # コンテナ外なので、setup-linux-container.sh も走らない。
         run: |
-          brew install ninja
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ninja
+          else
+            sudo apt-get update && sudo apt-get install -y ninja-build
+          fi
 
       - name: Resolve the configuration
         id: config
@@ -96,7 +111,7 @@ jobs:
       # ローカルと同一のコマンドを呼ぶ。CI 専用の手順は作らない。
       - name: Build OpenCV
         shell: pwsh
-        run: ./tools/opencv.ps1 build
+        run: ./tools/opencv.ps1 build -Platform ${{ matrix.platform }}
 
       - name: Show the manifest
         shell: pwsh
