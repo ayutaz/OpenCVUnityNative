@@ -111,6 +111,21 @@
             '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
         )
         'android-arm64' = @(
+            <#
+                **Android の sample プロジェクトを configure させない。**
+
+                OpenCV の samples/android/*/CMakeLists.txt は `add_android_project`
+                を呼び、Android SDK と Gradle を要求する。BUILD_EXAMPLES=OFF は
+                これを止めない —— 別の変数だからである。**実測（CI）**:
+
+                    CMake Error at samples/android/15-puzzle/CMakeLists.txt:3
+                      (add_android_project)
+
+                この 2 つは「ビルドするモジュール」ではなく「同梱するサンプル /
+                プロジェクト」の話なので、BUILD_LIST では絞れない。
+            #>
+            '-DBUILD_ANDROID_EXAMPLES=OFF'
+            '-DBUILD_ANDROID_PROJECTS=OFF'
             '-DANDROID_ABI=arm64-v8a'
             '-DANDROID_PLATFORM=android-25'
             # STL は静的に。共有だと libc++_shared.so を利用者のアプリに
