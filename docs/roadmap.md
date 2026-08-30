@@ -1107,6 +1107,15 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 | Technical Committee の議事録（**2026-08-12 の回**）に 1 行: *"PR #29658: CUDNN JIT: 9.3x speedup on Resnet 50 (RTX 6000 vs Intel Xeon)."* | [opencv/opencv wiki 2026](https://github.com/opencv/opencv/wiki/2026) |
 | 5.1 の milestone は **open、期日なし**（open 137 / closed 182） | GitHub API `milestones` |
 | 2026-07-22 の回: *"Adding CUDA support to the new DNN engine focusing on UMat memory integration to optimize device data transfer speeds."* | 同 wiki |
+| **2026-07-29 の回: *"DNN engine classic removal is DONE and merged finally"***。あわせて *"ONNX coverage is 72.9% now"* と *"working on adding CUDA support in UMat"* | 同 wiki |
+| **5.1 のリリース日と、`dnn` の API / ABI 安定性についての言明は、議事録のどこにも無い** | 同 wiki を通読して確認 |
+
+**判断に効いているのは 9.3 倍ではなく、この 2 つである。**
+
+1. **旧エンジンは既に削除された**（2026-07-29）。`dnn` は「これから変わる」ではなく
+   **もう変わっている最中**である。
+2. **5.1 に期日が無く、`dnn` の API / ABI を安定させるという言明も無い。**
+   いつ・どこまで動くかを、こちらでは予測できない。
 
 **この数字が言っていないこと。** ここを取り違えると判断を誤る。
 
@@ -1119,7 +1128,8 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 
 ### 決定: native bridge を module 単位に分ける
 
-**上の事実は「5.1 で dnn 周辺はまだ動く」ことを裏づける。** したがって
+**上の事実は「dnn 周辺はいま動いている最中である」ことを裏づける** —— 旧エンジンは
+既に削除され、CUDA / UMat の統合は進行中で、期日も安定性の約束も無い。したがって
 **5.0 に固定した DNN ラッパーを作り込まない。** 次を決める。
 
 1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
