@@ -10,7 +10,7 @@
   - **差別化の穴**（2026-08-29 の再調査。競合が全員 OpenCV 4 系のままであること、差別化の穴 10 件（掲げている差別化のうち達成していないものと、競合が持っていて本案が持たないものの合算）と、その担当。**うち 3 件は M3.5 で解消し、1 件が部分達成になった**）
   - **M7 の上流調査**（2026-08-30。OpenCV 5.1 に向けて `dnn` がどう動いているかを一次情報で確かめ、`dnn` を足す前に native bridge を module 単位に分ける決定を入れた）
   - ローカルループと CI の役割分担、GitHub Actions のワークフロー構成（M3 の後に `ci-lint` / `codeql` / `nightly` と Dependabot を追加。**`nightly` は schedule でまだ 1 度も走っていない**）
-  - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）、[M3.5 配布の形と最小の穴](./superpowers/plans/2026-08-30-m3.5-distribution-shape.md)（全部入り tarball / `imgcodecs` / Unity 6.3。**残っているのは条件 3 の実証と OpenUPM の登録申請の 2 つ**——詳細は roadmap の M3.5 節）
+  - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）、[M3.5 配布の形と最小の穴](./superpowers/plans/2026-08-30-m3.5-distribution-shape.md)（全部入り tarball / `imgcodecs` / Unity 6.3。**残っているのは OpenUPM の登録申請だけ**——詳細は roadmap の M3.5 節）
 - [API リファレンス](./api-reference.md)
   - C ABI 11 関数（M2 の 9 本 = `Mat` のライフサイクルと buffer 転送の 6 本 + `cvtColor` / `resize` / `GaussianBlur` の 3 本、**M3.5 で足した `imencode` / `imdecode` の 2 本**）と、その上に立つ C# の公開 API
   - **この 11 本は公開 ABI の総数ではありません。** 現在の公開 ABI は 20 本あり、残りは M0 / M1 由来の 8 本（ABI version の取得、last-error の取得、status 表の照会、OpenCV の version と build information）と、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash` 1 本です。この文書が「11 関数」と限定しているのは、**M2 で確定し M3.5 で 2 本足した allowlist の範囲**を指すためで、20 との差は数え漏れではありません（version / last-error / status 表は文書内で必要に応じて触れています）。全 20 本の内訳は [CLAUDE.md](../CLAUDE.md)、所有権と allowlist の正本は [C ABI の所有権と versioning](./abi-ownership-and-versioning.md) にあります
@@ -47,15 +47,15 @@
 
 ## Status
 
-M0〜M3 は完了し、**M3.5（配布の形と最小の穴）は完了条件 6 件のうち 4 件を満たしました**（1 件は「満たすが未実証」、1 件は部分達成。判定は roadmap の M3.5 節が正本）。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）を公開しました**。**M3.5 の成果はまだリリースに載っていません** —— 次の版で初めて利用者に届きます。
+M0〜M3 は完了し、**M3.5（配布の形と最小の穴）は完了条件 6 件のうち 5 件を満たしました**（残るのは OpenUPM の登録申請だけです。判定は roadmap の M3.5 節が正本）。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）を公開しました**。**M3.5 の成果はまだリリースに載っていません** —— 次の版で初めて利用者に届きます。
 
 M2 の最後に残っていた条件 7（CI 上で L4/L5 を実行）は、game-ci でランナーへの Unity 導入とライセンスのアクティベーションを行い、Linux で走らせることで満たしました。**その過程で、公開済み v0.1.0 の Linux 版が古い環境で読み込めない欠陥が判明しました** —— ubuntu-24.04 でビルドした `.so` が GLIBC_2.38 を要求していたためで、Unity を CI で実際に動かすまで誰も気づけませんでした。Linux のビルドを `ubuntu:22.04` コンテナへ移し、要求を 2.34 に下げたうえで、ビルド時点で上限を検査するようにしています。
 
 M3（Desktop 3 platform と配布の再現性）は、roadmap の完了条件 6 件をすべて満たしました。3 platform で native plugin がビルドされ、L1 / L3 と slow tools テストが CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されています。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認しました（M3 時点のこれは **platform ごとの** tarball です。全部入りに対する実測は下の M3.5 の段落にあります）。**配布まで踏んでいます** —— v0.1.0（2026-08-28）と、上記の Linux の欠陥を直した v0.1.1（2026-08-29）。どちらも 3 platform 分の tarball と配布物 4 点 + `SHA256SUMS.txt` で、asset は 16 件でした（**M3.5 以降は 18 件になります**）。**v0.1.0 は中身を差し替えず、リリースノートの冒頭に「この版の Linux 版は動かない」と明記して v0.1.1 へ誘導しています**（一度配ったものを黙って差し替えると、同じ版名で違う物が 2 つ存在することになるため）。また、Git URL 経由では binary が git の追跡外にあるため導入できません（完了条件は「Git URL または tarball」なので tarball 側で満たしています）。**macOS の** Plugin Import Settings は M3 時点では「その platform の binary が置かれた状態で Unity に読ませたことがない」状態でした（Linux 分は M2 の条件 7 で実測に変わりました）。M3.5 で何がどこまで実測に変わったかは下の段落にあります。PR #8 を CI に通した時点で、ローカルでは緑だった欠陥が 3 件出ています——handle table の use-after-free、UPM が導入できない tarball、Release asset 名の衝突で、いずれも修正済みです。詳細は roadmap の M3 節にあります。
 
-M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完了条件 6 件のうち **4 件を満たし、1 件が「満たすが未実証」、1 件が部分達成**です。**CI は green で main に入りました**（PR #34、`41cda19`、2026-08-29。チェックの内訳と Unity レーンの実測は roadmap の M3.5 節にあります）。
+M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完了条件 6 件のうち **5 件を満たし、残るのは条件 4 の (c)（OpenUPM の登録申請）だけ**です。**CI は green で main に入りました**（PR #34、`41cda19`、2026-08-29。チェックの内訳と Unity レーンの実測は roadmap の M3.5 節にあります）。
 
-**「満たすが未実証」は条件 3 です。** 全部入りの中で Unity が自分の platform の binary だけを読むことを見る検査は書きましたが、**M3.5 の時点では自動で走る唯一の場所（`ci-unity.yml`）に Linux の plugin 1 つしか無く、そこでは 6 件が要素 1 個の集合を検査して緑になっていました**。取り違えが起こりうる状況が CI では成立しないので、「満たす」に数えていません（M2 の条件 7 に当てたのと同じ基準です）。**2026-08-30 に `ci-unity` が 3 platform を自分で組む形にしました**が、**その構成で CI が緑になるまでは判定を動かしません**（詳細は roadmap の「条件 3 を閉じる」）。**部分達成は条件 4** で、OpenUPM の登録申請だけが残っています。
+**条件 3 は 2026-08-30 に閉じました。** M3.5 の時点では「満たすが未実証」で、**自動で走る唯一の場所（`ci-unity.yml`）に Linux の plugin 1 つしか無く、6 件が要素 1 個の集合を検査して緑になっていました**。PR #37 で `ci-unity` が windows / macOS の plugin も自分でビルドして重ねる形にし、**CI が 3 platform 同居の状態で `native plugins present: 3` と gating 4 件の個別 Passed を出しました**（run 33290375806）。**残るのは条件 4 の (c)** で、OpenUPM の登録申請だけです。
 
 以下のローカルの数字はこのマシン（Windows）での 2026-08-30 の実測です。
 
