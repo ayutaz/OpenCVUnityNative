@@ -380,6 +380,25 @@ jobs:
       #
       # これを落とせば `dev.ps1 test-unity-tarball` に食わせられる ——
       # **手で混ぜた物ではなく、CI が組んだ実物**に対して導入を確かめられる。
+      # **リリースノートの読み込みだけが「配る直前に初めて走る配線」として
+      # 残る。** `--notes-file` を使うのは publish job で、空撃ちでは走らない。
+      # 存在と長さだけでもここで見ておけば、パスを変えたときに tag ではなく
+      # PR で分かる。
+      - name: Check the release notes are there
+        shell: pwsh
+        run: |
+          $notes = '.github/release-notes.md'
+          if (-not (Test-Path -LiteralPath $notes)) {
+              Write-Error "リリースノートがありません: $notes（publish job が --notes-file で読む）"
+              exit 1
+          }
+          $len = (Get-Item -LiteralPath $notes).Length
+          if ($len -lt 200) {
+              Write-Error "リリースノートが短すぎます（$len バイト）。空のノートで配らない。"
+              exit 1
+          }
+          Write-Host "==> release notes present ($len bytes)"
+
       - name: Upload the staged assets
         uses: actions/upload-artifact@v7
         with:
