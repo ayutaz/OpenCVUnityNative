@@ -317,10 +317,46 @@ function Invoke-Restore {
         $runId = if ($found -and $found -ne 'null') { $found.Trim() } else { $null }
 
         if (-not $runId) {
+            <#
+                **「まだ無い」と「いま作っている最中」を区別する。**
+
+                OpenCV の構成を変えた PR では、build-opencv と他のレーンが
+                同時に走る。artifact ができるより先に restore が動くので、
+                **「この構成でまだビルドしていない」という同じ文言が出る** ——
+                しかし取るべき行動は逆で、こちらは待って再実行すればよい。
+
+                実測（M4、2026-08-30）: モバイルを足した最初の PR で
+                `Plugin ios-arm64` がこれで落ちた。**artifact は 20 分後に
+                正しく公開された** —— 構成にもコードにも問題は無かった。
+
+                失敗の経路でだけ 1 回余分に API を呼ぶ。レート制限を気にする
+                のは成功の経路である（上の注記を参照）。
+            #>
+            $running = Invoke-GhWithRetry -What 'check for a build-opencv run in progress' -Script {
+                & gh api "repos/:owner/:repo/actions/workflows/build-opencv.yml/runs?status=in_progress&per_page=1" `
+                     --jq '.workflow_runs | length'
+            }
+            $queued = Invoke-GhWithRetry -What 'check for a queued build-opencv run' -Script {
+                & gh api "repos/:owner/:repo/actions/workflows/build-opencv.yml/runs?status=queued&per_page=1" `
+                     --jq '.workflow_runs | length'
+            }
+            $busy = (($running -as [int]) + ($queued -as [int])) -gt 0
+
+            if ($busy) {
+                Write-RestoreFailure (@(
+                    "artifact '$ArtifactName' はまだ公開されていませんが、**build-opencv が現在実行中です。**"
+                    ''
+                    'この構成を変えた直後に、他のレーンが同時に走ったときに起きます。'
+                    '構成にもコードにも問題はありません —— build-opencv の完了を待って'
+                    'このレーンを再実行してください。'
+                ) -join "`n")
+            }
+
             Write-RestoreFailure (@(
                 "artifact '$ArtifactName' を持つ成功した実行が見つかりません。"
                 ''
                 'この構成でまだビルドしていないか、artifact が失効しています。'
+                '（build-opencv は実行中でも待機中でもありません。）'
                 '  gh workflow run build-opencv.yml'
             ) -join "`n")
         }
