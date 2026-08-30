@@ -54,15 +54,18 @@ include("${ANDROID_NDK}/build/cmake/android.toolchain.cmake")
 # NDK r28 以降は既定で 16 KB だが、明示しておく。**既定に頼ると NDK を
 # 下げたときに黙って壊れる。** 検査は tools/verify-android-page-size.ps1。
 #
-# **_INIT に足す。** toolchain file で CMAKE_SHARED_LINKER_FLAGS（_INIT で
-# ない方）を書いても、project() が _INIT から cache entry を作る際に
-# 負けて消えうる。_INIT が toolchain file 側の正規の入口である。
 # NDK の toolchain を include した「後」に足す —— 前に置くと上書きされる。
-string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT " -Wl,-z,max-page-size=16384")
-
-# **この flag が効いていること自体は、まだ分けて確かめていない。**
-# CI は実物の .so で p_align = 16384 を実測しているが、NDK r27 以降は
-# 既定で 16 KB 整列の可能性があり、**その実測は「flag が効いた証拠」には
-# ならない。** 分けるには一時的に 4096 にして
-# tools/verify-android-page-size.ps1 が赤くなるのを見る必要がある
-# （M4 のレビューでの指摘。未実施）。
+#
+# **_INIT ではなく、こちらに足す。** レビューで「toolchain file では
+# CMAKE_SHARED_LINKER_FLAGS_INIT が正規の入口で、_INIT でない方は project()
+# が作る cache entry に負けうる」と指摘され、_INIT に変えて CI に出した。
+# **結果は逆だった** —— _INIT では効かず、実物の .so の p_align が
+# 16384 から 4096 に落ちた（run 33323002468）。元の形に戻す。
+#
+# **この失敗が、開いていた問いを同時に閉じた。** それまでは「実測の
+# p_align=16384 は NDK r27 の既定かもしれず、flag が効いた証拠にならない」
+# という留保が残っていた。_INIT にして 4096 になったということは、
+# **16 KB 整列を作っているのはこの flag である**（NDK の既定ではない）。
+# あわせて tools/verify-android-page-size.ps1 が**実物の .so で実際に
+# 落ちる**ことも確かめられた —— 合成 ELF だけでなく本番の経路で。
+string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")

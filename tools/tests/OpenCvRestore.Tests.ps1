@@ -158,6 +158,19 @@ try {
     Assert-That ($resultC.ExitCode -eq 1) 'case C: restore exits 1 when the artifact does not exist'
     Assert-That ($resultC.StdErr -notmatch 'Line \|') 'case C: the failure message has no "Line |" banner'
     Assert-That ($resultC.StdErr -notmatch '~~~') 'case C: the failure message has no source-position tildes'
+    # **この assertion は 2 つの分岐の両方に掛かる。**
+    #
+    # restore は「この構成はまだビルドされていない」と「build-opencv が
+    # いま動いている」を別の文言で報告する。後者は当初 remedy を書いて
+    # おらず、**build-opencv がたまたま走っている間だけこのテストが落ちた**
+    # （M4 で実測。opencv-config.psd1 を触った push が build-opencv を起動し、
+    # 同時に走った他のレーンがこの分岐に入った）。
+    #
+    # 直したのは文言だけではない。**「build-opencv が動いている」は
+    # 「この構成が作られている」ではない** —— どの構成をビルドしているかは
+    # 見ていないので、待っても現れないことがありうる。両方の分岐が
+    # `gh workflow run` を案内する形にした。ここを片方だけにすると、
+    # 再実行で緑になるフレークとして戻ってくる。
     Assert-That ($resultC.StdErr -match 'gh workflow run build-opencv\.yml') 'case C: the failure message names the concrete remedy'
     Assert-That $resultC.StdErrIsStrictUtf8 'case C: stderr bytes are valid UTF-8 (not the console codepage)'
 }
