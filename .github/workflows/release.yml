@@ -16,9 +16,26 @@ name: release
 # 含む。ここを job ごと tag に限っていた間は、確認できるのが platform ごとの
 # 成果物までで、**束ねる側の配線は tag を打つまで一度も動かなかった。**
 
+# **PR でも空撃ちする。** これを入れるまで、配る経路は tag と手動でしか
+# 走らなかった —— 結果として M4 では欠陥が 3 件たまった:
+#
+#   1. package-release.ps1 が Android の sdk/etc/licenses/ を知らない
+#      （tag を打つと Release が 1 件も作られない状態）
+#   2. pack-upm-tarball.ps1 の中の 2 つ目の一覧が 3 platform のまま
+#      （'unknown platform android-arm64'）
+#   3. package-release.ps1 が binary を拡張子で拾い、iOS の .a を落とす
+#
+# **3 件とも CI は緑のままだった。** 1 は PR 前のレビューが読解で見つけたが、
+# 2 と 3 は空撃ちを 1 回回すまで誰も知らなかった。
+#
+# 費用は安い（実測: 5 platform で合計 5 分弱、並列なら 2 分。ci-native の
+# Windows 1 job とほぼ同じ）ので、paths で絞らず毎回走らせる。**絞ると
+# 必須チェックにできない** —— paths に当たらない PR では check が現れず、
+# 必須にすると永久に merge できなくなる。
 on:
   push:
     tags: ['v*']
+  pull_request:
   workflow_dispatch:
 
 # **書き込みは Release を作る job だけが持つ。**
@@ -30,7 +47,8 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  # **tag の実行は止めない。** PR の空撃ちだけ、後続の push で古いものを畳む。
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package:
@@ -272,6 +290,10 @@ jobs:
     name: Assemble the release assets
     runs-on: ubuntu-24.04
     needs: package
+    # **needs: だけでは止まらない。** package が落ちるとこの job は skip され、
+    # GitHub は skip を必須チェックの合格として通す。材料が無いまま走らせて
+    # 赤くする方が、静かに緑になるより良い（ci-unity の unity job と同じ形）。
+    if: ${{ !cancelled() }}
     timeout-minutes: 15
 
     steps:
