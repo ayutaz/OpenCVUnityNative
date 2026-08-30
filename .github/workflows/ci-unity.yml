@@ -187,12 +187,19 @@ jobs:
           - lane: EditMode
             testMode: EditMode
             imageFlavour: base
+            # **このレーンだけが gating を走らせる。** PluginGatingTests は
+            # UnityEditor に依存する Editor 専用のテストなので、Player の
+            # 中では走らない。走ったことを結果 XML で確かめる（下の
+            # 「Assert the results」）。
+            requireTest: PluginGatingTests
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
           # managedStrippingLevel.Standalone: 2）、ここで設定する必要はない。
           - lane: Standalone
             testMode: Standalone
+            # Editor 専用のテストは Player に入らないので、要求しない。
+            requireTest: ''
             # Linux の IL2CPP Player を作るので、その道具が入ったイメージが要る。
             # base では IL2CPP のビルドができない。
             imageFlavour: linux-il2cpp
@@ -371,7 +378,16 @@ jobs:
               Write-Error 'no test result XML was produced under artifacts/unity-${{ matrix.lane }}'
               exit 1
           }
-          ./tools/assert-unity-results.ps1 -ResultsPath $xml.FullName -Lane '${{ matrix.lane }}'
+          $params = @{
+              ResultsPath = $xml.FullName
+              Lane        = '${{ matrix.lane }}'
+          }
+          # **空文字を渡さない。** 部分一致なので、空だと何にでも一致して
+          # 「要求したことになっているが何も要求していない」状態になる。
+          if ('${{ matrix.requireTest }}') {
+              $params.RequireTest = '${{ matrix.requireTest }}'
+          }
+          ./tools/assert-unity-results.ps1 @params
 
       - name: Upload test results
         if: always()

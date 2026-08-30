@@ -784,6 +784,23 @@ if ($markerName) {
         Assert-That ($markerSteps.Count -eq 1) `
             "$($job.Workflow) job '$($job.Name)' writes '$markerName' so the tests demand three platforms (saw $($markerSteps.Count))"
 
+        # **「合図を書いた」は「テストが走った」ではない。**
+        #
+        # 合図を置いても、PluginGatingTests が assembly から外れれば誰も
+        # 読まない。そのとき CI は `==> [EditMode] 10 passed` で緑になる ——
+        # failed は 0 で passed は 1 以上だからである。**このブランチの主張
+        # （CI が 3 要素の集合に gating を当てる）が丸ごと消えても、誰も
+        # 赤くならない。** 走ったことを結果 XML で確かめさせる。
+        $requireSteps = @()
+        foreach ($step in $job.Steps) {
+            $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+            if (@($cmds | Where-Object { $_ -match 'RequireTest' }).Count -gt 0) {
+                $requireSteps += , $cmds
+            }
+        }
+        Assert-That ($requireSteps.Count -eq 1) `
+            "$($job.Workflow) job '$($job.Name)' passes RequireTest to assert-unity-results.ps1 in exactly one step (saw $($requireSteps.Count))"
+
         # **依存が落ちたときに skip で済ませない。**
         #
         # GitHub は required status check を "successful, skipped, or neutral"
@@ -793,17 +810,72 @@ if ($markerName) {
         # を置くと、依存が落ちても走って赤くなる。
         $needsLines = @($job.Commands | Where-Object { $_ -match '^    needs:' })
         if ($needsLines.Count -gt 0) {
-            $guard = @($job.Commands | Where-Object { $_ -match '^    if:.*cancelled\(\)' })
+            <#
+                **`cancelled()` の語が在るかを見ると逆効果になる。**
+
+                レビューで 3 通り実測された。ゆるい述語（行のどこかに
+                `cancelled()`）は次の 2 つを通してしまう:
+
+                  if: ${{ cancelled() }}                              ← `!` の脱落
+                  if: ${{ github.event_name == 'push' && !cancelled() }}
+
+                前者は「キャンセルされたときだけ走る」= 事実上ゼロ、後者は
+                「PR では走らない」。**どちらも必須チェック 2 本を毎回 skip に
+                する** —— 素の `needs:` より悪い（あちらは依存が落ちたときだけ
+                skip、こちらは無条件）。番人を足したつもりで穴を恒久化する。
+
+                同じファイルの `if: always()` の検査が既にこれを解いている
+                （複合条件を通さない）。同じ厳しさをここにも当てる。
+
+                **`always()` を受理しないのは意図である。** この workflow は
+                `cancel-in-progress: true` を宣言しているので、`always()` に
+                すると追い越された古い run が Unity のビルドを最後まで走らせ、
+                その宣言の目的を打ち消す。
+            #>
+            $guard = @($job.Commands | Where-Object {
+                $_ -match '^    if:\s*(\$\{\{\s*)?!\s*cancelled\(\)\s*(\}\})?\s*$'
+            })
             Assert-That ($guard.Count -gt 0) `
-                "$($job.Workflow) job '$($job.Name)' has needs: and guards against skipping with an if: on cancelled() (skip は required check を通してしまう)"
+                "$($job.Workflow) job '$($job.Name)' has needs: and guards against skipping with exactly if: !cancelled() (ゆるい条件は必須チェックを常時 skip にしうる)"
         }
     }
 
     # ローカルのレーンも同じ合図を書く。**名前が分かれると、片方だけが
     # 全部入りを検査していることになる。**
-    $devText = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
-    Assert-That ($devText -match [regex]::Escape($markerName)) `
-        "tools/dev.ps1 writes the same marker ('$markerName') as the tests read"
+    #
+    # **全文の -match では、コメント 1 行で満たせる。** レビューで実測された:
+    # 書く処理を消して `# ocvu-expect-all-platforms を書くのは無効化している`
+    # と置くだけで緑になり、tarball レーンは 3 platform を固めておきながら
+    # 何も証明しなくなる。**このファイルが 2 箇所で自分の失敗として記録して
+    # いる形そのもの**なので、workflow 側と同じ機構（コメントを落として行を
+    # 数える）に載せる。
+    $devLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') |
+                  Where-Object { $_ -notmatch '^\s*#' })
+    $devWrites = @($devLines | Where-Object {
+        $_ -match 'Set-Content' -and $_ -match [regex]::Escape($markerName)
+    })
+    Assert-That ($devWrites.Count -eq 1) `
+        "tools/dev.ps1 writes the marker ('$markerName') in exactly one statement (saw $($devWrites.Count))"
+
+    # **4 箇所目は .gitignore である。** ここだけ突き合わせないと、名前を
+    # 変えたときに古い綴りが残り、合図ファイルが追跡対象に現れる。誰かが
+    # commit すると、**1 platform しか無いローカルのレーンが全部 3 つを
+    # 要求して落ちる**（.gitignore のコメント自身がその危険を書いている）。
+    $ignoreText = Get-Content -LiteralPath (Join-Path $repoRoot '.gitignore') -Raw
+    Assert-That ($ignoreText -match [regex]::Escape($markerName)) `
+        ".gitignore ignores the marker ('$markerName')"
+
+    # 要求する名前が実際に宣言されていること。**空文字だけになると、
+    # assert-unity-results.ps1 の照合は部分一致なので何にでも当たり、
+    # 「要求したことになっているが何も要求していない」状態になる。**
+    $unityWorkflow = @(Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-unity.yml'))
+    $declaredRequires = @($unityWorkflow | Where-Object {
+        $_ -match '^\s*requireTest:\s*\S' -and $_ -notmatch "requireTest:\s*''"
+    })
+    Assert-That ($declaredRequires.Count -eq 1) `
+        "ci-unity.yml declares exactly one non-empty requireTest lane (saw $($declaredRequires.Count))"
+    Assert-That (@($declaredRequires | Where-Object { $_ -match 'PluginGatingTests' }).Count -eq 1) `
+        "ci-unity.yml requires the plugin gating tests to have run (saw: $($declaredRequires -join ', '))"
 }
 
 

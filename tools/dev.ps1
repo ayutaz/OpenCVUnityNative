@@ -385,7 +385,8 @@ function Test-UnityEditMode {
     #>
     Invoke-Checked {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
-            -ResultsPath $results -Lane 'editmode' -LogPath $log
+            -ResultsPath $results -Lane 'editmode' -LogPath $log `
+            -RequireTest 'PluginGatingTests'
     } 'assert the editmode results'
 }
 
