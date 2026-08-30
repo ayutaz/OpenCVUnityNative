@@ -237,8 +237,33 @@ foreach ($p in @('windows-x64', 'macos-arm64', 'linux-x64')) {
 # cmake --build --preset が失敗する。
 $buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
 $testNames = @($presets.testPresets | ForEach-Object { $_.name })
+
+<#
+    **クロスビルドの preset には test preset を作らない。**
+
+    Android / iOS 向けにビルドした GoogleTest は host で実行できないので、
+    test preset を置いても走らせようがない。**「あるのに誰も走らせていない」
+    レーンを作らない**（M1 のレビュー H2 と同じ形）。
+
+    代わりに L1 の役目を負うのは実機の smoke test である
+    （docs/m4-device-verification.md）。**これは弱い代替であり、そう書いてある。**
+
+    ここに名前を直書きするのではなく、preset が toolchainFile を持つかで
+    判別する —— クロスビルドであることの唯一の印がそれだからである。
+#>
+$crossPresets = @($presets.configurePresets |
+                  Where-Object { $_.PSObject.Properties.Name -contains 'toolchainFile' } |
+                  ForEach-Object { $_.name })
+Assert-That ($crossPresets.Count -gt 0) `
+    'at least one configure preset is a cross build (0 件なら下の除外は空振りしている)'
+
 foreach ($n in $configureNames) {
     Assert-That ($n -in $buildNames) "there is a build preset for '$n'"
+    if ($n -in $crossPresets) {
+        Assert-That (-not ($n -in $testNames)) `
+            "'$n' is a cross build and has no test preset (host で実行できないものを走らせるふりをしない)"
+        continue
+    }
     Assert-That ($n -in $testNames) "there is a test preset for '$n'"
 }
 
@@ -1514,10 +1539,19 @@ function New-TestElf {
 }
 
 $pageScript = Join-Path $repoRoot 'tools/verify-android-page-size.ps1'
+<#
+    **一時ファイル名を実行ごとに一意にする。**
+
+    固定名にしていたら、2 つの実行が同じパスを共有して潰し合った（実測:
+    片方が消した直後にもう片方が読みに行き、無関係な assertion が落ちた）。
+    `dev.ps1 test` は tools のテストを他と並べて走らせるので、これは
+    起こりうる。**「たまたま赤い」は「コードが理由で赤い」と区別できない。**
+#>
 $tmpDir = [IO.Path]::GetTempPath()
-$elfOk   = Join-Path $tmpDir 'ocvu-align-ok.so'
-$elfBad  = Join-Path $tmpDir 'ocvu-align-bad.so'
-$elfNone = Join-Path $tmpDir 'ocvu-align-none.so'
+$runId = [guid]::NewGuid().ToString('n').Substring(0, 8)
+$elfOk   = Join-Path $tmpDir "ocvu-align-ok-$runId.so"
+$elfBad  = Join-Path $tmpDir "ocvu-align-bad-$runId.so"
+$elfNone = Join-Path $tmpDir "ocvu-align-none-$runId.so"
 
 New-TestElf -Path $elfOk  -PAlign 16384
 New-TestElf -Path $elfBad -PAlign 4096
@@ -1557,6 +1591,53 @@ Assert-That ($noneOut -match 'PT_LOAD') `
 Assert-That ($LASTEXITCODE -ne 0) 'a missing plugin FAILS the page size check'
 
 Remove-Item $elfOk, $elfBad, $elfNone -Force -ErrorAction SilentlyContinue
+
+
+
+# --- CMakePresets とクロスビルドの前提（M4 Task 3 / 5）---
+$presets = Get-Content -LiteralPath (Join-Path $repoRoot 'CMakePresets.json') -Raw | ConvertFrom-Json
+$configureNames = @($presets.configurePresets | ForEach-Object { $_.name })
+$buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
+
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+    Assert-That ($configureNames -contains $p) "CMakePresets.json has a configure preset named $p"
+    Assert-That ($buildNames -contains $p) "CMakePresets.json has a build preset named $p"
+}
+
+# **モバイルに ASan の preset を作らない。** クロス環境では走らせないので、
+# 「あるのに誰も走らせていない」状態を作らない。
+foreach ($p in @('android-arm64-asan', 'ios-arm64-asan')) {
+    Assert-That (-not ($configureNames -contains $p)) "there is no $p preset (クロス環境で ASan は走らせない)"
+}
+
+# **モバイルの preset は toolchain file を指す。** 指さないと host 向けに
+# ビルドされ、**成功したように見えて中身が別物になる。**
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+    $preset = $presets.configurePresets | Where-Object { $_.name -eq $p }
+    Assert-That ($preset.PSObject.Properties.Name -contains 'toolchainFile') `
+        "$p sets a toolchainFile (指さないと host 向けにビルドされる)"
+    $tc = $preset.toolchainFile -replace '\$\{sourceDir\}', $repoRoot
+    Assert-That (Test-Path -LiteralPath $tc) "$p の toolchain file が実在する ($tc)"
+}
+
+<#
+    **iOS だけ静的ライブラリを作る。**
+
+    iOS はアプリの外から .dylib を読み込めない。**SHARED のままでもビルドは
+    成功する**ので、Unity に入れて初めて壊れる —— v0.1.0 が踏んだ
+    「ビルドできた ≠ 動く」と同じ形である。分岐が消えていないことを見る。
+#>
+$nativeCMakeLines = @(Get-Content -LiteralPath (Join-Path $repoRoot 'native/CMakeLists.txt') |
+                      Where-Object { $_ -notmatch '^\s*#' })
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'CMAKE_SYSTEM_NAME\s+STREQUAL\s+"iOS"'
+}).Count -eq 1) 'native/CMakeLists.txt branches on iOS in exactly one place'
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'OCVU_LIBRARY_KIND\s+STATIC'
+}).Count -eq 1) 'native/CMakeLists.txt builds a STATIC library for iOS (共有ライブラリは iOS で読み込めない)'
+Assert-That (@($nativeCMakeLines | Where-Object {
+    $_ -match 'add_library\(opencv_unity_native\s+SHARED'
+}).Count -eq 0) 'the shipped library kind is not hardcoded to SHARED any more'
 
 
 

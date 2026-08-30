@@ -18,7 +18,19 @@ set(OCVU_SOURCES
     src/ocvu_imgcodecs.cpp
 )
 
-add_library(opencv_unity_native SHARED ${OCVU_SOURCES})
+# **iOS だけ静的ライブラリにする。**
+#
+# iOS はアプリの外から .dylib を読み込めない。Unity は .a を受け取って
+# IL2CPP のバイナリへ静的リンクし、P/Invoke は DllImport("__Internal") で
+# 解決する。**SHARED のままでもビルドは成功する**ので、Unity に入れて
+# 初めて壊れる —— v0.1.0 の「ビルドできた ≠ 動く」と同じ形である。
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  set(OCVU_LIBRARY_KIND STATIC)
+else()
+  set(OCVU_LIBRARY_KIND SHARED)
+endif()
+
+add_library(opencv_unity_native ${OCVU_LIBRARY_KIND} ${OCVU_SOURCES})
 target_include_directories(opencv_unity_native
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )

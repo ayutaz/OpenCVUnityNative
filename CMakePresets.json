@@ -1,6 +1,10 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "windows-x64-debug",
@@ -8,14 +12,18 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/windows-x64-debug",
-      "cacheVariables": { "OCVU_BUILD_TESTS": "ON" }
+      "cacheVariables": {
+        "OCVU_BUILD_TESTS": "ON"
+      }
     },
     {
       "name": "windows-x64-asan",
       "inherits": "windows-x64-debug",
       "displayName": "Windows x64 ASan (MSVC)",
       "binaryDir": "${sourceDir}/build/windows-x64-asan",
-      "cacheVariables": { "OCVU_ENABLE_ASAN": "ON" }
+      "cacheVariables": {
+        "OCVU_ENABLE_ASAN": "ON"
+      }
     },
     {
       "name": "macos-arm64-debug",
@@ -33,7 +41,9 @@
       "inherits": "macos-arm64-debug",
       "displayName": "macOS arm64 ASan (Clang)",
       "binaryDir": "${sourceDir}/build/macos-arm64-asan",
-      "cacheVariables": { "OCVU_ENABLE_ASAN": "ON" }
+      "cacheVariables": {
+        "OCVU_ENABLE_ASAN": "ON"
+      }
     },
     {
       "name": "linux-x64-debug",
@@ -50,49 +60,113 @@
       "inherits": "linux-x64-debug",
       "displayName": "Linux x64 ASan+LSan (GCC)",
       "binaryDir": "${sourceDir}/build/linux-x64-asan",
-      "cacheVariables": { "OCVU_ENABLE_ASAN": "ON" }
+      "cacheVariables": {
+        "OCVU_ENABLE_ASAN": "ON"
+      }
+    },
+    {
+      "name": "android-arm64-debug",
+      "displayName": "Android arm64-v8a (NDK)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/android-arm64-debug",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/android-arm64.cmake",
+      "cacheVariables": {
+        "OCVU_BUILD_TESTS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "ios-arm64-debug",
+      "displayName": "iOS arm64 (device)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/ios-arm64-debug",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/ios-arm64.cmake",
+      "cacheVariables": {
+        "OCVU_BUILD_TESTS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "windows-x64-debug", "configurePreset": "windows-x64-debug", "configuration": "Debug" },
-    { "name": "windows-x64-asan", "configurePreset": "windows-x64-asan", "configuration": "Debug" },
-    { "name": "macos-arm64-debug", "configurePreset": "macos-arm64-debug" },
-    { "name": "macos-arm64-asan", "configurePreset": "macos-arm64-asan" },
-    { "name": "linux-x64-debug", "configurePreset": "linux-x64-debug" },
-    { "name": "linux-x64-asan", "configurePreset": "linux-x64-asan" }
+    {
+      "name": "windows-x64-debug",
+      "configurePreset": "windows-x64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-x64-asan",
+      "configurePreset": "windows-x64-asan",
+      "configuration": "Debug"
+    },
+    {
+      "name": "macos-arm64-debug",
+      "configurePreset": "macos-arm64-debug"
+    },
+    {
+      "name": "macos-arm64-asan",
+      "configurePreset": "macos-arm64-asan"
+    },
+    {
+      "name": "linux-x64-debug",
+      "configurePreset": "linux-x64-debug"
+    },
+    {
+      "name": "linux-x64-asan",
+      "configurePreset": "linux-x64-asan"
+    },
+    {
+      "name": "android-arm64-debug",
+      "configurePreset": "android-arm64-debug"
+    },
+    {
+      "name": "ios-arm64-debug",
+      "configurePreset": "ios-arm64-debug"
+    }
   ],
   "testPresets": [
     {
       "name": "windows-x64-debug",
       "configurePreset": "windows-x64-debug",
       "configuration": "Debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "windows-x64-asan",
       "configurePreset": "windows-x64-asan",
       "configuration": "Debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "macos-arm64-debug",
       "configurePreset": "macos-arm64-debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "macos-arm64-asan",
       "configurePreset": "macos-arm64-asan",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "linux-x64-debug",
       "configurePreset": "linux-x64-debug",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "linux-x64-asan",
       "configurePreset": "linux-x64-asan",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ]
 }
