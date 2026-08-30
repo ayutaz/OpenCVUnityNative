@@ -1473,6 +1473,72 @@ foreach ($p in $AllTargetPlatforms) {
 
 
 
+# --- 16 KB page size の検査が、両方向に動く（M4 Task 4）---
+#
+# **実物の .so だけで試さない。** 実物は通る側にしかならないので、
+# 「検査が効いている」と「検査が空振りしている」が区別できない。
+# 最小の ELF を合成して、通る側と落ちる側の両方を見る。
+function New-TestElf {
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][long] $PAlign,
+        [int] $PhNum = 1
+    )
+
+    # ELF64 little-endian、program header が PT_LOAD $PhNum 個だけの最小構成。
+    $phoff = 0x40
+    $phentsize = 0x38
+    $size = $phoff + $phentsize * [Math]::Max($PhNum, 1)
+    $bytes = New-Object byte[] $size
+
+    $bytes[0] = 0x7F; $bytes[1] = 0x45; $bytes[2] = 0x4C; $bytes[3] = 0x46  # \x7fELF
+    $bytes[4] = 2      # EI_CLASS = ELFCLASS64
+    $bytes[5] = 1      # EI_DATA  = little endian
+    $bytes[6] = 1      # EI_VERSION
+    [BitConverter]::GetBytes([uint16]3).CopyTo($bytes, 0x10)      # e_type = ET_DYN
+    [BitConverter]::GetBytes([uint16]0xB7).CopyTo($bytes, 0x12)   # e_machine = AArch64
+    [BitConverter]::GetBytes([uint64]$phoff).CopyTo($bytes, 0x20) # e_phoff
+    [BitConverter]::GetBytes([uint16]$phentsize).CopyTo($bytes, 0x36)
+    [BitConverter]::GetBytes([uint16]$PhNum).CopyTo($bytes, 0x38)
+
+    for ($i = 0; $i -lt $PhNum; $i++) {
+        $off = $phoff + $i * $phentsize
+        [BitConverter]::GetBytes([uint32]1).CopyTo($bytes, $off)            # p_type = PT_LOAD
+        [BitConverter]::GetBytes([uint64]$PAlign).CopyTo($bytes, $off + 0x30) # p_align
+    }
+
+    [IO.File]::WriteAllBytes($Path, $bytes)
+}
+
+$pageScript = Join-Path $repoRoot 'tools/verify-android-page-size.ps1'
+$tmpDir = [IO.Path]::GetTempPath()
+$elfOk   = Join-Path $tmpDir 'ocvu-align-ok.so'
+$elfBad  = Join-Path $tmpDir 'ocvu-align-bad.so'
+$elfNone = Join-Path $tmpDir 'ocvu-align-none.so'
+
+New-TestElf -Path $elfOk  -PAlign 16384
+New-TestElf -Path $elfBad -PAlign 4096
+New-TestElf -Path $elfNone -PAlign 16384 -PhNum 0
+
+& pwsh -NoProfile -File $pageScript -PluginPath $elfOk *> $null
+Assert-That ($LASTEXITCODE -eq 0) 'a 16384-aligned ELF passes the page size check'
+
+& pwsh -NoProfile -File $pageScript -PluginPath $elfBad *> $null
+Assert-That ($LASTEXITCODE -ne 0) 'a 4096-aligned ELF FAILS the page size check (落ちないなら検査は無意味)'
+
+# **0 件で緑にしない。** PT_LOAD を 1 つも読めていない状態を「違反なし」と
+# 読むと、検査が丸ごと空振りしたまま成功として出力される。
+& pwsh -NoProfile -File $pageScript -PluginPath $elfNone *> $null
+Assert-That ($LASTEXITCODE -ne 0) 'an ELF with zero PT_LOAD segments FAILS (0 件は「違反なし」ではない)'
+
+# 存在しないファイルも失敗させる。**「検査対象が無いので合格」にしない。**
+& pwsh -NoProfile -File $pageScript -PluginPath (Join-Path $tmpDir 'ocvu-does-not-exist.so') *> $null
+Assert-That ($LASTEXITCODE -ne 0) 'a missing plugin FAILS the page size check'
+
+Remove-Item $elfOk, $elfBad, $elfNone -Force -ErrorAction SilentlyContinue
+
+
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
