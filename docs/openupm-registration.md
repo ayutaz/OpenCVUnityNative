@@ -1,7 +1,9 @@
 # OpenUPM への登録
 
-- 状態: **準備済み。まだ提出していない。**
-- 提出できる条件: **新しい名前の asset が付いた公開済みリリースが 1 つあること**（下記）
+- 状態: **提出済み。2026-08-30 に受理された**（openupm/openupm PR #6843。`Data validation` が
+  通り自動マージ）。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が `0.2.0` を配信している
+- **この文書は記録として残す。** 次に定義を変えるとき（platform を足す、`minVersion` を上げる）に
+  同じ検査を繰り返せるようにするためである
 
 ## なぜ登録するか
 
