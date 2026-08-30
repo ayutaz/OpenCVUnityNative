@@ -1112,7 +1112,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
 | 1 | Android arm64-v8a と iOS arm64 の native artifact を CI が生成する | **満たす**（2026-08-31）。`build-opencv.yml` が 5 platform 分の OpenCV を作り、`ci-native.yml` の `mobile` job が両方の plugin をクロスビルドして CI で緑になった（run 33319185326）。iOS の `.a` は 424 member・16,782,128 バイト |
-| 2 | Android の 16 KB page size を CI で検証する | **満たす**（2026-08-31）。合成 ELF の 4 通りに加え、**実物の `.so` に当たった** —— CI が `==> libopencv_unity_native.so: PT_LOAD 3 件、最小 p_align = 16384（>= 16384）` を出した（run 33319185326） |
+| 2 | Android の 16 KB page size を CI で検証する | **満たす**（2026-08-31）。合成 ELF の 4 通りに加え、**実物の `.so` で両方向を実測した** —— 対応時は `==> libopencv_unity_native.so: PT_LOAD 3 件、最小 p_align = 16384`（run 33319185326）、**linker flag の書き方を変えて効かなくしたときは `PT_LOAD[1] p_align = 4096（16384 以上が要る）` で赤くなった**（run 33323002468）。後者は事故だったが、**「16 KB 整列は NDK の既定ではなくこの flag が作っている」ことと「検査が実物で落ちる」ことを同時に証明した** |
 | 3 | iOS の `__Internal` static link と stripping 後の P/Invoke を**実機で**確認 | **閉じていない**。`native/CMakeLists.txt` が iOS で `STATIC` を作る分岐は入れたが、**実機が要る**（署名と端末）。手順は [実機検証](./m4-device-verification.md) §1 |
 | 4 | lifecycle / memory pressure | **閉じていない**。同上、§2 |
 | 5 | `WebCamTexture` から `CvMat` を作れる | **満たす**。`WebCamTextureConverter`（3 overload）。EditMode 9 件が通り、**上下反転をやめると `RowOrderIsFlippedSoTheMatOriginIsTopLeft` だけが落ちる**ことを実測した。Player でも 1 件通している（M4 のレビューで、この API が Editor しか通っていないと分かったため） |
