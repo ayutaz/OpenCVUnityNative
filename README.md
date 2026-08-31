@@ -257,21 +257,26 @@ expired — things that break while nobody is pushing. **The nightly workflow ha
 yet run on its schedule**; it has only been started by hand, once unsuccessfully
 (API rate limits) and once green.
 
-**Almost every lane that runs on a pull request blocks a merge.** Thirteen checks are
+**Almost every lane that runs on a pull request blocks a merge.** Twenty-one checks are
 required: the contract, P/Invoke and sanitizer jobs across the three desktop platforms, the
-four lint jobs, both CodeQL analyses, and both Unity lanes. Six are deliberately not
-required. Four build the per-platform plugins the Unity lanes consume: when one fails the
-Unity lanes run anyway and go red on the missing input, which is what stops the merge. A
-skipped required check counts as passing, so depending on one without that guard would let
-a broken build through. The other two cross-compile for Android and iOS; they are not
-required **yet**, because a lane is only made required once it has been reliably green —
-twice before, promoting a lane too early left a gap where a red check could not stop a
-merge. Until 2026-08-29 the
+Android and iOS cross-builds, the four lint jobs, both CodeQL analyses, both Unity lanes,
+and the six release jobs that build and assemble the distributable for all five platforms.
+Five are deliberately not required. Four build the per-platform plugins the Unity lanes
+consume: when one fails the Unity lanes run anyway and go red on the missing input, which
+is what stops the merge. A skipped required check counts as passing, so depending on one
+without that guard would let a broken build through. A lane is only made required once it
+has been reliably green — twice before, promoting a lane too early left a gap where a red
+check could not stop a merge. Until 2026-08-29 the
 Unity, lint and CodeQL workflows ran on every pull request without being required,
 so they could be red and the change still merged; CI watching something and CI
 stopping something are different things, and only the second one is a gate. The
-remaining workflows (`build-opencv`, `nightly`, `release`) are not triggered by pull
-requests at all, so they cannot be required.
+remaining two workflows (`build-opencv`, `nightly`) are not triggered by pull
+requests at all, so they cannot be required. `release` was in that list until
+2026-08-31; it now runs on pull requests too, because three defects had accumulated in the
+distribution path while it only ran on tags — one of which meant that tagging a release
+would have produced no release at all. Its `Publish the release` job stays out of the
+required set: it is skipped on pull requests by design, and a skipped check counts as
+passing, so requiring it would stop nothing.
 
 ## Contributing and security
 
