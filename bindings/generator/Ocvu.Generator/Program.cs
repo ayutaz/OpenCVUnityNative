@@ -40,19 +40,19 @@ outputs.Add((Path.Combine(repoRoot, ReachabilityEmitter.OutputPath),
 outputs.Add((Path.Combine(repoRoot, "docs", "api-map.md"),
              ApiMapEmitter.Emit(specs)));
 
-if (listOutputs)
-{
-    // 区切りは '/' に固定する。検査する側が platform で別の文字列を見ないため。
-    foreach (var (path, _) in outputs)
-    {
-        Console.WriteLine(Path.GetRelativePath(repoRoot, path).Replace('\\', '/'));
-    }
-    return 0;
-}
-
 var stale = new List<string>();
 foreach (var (path, text) in outputs)
 {
+    // **申告するのは、書き込むのと同じ 1 つの繰り返しである。** 早い return で
+    // 別に列挙すると、その下に足した outputs だけが「生成されるのに申告されない」
+    // 状態になる（実測で踏んだ）。同じ loop に置けば、その形は表現できない。
+    if (listOutputs)
+    {
+        // 区切りは '/' に固定する。検査する側が platform で別の文字列を見ないため。
+        Console.WriteLine(Path.GetRelativePath(repoRoot, path).Replace('\\', '/'));
+        continue;
+    }
+
     var existing = File.Exists(path) ? File.ReadAllText(path) : null;
     // 改行を正規化して比べる。CRLF / LF の差で赤くしない。
     var same = existing is not null
@@ -66,6 +66,8 @@ foreach (var (path, text) in outputs)
         File.WriteAllText(path, text);
     }
 }
+
+if (listOutputs) { return 0; }
 
 if (check && stale.Count > 0)
 {
