@@ -1231,10 +1231,10 @@ OpenCV 全 API の網羅。
 `docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8）。
 
 実測はすべてこのマシン（Windows、2026-08-31〜09-01）。`pwsh tools/dev.ps1 test` は
-**exit 0 / 64.6 秒**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
-`BindingGenerator` の 10 assertion）+ `verify-generated`（**生成物は spec と
+**exit 0 / 73.4 秒**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
+`BindingGenerator` の 16 assertion）+ `verify-generated`（**生成物は spec と
 一致しています（10 ファイル）**）+ L1（GoogleTest **64** / CTest **4**）+
-L3（`CvUnity.Tests.Managed` **44** / `Ocvu.Generator.Tests` **74**）である。
+L3（`CvUnity.Tests.Managed` **44** / `Ocvu.Generator.Tests` **88**）である。
 Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **19**）。
 
 | # | 完了条件 | 判定 |
