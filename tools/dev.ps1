@@ -122,7 +122,7 @@ function Write-DevFailure([string]$Message) {
 
 # 結果ディレクトリを空にしてから作り直す。
 # New-Item -Force は既存の中身を消さないので、L1 が落ちて L3 が走らなかった
-# ときに前回の緑の managed.xml がそのまま残り、最新の結果に見えてしまう。
+# ときに前回の緑の managed-*.xml がそのまま残り、最新の結果に見えてしまう。
 function Reset-Results {
     if (Test-Path $ResultsDir) {
         Remove-Item -Recurse -Force $ResultsDir
@@ -338,10 +338,18 @@ function Test-Managed {
         # Category!=Probe: HarnessProbeTests は意図的に落ちる／固まるための
         # プローブで、通常の実行に含めると常に赤くなる。実行は
         # test-managed-probe (tools/run-managed-probe.ps1) が名指しで行う。
+        #
+        # LogFilePath の {assembly} トークン: CvUnity.Managed.sln は M5 から
+        # テストプロジェクトを 2 つ以上持つ（CvUnity.Tests.Managed、
+        # Ocvu.Generator.Tests、…）。固定ファイル名だと dotnet test が
+        # プロジェクトごとに順に書き出す結果を後勝ちで上書きし、先に走った
+        # プロジェクトの失敗が artifact から読めなくなる（実測）。
+        # {assembly} で assembly ごとに分けることで、どちらが落ちても
+        # 個別の XML として残る。
         dotnet test (Join-Path $RepoRoot 'tests/Managed/CvUnity.Managed.sln') `
             --filter "Category!=Probe" `
             --blame-hang --blame-hang-timeout 60s `
-            --logger "junit;LogFilePath=$(Join-Path $ResultsDir 'managed.xml')" `
+            --logger "junit;LogFilePath=$(Join-Path $ResultsDir 'managed-{assembly}.xml')" `
             --logger 'console;verbosity=normal'
     } 'run managed tests (L3)'
 }
@@ -911,7 +919,7 @@ if ($PSBoundParameters.ContainsKey('Platform') -and $Command -ne 'build') {
 }
 
 # 'test' は fail-fast である。Invoke-Checked が最初の失敗で throw するため、
-# L1 が落ちた時点で L3 は実行されず、managed.xml は生成されない。
+# L1 が落ちた時点で L3 は実行されず、managed-*.xml は生成されない。
 # 「L1 赤 = L3 の結果なし」が正しい状態であり、前回の結果が残って最新に
 # 見えないよう、結果を書くコマンドは開始時に Reset-Results で空にする。
 switch ($Command) {
