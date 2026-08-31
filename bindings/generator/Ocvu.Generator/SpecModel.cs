@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Ocvu.Generator;
 
@@ -39,6 +40,12 @@ public static class SpecModel
 
     public static IReadOnlyList<ModuleSpec> Load(string specDir)
     {
+        // **schema.json を実際に読む。** C# レコードの必須引数と
+        // UnmappedMemberHandling.Disallow はフィールド名の綴りと必須性しか
+        // カバーしない。enum / pattern を強制するのはここから先の役目で、
+        // その enum / pattern 自体は schema.json から読み取る（手で複製しない）。
+        var schemaConstraints = SchemaConstraints.ReadFrom(Path.Combine(specDir, "schema.json"));
+
         var files = Directory.GetFiles(specDir, "*.json")
             .Where(f => Path.GetFileName(f) != "schema.json")
             .OrderBy(f => f, StringComparer.Ordinal)
@@ -65,8 +72,61 @@ public static class SpecModel
             {
                 throw new SpecFormatException($"{Path.GetFileName(file)} が null になりました");
             }
+            ValidateAgainstSchema(Path.GetFileName(file), spec, schemaConstraints);
             result.Add(spec);
         }
         return result;
+    }
+
+    private static void ValidateAgainstSchema(string fileName, ModuleSpec spec, SchemaConstraints c)
+    {
+        if (!Regex.IsMatch(spec.Module, c.ModulePattern))
+        {
+            throw new SpecFormatException(
+                $"{fileName}: module '{spec.Module}' が schema の pattern '{c.ModulePattern}' に一致しません");
+        }
+
+        foreach (var fn in spec.Functions)
+        {
+            if (!Regex.IsMatch(fn.Name, c.FunctionNamePattern))
+            {
+                throw new SpecFormatException(
+                    $"{fileName}: 関数名 '{fn.Name}' が schema の pattern '{c.FunctionNamePattern}' に一致しません");
+            }
+            if (!c.ReturnsEnum.Contains(fn.Returns))
+            {
+                throw new SpecFormatException(
+                    $"{fileName}: {fn.Name}.returns '{fn.Returns}' は schema の enum" +
+                    $"（{string.Join(", ", c.ReturnsEnum)}）のいずれでもありません");
+            }
+            if (!c.CsReturnsEnum.Contains(fn.CsReturns))
+            {
+                throw new SpecFormatException(
+                    $"{fileName}: {fn.Name}.csReturns '{fn.CsReturns}' は schema の enum" +
+                    $"（{string.Join(", ", c.CsReturnsEnum)}）のいずれでもありません");
+            }
+            if (fn.EntryPoint is not null && !Regex.IsMatch(fn.EntryPoint, c.EntryPointPattern))
+            {
+                throw new SpecFormatException(
+                    $"{fileName}: {fn.Name}.entryPoint '{fn.EntryPoint}' が schema の pattern " +
+                    $"'{c.EntryPointPattern}' に一致しません");
+            }
+
+            foreach (var p in fn.Params)
+            {
+                if (!Regex.IsMatch(p.Name, c.ParamNamePattern))
+                {
+                    throw new SpecFormatException(
+                        $"{fileName}: {fn.Name} の param 名 '{p.Name}' が schema の pattern " +
+                        $"'{c.ParamNamePattern}' に一致しません");
+                }
+                if (!c.DirectionEnum.Contains(p.Direction))
+                {
+                    throw new SpecFormatException(
+                        $"{fileName}: {fn.Name}.{p.Name}.direction '{p.Direction}' は schema の enum" +
+                        $"（{string.Join(", ", c.DirectionEnum)}）のいずれでもありません");
+                }
+            }
+        }
     }
 }
