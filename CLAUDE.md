@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **M3（Desktop 3 platform と配布の再現性）は、6 件の完了条件をすべて満たし、配布まで踏んだ。** 3 platform（Windows / macOS / Linux）で native plugin がビルドされ、L1 / L3 と `test-tools-slow` が CI で green になり、Linux の LeakSanitizer レーンがリークを検出し、成果物の linkage・有効言語・リンク済み依存が実物の archive から検証されている。UPM tarball は使い捨ての Unity プロジェクトに実際に導入して 10/10 pass を確認済み（**M3 時点の件数**。現在の件数はこのレーンの行にある）。
 
-**配った実績は 2 つある: v0.1.0（2026-08-28）と v0.1.1（2026-08-29、最新）。** どちらも tag から `release.yml` が 3 platform 分を作り、`--draft` で下書きにしてから人が公開している。v0.1.1 は上に書いた Linux の欠陥を直した版で、**中身を差し替えず新しい版として出した** — 一度配ったものを黙って差し替えると、同じ版名で違う物が世の中に 2 つ存在することになる。asset は 16 件（3 platform × 5 + `SHA256SUMS.txt`）。**これは v0.1.1 までの形で、M3.5 以降は 18 件になる**（内訳は下の `release.yml` の行）。**公開された物を落として実測した（2026-08-29、このマシン）**: Linux の tarball は `SHA256SUMS.txt` と一致し、中の `libopencv_unity_native.so` は `GLIBC<=2.34, GLIBCXX<=3.4.29`（上限 2.35 / 3.4.30）だった。
+**配った実績は 3 つある: v0.1.0（2026-08-28）、v0.1.1（2026-08-29）、v0.2.0（2026-08-30、最新の公開版）。加えて v0.3.0 の下書きが 2026-08-31 から止めてある**（理由は下記）。 どちらも tag から `release.yml` が 3 platform 分を作り、`--draft` で下書きにしてから人が公開している。v0.1.1 は上に書いた Linux の欠陥を直した版で、**中身を差し替えず新しい版として出した** — 一度配ったものを黙って差し替えると、同じ版名で違う物が世の中に 2 つ存在することになる。asset は 16 件（3 platform × 5 + `SHA256SUMS.txt`）。**これは v0.1.1 までの形で、M3.5 以降は 18 件になる**（内訳は下の `release.yml` の行）。**公開された物を落として実測した（2026-08-29、このマシン）**: Linux の tarball は `SHA256SUMS.txt` と一致し、中の `libopencv_unity_native.so` は `GLIBC<=2.34, GLIBCXX<=3.4.29`（上限 2.35 / 3.4.30）だった。
 
 **PR #8 を CI に通したことで、ローカルでは緑だった欠陥が 3 件出た。** これは記録に値する: M3 を「書いたコードを CI に通すだけ」と見なしていたら、そのまま配っていた。
 

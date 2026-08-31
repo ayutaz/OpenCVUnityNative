@@ -10,6 +10,15 @@ roadmap の M4 完了条件のうち、次の 2 件がこれに当たる。
 - iOS の `__Internal` static link と linker stripping 後も P/Invoke が解決すること
 - lifecycle（background / foreground）と memory pressure
 
+**この 2 件が、v0.3.0 の公開を止めている。**
+
+`v0.3.0` の tag は打ってあり、`release.yml` が 28 asset の下書きを作って
+検証も済んでいる（roadmap の「配布 その 4」）。**公開していないのは、この版の
+目玉である Android / iOS 対応が実機で一度も動いていないからである。**
+v0.1.0 で「ビルドは通ったが動かない物」を配った経緯があるので、同じ形を繰り返さない。
+
+**ここを実施して問題が無ければ、`gh release edit v0.3.0 --draft=false` で公開できる。**
+
 **CI が代わりに見ているのは「ビルドできること」までである。** v0.1.0 が踏んだ
 「ビルドできた ≠ 動く」の距離が、モバイルではさらに開く —— 実機でしか起きない
 失敗（署名、stripping、メモリ警告）が層として増えるからである。
