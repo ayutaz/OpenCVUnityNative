@@ -853,6 +853,46 @@ function Test-UnityTarball {
     どちらの起動も Test-UnityEditMode と同じ理由で `&` ではなく
     Start-Process -Wait -PassThru を使う。
 #>
+<#
+    **Unity が起動する PlayerWithTests.exe は Unity の孫であって子ではない。**
+    Start-Process -Wait が待つのは Unity 本体だけなので、**Unity が終わっても
+    Player は残る**。実測（2026-08-31、このマシン）: 250 MB の Player が
+    4 時間以上生きていたものが 2 件、レーンを途中で止めたものが 1 件。
+
+    置き去りは 2 つの経路で起きる。
+      (a) レーンが最後まで走った後も Player が終わらない
+      (b) レーンが timeout・キャンセル・ハードキルで途中で死ぬ
+
+    (a) は finally で、**(b) は次回の実行の頭で**片づける —— ハードキルされた
+    実行には後始末をする機会がそもそも無いので、**掃除は開始時にも要る**。
+
+    **対象はこのプロジェクトの Temp 配下から起動されたものだけに絞る。**
+    名前だけで拾うと、別のプロジェクトや利用者が手で起動した Player を
+    巻き添えにする。
+#>
+function Stop-UnityTestPlayers {
+    param([Parameter(Mandatory)][string]$ProjectPath)
+
+    if (-not $IsWindows) { return 0 }
+
+    $prefix = (Join-Path $ProjectPath 'Temp') + [System.IO.Path]::DirectorySeparatorChar
+    $killed = 0
+    $procs  = @(Get-CimInstance Win32_Process -Filter "Name='PlayerWithTests.exe'" -ErrorAction SilentlyContinue)
+    foreach ($p in $procs) {
+        if (-not $p.ExecutablePath) { continue }
+        if (-not $p.ExecutablePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        try {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop
+            $killed++
+        } catch {
+            Write-Host "Player (PID=$($p.ProcessId)) を終了できませんでした: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+    if ($killed -gt 0) {
+        Write-Host "置き去りの Player を $killed 件終了しました。" -ForegroundColor Yellow
+    }
+    return $killed
+}
 function Test-UnityPlayer {
     Build-Native
 
@@ -865,45 +905,55 @@ function Test-UnityPlayer {
     # 合図は木から導出する（置き去りがあってもなくても結果が変わらない）。
     Sync-AllPlatformsMarker -ProjectPath $project
 
+    # **開始時にも掃除する。** ハードキルされた前回の実行には
+    # 後始末をする機会がそもそも無く、置き去りはそこからしか消えない。
+    Stop-UnityTestPlayers -ProjectPath $project | Out-Null
 
-    # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
-    # M2 が確かめたい stripping の問題が再現しない。
-    $configureArgs = @(
-        '-projectPath', $project, '-batchmode', '-nographics', '-quit',
-        '-executeMethod', 'BuildPlayer.ConfigureIl2cpp', '-logFile', "$log.configure"
-    )
-    $configure = Start-Process -FilePath $unity -ArgumentList $configureArgs -Wait -PassThru -NoNewWindow
-    if ($configure.ExitCode -ne 0) {
-        Write-DevFailure "IL2CPP の設定に失敗しました。ログ: $log.configure"
+    try {
+
+
+        # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
+        # M2 が確かめたい stripping の問題が再現しない。
+        $configureArgs = @(
+            '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+            '-executeMethod', 'BuildPlayer.ConfigureIl2cpp', '-logFile', "$log.configure"
+        )
+        $configure = Start-Process -FilePath $unity -ArgumentList $configureArgs -Wait -PassThru -NoNewWindow
+        if ($configure.ExitCode -ne 0) {
+            Write-DevFailure "IL2CPP の設定に失敗しました。ログ: $log.configure"
+        }
+
+        $unityArgs = @(
+            '-projectPath', $project,
+            '-runTests', '-testPlatform', 'StandaloneWindows64',
+            '-testResults', $results, '-logFile', $log,
+            '-batchmode', '-nographics'
+        )
+        $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+        $exit = $proc.ExitCode
+
+        if ($exit -ne 0) {
+            Write-DevFailure "Unity Player が exit $exit で終了しました。`nログ: $log"
+        }
+
+        <#
+            合否の判定は tools/assert-unity-results.ps1 に出してある。
+
+            **CI では Unity を起動するのが game-ci の action で、この関数では
+            ない**（理由は .github/workflows/ci-unity.yml の冒頭にある）。
+            起動の仕方が分かれても、**判定だけは同じコードを通す** — ここが
+            分かれると、ローカルで赤くなるものが CI で緑になり得る。
+
+            「0 件で緑にしない」もその script が持っている。理由はそちらに書いた。
+        #>
+        Invoke-Checked {
+            & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
+                -ResultsPath $results -Lane 'player' -LogPath $log
+        } 'assert the player results'
+    } finally {
+        # Unity が終わっても Player は残るので、成功しても失敗しても片づける。
+        Stop-UnityTestPlayers -ProjectPath $project | Out-Null
     }
-
-    $unityArgs = @(
-        '-projectPath', $project,
-        '-runTests', '-testPlatform', 'StandaloneWindows64',
-        '-testResults', $results, '-logFile', $log,
-        '-batchmode', '-nographics'
-    )
-    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
-    $exit = $proc.ExitCode
-
-    if ($exit -ne 0) {
-        Write-DevFailure "Unity Player が exit $exit で終了しました。`nログ: $log"
-    }
-
-    <#
-        合否の判定は tools/assert-unity-results.ps1 に出してある。
-
-        **CI では Unity を起動するのが game-ci の action で、この関数では
-        ない**（理由は .github/workflows/ci-unity.yml の冒頭にある）。
-        起動の仕方が分かれても、**判定だけは同じコードを通す** — ここが
-        分かれると、ローカルで赤くなるものが CI で緑になり得る。
-
-        「0 件で緑にしない」もその script が持っている。理由はそちらに書いた。
-    #>
-    Invoke-Checked {
-        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
-            -ResultsPath $results -Lane 'player' -LogPath $log
-    } 'assert the player results'
 }
 
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
