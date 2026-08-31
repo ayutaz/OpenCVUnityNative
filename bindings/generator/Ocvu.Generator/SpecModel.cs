@@ -100,10 +100,32 @@ public static class SpecModel
     // **何が禁じられているかを、拒むときに全部言う。** pattern だけを見せられても
     // 「どの 1 文字が引っかかったのか」「なぜ禁じられているのか」は読み取れない。
     // 直すのは spec を書いた人なので、言い換えの手掛かりまで出す。
+    /// <summary>
+    /// pattern が値の<b>全体</b>を覆ったか。
+    /// </summary>
+    /// <remarks>
+    /// **<c>Regex.IsMatch</c> で済ませない。** .NET の <c>$</c> は「文字列の
+    /// 末尾」だけでなく「末尾の改行の直前」にも一致するので、
+    /// <c>^[^X]+$</c> の形は末尾に改行が 1 つ付いた値を**通してしまう**（実測）。
+    /// summary の末尾に改行が入ると Markdown の表の行がそこで割れる ——
+    /// C ヘッダはブロックコメントなので無事で、**ビルドは緑のまま**である。
+    ///
+    /// **覆った長さで見れば pattern の書き方に依存しない。** 末尾を厳密に
+    /// 縛る anchor へ書き換える手もあるが、それは schema.json 側の綴りに
+    /// 賭ける形になる。しかも JSON Schema（ECMA-262）の <c>$</c> は入力末尾に
+    /// しか一致しないので、いまの形は**自分が読んでいる正本より弱い**。
+    /// 読む側で閉じる。
+    /// </remarks>
+    private static bool CoversTheWholeValue(string value, string pattern)
+    {
+        var m = Regex.Match(value, pattern);
+        return m.Success && m.Length == value.Length;
+    }
+
     private static void RequireSafeText(
         string fileName, string fnName, string field, string value, string pattern)
     {
-        if (Regex.IsMatch(value, pattern)) { return; }
+        if (CoversTheWholeValue(value, pattern)) { return; }
 
         throw new SpecFormatException(
             $"{fileName}: {fnName}.{field} が schema の pattern '{pattern}' に一致しません。" +
@@ -118,7 +140,7 @@ public static class SpecModel
 
     private static void ValidateAgainstSchema(string fileName, ModuleSpec spec, SchemaConstraints c)
     {
-        if (!Regex.IsMatch(spec.Module, c.ModulePattern))
+        if (!CoversTheWholeValue(spec.Module, c.ModulePattern))
         {
             throw new SpecFormatException(
                 $"{fileName}: module '{spec.Module}' が schema の pattern '{c.ModulePattern}' に一致しません");
@@ -126,7 +148,7 @@ public static class SpecModel
 
         foreach (var fn in spec.Functions)
         {
-            if (!Regex.IsMatch(fn.Name, c.FunctionNamePattern))
+            if (!CoversTheWholeValue(fn.Name, c.FunctionNamePattern))
             {
                 throw new SpecFormatException(
                     $"{fileName}: 関数名 '{fn.Name}' が schema の pattern '{c.FunctionNamePattern}' に一致しません");
@@ -161,7 +183,7 @@ public static class SpecModel
                     $"{fileName}: {fn.Name}.csReturns '{fn.CsReturns}' は schema の enum" +
                     $"（{string.Join(", ", c.CsReturnsEnum)}）のいずれでもありません");
             }
-            if (fn.EntryPoint is not null && !Regex.IsMatch(fn.EntryPoint, c.EntryPointPattern))
+            if (fn.EntryPoint is not null && !CoversTheWholeValue(fn.EntryPoint, c.EntryPointPattern))
             {
                 throw new SpecFormatException(
                     $"{fileName}: {fn.Name}.entryPoint '{fn.EntryPoint}' が schema の pattern " +
@@ -179,7 +201,7 @@ public static class SpecModel
 
             foreach (var p in fn.Params)
             {
-                if (!Regex.IsMatch(p.Name, c.ParamNamePattern))
+                if (!CoversTheWholeValue(p.Name, c.ParamNamePattern))
                 {
                     throw new SpecFormatException(
                         $"{fileName}: {fn.Name} の param 名 '{p.Name}' が schema の pattern " +

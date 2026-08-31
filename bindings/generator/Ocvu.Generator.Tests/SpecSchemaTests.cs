@@ -356,6 +356,130 @@ public class SpecSchemaTests
         }
     }
 
+    // --- 末尾の改行（M5 Task 7、修正 3 回目）---
+
+    // **.NET の `$` は「文字列の末尾」だけでなく「末尾の `\n` の直前」にも
+    // 一致する。** つまり `^[^\r\n]+$` は `"abc\n"` を**通す**。
+    //
+    // これがいちばん静かな経路だった: summary の末尾に改行を 1 つ置くと
+    // `dev.ps1 generate` が**成功し**、docs/api-map.md の表の行がそこで割れる。
+    // **C ヘッダはブロックコメントなので無事なので、ビルドは緑のまま**である。
+    //
+    // JSON Schema（ECMA-262、m フラグ無し）の `$` は入力末尾にしか一致しない
+    // ので、**この検査は自分が読んでいる schema より弱かった。**
+    [Theory]
+    [InlineData(@"末尾に改行。\n", "summary の末尾 LF")]
+    [InlineData(@"\n先頭に改行。", "summary の先頭 LF")]
+    [InlineData(@"末尾に改行。\r\n", "summary の末尾 CRLF")]
+    [InlineData(@"間に\n改行。", "summary の途中の LF")]
+    public void SummaryWithANewlineAnywhereIsRejectedIncludingAtTheVeryEnd(
+        string summaryLiteral, string why)
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "bad.json"), $$"""
+                {
+                  "module": "trailing",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "{{summaryLiteral}}",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.True(ex.Message.Contains("summary") && ex.Message.Contains("pattern"),
+                        $"{why} を schema の pattern が拒んだのではない: {ex.Message}");
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // **barrierNote にも同じ穴が在った。**
+    [Fact]
+    public void BarrierNoteWithATrailingNewlineIsRejected()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "bad.json"), """
+                {
+                  "module": "trailingnote",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "1 行。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "barrierNote": "末尾に改行。\n",
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("barrierNote", ex.Message);
+            Assert.Contains("pattern", ex.Message);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // **同じ弱さは名前の pattern 全部に在った。** `^ocvu_[a-z0-9_]+$` も
+    // `"ocvu_test_fn\n"` を通していた —— 通れば C の宣言の途中で改行し、
+    // C# の `[DllImport]` の EntryPoint にも改行が入る。
+    // module / 関数名 / entryPoint / param 名の 4 つを 1 つずつ見る。
+    [Theory]
+    [InlineData("module")]
+    [InlineData("name")]
+    [InlineData("entryPoint")]
+    [InlineData("paramName")]
+    public void ATrailingNewlineIsRejectedInEveryNamePattern(string where)
+    {
+        var module = where == "module" ? @"trailing\n" : "trailingname";
+        var name = where == "name" ? @"ocvu_test_fn\n" : "ocvu_test_fn";
+        var entry = where == "entryPoint" ? @",""entryPoint"": ""ocvu_other\n""" : "";
+        var param = where == "paramName"
+            ? @"{ ""name"": ""x\n"", ""cType"": ""int32_t"", ""csType"": ""int"", ""direction"": ""in"" }"
+            : "";
+
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "bad.json"), $$"""
+                {
+                  "module": "{{module}}",
+                  "functions": [
+                    {
+                      "name": "{{name}}",
+                      "summary": "1 行。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false
+                      {{entry}},
+                      "params": [{{param}}]
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.True(ex.Message.Contains("pattern"),
+                        $"{where} の末尾改行を pattern が拒んだのではない: {ex.Message}");
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
     // 素直な summary は通ること（上の検査が summary を一律に拒んでいない確認）。
     [Fact]
     public void SummaryOnASingleLineIsAccepted()
