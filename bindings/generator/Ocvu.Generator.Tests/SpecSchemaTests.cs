@@ -193,15 +193,20 @@ public class SpecSchemaTests
             Assert.NotEqual(schemaText, broken); // 置換が空振りしていないことを確認する
             File.WriteAllText(Path.Combine(tmp, "schema.json"), broken);
 
-            // schema 検証以外の理由で落ちないよう、それ以外は正しい spec を置く。
-            File.WriteAllText(Path.Combine(tmp, "ok.json"), """
+            // returns に本来通らないはずの値を意図的に置く。schema.json の
+            // enum を読む段階で落ちるのが正しい挙動であり、ここに来る前に
+            // 落ちるはずなので、この値が「たまたま有効かどうか」で
+            // このテストの成否が左右されてはならない —— もし検証が
+            // 黙って無効化される壊れ方をしたら、この無効な値がそのまま
+            // 通ってしまうことでそれが露呈する。
+            File.WriteAllText(Path.Combine(tmp, "invalid.json"), """
                 {
-                  "module": "ok",
+                  "module": "invalid",
                   "functions": [
                     {
-                      "name": "ocvu_ok_fn",
+                      "name": "ocvu_invalid_fn",
                       "summary": "test",
-                      "returns": "void",
+                      "returns": "float",
                       "csReturns": "void",
                       "wrapInTryBarrier": false,
                       "params": []
