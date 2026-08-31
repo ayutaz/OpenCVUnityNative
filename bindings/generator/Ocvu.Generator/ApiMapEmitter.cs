@@ -17,14 +17,17 @@ namespace Ocvu.Generator;
 /// </remarks>
 public static class ApiMapEmitter
 {
+    private const string TableHeader = "| module | C ABI | C# の宣言 | 到達性 | 内容 |";
+    private const string TableSeparator = "| --- | --- | --- | --- | --- |";
+
     /// <summary>
     /// Markdown の表のセルへ入れられる形に逃がす。
     /// </summary>
     /// <remarks>
-    /// **`\` を先に逃がす。** 順序を逆にすると、`|` を `\|` にした後の `\` まで
-    /// 二重化してしまう。そして `\` を逃がさないと、summary が `\` で終わる
-    /// ところで `\|` が `\|` になり、Markdown はこれを「逃がした `\`」+
-    /// 「素の `|`」と読んで列が割れる。
+    /// **<c>\</c> を先に逃がす。** 順序を逆にすると、<c>|</c> を <c>\|</c> に
+    /// した後の <c>\</c> まで二重化してしまう。そして <c>\</c> を逃がさないと、
+    /// summary が <c>\</c> で終わるところで <c>\|</c> が <c>\\|</c> になり、
+    /// Markdown はこれを「逃がした <c>\</c>」+「素の <c>|</c>」と読んで列が割れる。
     ///
     /// **改行は逃がさない。禁じてある。** 表の 1 行の中で改行を表現する方法は
     /// 無いので、逃がしようがない —— <c>bindings/spec/schema.json</c> の
@@ -84,8 +87,8 @@ public static class ApiMapEmitter
         sb.AppendLine("範囲を決めているのは [C ABI の所有権と versioning](./abi-ownership-and-versioning.md)、");
         sb.AppendLine("使い方は [API リファレンス](./api-reference.md) にある。");
         sb.AppendLine();
-        sb.AppendLine("| module | C ABI | C# の宣言 | 到達性 | 内容 |");
-        sb.AppendLine("| --- | --- | --- | --- | --- |");
+        sb.AppendLine(TableHeader);
+        sb.AppendLine(TableSeparator);
 
         foreach (var (module, fn) in entries)
         {
@@ -122,6 +125,84 @@ public static class ApiMapEmitter
             }
         }
 
-        return sb.ToString();
+        // **出したものを、出す前に自分で読み直す。** 入口（schema の pattern）は
+        // 「表を壊す文字」の**列挙**であって、書いた人が思いつかなかった文字は
+        // 通る。ここは出来上がった表の**構造**だけを見るので、**どの文字が
+        // 原因かに依存しない** —— 将来どんな値が列を割っても、割れたことが分かる。
+        var text = sb.ToString();
+        RequireTheTableIsWellFormed(text, entries.Count);
+        return text;
+    }
+
+    /// <summary>
+    /// 出来上がった Markdown の表が、見出しと同じ列数の行を
+    /// <paramref name="expectedRowCount"/> 行だけ持つことを確かめる。
+    /// </summary>
+    /// <remarks>
+    /// **中間のデータではなく、出来上がった文字列を読む。** 行を組み立てた側と
+    /// 同じ数え方をすると、両方が同じ間違いをしたときに素通りする。
+    /// </remarks>
+    public static void RequireTheTableIsWellFormed(string markdown, int expectedRowCount)
+    {
+        var lines = markdown.Replace("\r\n", "\n").Split('\n');
+        var head = Array.IndexOf(lines, TableHeader);
+        if (head < 0 || head + 1 >= lines.Length || lines[head + 1] != TableSeparator)
+        {
+            throw new SpecFormatException(
+                "生成した API 対応表に、期待した見出しと区切りの 2 行が見つかりません。");
+        }
+
+        // 見出しと区切りに続く「`|` で始まる行」を表の本体とみなす。**途切れたら
+        // そこで終わる** —— セルの中で行が割れると、割れた後ろは `|` で始まらない
+        // ので本体から外れ、下の行数の照合に引っかかる。
+        var body = new List<string>();
+        for (var i = head + 2; i < lines.Length && lines[i].StartsWith("|"); i++)
+        {
+            body.Add(lines[i]);
+        }
+
+        var expected = CountTableDelimiters(TableHeader);
+        foreach (var line in new[] { lines[head], lines[head + 1] }.Concat(body))
+        {
+            var actual = CountTableDelimiters(line);
+            if (actual != expected)
+            {
+                throw new SpecFormatException(
+                    $"生成した API 対応表の列数が揃っていません（区切りが {expected} 個であるべきところ " +
+                    $"{actual} 個）。逃がし損ねた '|' か、セルの中で割れた行があります: {line}");
+            }
+        }
+
+        if (body.Count != expectedRowCount)
+        {
+            throw new SpecFormatException(
+                $"生成した API 対応表の行数が spec の entry 数と一致しません" +
+                $"（表 {body.Count} 行 / spec {expectedRowCount} 件）。" +
+                "セルの中で行が割れると、割れた後ろは表の本体から外れます。");
+        }
+    }
+
+    /// <summary>
+    /// Markdown の表の 1 行が持つ<b>列の区切り</b>の個数。
+    /// </summary>
+    /// <remarks>
+    /// **<c>|</c> を数えるのでも、直前の 1 文字を見るのでもない。** Markdown は
+    /// <c>\</c> が次の 1 文字を逃がす規則なので、**逃がした <c>\</c> の直後の
+    /// <c>|</c> は区切りである**。<c>a\\|b</c> を「逃がされた <c>|</c>」と読む
+    /// 数え方は、<c>\</c> を逃がし損ねた欠陥をそのまま見逃す（1 波目に書いた
+    /// 正規表現 <c>(?&lt;!\\)\|</c> がまさにそれだった）。ここは Markdown と
+    /// 同じ規則で 1 文字ずつ走査する。
+    /// </remarks>
+    public static int CountTableDelimiters(string line)
+    {
+        var count = 0;
+        var escaped = false;
+        foreach (var ch in line)
+        {
+            if (escaped) { escaped = false; continue; }
+            if (ch == '\\') { escaped = true; continue; }
+            if (ch == '|') { count++; }
+        }
+        return count;
     }
 }

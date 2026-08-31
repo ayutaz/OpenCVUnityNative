@@ -228,6 +228,98 @@ public class ApiMapEmitterTests
         Assert.Contains("/", ReachabilityEmitter.OutputPath);
     }
 
+    // --- 出口側の構造検査 ---
+    //
+    // **入口（schema の pattern）は「壊す文字」の列挙である。** 書いた人が
+    // 思いつかなかった文字は通る。出来上がった表の**構造**を見る検査は、
+    // どの文字が原因かに依存しない —— 将来どんな値が列を割っても捕まる。
+
+    private const string Head = "| module | C ABI | C# の宣言 | 到達性 | 内容 |";
+    private const string Sep = "| --- | --- | --- | --- | --- |";
+
+    // **逃がし損ねた `|` が列を増やすこと。** `|` は schema が禁じていない ——
+    // 通す代わりに逃がしているので、逃がす側が壊れれば表が壊れる。
+    [Fact]
+    public void RejectsARowWithAnExtraUnescapedPipe()
+    {
+        var table = string.Join("\n", Head, Sep, "| `a` | `b` | `c` | 呼ぶ | x | y |");
+        var ex = Assert.Throws<SpecFormatException>(
+            () => ApiMapEmitter.RequireTheTableIsWellFormed(table, 1));
+        Assert.Contains("列数", ex.Message);
+    }
+
+    // **逃がした `\` の直後の `|` は区切りである。** `\` を逃がし損ねた実装は
+    // ここを通る出力を作る（`a\|b` -> `a\\|b`）。**1 波目の正規表現
+    // `(?<!\\)\|` はこれを「逃がされた `|`」と読んで見逃した。**
+    [Fact]
+    public void CountsAPipeAfterAnEscapedBackslashAsADelimiter()
+    {
+        Assert.Equal(7, ApiMapEmitter.CountTableDelimiters(@"| `a` | `b` | `c` | 呼ぶ | a\\|b |"));
+
+        var table = string.Join("\n", Head, Sep, @"| `a` | `b` | `c` | 呼ぶ | a\\|b |");
+        Assert.Throws<SpecFormatException>(
+            () => ApiMapEmitter.RequireTheTableIsWellFormed(table, 1));
+    }
+
+    // 正しく逃がした `\|` は区切りではないこと（上が「`|` を一律に数える」だけに
+    // なっていないことの確認）。
+    [Fact]
+    public void DoesNotCountAProperlyEscapedPipe()
+    {
+        Assert.Equal(6, ApiMapEmitter.CountTableDelimiters(@"| `a` | `b` | `c` | 呼ぶ | a\|b |"));
+        Assert.Equal(6, ApiMapEmitter.CountTableDelimiters(@"| `a` | `b` | `c` | 呼ぶ | a\\\|b |"));
+    }
+
+    // **セルの中で行が割れると、割れた後ろは表の本体から外れる。**
+    // 3 波目に実測した形（33 行目が `|` で終わらず、34 行目が ` |` だけになる）。
+    [Fact]
+    public void RejectsARowThatWasSplitInTheMiddleOfACell()
+    {
+        var table = string.Join("\n", Head, Sep, "| `a` | `b` | `c` | 呼ぶ | 末尾に改行", " |");
+        var ex = Assert.Throws<SpecFormatException>(
+            () => ApiMapEmitter.RequireTheTableIsWellFormed(table, 1));
+        Assert.Contains("列数", ex.Message);
+    }
+
+    // **行数も見る。** 列数が揃っていても、行が足りなければ spec の何かが
+    // 表から落ちている。
+    [Fact]
+    public void RejectsATableWithTheWrongNumberOfRows()
+    {
+        var table = string.Join("\n", Head, Sep, "| `a` | `b` | `c` | 呼ぶ | x |");
+        var ex = Assert.Throws<SpecFormatException>(
+            () => ApiMapEmitter.RequireTheTableIsWellFormed(table, 2));
+        Assert.Contains("行数", ex.Message);
+    }
+
+    // 見出しが見つからないときに「0 行で合格」にしないこと。
+    [Fact]
+    public void RejectsMarkdownWithNoTableAtAll()
+    {
+        Assert.Throws<SpecFormatException>(
+            () => ApiMapEmitter.RequireTheTableIsWellFormed("# 表がない\n", 0));
+    }
+
+    // **実物の spec が作る表が構造として妥当であること。** Emit が自分で
+    // 検査するが、それを消されたときにここが残る（同じことを 2 度見るのでは
+    // なく、**入口を消しても出口が残る**形）。
+    [Fact]
+    public void TheRealSpecProducesARectangularTable()
+    {
+        var specs = SpecModel.Load(Path.Combine(RepoRoot(), "bindings", "spec"));
+        var expected = specs.SelectMany(s => s.Functions).Count();
+        Assert.True(expected > 10, "spec が空だと素通りする");
+
+        var rows = ApiMapEmitter.Emit(specs)
+            .Replace("\r\n", "\n").Split('\n')
+            .SkipWhile(l => l != Head).Skip(2)
+            .TakeWhile(l => l.StartsWith("|"))
+            .ToList();
+
+        Assert.Equal(expected, rows.Count);
+        Assert.All(rows, r => Assert.Equal(6, ApiMapEmitter.CountTableDelimiters(r)));
+    }
+
     // --- 実物の spec ---
 
     // **手で書いた期待値ではなく spec 自身が数えた値と突き合わせる。**
