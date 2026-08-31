@@ -160,9 +160,15 @@ jobs:
           echo "==> Unity $version ($changeset) を入れる"
           hub='/Applications/Unity Hub.app/Contents/MacOS/Unity Hub'
           # **失敗しても続ける。** 入らなかったこと自体が条件 6 の根拠になる。
-          # モジュールを指定しない = Editor 本体だけ。EditMode に要るのはこれだけ。
-          # stdbuf で行バッファにして進捗を流す（前回は無音で 64 分待った）。
-          "$hub" -- --headless install --version "$version" --changeset "$changeset" 2>&1 |
+          # **--architecture を渡す。** 渡さないと Hub は
+          #   ? Please select preferred architecture:  Apple silicon / Intel
+          # を出して**入力を待ち続ける**。--headless なのに対話する。
+          # 第 2 回は 64 分、第 3 回は 25 分の上限まで無反応だった
+          # （run 33352025223 / 33356182306）。**遅いのではなく止まっていた。**
+          #
+          # **stdin を閉じる。** 他にプロンプトが出たときも待たずに落ちるように
+          # する —— CI で対話を待つのは、いつまでも終わらないのと同じである。
+          "$hub" -- --headless install --version "$version" --changeset "$changeset" --architecture arm64 < /dev/null 2>&1 |
             while IFS= read -r line; do echo "[hub] $line"; done
           echo "==> Hub の install が終わった"
           ls -la "/Applications/Unity/Hub/Editor/$version/Unity.app/Contents/MacOS/" 2>&1 || \
