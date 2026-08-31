@@ -97,6 +97,65 @@ public static class SpecModel
         return result;
     }
 
+    /// <summary>
+    /// <c>cType</c> ごとに、spec が書いてよい <c>csType</c> の集合。
+    /// </summary>
+    /// <remarks>
+    /// **なぜ在るか。** <c>cType</c> の側は C++ コンパイラが閉じている
+    /// （生成したヘッダと実装が食い違えばビルドが落ちる）が、<c>csType</c> は
+    /// **誰も見ていなかった** —— <c>int64_t</c> に <c>int</c> と書いても、
+    /// C も C# も <c>verify-generated</c> も到達性テストも全部緑になり、
+    /// 実行時の marshalling だけが壊れる。**壊れるのは呼んだ場所ではなく、
+    /// 後から無関係な場所である**（<c>docs/abi-ownership-and-versioning.md</c> §1
+    /// が借用 handle を禁じたのと同じ理由づけ）。
+    ///
+    /// **buffer の 2 つは一意に決まらない。** <c>byte[]</c>（managed 配列を
+    /// marshal する版）と <c>System.IntPtr</c>（アドレスを直接渡す版）は
+    /// 同じ C の entry point に対する別の入口で、どちらも正しい。**その 2 つの
+    /// うちどちらを書いたかは、ここでは見ていない**（残る穴。roadmap の M5 の
+    /// 判定に書いてある）。
+    ///
+    /// **知らない <c>cType</c> は拒む。** 素通しにすると、型が 1 つ増えるたびに
+    /// その 1 つだけが静かに網から外れる。足す人がここへ C# 側の相手を
+    /// 書くことで、表は定義上いつも完全である。
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, string[]> AllowedCsTypes =
+        new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["int32_t"] = new[] { "int" },
+            ["int64_t"] = new[] { "long" },
+            ["double"] = new[] { "double" },
+            ["int32_t*"] = new[] { "out int" },
+            ["ocvu_mat_handle"] = new[] { "ulong" },
+            ["ocvu_mat_handle*"] = new[] { "out ulong" },
+            ["ocvu_mat_info*"] = new[] { "out OcvuMatInfo" },
+            // byte 列を渡す 4 つ。managed 配列版とアドレス版のどちらも正しい。
+            ["const uint8_t*"] = new[] { "byte[]", "System.IntPtr" },
+            ["uint8_t*"] = new[] { "byte[]", "System.IntPtr" },
+            ["const char*"] = new[] { "byte[]", "System.IntPtr" },
+            ["char*"] = new[] { "byte[]", "System.IntPtr" },
+        };
+
+    private static void RequireTheCsTypeMatchesTheCType(
+        string fileName, string fnName, ParamSpec p)
+    {
+        if (!AllowedCsTypes.TryGetValue(p.CType, out var allowed))
+        {
+            throw new SpecFormatException(
+                $"{fileName}: {fnName}.{p.Name} の cType '{p.CType}' を知りません。" +
+                "SpecModel.AllowedCsTypes に、この C の型に対応する C# の型を足してください" +
+                "（素通しにすると、その 1 つだけが marshalling の検査から静かに外れます）。");
+        }
+
+        if (!allowed.Contains(p.CsType, StringComparer.Ordinal))
+        {
+            throw new SpecFormatException(
+                $"{fileName}: {fnName}.{p.Name} の csType '{p.CsType}' は cType '{p.CType}' に対応しません" +
+                $"（許すのは {string.Join(" / ", allowed.Select(a => $"'{a}'"))}）。" +
+                "食い違っても C も C# もビルドは通り、実行時の marshalling だけが壊れます。");
+        }
+    }
+
     // **何が禁じられているかを、拒むときに全部言う。** pattern だけを見せられても
     // 「どの 1 文字が引っかかったのか」「なぜ禁じられているのか」は読み取れない。
     // 直すのは spec を書いた人なので、言い換えの手掛かりまで出す。
@@ -171,6 +230,24 @@ public static class SpecModel
             {
                 RequireSafeText(fileName, fn.Name, "barrierNote", fn.BarrierNote, c.BarrierNotePattern);
             }
+
+            // **例外バリアを外すなら理由を書かせる。** reachable: false に同じ
+            // 強制が既に在るのに、こちらだけ無かった —— **安全性が高いほうに
+            // 付いていない**。ABI 境界を越える unwind は未定義動作になり得るので、
+            // 囲まないと決めた 1 本は「throw し得ない実装であること」が条件に
+            // なる。その根拠が spec に無ければ、次に読む人は意図と事故を
+            // 区別できない（native/src/ocvu_error.h のマクロの隣にある一覧と
+            // 突き合わせる手掛かりでもある）。
+            //
+            // **実測: これが無い間、`add-abi-function` skill は「理由が無い spec は
+            // 生成器が拒む」と書いていたが拒まなかった** —— barrierNote を消すと
+            // generate は exit 0 で成功し、ヘッダから理由の行が黙って消えた。
+            if (!fn.WrapInTryBarrier && string.IsNullOrWhiteSpace(fn.BarrierNote))
+            {
+                throw new SpecFormatException(
+                    $"{fileName}: {fn.Name} は wrapInTryBarrier: false だが barrierNote がありません。" +
+                    "例外バリアで囲まない理由（throw し得ない実装である根拠）を書いてください。");
+            }
             if (!c.ReturnsEnum.Contains(fn.Returns))
             {
                 throw new SpecFormatException(
@@ -207,6 +284,7 @@ public static class SpecModel
                         $"{fileName}: {fn.Name} の param 名 '{p.Name}' が schema の pattern " +
                         $"'{c.ParamNamePattern}' に一致しません");
                 }
+                RequireTheCsTypeMatchesTheCType(fileName, fn.Name, p);
                 if (!c.DirectionEnum.Contains(p.Direction))
                 {
                     throw new SpecFormatException(

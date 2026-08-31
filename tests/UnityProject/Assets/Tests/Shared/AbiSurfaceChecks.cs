@@ -15,18 +15,20 @@ using UnityEngine;
 /// get_build_information / debug_throw。このクラスがその 7 本を通す。
 ///
 /// **M5 で数が変わった。** 宣言は <c>bindings/spec/*.json</c> から生成される
-/// ようになり、C ABI の 20 本すべてが package に現れる（<c>[DllImport]</c> は
-/// 22 個。上の 2 重宣言は <c>_ptr</c> 付きの別名になった）。増えた 1 本は
-/// <c>ocvu_debug_crash</c> で、**呼べばプロセスが死ぬので通す対象ではない。**
+/// ようになり、C ABI が package に 1 本残らず現れる。
+/// **本数はここに書かない** —— 数えるのは <c>docs/api-map.md</c> の冒頭だけで、
+/// あちらは spec から生成されるので ABI が増えれば勝手に増える。ここに写すと、
+/// **増えた瞬間にこの行だけが嘘になる**（M3.5 で <c>docs/api-reference.md</c> が
+/// そうなり、M5 でこの行が 3 度開き直した）。
 ///
 /// **M5 Task 6 で穴が閉じた。** この一覧が触るのは公開 API から辿れる
 /// 宣言だけで、<c>ocvu_get_status_count</c> / <c>ocvu_get_status_value</c> は
 /// 出荷する C# のどこからも呼ばれていなかった。いまは spec から生成された
-/// <c>AbiReachabilityChecks</c> が **21 本の宣言を 1 つ残らず** 呼び、
+/// <c>AbiReachabilityChecks</c> が **spec の載せる宣言を 1 つ残らず** 呼び、
 /// EditMode と PlayMode の両方がそれを 1 件のテストとして通す。
-/// 残る 1 本は <c>ocvu_debug_crash</c> で、**呼べば戻ってこないので
-/// 到達性テストからも外してある**（理由は <c>bindings/spec/infra.json</c> の
-/// <c>reachableNote</c>）。
+/// 呼ばないのは <c>ocvu_debug_crash</c> だけで、**呼べば戻ってこないので
+/// 到達性テストから外してある**（理由は <c>bindings/spec/infra.json</c> の
+/// <c>reachableNote</c>。表の「到達性」の列にも出る）。
 ///
 /// **それでもこの一覧は要る。** あちらは「呼べること」しか見ない ——
 /// 引数は型ごとの無害な既定値で、返る status も結果も見ない。

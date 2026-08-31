@@ -1252,6 +1252,19 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
   **C# の XML doc はどちらでもない** —— `GenerateDocumentationFile` を
   有効にすればコンパイラが引き継ぐが、**有効にしていない**
   （`Runtime/Core` に `CS1591` が大量に出るので別判断）。
+- **`csType` の照合は「一意に決まる組」までしか閉じていない。** `cType` の側は
+  C++ コンパイラが閉じる（生成したヘッダと実装が食い違えばビルドが落ちる）が、
+  `csType` は **M5 の最終レビューまで誰も見ていなかった** —— `int64_t` に `int` と
+  書いても C も C# も `verify-generated` も到達性テストも全部緑になり、
+  **実行時の marshalling だけが壊れる**（壊れるのは呼んだ場所ではなく後から
+  無関係な場所で、`docs/abi-ownership-and-versioning.md` §1 が借用 handle を
+  禁じたのと同じ形である）。いまは `SpecModel.AllowedCsTypes` が
+  `cType` ごとに書いてよい `csType` を持ち、**知らない `cType` は拒む**ので
+  表は定義上いつも完全である。**閉じていないのは byte 列を渡す 4 つ**
+  （`const uint8_t*` / `uint8_t*` / `const char*` / `char*`）で、これらは
+  `byte[]`（managed 配列を marshal する版）と `System.IntPtr`（アドレスを
+  直接渡す版）のどちらも正しい —— **その 2 つのうち取り違えても誰も落ちない。**
+  一意に決められないので強制していない。
 - **`reachableNote` には `pattern` が無く、素通しである。** 値が届くのは
   `docs/api-map.md` の箇条書き 1 箇所だけで、**表の外なので上の構造検査に
   掛からない**（C ヘッダにも C# にも届かない）。壊れても表は妥当なままである。

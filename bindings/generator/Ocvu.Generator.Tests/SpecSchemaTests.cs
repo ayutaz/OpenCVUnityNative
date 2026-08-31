@@ -102,7 +102,7 @@ public class SpecSchemaTests
                       "summary": "test",
                       "returns": "float",
                       "csReturns": "int",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -131,7 +131,7 @@ public class SpecSchemaTests
                       "summary": "test",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": [
                         { "name": "x", "cType": "int32_t", "csType": "int", "direction": "sideways" }
                       ]
@@ -162,7 +162,7 @@ public class SpecSchemaTests
                       "summary": "test",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -208,7 +208,7 @@ public class SpecSchemaTests
                       "summary": "test",
                       "returns": "float",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -258,7 +258,7 @@ public class SpecSchemaTests
                       "summary": "{{summaryLiteral}}",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -294,7 +294,7 @@ public class SpecSchemaTests
                       "summary": "flags は OCVU_IMREAD_* である。",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -324,7 +324,7 @@ public class SpecSchemaTests
                       "summary": "1 行に収まっている。",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "barrierNote": "a */ b",
                       "params": []
                     }
@@ -389,7 +389,7 @@ public class SpecSchemaTests
                       "summary": "{{summaryLiteral}}",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -420,7 +420,7 @@ public class SpecSchemaTests
                       "summary": "1 行。",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "barrierNote": "末尾に改行。\n",
                       "params": []
                     }
@@ -466,7 +466,7 @@ public class SpecSchemaTests
                       "summary": "1 行。",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false
+                      "wrapInTryBarrier": true
                       {{entry}},
                       "params": [{{param}}]
                     }
@@ -498,7 +498,7 @@ public class SpecSchemaTests
                       "summary": "1 行に収まっている。",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -534,7 +534,7 @@ public class SpecSchemaTests
                       "summary": "1 行。",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "params": []
                     }
                   ]
@@ -542,6 +542,161 @@ public class SpecSchemaTests
                 """);
             var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
             Assert.Contains("summary", ex.Message);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // --- 例外バリアを外す理由（最終レビュー I-2）---
+
+    // **`reachable: false` には理由の強制が在ったのに、`wrapInTryBarrier: false`
+    // には無かった** —— 安全性が高いほうに付いていなかった。ABI 境界を越える
+    // unwind は未定義動作になり得るので、囲まないと決めた 1 本には
+    // 「throw し得ない実装である」根拠が要る。
+    [Fact]
+    public void SkippingTheExceptionBarrierWithoutSayingWhyIsRejected()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "bad.json"), """
+                {
+                  "module": "nobarriernote",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "1 行。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("barrierNote", ex.Message);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // 理由を書けば通ること（上が wrapInTryBarrier: false を一律に拒んでいない確認）。
+    [Fact]
+    public void SkippingTheExceptionBarrierWithAReasonIsAccepted()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "ok.json"), """
+                {
+                  "module": "withbarriernote",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "1 行。",
+                      "returns": "int32_t",
+                      "csReturns": "int",
+                      "wrapInTryBarrier": false,
+                      "barrierNote": "ocvu_status を返さないので囲めない",
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            Assert.False(SpecModel.Load(tmp).Single().Functions.Single().WrapInTryBarrier);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // **実物の spec で囲まない 5 本は、全部 barrierNote を持つこと。**
+    [Fact]
+    public void EveryRealFunctionThatSkipsTheBarrierSaysWhy()
+    {
+        var skipped = SpecModel.Load(Path.Combine(RepoRoot(), "bindings", "spec"))
+            .SelectMany(s => s.Functions)
+            .Where(f => !f.WrapInTryBarrier)
+            .ToList();
+        Assert.NotEmpty(skipped);
+        Assert.All(skipped, f => Assert.False(string.IsNullOrWhiteSpace(f.BarrierNote)));
+    }
+
+    // --- cType と csType の整合（最終レビュー I-4）---
+
+    // **cType は C++ コンパイラが閉じているが、csType は誰も見ていなかった。**
+    // 食い違っても C も C# も verify-generated も到達性テストも緑になり、
+    // 実行時の marshalling だけが壊れる。
+    [Theory]
+    [InlineData("int64_t", "int", "64bit を 32bit で受ける")]
+    [InlineData("int32_t", "long", "32bit を 64bit で受ける")]
+    [InlineData("ocvu_mat_handle", "int", "handle を int で受ける")]
+    [InlineData("ocvu_mat_handle*", "ulong", "out を値で受ける")]
+    [InlineData("const uint8_t*", "int", "ポインタを int で受ける")]
+    public void AParamWhoseCsTypeDoesNotMatchItsCTypeIsRejected(string cType, string csType, string why)
+    {
+        var ex = Assert.Throws<SpecFormatException>(() => LoadOneParam(cType, csType));
+        Assert.True(ex.Message.Contains("csType") || ex.Message.Contains("cType"),
+                    $"{why} を型の照合が拒んだのではない: {ex.Message}");
+    }
+
+    // **知らない cType は素通ししない。** 素通しにすると、型が 1 つ増えるたびに
+    // その 1 つだけが静かにこの検査から外れる。
+    [Fact]
+    public void AnUnknownCTypeIsRejectedRatherThanSkipped()
+    {
+        var ex = Assert.Throws<SpecFormatException>(() => LoadOneParam("float", "float"));
+        Assert.Contains("cType", ex.Message);
+    }
+
+    // **buffer の 2 つは一意に決まらないので、どちらも通す。** 同じ C の
+    // entry point に対する managed 配列版とアドレス版で、どちらも正しい。
+    [Theory]
+    [InlineData("const uint8_t*", "byte[]")]
+    [InlineData("const uint8_t*", "System.IntPtr")]
+    [InlineData("uint8_t*", "byte[]")]
+    [InlineData("uint8_t*", "System.IntPtr")]
+    public void BothSpellingsOfABufferParamAreAccepted(string cType, string csType)
+    {
+        Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
+    }
+
+    // **実物の 22 エントリが通ること。** 通らないものがあれば、直すのは
+    // spec ではなく上の表（網が広すぎる）である。
+    [Fact]
+    public void EveryRealParamPassesTheCTypeToCsTypeCheck()
+    {
+        var ps = SpecModel.Load(Path.Combine(RepoRoot(), "bindings", "spec"))
+            .SelectMany(s => s.Functions).SelectMany(f => f.Params).ToList();
+        Assert.True(ps.Count > 20, "param が 0 件だと素通りする");
+    }
+
+    private static IReadOnlyList<ModuleSpec> LoadOneParam(string cType, string csType)
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "one.json"), $$"""
+                {
+                  "module": "onemapping",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "1 行。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": true,
+                      "params": [
+                        { "name": "x", "cType": "{{cType}}", "csType": "{{csType}}", "direction": "in" }
+                      ]
+                    }
+                  ]
+                }
+                """);
+            return SpecModel.Load(tmp);
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
@@ -594,7 +749,7 @@ public class SpecSchemaTests
                       "summary": "test",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "reachable": false,
                       "params": []
                     }
@@ -626,7 +781,7 @@ public class SpecSchemaTests
                       "summary": "test",
                       "returns": "void",
                       "csReturns": "void",
-                      "wrapInTryBarrier": false,
+                      "wrapInTryBarrier": true,
                       "reachable": false,
                       "reachableNote": "呼ぶと戻ってこないため",
                       "params": []

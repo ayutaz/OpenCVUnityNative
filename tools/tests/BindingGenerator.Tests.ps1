@@ -52,6 +52,65 @@ finally { Set-Content -LiteralPath $apiMap -Value $apiMapBackup -NoNewline }
 & pwsh -NoProfile -File $dev verify-generated | Out-Null
 Assert-That ($LASTEXITCODE -eq 0) 'restoring docs/api-map.md makes the check pass again'
 
+# --- **名指しをやめる。** 上の 4 件は infra.h と api-map.md を名前で守るが、
+# 生成物は 10 個あり、残る 8 個は誰も見ていなかった。実測: Program.cs の
+# outputs から AbiReachabilityChecks.g.cs の配線を外すと、**この script は
+# 全 assertion PASS で exit 0 になった**（以後 spec に足した関数だけが
+# Player から呼ばれなくなる。Unity は緑のまま）。名前を 10 個に増やすと
+# 11 個目で同じ穴が開くので、**生成器が申告する一覧から導く**。
+$listArgs = @('run', '--project', (Join-Path $repoRoot 'bindings/generator/Ocvu.Generator'),
+              '--', '--repo-root', $repoRoot, '--list-outputs')
+$declared = @(& dotnet @listArgs | Where-Object { $_ -match '\S' } | ForEach-Object { $_.Trim() })
+Assert-That ($declared.Count -gt 0) `
+    'the generator declares its outputs (0 件は「違反なし」ではない)'
+
+# **逆向き 1: 生成物を名乗るファイルが、全部その一覧に載っていること。**
+# 配線を外すと、ファイルは「生成物である」と書かれたまま残り、誰も
+# 再生成しなくなる —— 手書きだった頃より悪い（読む人は生成物だと信じる）。
+# 判定は **先頭 5 行の名乗り** で行う。生成器のソースにも同じ文字列は
+# 在るが、そちらは 50 行以上あとに現れる（生成物は必ず冒頭で名乗る）。
+$claimsGenerated = @(
+    foreach ($f in @(& git -C $repoRoot ls-files)) {
+        $full = Join-Path $repoRoot $f
+        if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+        $head = (Get-Content -LiteralPath $full -TotalCount 5 -ErrorAction SilentlyContinue) -join "`n"
+        if ($head -match 'このファイルは生成物である') { $f }
+    }
+)
+Assert-That ($claimsGenerated.Count -gt 0) `
+    'the scan found files that announce themselves as generated (0 件は「違反なし」ではない)'
+
+$unwired = @($claimsGenerated | Where-Object { $declared -notcontains $_ })
+$unwiredDetail = if ($unwired.Count -gt 0) { ' — 申告に無い: ' + ($unwired -join ', ') } else { '' }
+Assert-That ($unwired.Count -eq 0) `
+    "every file that says it is generated is declared by the generator$unwiredDetail"
+
+# **逆向き 2: 申告された一覧の全部が、実際に --check の比較対象であること。**
+# 全部を同時に壊して、報告に 1 つ残らず出ることを見る（1 回の実行で済む）。
+$backups = @{}
+try {
+    foreach ($rel in $declared) {
+        $full = Join-Path $repoRoot $rel
+        $backups[$full] = Get-Content -LiteralPath $full -Raw
+        Add-Content -LiteralPath $full -Value '手で足した行'
+    }
+    $report = (& pwsh -NoProfile -File $dev verify-generated 2>&1) -join "`n"
+    $checkFailed = $LASTEXITCODE -ne 0
+    $missing = @($declared | Where-Object { $report -notmatch [regex]::Escape((Split-Path -Leaf $_)) })
+    $missingDetail = if ($missing.Count -gt 0) { ' — 報告に出ない: ' + ($missing -join ', ') } else { '' }
+    Assert-That $checkFailed 'editing every generated file by hand fails the check'
+    Assert-That ($missing.Count -eq 0) `
+        "the check reports every one of the $($declared.Count) generated files$missingDetail"
+}
+finally {
+    foreach ($full in $backups.Keys) {
+        Set-Content -LiteralPath $full -Value $backups[$full] -NoNewline
+    }
+}
+
+& pwsh -NoProfile -File $dev verify-generated | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'restoring every generated file makes the check pass again'
+
 # --- **実装 -> spec の逆向き。** spec -> 実装は L1 のリンクと L3 の P/Invoke が
 # 見ているが、逆は誰も見ていなかった: extern "C" で ocvu_ を実装して spec に
 # 書き忘れると、C ヘッダにも C# にも宣言が生まれず、export だけが残る。

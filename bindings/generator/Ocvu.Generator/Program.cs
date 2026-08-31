@@ -2,10 +2,16 @@ using Ocvu.Generator;
 
 var repoRoot = Directory.GetCurrentDirectory();
 var check = false;
+var listOutputs = false;
 for (var i = 0; i < args.Length; i++)
 {
     if (args[i] == "--repo-root" && i + 1 < args.Length) { repoRoot = args[++i]; }
     else if (args[i] == "--check") { check = true; }
+    // **生成器に自分の出力を申告させる。** 検査する側が名前を並べると、
+    // 11 個目を足したときにその 1 つだけが静かに網から外れる（実測で
+    // AbiReachabilityChecks.g.cs がそうなっていた —— 名指しで守られて
+    // いたのは 10 個のうち 2 つだけで、配線を外しても全部 PASS した）。
+    else if (args[i] == "--list-outputs") { listOutputs = true; }
     else { Console.Error.WriteLine($"unknown argument: {args[i]}"); return 2; }
 }
 
@@ -33,6 +39,16 @@ outputs.Add((Path.Combine(repoRoot, ReachabilityEmitter.OutputPath),
 // --check が赤くなる。
 outputs.Add((Path.Combine(repoRoot, "docs", "api-map.md"),
              ApiMapEmitter.Emit(specs)));
+
+if (listOutputs)
+{
+    // 区切りは '/' に固定する。検査する側が platform で別の文字列を見ないため。
+    foreach (var (path, _) in outputs)
+    {
+        Console.WriteLine(Path.GetRelativePath(repoRoot, path).Replace('\\', '/'));
+    }
+    return 0;
+}
 
 var stale = new List<string>();
 foreach (var (path, text) in outputs)
