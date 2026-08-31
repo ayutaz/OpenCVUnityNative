@@ -3,12 +3,13 @@ OpenCV 5.0.0 を Unity 6000.3 以降向けに、独自の C ABI と C# API で�
 ## 導入
 
 **全部入りの tarball を 1 つ入れる。** `com.ayutaz.opencv-unity-native.tgz` に
-Windows x64 / macOS arm64 / Linux x64 の binary が 3 つとも入っており、**Unity は
-自分の platform 向けの 1 つだけを読み込む**（Plugin Import Settings がそう決めている）。
+**Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64** の binary が
+**5 つとも**入っており、**Unity は自分の platform 向けだけを読み込む**（Plugin Import
+Settings がそう決めている）。
 
 `manifest.json` に同じ package ID は 1 回しか書けないので、**platform ごとに分かれた
-tarball では「エディタは Windows、実機は別の platform」が表現できない**。これが
-全部入りを正にした理由である。
+tarball では「エディタは Windows、実機は Android」が表現できない**。これが全部入りを
+正にした理由である。
 
 ```jsonc
 // Packages/manifest.json
@@ -44,31 +45,55 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 package の**中身**を対象にしているので、展開後に使う。`SHA256SUMS.txt` は
 ダウンロードする物そのものを対象にしている。
 
-## 前の版（v0.1.1）から変わったこと
+## 前の版（v0.2.0）から変わったこと
 
-- **画像の encode / decode が入った**（`CvCodecs.Encode` / `CvCodecs.Decode`）。
-  扱うのはメモリ上の byte 列だけで、ファイルパスは受けない
-- **配る正が「全部入りの tarball 1 つ」になった**（`com.ayutaz.opencv-unity-native.tgz`）。
-  3 platform の binary が同居するので、「エディタは Windows、実機は別 platform」が
-  1 つの package で表現できる
-- **Unity の下限が 6000.0 から 6000.3 へ上がった。** `package.json` の `unity` が
-  `6000.3` なので、**6000.0 の利用者はこの版を導入できない。** 6000.0 LTS の通常
-  サポートは 2026-10 に終わる。検証しているのは 6000.3.16f1 の 1 版だけである
+- **Android と iOS に対応した。** 全部入りの tarball に `Android/arm64-v8a` の `.so` と
+  `iOS/libopencv_unity_native.a` が入る。iOS は静的ライブラリで、Unity が IL2CPP の
+  バイナリへ静的リンクし、P/Invoke は `DllImport("__Internal")` で解決する
+- **Android の 16 KB page size に対応した。** Google Play は 2027-02-01 から、
+  対応していないアプリの更新を受け付けなくなる。**止まるのは利用者のリリースである**
+  （この `.so` が利用者のアプリに入るため）ので、その日より前に満たしてある。
+  CI が実物の `.so` の `p_align` を毎回検査している
+- **`WebCamTexture` から `CvMat` を作れるようになった**（`CvUnity.Unity.WebCamTextureConverter`、
+  3 overload）。**新しい C ABI 関数は増えていない** —— 既存の上に立つ C# である。
+  **既定で上下を反転する**（Unity は左下原点、OpenCV は左上原点）ので、
+  `TextureConverter.ToTexture` へ往復させるときは `flipVertically: false` を使うこと
+- **Unity の下限は 6000.3 のまま。** 検証しているのは 6000.3.16f1 の 1 版だけである
 
-`OCVU_ABI_VERSION` は 1 のまま変わっていない（関数を足しただけなので）。
+`OCVU_ABI_VERSION` は 1 のまま変わっていない（C ABI の関数は 1 本も増えていない）。
+
+## この版で確かめていないこと
+
+**正直に書いておく。** M4 の完了条件 9 件のうち 4 件は閉じていない。
+
+- **iOS の実機で動かしていない。** クロスビルドは CI で緑で、`.a` に OpenCV が
+  束ねられていること（こちらの object が要求する `cv::` シンボルをその archive が
+  定義していること）も CI が毎回確かめている。**しかし実機で読み込んで動かした
+  実績は無い** —— 署名と端末が要り、CI では原理的に閉じない
+- **Android の実機でも動かしていない。** 同上
+- **lifecycle（background / foreground）と memory pressure を検証していない**
+- **macOS 上で Unity を起動していない。** macOS の binary と `.meta` は
+  全部入りに入って全利用者に届くが、Unity に読ませているのは Windows と Linux 上だけ
+  である（`.meta` の解釈自体は `PluginImporter` に問うて確認済み）
+
+実機で確かめる手順は `docs/m4-device-verification.md` にある。
 
 ## この版の範囲
 
-- **対応 platform**: Windows x64 / macOS arm64 / Linux x64。**mobile と Web は未対応**
+- **対応 platform**: Windows x64 / macOS arm64 / Linux x64 / **Android arm64-v8a** /
+  **iOS arm64**。**Web は未対応**
+- **CPU アーキテクチャ**: Android は arm64-v8a のみ（x86_64 エミュレータは非対応）、
+  iOS は実機の arm64 のみ（シミュレータは非対応）
 - **公開 API**: `Mat` のライフサイクル（create / release / clone / get_info /
   copy_from_buffer / copy_to_buffer）、`cvtColor` / `resize` / `GaussianBlur`、
-  **画像の encode / decode（`CvCodecs.Encode` / `CvCodecs.Decode`）**。
-  API の広さではなく、所有権・stride・エラー処理・IL2CPP の正しさを固めた版である
+  画像の encode / decode（`CvCodecs`）、`Texture2D` と `WebCamTexture` の連携。
+  **API の広さではなく、所有権・stride・エラー処理・IL2CPP・platform の正しさを
+  固めた版である**
 - **encode / decode が扱うのはメモリ上の byte 列だけで、ファイルパスは受けない。**
   ファイルを開くのは呼ぶ側の仕事である（Windows の文字コードの扱いを境界に持ち込まない
   ため、そして Android の `StreamingAssets` は APK の中にあってパスでは開けないため）
-- **Unity**: **6000.3 以降**（`package.json` の下限が `6000.3`。2022 LTS 非対応）。
-  **検証しているのは 6000.3 LTS（6000.3.16f1）の 1 版だけ**である
+- **Unity**: **6000.3 以降**（2022 LTS 非対応）。**検証しているのは 6000.3.16f1 の
+  1 版だけ**である
 - **スレッド**: 別々の `Mat` を別々のスレッドから同時に使ってよい。同じ `Mat` を
   複数スレッドから同時に使うこと、使用中に `Dispose()` することは支えない
 
@@ -78,19 +103,22 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 
 あわせて platform ごとに UPM tarball 1 つと、`checksums` / `sbom` / `build-manifest` /
 `THIRD_PARTY_NOTICES` の 4 点。通知の先頭に、**その platform の成果物に実際に
-入っている component の一覧**がある（本文は 3 platform 共通で、一覧に無い節も含む）。
+入っている component の一覧**がある（本文は全 platform 共通で、一覧に無い節も含む）。
 
 **全部入りには `sbom` / `build-manifest` / `THIRD_PARTY_NOTICES` を付けていない。**
 いずれも復元済みの OpenCV の成果物（= その job の platform のもの）から作るので、
-3 platform を束ねる側には元が無い。**統合版をでっち上げず**、中身の説明は platform
-ごとの 4 点に任せる。
+束ねる側には元が無い。**統合版をでっち上げず**、中身の説明は platform ごとの 4 点に任せる。
 
-asset は全部で 18 件（3 platform × 5 + 全部入りの 2 + `SHA256SUMS.txt`）。
+asset は全部で 28 件（5 platform × 5 + 全部入りの 2 + `SHA256SUMS.txt`）。
 
 `build-manifest.json` には OpenCV のタグ、構成ハッシュ、generator、compiler、
 ビルドしたモジュール、依存バージョン、CMake flags が実測で入っている。
 
+**Android は third-party が 2 件多い**（`cpufeatures` の LICENSE と README。Android NDK
+由来、BSD-3-Clause）。`THIRD_PARTY_NOTICES` に全文がある。
+
 ## OpenUPM
 
 全部入りの asset 名に版番号を含めていないのは、OpenUPM の `githubReleaseAssetName` が
-**安定した接頭辞**で asset を選ぶためである。**登録はまだしていない。**
+**安定した接頭辞**で asset を選ぶためである。**登録済み**
+（`https://package.openupm.com/com.ayutaz.opencv-unity-native`）。
