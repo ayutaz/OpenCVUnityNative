@@ -15,6 +15,10 @@
   - C ABI 11 関数（M2 の 9 本 = `Mat` のライフサイクルと buffer 転送の 6 本 + `cvtColor` / `resize` / `GaussianBlur` の 3 本、**M3.5 で足した `imencode` / `imdecode` の 2 本**）と、その上に立つ C# の公開 API
   - **この 11 本は公開 ABI の総数ではありません。** 現在の公開 ABI は 20 本あり、残りは M0 / M1 由来の 8 本（ABI version の取得、last-error の取得、status 表の照会、OpenCV の version と build information）と、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash` 1 本です。この文書が「11 関数」と限定しているのは、**M2 で確定し M3.5 で 2 本足した allowlist の範囲**を指すためで、20 との差は数え漏れではありません（version / last-error / status 表は文書内で必要に応じて触れています）。全 20 本の内訳は [CLAUDE.md](../CLAUDE.md)、所有権と allowlist の正本は [C ABI の所有権と versioning](./abi-ownership-and-versioning.md) にあります
   - **まだ無い機能は書きません。** 範囲は M2 で確定し、M3.5 で `imgcodecs` の 2 本を足した allowlist に一致します
+- [API 対応表](./api-map.md)
+  - **生成物です。** `bindings/spec/*.json` が正本で、`./tools/dev.ps1 generate` が書き出します。手で編集すると `verify-generated` が赤くなります
+  - spec に載っている 22 entry を 1 行ずつ並べ、**C ABI の本数（20 本）と C# の P/Invoke 宣言の本数（22 本）を別に数えます** —— 差の 2 本は同じ C の entry point へ別の引数の形で入る C# 側の入口で、C ABI を増やしません
+  - **「OpenCV 全対応」とは書きません。** ここに無い関数は**まだ無い**のであって、隠れているのではありません。上の [API リファレンス](./api-reference.md) との違いは、あちらが**使い方**を書く手書きの文書であるのに対し、こちらは**何が在るか**を spec から機械的に出す一覧であることです（関数を足したときに古くなりようがない側）
 - [C ABI の所有権と versioning](./abi-ownership-and-versioning.md)
   - **確定（M2 着手前）。** 借用 handle を作らない決定と、その理由・受け入れたコスト（M3 で §1.5 のスレッド規約、M3.5 で §1.6 の blob の規約を追記）
   - `OCVU_ABI_VERSION` を bump する変更としない変更
