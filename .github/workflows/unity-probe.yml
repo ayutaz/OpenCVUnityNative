@@ -181,6 +181,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
@@ -193,12 +194,19 @@ jobs:
             exit 1
           fi
           mkdir -p artifacts/unity-probe-macOS
-          # **Personal ライセンスの認証。** 秘密は環境変数から渡し、
-          # コマンドラインに出さない（ps で見える）。
-          "$editor" -batchmode -quit -nographics \
-            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
-            -logFile artifacts/unity-probe-macOS/activate.log || \
-            echo '==> 認証が非 0 で戻った（続ける）'
+          # **ULF を置く。** `-username` / `-password` による認証は
+          # `Found 0 entitlement groups and 0 free entitlements` で失敗した
+          # （run 33358384921）。Linux のレーンが実際に使っているのは
+          # UNITY_LICENSE（.ulf の中身）なので、こちらも同じものを置いてみる。
+          #
+          # **値は絶対に表示しない。** tee の出力を捨て、set -x もしない。
+          if [ -n "${UNITY_LICENSE:-}" ]; then
+            sudo mkdir -p /Library/Unity
+            printf "%s" "$UNITY_LICENSE" | sudo tee /Library/Unity/Unity_lic.ulf > /dev/null
+            echo "==> ULF を /Library/Unity/Unity_lic.ulf に置いた（$(sudo stat -f%z /Library/Unity/Unity_lic.ulf) バイト）"
+          else
+            echo "==> UNITY_LICENSE が空。認証できない見込み。"
+          fi
           # -quit は付けない（-runTests は自分で終了する。付けるとテスト前に落ちる）
           "$editor" -batchmode -nographics -projectPath tests/UnityProject \
             -runTests -testPlatform EditMode \
