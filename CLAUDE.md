@@ -436,7 +436,13 @@ CodeQL まで見る。それでも次は緑のまま通過する。
   残るのは macOS 上で実行することで、**M3.5 でその binary は全利用者が導入する
   package の中に入った**
 - **Windows の IL2CPP Player**（CI の L5 は Linux で、Windows 版はローカルの
-  レーンだけが担う）。**M4 の担当** —— 同上。**実際に走らせたことは一度も無い**
+  レーンだけが担う）。**2026-08-31 に「CI で回さない」と結論した** ——
+  `windows-2022` に 2 回投げ、EditMode は動いたが `Standalone` は
+  `ToolchainNotFoundException` で落ちた（game-ci の Windows コンテナに、
+  IL2CPP が生成した C++ をコンパイルする MSVC が無い）。**根拠は実測であって
+  他人の issue ではない。** 詳細は `docs/roadmap.md`「担当が無かった制約」。
+  **したがってこれは「まだ調べていない穴」ではなく、意図して CI の外に置いた
+  ものである** —— Windows 固有の IL2CPP の欠陥だけが CI に映らない
 - **全部入りの package。** 3 platform を 1 つに束ねる形自体は M3.5 で成立したが、
   **それを確かめるレーン（`dev.ps1 test-unity-tarball`）はどの workflow からも
   走っていない。** 実測はローカル（Windows、2026-08-30）だけである
