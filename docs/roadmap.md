@@ -1547,8 +1547,47 @@ currently not supported"。**ただしこれは package を対象にしたテス
 **条件が問うているのは IL2CPP Player（Standalone）の方である。**
 EditMode が通ったことは IL2CPP が通る根拠にならない —— IL2CPP は別の
 モジュールを要求する。ここを推測で埋めると、この節が禁じている
-「他人の issue を読んだ結果を根拠にする」と同じ誤りになる。第 2 回で
-`Standalone` を投げる。
+「他人の issue を読んだ結果を根拠にする」と同じ誤りになる。
+
+**2026-08-31、第 2 回（run 33352025223）で `Standalone` を投げた。落ちた。**
+
+```
+error: Could not set up a toolchain for Architecture x64. Make sure you have
+the right build tools installed for il2cpp builds.
+IL2CPP C++ code builder is unable to build C++ code. In order to build C++ code
+for Windows Desktop, you must have one of these installed: ...
+Player build failed
+TestLaunchFailedException: Player build failed
+```
+
+**game-ci の Windows コンテナには Unity の IL2CPP モジュールは在るが、それが
+生成した C++ をコンパイルする MSVC のツールチェーンが無い。** `windows-2022` の
+runner 自身には Visual Studio が入っているが、**Unity はコンテナの中で動いており、
+ホストの toolchain は見えない。**
+
+**注意すべき点が 1 つある。** この失敗のとき、**game-ci 自身は success を返した。**
+落ちたことが分かったのは、結果 XML の有無を別に見ていたからである
+（`==> game-ci の結果: success` の直後に `==> 結果 XML が無い`）。
+**game-ci の成否をそのまま合否にしていたら、「Windows IL2CPP は CI で通る」と
+誤って結論していた。**
+
+### 結論: **諦める**（2026-08-31）
+
+Windows の IL2CPP Player は **CI で回さない**。根拠は上の 2 回の実測である ——
+他人の issue ではない。
+
+- **EditMode は動く**（第 1 回、33 passed）。だが条件が問うているのは IL2CPP である
+- **IL2CPP は toolchain が無くて落ちる**（第 2 回）。直すには MSVC を入れた独自の
+  Windows イメージを作るか、コンテナを使わずに runner へ Unity を直接入れることに
+  なる。**後者は macOS 側で試して 64 分かけても Editor が入り切らなかった**
+  （run 33352025223、`mac-il2cpp` 込み）ので、Windows でも同種の費用が予想される
+- **失うものが小さい。** Windows の IL2CPP Player は `dev.ps1 test-unity-player` が
+  ローカルで担い続ける（実測 18 passed）。CI では **Linux の IL2CPP Player** が
+  同じ smoke test を通しており、**stripping が P/Invoke を消さないこと自体は
+  CI で実証されている**。Windows 固有の IL2CPP の欠陥だけが CI の外に残る
+
+**この結論は覆せる。** 独自イメージを作る費用に見合う理由（Windows 固有の IL2CPP の
+欠陥を実際に踏む、など）が出たら、そのときに作り直す。**そのときも根拠は実測にする。**
 
 ### macOS の Plugin Import Settings を Unity で実測する → M4
 
