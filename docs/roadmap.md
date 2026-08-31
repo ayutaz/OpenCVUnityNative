@@ -1135,7 +1135,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 
 ### M4 の判定（2026-08-30 時点）
 
-**9 件中 5 件を満たし、4 件は閉じていない。**（完了条件は 9 件ある —— 9 件目は
+**9 件中 6 件を満たし、3 件は閉じていない。**（完了条件は 9 件ある —— 9 件目は
 「モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通る」で、
 **以前は表の外の散文に落ちていた。表に無い条件は次に判定する人の目に入らない。**）
 
@@ -1147,7 +1147,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 | 4 | lifecycle / memory pressure | **閉じていない**。同上、§2 |
 | 5 | `WebCamTexture` から `CvMat` を作れる | **満たす**。`WebCamTextureConverter`（3 overload）。EditMode 9 件が通り、**上下反転をやめると `RowOrderIsFlippedSoTheMatOriginIsTopLeft` だけが落ちる**ことを実測した。Player でも 1 件通している（M4 のレビューで、この API が Editor しか通っていないと分かったため） |
 | 6 | macOS の Plugin Import Settings を Unity で実測 | **閉じていない**。`ci-native.yml` の `mobile` job は macos-14 で走るが **Unity は起動しない**（クロスビルドのみ）。M3.5 で `.meta` の解釈自体は他 OS の Unity から実測済みで、残るのは **macOS 上で Unity を動かすこと**。M4 でそこまで踏まなかった |
-| 7 | Windows IL2CPP を CI で回すかの結論 | **閉じていない**。**probe をまだ投げていない。** roadmap が「上流の issue を読んだ結果を根拠にしない」と明記しているので、実測なしに結論を書かない |
+| 7 | Windows IL2CPP を CI で回すかの結論 | **満たす**（2026-08-31）。**結論は「諦める」。** `windows-2022` に 2 回投げた —— EditMode は動いた（33 passed、run 33350726005）が、**`Standalone` は `ToolchainNotFoundException` で落ちた**（run 33352025223）。game-ci の Windows コンテナに、IL2CPP が生成した C++ をコンパイルする MSVC が無い。**このとき game-ci 自身は success を返しており、結果 XML の有無を別に見ていなければ逆の結論を書いていた。** 根拠は 2 回の実測で、他人の issue ではない（詳細は上記「担当が無かった制約」の節）|
 | 8 | 対応 CPU アーキテクチャの決定 | **満たす**。Android arm64-v8a のみ / iOS 実機 arm64 のみ（上記「対応 CPU アーキテクチャの決定」） |
 | 9 | モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通る | **満たす**（2026-08-31、このマシン）。5 platform 分を束ねた tarball を使い捨ての Unity プロジェクトに導入して `==> UPM tarball install: 25 passed`。**ただしこのレーンはどの workflow からも走らない** —— game-ci の action の外で Unity を起動する必要があり、CI に載せるのは別作業である。**M4 でモバイルを足した時点からこのレーンは壊れており**（期待する binary の数が `3` と直書きされ、iOS の `.a` を binary と認めなかった）、無関係な作業の途中で 1 度手で回すまで誰も知らなかった |
 
