@@ -17,6 +17,7 @@ namespace Ocvu.Generator;
 internal sealed class SchemaConstraints
 {
     public required string ModulePattern { get; init; }
+    public required string SummaryPattern { get; init; }
     public required string FunctionNamePattern { get; init; }
     public required string EntryPointPattern { get; init; }
     public required string ParamNamePattern { get; init; }
@@ -47,6 +48,8 @@ internal sealed class SchemaConstraints
             return new SchemaConstraints
             {
                 ModulePattern = ExtractPattern(root, "properties.module"),
+                SummaryPattern = ExtractPattern(
+                    root, "properties.functions.items.properties.summary"),
                 FunctionNamePattern = ExtractPattern(root, "properties.functions.items.properties.name"),
                 EntryPointPattern = ExtractPattern(root, "properties.functions.items.properties.entryPoint"),
                 ParamNamePattern = ExtractPattern(

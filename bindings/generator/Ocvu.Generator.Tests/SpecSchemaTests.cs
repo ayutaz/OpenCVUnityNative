@@ -221,6 +221,110 @@ public class SpecSchemaTests
         finally { Directory.Delete(tmp, recursive: true); }
     }
 
+    // --- summary の改行（M5 Task 7）---
+
+    // **改行は逃がすのではなく禁じる。** summary は docs/api-map.md の表の
+    // セルへ入る。表の 1 行の中で改行を表現する方法は無いので、入れば行
+    // そのものが割れる —— しかも Markdown は文句を言わない。逃がしようが
+    // ないものは、spec の側で**表現できなくする**
+    // （docs/abi-ownership-and-versioning.md §1 と同じ考え方）。
+    [Theory]
+    [InlineData(@"1 行目\n2 行目")]   // JSON の \n（LF）
+    [InlineData(@"1 行目\r\n2 行目")] // CRLF
+    public void SummaryContainingANewlineIsRejected(string summaryLiteral)
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "bad.json"), $$"""
+                {
+                  "module": "multiline",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "{{summaryLiteral}}",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("summary", ex.Message);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // 改行が無ければ通ること（上の検査が summary を一律に拒んでいない確認）。
+    [Fact]
+    public void SummaryOnASingleLineIsAccepted()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "ok.json"), """
+                {
+                  "module": "singleline",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "1 行に収まっている。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            Assert.Equal("1 行に収まっている。", SpecModel.Load(tmp).Single().Functions.Single().Summary);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // **schema.json から読んでいることの検証。** summary の pattern を読めなく
+    // したら、検証を諦めるのではなく Load 自体が落ちること。
+    [Fact]
+    public void SchemaWithAnUnreadableSummaryPatternFailsTheLoad()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            var schemaText = File.ReadAllText(Path.Combine(RepoRoot(), "bindings", "spec", "schema.json"));
+            const string needle = "\"summary\": { \"type\": \"string\", \"minLength\": 1, \"pattern\":";
+            const string replacement = "\"summary\": { \"type\": \"string\", \"minLength\": 1, \"patternRenamed\":";
+            Assert.Contains(needle, schemaText);          // 置換対象が実在すること
+            var broken = schemaText.Replace(needle, replacement);
+            Assert.NotEqual(schemaText, broken);          // 置換が空振りしていないこと
+            File.WriteAllText(Path.Combine(tmp, "schema.json"), broken);
+            File.WriteAllText(Path.Combine(tmp, "any.json"), """
+                {
+                  "module": "any",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "1 行。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("summary", ex.Message);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
     // --- reachable（M5 Task 6）---
 
     // **既定は true である。** spec が reachable を書いていない関数は

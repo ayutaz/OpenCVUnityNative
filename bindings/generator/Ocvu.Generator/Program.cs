@@ -24,8 +24,7 @@ foreach (var spec in specs)
 
 // **module ごとではなく 1 ファイル。** 全 entry point を横断して 1 回ずつ
 // 呼ぶので、module に分けると「全部呼んだ」を 1 箇所で数えられなくなる。
-outputs.Add((Path.Combine(repoRoot, "tests", "UnityProject", "Assets", "Tests",
-                          "Shared", "AbiReachabilityChecks.g.cs"),
+outputs.Add((Path.Combine(repoRoot, ReachabilityEmitter.OutputPath),
              ReachabilityEmitter.Emit(specs)));
 
 // **文書も生成物にする。** 手で書いた対応表は関数を足すと必ず古くなる

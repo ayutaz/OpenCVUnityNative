@@ -17,10 +17,22 @@ namespace Ocvu.Generator;
 /// </remarks>
 public static class ApiMapEmitter
 {
-    // Markdown の表は、セルの中の `|` を列の区切りとして読む。**spec には今の
-    // ところ 1 つも無いが、1 つ入った時点で表の形が黙って崩れる** ——
-    // Markdown は文句を言わないので、崩れたことに気づけるのは読む人だけである。
-    private static string EscapeCell(string text) => text.Replace("|", @"\|");
+    /// <summary>
+    /// Markdown の表のセルへ入れられる形に逃がす。
+    /// </summary>
+    /// <remarks>
+    /// **`\` を先に逃がす。** 順序を逆にすると、`|` を `\|` にした後の `\` まで
+    /// 二重化してしまう。そして `\` を逃がさないと、summary が `\` で終わる
+    /// ところで `\|` が `\|` になり、Markdown はこれを「逃がした `\`」+
+    /// 「素の `|`」と読んで列が割れる。
+    ///
+    /// **改行は逃がさない。禁じてある。** 表の 1 行の中で改行を表現する方法は
+    /// 無いので、逃がしようがない —— <c>bindings/spec/schema.json</c> の
+    /// summary の pattern が改行を含む spec を拒む
+    /// （<c>docs/abi-ownership-and-versioning.md</c> §1 の「規約で禁じるのでは
+    /// なく表現できなくする」）。
+    /// </remarks>
+    private static string EscapeCell(string text) => text.Replace(@"\", @"\\").Replace("|", @"\|");
 
     public static string Emit(IReadOnlyList<ModuleSpec> specs)
     {
@@ -36,8 +48,8 @@ public static class ApiMapEmitter
         // 既にある C の関数へ別の引数の形で入る C# 側の入口であって、C ABI を
         // 1 本も増やさない。片方だけを書くと、読む側がもう片方を推測する
         // ことになる。
-        var cAbiCount = entries.Count(e => string.IsNullOrEmpty(e.Fn.EntryPoint));
-        var overloadCount = entries.Count - cAbiCount;
+        var overloads = entries.Where(e => !string.IsNullOrEmpty(e.Fn.EntryPoint)).ToList();
+        var cAbiCount = entries.Count - overloads.Count;
         var unreachable = entries.Where(e => !e.Fn.IsReachable).ToList();
 
         var sb = new StringBuilder();
@@ -50,11 +62,20 @@ public static class ApiMapEmitter
                       $"C# の P/Invoke 宣言は {entries.Count} 本ある。");
         sb.AppendLine();
 
-        if (overloadCount > 0)
+        if (overloads.Count > 0)
         {
-            sb.AppendLine($"**差の {overloadCount} 本は C ABI を増やさない。** 同じ C の entry point へ");
-            sb.AppendLine("別の引数の形で入る C# 側の入口（`byte[]` を渡す版と、アドレスを直接渡す版）で、");
-            sb.AppendLine("C 側に対応する宣言が無い。下の表ではその行の **C ABI** の列が空欄になる。");
+            // **内訳も spec から出す。** ここに「`byte[]` を渡す版とポインタ版」
+            // のような固定文を置くと、3 本目が別の形で入った瞬間に、本数だけ
+            // 正しく中身が嘘の文になる。名前と向き先を並べておけば、増えても
+            // 減っても勝手に追随する。
+            sb.AppendLine($"**差の {overloads.Count} 本は C ABI を増やさない。** 既にある C の entry point へ");
+            sb.AppendLine("別の引数の形で入る C# 側の入口で、C 側に対応する宣言が無い。");
+            sb.AppendLine("下の表ではその行の **C ABI** の列が空欄になる。");
+            sb.AppendLine();
+            foreach (var (_, fn) in overloads)
+            {
+                sb.AppendLine($"- `{fn.Name}` → `{fn.EntryPoint}`");
+            }
             sb.AppendLine();
         }
 
@@ -78,7 +99,9 @@ public static class ApiMapEmitter
         sb.AppendLine("## 到達性");
         sb.AppendLine();
         sb.AppendLine("**到達性** の列は、spec から生成される到達性テスト");
-        sb.AppendLine("（`tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs`）が");
+        // **パスを写さない。** 出力先を決めているのは ReachabilityEmitter で、
+        // ここが写すと片方を動かしたときにもう片方だけが残る。
+        sb.AppendLine($"（`{ReachabilityEmitter.OutputPath}`）が");
         sb.AppendLine("その宣言を実際に呼ぶかを示す。IL2CPP の stripping は呼ばれない P/Invoke");
         sb.AppendLine("宣言を消せるので、**呼ばれない宣言は消えても誰も気づかない。**");
         sb.AppendLine();

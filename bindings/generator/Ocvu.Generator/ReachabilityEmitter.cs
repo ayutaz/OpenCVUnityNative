@@ -16,6 +16,23 @@ namespace Ocvu.Generator;
 /// </remarks>
 public static class ReachabilityEmitter
 {
+    /// <summary>
+    /// 生成物の置き場所。repo root からの相対で、区切りは <c>/</c>。
+    /// </summary>
+    /// <remarks>
+    /// **写さずここを見る。** 出力先を決める <c>Program.cs</c> と、その場所を
+    /// 散文で示す <c>ApiMapEmitter</c> が同じ 1 つを見る —— 2 箇所に書くと、
+    /// 片方を動かしても誰も落ちない。
+    ///
+    /// **区切りを <c>/</c> に固定してあるのは、生成物の中身を platform で
+    /// 変えないため。** <c>Path.Combine</c> の結果をそのまま文書へ書くと
+    /// Windows では <c>\</c>、Linux では <c>/</c> になり、
+    /// <c>verify-generated</c> が CI でだけ赤くなる。<c>Path.Combine</c> に
+    /// 渡す側は、Windows でも <c>/</c> をそのまま受け付けるので困らない。
+    /// </remarks>
+    public const string OutputPath =
+        "tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs";
+
     // 型ごとの無害な実引数。**結果は見ない。呼べることだけを見る。**
     // 引数はすべて native 側の入口の検査に捕まる値で、status を返して戻る。
     private static string Argument(ParamSpec p) => p.CsType switch

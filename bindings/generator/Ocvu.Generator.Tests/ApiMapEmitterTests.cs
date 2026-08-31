@@ -71,6 +71,36 @@ public class ApiMapEmitterTests
         Assert.Contains("C# の P/Invoke 宣言は 2 本", text);
     }
 
+    // **内訳も spec から出ていること。** 本数は導出しているのに内訳だけ
+    // 「`byte[]` を渡す版とアドレスを渡す版」のような固定文にすると、
+    // 3 本目が別の形で入った瞬間に、数は正しく中身が嘘の文になる。
+    [Fact]
+    public void NamesTheOverloadsAndWhereTheyGoInsteadOfDescribingThemByHand()
+    {
+        Assert.Contains("- `ocvu_mat_copy_from_buffer_ptr` → `ocvu_mat_copy_from_buffer`",
+                        ApiMapEmitter.Emit(WithOverload()));
+    }
+
+    // **知らない形の overload でも名前が出ること。** 上の 1 件は現行 spec の
+    // 2 本と同じ形なので、名前を決め打ちした実装でも通ってしまう。
+    [Fact]
+    public void NamesAnOverloadItHasNeverSeenBefore()
+    {
+        var spec = new[]
+        {
+            new ModuleSpec("imgproc", new[]
+            {
+                new FunctionSpec("ocvu_resize", "大きさを変える。", "ocvu_status", "int", true,
+                    Array.Empty<ParamSpec>()),
+                new FunctionSpec("ocvu_resize_span", "まだ無い 3 本目の形。", "ocvu_status", "int", true,
+                    Array.Empty<ParamSpec>(), EntryPoint: "ocvu_resize"),
+            }),
+        };
+        var text = ApiMapEmitter.Emit(spec);
+        Assert.Contains("- `ocvu_resize_span` → `ocvu_resize`", text);
+        Assert.Contains("**公開している C ABI は 1 本**", text);
+    }
+
     // --- 到達性 ---
 
     private static IReadOnlyList<ModuleSpec> WithUnreachable() => new[]
@@ -138,6 +168,64 @@ public class ApiMapEmitterTests
         // 区切りとして数えられ、この assertion がそれを捕まえる。
         var delimiters = Regex.Matches(row.TrimEnd('\r'), @"(?<!\\)\|").Count;
         Assert.Equal(6, delimiters);
+    }
+
+    // **`\` を逃がさないと `\|` が壊れる。** summary が `\` で終わったところで
+    // `|` が来ると、逃がした結果は `\\|` になる —— Markdown はこれを
+    // 「逃がした `\`」+「素の `|`」と読み、列が割れる。**区切りの数を数える
+    // 検査ではこれを捕まえられない**（直前が `\` なので逃がされたように
+    // 見える）ので、逃がした後の形そのものを見る。
+    [Fact]
+    public void EscapesBackslashesBeforePipesSoThePipeEscapeSurvives()
+    {
+        var spec = new[]
+        {
+            new ModuleSpec("sample", new[]
+            {
+                new FunctionSpec("ocvu_sample", @"a\|b を取る。", "ocvu_status", "int", true,
+                    Array.Empty<ParamSpec>()),
+            }),
+        };
+        var row = ApiMapEmitter.Emit(spec)
+            .Split('\n').Single(l => l.Contains("ocvu_sample"));
+        // `\` -> `\\`、`|` -> `\|` の順。合わせて `\\` + `\|` になる。
+        Assert.Contains(@"a\\\|b を取る。", row);
+    }
+
+    // `|` を含まない `\` も逃がす（`\\` が Markdown の「1 個の `\`」である）。
+    [Fact]
+    public void EscapesALoneBackslash()
+    {
+        var spec = new[]
+        {
+            new ModuleSpec("sample", new[]
+            {
+                new FunctionSpec("ocvu_sample", @"C:\tmp に書く。", "ocvu_status", "int", true,
+                    Array.Empty<ParamSpec>()),
+            }),
+        };
+        Assert.Contains(@"C:\\tmp に書く。", ApiMapEmitter.Emit(spec));
+    }
+
+    // **到達性テストの置き場所を写さない。** 散文のパスと Program.cs の出力先が
+    // 別々に書かれていると、片方を動かしても誰も落ちない。同じ 1 つを見て
+    // いること、かつそれが実在することを見る。
+    [Fact]
+    public void PointsAtTheReachabilityFileThatActuallyExists()
+    {
+        Assert.Contains(ReachabilityEmitter.OutputPath, ApiMapEmitter.Emit(Sample()));
+        var onDisk = Path.Combine(RepoRoot(), ReachabilityEmitter.OutputPath);
+        Assert.True(File.Exists(onDisk), $"{ReachabilityEmitter.OutputPath} が実在しません");
+    }
+
+    // **区切りは platform で変わってはならない。** Path.Combine の結果を文書へ
+    // 書くと Windows は `\`、Linux は `/` になり、生成物が OS ごとに別物に
+    // なって verify-generated が CI でだけ赤くなる。
+    [Fact]
+    public void TheReachabilityPathUsesForwardSlashesOnEveryPlatform()
+    {
+        Assert.DoesNotContain(@"\", ReachabilityEmitter.OutputPath);
+        Assert.Contains("/", ReachabilityEmitter.OutputPath);
     }
 
     // --- 実物の spec ---

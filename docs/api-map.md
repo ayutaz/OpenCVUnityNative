@@ -5,9 +5,12 @@
 
 **公開している C ABI は 20 本**である。C# の P/Invoke 宣言は 22 本ある。
 
-**差の 2 本は C ABI を増やさない。** 同じ C の entry point へ
-別の引数の形で入る C# 側の入口（`byte[]` を渡す版と、アドレスを直接渡す版）で、
-C 側に対応する宣言が無い。下の表ではその行の **C ABI** の列が空欄になる。
+**差の 2 本は C ABI を増やさない。** 既にある C の entry point へ
+別の引数の形で入る C# 側の入口で、C 側に対応する宣言が無い。
+下の表ではその行の **C ABI** の列が空欄になる。
+
+- `ocvu_mat_copy_from_buffer_ptr` → `ocvu_mat_copy_from_buffer`
+- `ocvu_mat_copy_to_buffer_ptr` → `ocvu_mat_copy_to_buffer`
 
 **「OpenCV 全対応」とは書かない。** 何が在って何が無いかは、この表が示す。
 ここに無い関数は**まだ無い**のであって、隠れているのではない。

@@ -112,6 +112,18 @@ public static class SpecModel
                 throw new SpecFormatException(
                     $"{fileName}: 関数名 '{fn.Name}' が schema の pattern '{c.FunctionNamePattern}' に一致しません");
             }
+            // **改行は逃がすのではなく禁じる。** summary は Markdown の表の
+            // セルへ入る（docs/api-map.md）。表の 1 行の中で改行を表現する
+            // 方法は無いので、入れば行そのものが割れる —— Markdown は
+            // 文句を言わないので、気づけるのは読む人だけである。
+            // 規約で禁じるのではなく、spec の側で表現できなくする
+            // （docs/abi-ownership-and-versioning.md §1 と同じ考え方）。
+            if (!Regex.IsMatch(fn.Summary, c.SummaryPattern))
+            {
+                throw new SpecFormatException(
+                    $"{fileName}: {fn.Name}.summary が schema の pattern '{c.SummaryPattern}' に" +
+                    "一致しません（改行は表のセルに入れられないので禁じています）");
+            }
             if (!c.ReturnsEnum.Contains(fn.Returns))
             {
                 throw new SpecFormatException(
