@@ -1,0 +1,32 @@
+{
+  "module": "infra",
+  "functions": [
+    {
+      "name": "ocvu_get_abi_version",
+      "summary": "現在の C ABI バージョンを返す。失敗しない。",
+      "returns": "int32_t",
+      "csReturns": "int",
+      "wrapInTryBarrier": false,
+      "barrierNote": "ocvu_status を返さないので囲めない",
+      "params": []
+    },
+    {
+      "name": "ocvu_get_last_error_status",
+      "summary": "直近のエラー status を返す。呼び出しスレッドごとに独立している。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": false,
+      "barrierNote": "OCVU_TRY_BEGIN は clear_last_error() を呼ぶので、報告すべきエラーを自分で消してしまう",
+      "params": []
+    },
+    {
+      "name": "ocvu_get_status_count",
+      "summary": "status 表の件数を返す。",
+      "returns": "int32_t",
+      "csReturns": "int",
+      "wrapInTryBarrier": false,
+      "barrierNote": "ocvu_status を返さないので囲めない",
+      "params": []
+    }
+  ]
+}
