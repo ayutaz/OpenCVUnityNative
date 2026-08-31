@@ -1532,6 +1532,24 @@ currently not supported"。**ただしこれは package を対象にしたテス
 **他人の issue を読んだ結果ではなく、こちらで走らせた結果を根拠にする。**
 そのうえで、独自イメージを作るか、self-hosted runner を立てるか、諦めるかを決める。
 
+**2026-08-31 に投げた（第 1 回、run 33350726005）。動いた。**
+
+```
+==> Unity 6000.3.16f1 on windows-2022
+==> [Windows] 33 passed
+```
+
+`game-ci/unity-test-runner@v4` は `windows-2022` で **EditMode を 33 件通した**。
+`customImage` を渡さないだけでよく、独自イメージも self-hosted runner も要らなかった。
+**「動く根拠も動かない根拠も持っていない」状態は、これで終わった。**
+
+**ただしこれで条件が閉じたわけではない。** 第 1 回は EditMode で、
+**条件が問うているのは IL2CPP Player（Standalone）の方である。**
+EditMode が通ったことは IL2CPP が通る根拠にならない —— IL2CPP は別の
+モジュールを要求する。ここを推測で埋めると、この節が禁じている
+「他人の issue を読んだ結果を根拠にする」と同じ誤りになる。第 2 回で
+`Standalone` を投げる。
+
 ### macOS の Plugin Import Settings を Unity で実測する → M4
 
 `.meta` の形式は Unity 自身が生成した Windows 分に合わせてあり、**Linux 分は M2 の
@@ -1556,6 +1574,21 @@ macOS 上で Unity を動かすことになる。**「ついでに埋まる」�
 binary と `.meta` が同居する。** Windows と Linux の利用者もそれを一緒に導入する。
 M3.5 が足した `PluginGatingTests` は Windows と Linux でしか走らないので、
 そこも埋まらない —— **緩んだのではなく、締まった。**
+
+**2026-08-31 に試した（第 1 回、run 33350726005）。道具が対応していなかった。**
+
+```
+##[error]Currently darwin-platform is not supported
+```
+
+`game-ci/unity-test-runner@v4` は **macOS runner を支えていない**。
+**設定では回避できない** —— action の対応範囲の問題である。同じ run の
+Windows 側は動いたので、こちらの設定不備ではないことも同時に分かった。
+
+**残る手は game-ci を経由しないことである。** macOS runner に Unity Hub の
+CLI で Editor を入れ、ローカルのレーンと同じ経路（`-batchmode -runTests`）で
+走らせる。第 2 回でそれを試す。**入らなかった場合はそれ自体を記録して、
+「この穴は CI では埋まらない」と結論する。**
 
 ---
 
