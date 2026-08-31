@@ -36,6 +36,22 @@ Assert-That ($LASTEXITCODE -eq 0) 'restoring the generated file makes the check 
 Assert-That ((Get-Content -LiteralPath $header -Raw) -match 'このファイルは生成物である') `
     'the generated header says it is generated'
 
+# --- **文書も同じ網に入っていること。** 上の 2 件はヘッダ 1 本で満たせるので、
+# Program.cs の outputs から docs/api-map.md の行が消えても緑のままである。
+# そのとき表は凍り、ABI が増えても増えない —— つまり手書きだった頃と同じ
+# 陳腐化に戻るが、「生成物である」と書いてあるぶん質が悪い。名指しで見る。
+$apiMap = Join-Path $repoRoot 'docs/api-map.md'
+$apiMapBackup = Get-Content -LiteralPath $apiMap -Raw
+try {
+    Add-Content -LiteralPath $apiMap -Value '手で足した行'
+    & pwsh -NoProfile -File $dev verify-generated 2>&1 | Out-Null
+    Assert-That ($LASTEXITCODE -ne 0) 'editing docs/api-map.md by hand fails the check'
+}
+finally { Set-Content -LiteralPath $apiMap -Value $apiMapBackup -NoNewline }
+
+& pwsh -NoProfile -File $dev verify-generated | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'restoring docs/api-map.md makes the check pass again'
+
 # --- **実装 -> spec の逆向き。** spec -> 実装は L1 のリンクと L3 の P/Invoke が
 # 見ているが、逆は誰も見ていなかった: extern "C" で ocvu_ を実装して spec に
 # 書き忘れると、C ヘッダにも C# にも宣言が生まれず、export だけが残る。

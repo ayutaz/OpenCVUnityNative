@@ -28,6 +28,13 @@ outputs.Add((Path.Combine(repoRoot, "tests", "UnityProject", "Assets", "Tests",
                           "Shared", "AbiReachabilityChecks.g.cs"),
              ReachabilityEmitter.Emit(specs)));
 
+// **文書も生成物にする。** 手で書いた対応表は関数を足すと必ず古くなる
+// （M3.5 では docs/api-reference.md の冒頭の数えと末尾の一覧が同時に
+// 古くなった）。ここを spec から出しておけば、古いまま commit すると
+// --check が赤くなる。
+outputs.Add((Path.Combine(repoRoot, "docs", "api-map.md"),
+             ApiMapEmitter.Emit(specs)));
+
 var stale = new List<string>();
 foreach (var (path, text) in outputs)
 {
