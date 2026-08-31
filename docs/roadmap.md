@@ -1187,6 +1187,20 @@ API 拡張を手書きから**レビュー可能な仕様からの生成**に切
 **ゴール**
 binding specification から C ABI 宣言 / C# P/Invoke / API 対応表 / conformance test が生成される（L0 の導入）。
 
+**M4 で分かった、generator が満たさなければならないこと**（2026-08-31 追記）。
+
+- **生成した P/Invoke を、IL2CPP の Player から実際に呼ぶところまで生成する。**
+  M4 の点検で実測した: 手書きの 19 本のうち **7 本が Editor でも Player でも
+  一度も呼ばれていなかった**（`imgcodecs` 全部を含む）。L1 と L3 は見ているが、
+  **stripping で消えないことを確かめられるのは Player だけである。**
+  **呼ばれない宣言は、消えても誰も気づかない。** 関数を N 本生成するなら、
+  conformance test も N 本生成して Player レーンに載せること。
+- **binary をファイル名や拡張子で見分けない。** linux-x64 と android-arm64 は
+  どちらも `libopencv_unity_native.so` で、iOS は `.a` である。M4 では
+  「拡張子で binary を判定する」欠陥を **3 箇所**踏んだ。
+- **iOS は静的リンクである。** 生成物が動的読み込みを前提にできない
+  （`DllImport("__Internal")`）。
+
 **M7 の決定 1（module 分離）がここに食い込む。** `dnn` を足す前に C ABI を
 module 単位に割ると決めたので、**generator が生成するのは単一ヘッダではなく
 module ごとのヘッダになりうる。** どちらが先に着手されるかで設計が変わるので、
