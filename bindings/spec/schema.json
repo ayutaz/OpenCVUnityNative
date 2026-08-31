@@ -19,6 +19,8 @@
           "csReturns": { "type": "string", "enum": ["int", "void"] },
           "wrapInTryBarrier": { "type": "boolean" },
           "barrierNote": { "type": "string" },
+          "reachable": { "type": "boolean" },
+          "reachableNote": { "type": "string" },
           "entryPoint": { "type": "string", "pattern": "^ocvu_[a-z0-9_]+$" },
           "params": {
             "type": "array",

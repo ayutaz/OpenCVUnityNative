@@ -220,4 +220,98 @@ public class SpecSchemaTests
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
+
+    // --- reachable（M5 Task 6）---
+
+    // **既定は true である。** spec が reachable を書いていない関数は
+    // 到達性テストが呼ぶ。書き忘れが静かな除外にならないようにするため。
+    [Fact]
+    public void FunctionsWithoutTheReachableFlagDefaultToReachable()
+    {
+        var fns = SpecModel.Load(Path.Combine(RepoRoot(), "bindings", "spec"))
+            .SelectMany(s => s.Functions)
+            .ToDictionary(f => f.Name);
+
+        Assert.Null(fns["ocvu_mat_create"].Reachable);   // spec に書かれていない
+        Assert.True(fns["ocvu_mat_create"].IsReachable); // それでも到達可能
+    }
+
+    // **実物の spec で「呼べない」と印が付いているのは crash probe だけ。**
+    // 増えたら、増やした本人がここを直しながら「なぜ呼べないか」を考える。
+    [Fact]
+    public void OnlyTheCrashProbeIsMarkedUnreachable()
+    {
+        var unreachable = SpecModel.Load(Path.Combine(RepoRoot(), "bindings", "spec"))
+            .SelectMany(s => s.Functions)
+            .Where(f => !f.IsReachable)
+            .Select(f => f.Name)
+            .ToList();
+
+        Assert.Equal(new[] { "ocvu_debug_crash" }, unreachable);
+    }
+
+    // **「なぜ呼ばないか」を書かせる。** 印だけ付けて理由が無いと、
+    // 次に読む人は spec を読んでも分からない。
+    [Fact]
+    public void MarkingAFunctionUnreachableWithoutSayingWhyIsRejected()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "bad.json"), """
+                {
+                  "module": "noreason",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "test",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "reachable": false,
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("reachableNote", ex.Message);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // 理由を書けば通ること（上の検査が「reachable: false を一律に拒む」
+    // だけになっていないことの確認）。
+    [Fact]
+    public void MarkingAFunctionUnreachableWithAReasonIsAccepted()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "ok.json"), """
+                {
+                  "module": "withreason",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "test",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "reachable": false,
+                      "reachableNote": "呼ぶと戻ってこないため",
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var loaded = SpecModel.Load(tmp);
+            Assert.False(loaded.Single().Functions.Single().IsReachable);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
 }

@@ -19,13 +19,18 @@ using UnityEngine;
 /// 22 個。上の 2 重宣言は <c>_ptr</c> 付きの別名になった）。増えた 1 本は
 /// <c>ocvu_debug_crash</c> で、**呼べばプロセスが死ぬので通す対象ではない。**
 ///
-/// 通していない残りは 3 本（<c>ocvu_get_status_count</c> /
-/// <c>ocvu_get_status_value</c> / <c>ocvu_debug_crash</c>）である。
-/// 前の 2 本は **出荷する C# のどこからも呼ばれていない** —— 呼ぶ側が無く、
-/// <c>NativeMethods</c> は internal なので Unity のテストからも到達できない。
-/// stripping がこの 2 本を消しても壊れるものは無いが、「通した」と
-/// 書かないために明記しておく
-/// （status 表の同期は L3 の <c>StatusCodeSyncTests</c> が見ている）。
+/// **M5 Task 6 で穴が閉じた。** この一覧が触るのは公開 API から辿れる
+/// 宣言だけで、<c>ocvu_get_status_count</c> / <c>ocvu_get_status_value</c> は
+/// 出荷する C# のどこからも呼ばれていなかった。いまは spec から生成された
+/// <c>AbiReachabilityChecks</c> が **21 本の宣言を 1 つ残らず** 呼び、
+/// EditMode と PlayMode の両方がそれを 1 件のテストとして通す。
+/// 残る 1 本は <c>ocvu_debug_crash</c> で、**呼べば戻ってこないので
+/// 到達性テストからも外してある**（理由は <c>bindings/spec/infra.json</c> の
+/// <c>reachableNote</c>）。
+///
+/// **それでもこの一覧は要る。** あちらは「呼べること」しか見ない ——
+/// 引数は型ごとの無害な既定値で、返る status も結果も見ない。
+/// 下の 8 件は**正しく動くこと**を見ており、2 つは別のものを守っている。
 ///
 /// L1 と L3 は上記をすべて見ているので「テストが無い」わけではない。
 /// しかし**このリポジトリが守ると宣言しているのは

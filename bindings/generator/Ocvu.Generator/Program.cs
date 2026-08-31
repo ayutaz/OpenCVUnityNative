@@ -22,6 +22,12 @@ foreach (var spec in specs)
                  CsPInvokeEmitter.Emit(spec)));
 }
 
+// **module ごとではなく 1 ファイル。** 全 entry point を横断して 1 回ずつ
+// 呼ぶので、module に分けると「全部呼んだ」を 1 箇所で数えられなくなる。
+outputs.Add((Path.Combine(repoRoot, "tests", "UnityProject", "Assets", "Tests",
+                          "Shared", "AbiReachabilityChecks.g.cs"),
+             ReachabilityEmitter.Emit(specs)));
+
 var stale = new List<string>();
 foreach (var (path, text) in outputs)
 {

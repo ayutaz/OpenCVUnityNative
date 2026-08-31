@@ -93,6 +93,8 @@
       "csReturns": "void",
       "wrapInTryBarrier": false,
       "barrierNote": "戻ってこないので status に変換する相手がいない",
+      "reachable": false,
+      "reachableNote": "呼ぶと戻ってこない（kind 0 は即死、kind 1 は無限ループ）。到達性テストは全 entry point を 1 回ずつ呼ぶので、これを含めるとテストプロセスごと死ぬ。この 1 本だけは生成された呼び出しから外す。stripping で消えても壊れるものは無い —— 通常の経路から呼ぶ側が無く、L3 の test-managed-probe が名指しで P/Invoke するのは Player ではなく素の .NET だからである。",
       "params": [
         { "name": "kind", "cType": "int32_t", "csType": "int", "direction": "in" }
       ]

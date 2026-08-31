@@ -23,7 +23,26 @@ public sealed record FunctionSpec(
     [property: JsonPropertyName("wrapInTryBarrier")] bool WrapInTryBarrier,
     [property: JsonPropertyName("params")] IReadOnlyList<ParamSpec> Params,
     [property: JsonPropertyName("barrierNote")] string? BarrierNote = null,
-    [property: JsonPropertyName("entryPoint")] string? EntryPoint = null);
+    [property: JsonPropertyName("entryPoint")] string? EntryPoint = null,
+    [property: JsonPropertyName("reachable")] bool? Reachable = null,
+    [property: JsonPropertyName("reachableNote")] string? ReachableNote = null)
+{
+    /// <summary>
+    /// 到達性テスト（<c>ReachabilityEmitter</c>）がこの関数を呼ぶか。
+    /// </summary>
+    /// <remarks>
+    /// **既定は true である。** spec が <c>reachable</c> を書いていない関数は
+    /// 呼ぶ側に回る —— 「呼べる」が普通で、「呼べない」ほうが例外だからで、
+    /// 書き忘れが静かな除外にならないようにするためでもある。
+    ///
+    /// **nullable にしてあるのは、既定値の解釈を JSON 実装に委ねないため。**
+    /// bool の必須でない値をそのまま受けると「書かれていない」と「false と
+    /// 書かれている」が区別できず、既定が false 側に倒れれば到達性テストは
+    /// 1 本も呼ばないまま緑になる。ここで null と false を分けておけば、
+    /// どちらに転んでも既定は true のままである。
+    /// </remarks>
+    public bool IsReachable => Reachable != false;
+}
 
 public sealed record ModuleSpec(
     [property: JsonPropertyName("module")] string Module,
@@ -110,6 +129,15 @@ public static class SpecModel
                 throw new SpecFormatException(
                     $"{fileName}: {fn.Name}.entryPoint '{fn.EntryPoint}' が schema の pattern " +
                     $"'{c.EntryPointPattern}' に一致しません");
+            }
+            // **「呼べない」と印を付けるなら理由を書かせる。** reachable: false は
+            // 到達性テストの網から 1 本を外すので、なぜ外すのかが spec を読んで
+            // 分からなければ、次に読む人はそれが意図か事故かを判定できない。
+            if (!fn.IsReachable && string.IsNullOrWhiteSpace(fn.ReachableNote))
+            {
+                throw new SpecFormatException(
+                    $"{fileName}: {fn.Name} は reachable: false だが reachableNote がありません。" +
+                    "到達性テストから外す理由を書いてください。");
             }
 
             foreach (var p in fn.Params)
