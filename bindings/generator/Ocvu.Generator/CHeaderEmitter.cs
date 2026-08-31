@@ -26,6 +26,10 @@ public static class CHeaderEmitter
 
         foreach (var fn in spec.Functions)
         {
+            // entryPoint を持つものは C# 側の別 overload であって、C の宣言は 1 本である。
+            // （byte[] を渡す版とポインタを渡す版は、C から見れば同じ関数の同じ signature）
+            if (!string.IsNullOrEmpty(fn.EntryPoint)) { continue; }
+
             sb.AppendLine($"/* {fn.Summary} */");
             if (!fn.WrapInTryBarrier && !string.IsNullOrEmpty(fn.BarrierNote))
             {

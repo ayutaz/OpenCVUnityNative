@@ -72,4 +72,23 @@ public class CHeaderEmitterTests
         Assert.Contains("例外バリアで囲まない: 自分でエラーを消してしまうため",
                         CHeaderEmitter.Emit(spec));
     }
+
+    // **C 側の宣言は 1 本である。** entryPoint を持つものは C# 側の別 overload
+    // （byte[] 版と IntPtr 版）を表すために spec に 2 エントリある。C ヘッダに
+    // そのまま出すと同じ関数を 2 度宣言することになり、しかも型が違えば
+    // 「異なる型での再宣言」でコンパイルが落ちる。
+    [Fact]
+    public void OverloadsThatShareAnEntryPointAreNotDeclaredTwice()
+    {
+        var spec = new ModuleSpec("sample", new[]
+        {
+            new FunctionSpec("ocvu_sample_do", "本体。", "ocvu_status", "int", true,
+                Array.Empty<ParamSpec>()),
+            new FunctionSpec("ocvu_sample_do_ptr", "ポインタ版。", "ocvu_status", "int", true,
+                Array.Empty<ParamSpec>(), BarrierNote: null, EntryPoint: "ocvu_sample_do"),
+        });
+        var text = CHeaderEmitter.Emit(spec);
+        Assert.Contains("ocvu_sample_do(void);", text);
+        Assert.DoesNotContain("ocvu_sample_do_ptr", text);
+    }
 }
