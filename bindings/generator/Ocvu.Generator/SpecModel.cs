@@ -108,9 +108,11 @@ public static class SpecModel
         throw new SpecFormatException(
             $"{fileName}: {fnName}.{field} が schema の pattern '{pattern}' に一致しません。" +
             "生成物を壊す文字は禁じています —— 改行は Markdown の表の行を割り、" +
-            "'*/' は C ヘッダのブロックコメントをそこで終わらせ、" +
+            "'*/' は C ヘッダのブロックコメントをそこで終わらせ（残りが C のコードになり、" +
+            "実測でコンパイルエラー C2143 になります）、" +
             "'<' '>' '&' は C# の XML doc を壊します" +
-            "（Shim は TreatWarningsAsErrors なのでビルドが失敗します）。" +
+            "（doc ファイルを生成していない現状では compiler は黙っていますが、" +
+            "IDE の表示は壊れ、生成を有効にした時点で一斉にエラーになります）。" +
             "これらを使わない言い回しに直してください。");
     }
 
@@ -132,9 +134,11 @@ public static class SpecModel
             // **生成物を壊す文字は逃がすのではなく禁じる。** summary は 3 つの
             // 生成物へ**生のまま**入る: Markdown の表のセル（docs/api-map.md）、
             // C のブロックコメント（native/include/ocvu/*.h）、C# の XML doc
-            // （NativeMethods.*.g.cs）。どれも逃がし方が違ううえ、壊れ方は
-            // 「読みにくい」ではなく「ビルドが通らない」か「黙って別物になる」
-            // である。summary は人が読む短い説明なので、この 4 つが書けなくても
+            // （NativeMethods.*.g.cs）。どれも逃がし方が違う。**いちばん重いのは
+            // C ヘッダで、`*/` を 1 つ入れると native のビルドが落ちる**（実測。
+            // imgproc.h(18,51) で C2143）。XML doc のほうは、いまは doc ファイルを
+            // 生成していないので compiler が黙る —— つまり**壊れたまま緑になる**。
+            // summary は人が読む短い説明なので、この 4 つが書けなくても
             // 困らない —— 規約で禁じるのではなく、spec の側で表現できなくする
             // （docs/abi-ownership-and-versioning.md §1 と同じ考え方）。
             RequireSafeText(fileName, fn.Name, "summary", fn.Summary, c.SummaryPattern);

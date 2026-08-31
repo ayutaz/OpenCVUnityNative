@@ -227,9 +227,13 @@ public class SpecSchemaTests
     // 「読みにくい」ではなく「ビルドが通らない」か「黙って別物になる」。
     //
     // - Markdown の表のセル（docs/api-map.md）    -> 改行が行を割る
-    // - C のブロックコメント（ocvu/*.h）          -> `*/` がそこでコメントを終わらせる
-    // - C# の XML doc（NativeMethods.*.g.cs）     -> `<` `>` `&` が壊す
-    //   （Shim は TreatWarningsAsErrors なのでビルドが失敗する）
+    // - C のブロックコメント（ocvu/*.h）          -> `*/` がそこでコメントを終わらせ、
+    //   残りが top-level の C コードになる（**実測でコンパイルエラー C2143**）
+    // - C# の XML doc（NativeMethods.*.g.cs）     -> `<` `>` `&` が壊す。
+    //   **実測: いまは落ちない** —— Shim は TreatWarningsAsErrors だが
+    //   GenerateDocumentationFile が無いので compiler は doc comment を読まず、
+    //   `<T>` と `&` を入れてもビルドは成功する。**壊れたまま緑になる**ほうで、
+    //   doc の生成を有効にした時点で一斉にエラーになる。
     [Theory]
     [InlineData(@"1 行目\n2 行目", "改行 (LF)")]
     [InlineData(@"1 行目\r\n2 行目", "改行 (CRLF)")]
