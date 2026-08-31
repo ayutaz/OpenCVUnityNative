@@ -40,7 +40,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **v0.3.0 の tag は打ってあり、28 asset の下書きが検証済みで止めてある。公開していない** ——この版の目玉が実機で一度も動いていないためで、v0.1.0 で「ビルドは通ったが動かない物」を配った経緯を繰り返さない判断である（`docs/roadmap.md` の「配布 その 4」）。
 
-現在の公開 ABI は 20 本。M0/M1 由来の 8 本（`ocvu_get_abi_version`、last-error の取得、status 表の照会、`ocvu_get_opencv_version` / `ocvu_get_build_information`）に、M2 で `Mat` のライフサイクルと buffer 転送の 6 本（`ocvu_mat_create` / `_release` / `_clone` / `_get_info` / `_copy_from_buffer` / `_copy_to_buffer`。`native/src/ocvu_mat_table.cpp`、`native/src/ocvu_mat.cpp`、`native/src/ocvu_mat_buffer.cpp`）、`imgproc` の 3 本（`ocvu_cvt_color` / `ocvu_resize` / `ocvu_gaussian_blur`。`native/src/ocvu_imgproc.cpp`）、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`）が加わり、M3.5 で `imgcodecs` の 2 本（`ocvu_imencode` / `ocvu_imdecode`。`native/src/ocvu_imgcodecs.cpp`）が加わった。所有権・versioning・API allowlist の正本は `docs/abi-ownership-and-versioning.md`。
+**M5（binding specification と generator）は実装が済んだ。境界の宣言はもう手で書かない。** `bindings/spec/{infra,core,imgproc,imgcodecs}.json` が正本で、そこに並ぶ **22 エントリ**から **C ABI 宣言 20 本（`native/include/ocvu/*.h`）／C# の P/Invoke 22 本（`Runtime/Interop/NativeMethods.<module>.g.cs`）／全 entry point を 1 回ずつ呼ぶ到達性テスト（`tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs`）／API 対応表（`docs/api-map.md`）**が同時に出る（`./tools/dev.ps1 generate`）。**手書きの `[DllImport]` は 0 個である**（22 個すべてが `.g.cs` の中にある）。一致は `./tools/dev.ps1 verify-generated` が見て、これは `dev.ps1 test` に入っているので **3 platform の `ci-native` が毎回通す**。**検査は両向きに効く** —— 生成物を手で触ると落ち（実測）、`native/src/**/*.cpp` に `extern "C"` で `ocvu_` を実装して spec に書かなければ落ちる（後者は `tools/tests/BindingGenerator.Tests.ps1`。**見ているのは `native/src` の `.cpp` だけ**なので、他所に定義を置くと網に入らない）。**ABI は 1 本も増減していない** —— `OCVU_ABI_VERSION` は 1 のままで、M5 は移設であって追加ではない。**完了条件 5 件のうち 4 件を満たし、条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は計画の側で意図的に次へ送った**（判定表は `docs/roadmap.md` の M5 節）。
+
+現在の公開 ABI は 20 本。M0/M1 由来の 8 本（`ocvu_get_abi_version`、last-error の取得、status 表の照会、`ocvu_get_opencv_version` / `ocvu_get_build_information`）に、M2 で `Mat` のライフサイクルと buffer 転送の 6 本（`ocvu_mat_create` / `_release` / `_clone` / `_get_info` / `_copy_from_buffer` / `_copy_to_buffer`。`native/src/ocvu_mat_table.cpp`、`native/src/ocvu_mat.cpp`、`native/src/ocvu_mat_buffer.cpp`）、`imgproc` の 3 本（`ocvu_cvt_color` / `ocvu_resize` / `ocvu_gaussian_blur`。`native/src/ocvu_imgproc.cpp`）、L3 のクラッシュ・ハング耐性を実証する `ocvu_debug_crash`（`native/src/ocvu_debug.cpp`）が加わり、M3.5 で `imgcodecs` の 2 本（`ocvu_imencode` / `ocvu_imdecode`。`native/src/ocvu_imgcodecs.cpp`）が加わった。所有権・versioning・API allowlist の正本は `docs/abi-ownership-and-versioning.md`。**M5 で宣言の在り処が変わった** —— 20 本の `extern "C"` 宣言は `native/include/opencv_unity_native.h` から module ごとの `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` へ移り、**いずれも生成物になった**。もとのヘッダが今も持つのは `OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数だけで、**関数宣言はもう 1 本も無い**（4 つを include するだけである）。**「宣言は `opencv_unity_native.h` に在る」と書いた記述は、この時点で誤りになった。**
 
 **この 2 本はファイルパスを受け取らない。メモリ上の byte 列だけを扱う。**「画像ファイルの読み書き」ではない。理由は 2 つ: Windows では境界を越えるパスの文字コードが問題になること、Android では StreamingAssets が APK の中にあってパスでは開けないこと。拡張子（`".png"` 等）も marshal した文字列ではなく、**UTF-8 の NUL 終端 byte 列として明示的に渡す**。また `ocvu_imencode` は **出力の大きさを呼ぶ側が事前に知り得ない最初の ABI 関数**である。native 側が確保した blob の handle は導入せず、既存の 2 回呼びの作法（`OCVU_STATUS_BUFFER_TOO_SMALL` + `out_required_size`）に載せた —— byte 列の所有権は最初から最後まで呼ぶ側にある。buffer が足りないときは何も書かない。C# 側の入口は `CvCodecs`（`Runtime/Core/CvCodecs.cs`）で、`CvOps` には入れていない（あちらは `imgproc` の範囲である）。
 
@@ -51,23 +53,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | コマンド | 内容 | 実測 |
 | --- | --- | --- |
 | `./tools/dev.ps1 build` | native の configure + build | — |
-| `./tools/dev.ps1 test` | **既定**。tools の速いテスト 2 本 + L1 + L3 | 約 21 秒（増分、成果物が最新。2026-08-28 実測） |
-| `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 2 本（OpenCV 構成・ハッシュ無効化） | 約 18 秒 |
+| `./tools/dev.ps1 generate` | **M5。** `bindings/spec/*.json` から C ヘッダ・C# の P/Invoke・到達性テスト・API 対応表を書き出す（**10 ファイル**）。**境界の宣言を手で書く経路はもう無い** | — |
+| `./tools/dev.ps1 verify-generated` | **M5。** 生成物が spec と一致しているかだけを見る（書き直さない）。食い違えば差分を並べて非 0 で返る。`test` に入っている | — |
+| `./tools/dev.ps1 test` | **既定**。tools の速いテスト 3 本 + `verify-generated` + L1 + L3 | **約 65 秒**（増分、成果物が最新。2026-09-01 実測、exit 0）。**M3.5 以前の「約 21 秒」から伸びた** —— tools のテストが 3 本になり、`verify-generated` と L3 の 2 つ目の assembly が `dotnet` の起動を 2 回増やした |
+| `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 3 本（OpenCV 構成・ハッシュ無効化・**生成物と spec の一致**） | 約 18 秒（**2 本だった頃の値**） |
 | `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証・restore の実 download・linkage 検証・配布物生成 | 約 4 分 15 秒（2026-08-28 実測。M3 で `VerifyArtifactLinkage.Tests.ps1` と `PackageRelease.Tests.ps1` が加わり、M1 時点の約 70 秒から伸びた） |
-| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest + CTest） | 約 10 秒 |
-| `./tools/dev.ps1 test-managed` | L3 のみ（xUnit から P/Invoke、44 件） | 約 11 秒 |
+| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest **64 件** + CTest **4 件**） | 約 10 秒 |
+| `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **44 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **74 件**（M5 で新設） | 約 11 秒（**44 件だけだった頃の値**） |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 18 秒（増分。2026-08-28 実測。M1 時点の約 11 秒より伸びているが、原因は未特定——増えたのは L1 側で計測済みの再コンパイル対象と同じファイル群で、M3 固有の変更ではない） |
 | `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
-| `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、**33 件**） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値。** その後 M3.5 で 16 件、M4 で 33 件になったが所要時間は取り直していない） |
-| `./tools/dev.ps1 test-unity-player` | L5（Unity IL2CPP Player のビルドと実行、**18 件**） | 約 54 秒（増分・キャッシュ温状態。2026-08-28 実測。cold 実測はまだ無く、roadmap の想定は 5〜20 分。**Unity 6000.0.82f1・10 件での値**） |
+| `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、**34 件**） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値。** その後 M3.5 で 16 件、M4 で 33 件、M5 で 34 件になったが所要時間は取り直していない） |
+| `./tools/dev.ps1 test-unity-player` | L5（Unity IL2CPP Player のビルドと実行、**19 件**） | 約 54 秒（増分・キャッシュ温状態。2026-08-28 実測。cold 実測はまだ無く、roadmap の想定は 5〜20 分。**Unity 6000.0.82f1・10 件での値**） |
 | `./tools/dev.ps1 test-unity-tarball` | **UPM tarball の導入検証。** tarball だけを指した使い捨ての Unity プロジェクトを作り、そこで EditMode を走らせる。**`-PluginSource` に他 platform の plugin 木（';' 区切り）を渡すと全部入りとして固めてから検証する** —— 渡さなければ従来どおり 1 platform 分で走り、**黙って全部入りのふりはしない** | 約 3 分（2026-08-28 実測。Library/ を持って行かないので Unity が import からやり直す。**Unity 6000.0.82f1・1 platform でのもの**）|
 | `./tools/dev.ps1 clean` | `build/` を削除 | — |
 
+**`dev.ps1` のレーンは相互排他である。2 つ同時に走らせないこと。** 結果を書くレーンは開始時に `Reset-Results` で `artifacts/test-results/` を**ディレクトリごと消す**ので、後から始めたほうが先行しているほうの結果を消す。**壊れ方が悪い** —— 先行したレーンは赤くならず**無音で止まり**、Unity のレーンなら起動した Player がそのまま置き去りになる。M5 で実測した。
+
 上記のうち `test` / `test-asan` は 2026-08-28 に、`test-native` / `test-managed` は 2026-08-27 に、いずれもネイティブ成果物が最新の状態（直前のビルドから変更なし）で実測した値である。**M1 時点でソースの変更を伴う増分ビルドを計測したときは `test` が約 65 秒（`test-native` 約 28 秒、`test-managed` 約 43 秒）だった。** 差の主因は毎回のビルドで実際に何を再コンパイルするかで、OpenCV の `find_package` を伴う CMake の再 configure 自体は毎回走る。成果物が最新かどうかで数字は大きく動くので、ここでの「実測」は目安であって上限の保証ではない。
 
-**M3.5 で上の数字の前提が変わったが、再計測していない。** L1 に 8 ケース（`native/tests/test_imgcodecs.cpp`）、L3 に 8 ケース（`ImgcodecsTests.cs`）、`test-tools-slow` に負の経路 4 件が加わり、plugin は `imgcodecs` をリンクして大きくなった（数字は上の imgcodecs の段）。**上の表の数字はいずれも M3.5 より前のものである。**
+**M3.5 で上の数字の前提が変わったが、再計測していない。** L1 に 8 ケース（`native/tests/test_imgcodecs.cpp`）、L3 に 8 ケース（`ImgcodecsTests.cs`）、`test-tools-slow` に負の経路 4 件が加わり、plugin は `imgcodecs` をリンクして大きくなった（数字は上の imgcodecs の段）。**表のうち取り直したのは `test` の 1 行だけ**（2026-09-01）で、**残りはいずれも M3.5 より前のものである。**
 
-「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、ソース変更を伴う `test` の実測（約 65 秒）はすでに緊張関係にある。M1 ではこれを**受け入れて記録するに留めており、解消していない**。着手するなら configure の結果を跨いで再利用するか、OpenCV に依存しないレーンを分けることになる。
+「ローカルループは秒単位を死守する」という不変条件（本ファイル下部）と、`test` の実測（約 65 秒）はすでに緊張関係にある。M1 ではこれを**受け入れて記録するに留めており、解消していない**。**M5 でこの緊張は 1 段強まった** —— M1 の 65 秒は**ソースを変えた**ときの値だったが、2026-09-01 の 65 秒は**何も変えていない**ときの値である（tools のテストが 3 本になり、`verify-generated` と L3 の 2 つ目の assembly で `dotnet` の起動が 2 回増えた）。着手するなら configure の結果を跨いで再利用するか、OpenCV に依存しないレーンを分けることになる。
 
 重いツールテスト 2 本（`VerifyOpenCvArtifact` は 1 ケースごとに `pwsh -NoProfile -File` を起こす作りで単体 69 秒、`OpenCvRestore` は実 download）は `test` から外して `test-tools-slow` に分け、`ci-native` の step として走らせている。**ローカルで走らないが、CI では必ず走る。** どこからも走らない状態にしないことが目的である（M1 のレビュー H2）。
 
@@ -89,7 +95,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 場所 | 内容 |
 | --- | --- |
-| `native/include/opencv_unity_native.h` | 公開 C ABI ヘッダ。`OCVU_STATUS_LIST` が status code の唯一の定義元 |
+| `bindings/spec/*.json` | **境界の正本（M5）。** module ごとに 1 ファイル（`infra` / `core` / `imgproc` / `imgcodecs`）、合計 22 エントリ。`schema.json` が形を縛る。**ここに 1 エントリ書いて `dev.ps1 generate` を実行するのが、関数を足す唯一の経路である** |
+| `bindings/generator/` | spec を読んで生成物を書く net8.0 の console（`Ocvu.Generator`）と、その xUnit（`Ocvu.Generator.Tests`、**74 件**）。`tests/Managed/CvUnity.Managed.sln` に同居するので `dev.ps1 test-managed` が一緒に回す |
+| `native/include/opencv_unity_native.h` | 公開 C ABI ヘッダの入口。`OCVU_STATUS_LIST`（status code の唯一の定義元）・handle と struct の型・`OCVU_*` 定数を持ち、下の 4 つを include する。**M5 以降、関数宣言はここに 1 本も無い**（足しても次の `generate` で消える） |
+| `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` | **生成物（M5）。** module ごとの `extern "C"` 宣言。**手で編集しない** —— `dev.ps1 verify-generated` が落とす |
+| `docs/api-map.md` | **生成物（M5）。** spec の 22 エントリを 1 行ずつ並べた API 対応表。**本数を数えるのはこの表の冒頭だけ**で、他所に数字を写さない。「OpenCV 全対応」のような曖昧な表現を置かないための出口でもある |
 | `native/src/` | C ABI 実装（version / last-error / status 表 / debug throw・crash / OpenCV version・build information / `Mat` のライフサイクルと buffer 転送 / imgproc 3 関数 / **imgcodecs の encode・decode 2 関数**） |
 | `native/tests/` | L1 の GoogleTest と、意図的にクラッシュ・ハングする `ocvu_probe` |
 | `cmake/run_expect_failure.cmake` | 「失敗するはずのコマンド」を走らせる CTest ドライバ |
@@ -102,24 +112,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tools/verify-plugin-portability.ps1` | Linux plugin が要求する GLIBC / GLIBCXX の上限検査。**readelf に頼らず ELF を直接読む**ので Windows の開発機でも動く（道具が無いから検査できない、という穴を作らない）。上限は「支える最も古い環境」= Ubuntu 22.04（glibc 2.35）|
 | `tools/ci/setup-linux-container.sh` | Linux のビルドコンテナに道具を入れる。cmake は Kitware から（jammy の apt は 3.22.1 で古すぎる）。git の safe.directory も設定する（コンテナは root、ファイルは runner の UID）|
 | `tools/tests/OpenCvConfig.Tests.ps1` | 構成ハッシュの検査（`dev.ps1 test` に入る速いレーン）に加えて、**workflow 側の不変条件を job 単位で**見る: `container:` を持つ job の宣言イメージが `opencv-config.psd1` と一致すること、その job の `run:` に `sudo` が残っていないこと、`opencv.ps1 restore` を呼ぶ job が `third_party/opencv/` を対象にした cache step を**ちょうど 1 つ**持ち、その `path:` と `key:` の両方が構成ハッシュを参照し、参照先の step id が同じ job に実在すること、テストレーンを走らせる job が結果を `if: always()` で artifact 化すること、全 job に `timeout-minutes` があること、配る binary を作る job が step 単位の `if:` 無しで移植性を検査し、その振り分けが matrix の platform 集合と過不足なく一致すること。**Unity を起動する job については**（`ci-unity` の中で `game-ci/unity-test-runner` を使う job だけに絞る。絞った先が空でないことも見る）、3 platform を重ねる step・合図を置く step・`assert-unity-results.ps1` に `-RequireTest` を渡す step がそれぞれちょうど 1 つあること、`needs:` を持つなら**ちょうど `if: !cancelled()`** で守られていること（ゆるい条件は必須チェックを**常時** skip にしうる）、合図の名前が C# の定数・workflow・`dev.ps1`・`.gitignore` の 4 箇所で一致していること。**job 単位にしたのは、ファイル単位では通ってしまう穴を実際に踏んだから**である——cache の検査が `ci-native` の Windows job の分で満足し、後から足した macOS / Linux と `ci-sanitizers` の linux-asan が漏れていた。**コンテナ名の検査も同じ穴を持っていた**: 4 本の workflow を名指ししていたので `nightly` を見落としており、`container:` を持つ全 job を対象にする形に直した。切り出しは YAML パーサを使わずインデント規約で行うが、**切れなかったときは空振りではなく落ちる**（`jobs:` 直下の 2 スペース key を緩く数えた数と、job として認識した数が合わなければ失敗させる）。**ファイル単位で見るもの**は 3 つある: `# shellcheck ` で始まる散文（道具が指示文として読んでしまう）、`tools/tests/*.Tests.ps1` が `dev.ps1` の `$ToolsTestScriptsFast` / `$ToolsTestScriptsSlow` に配線されていること、`.github/codeql/codeql-config.yml` の `query-filters`（下の行）。workflow の列挙は `.yml` と `.yaml` の両方を拾い、`git ls-files` の一覧と突き合わせる——**検査対象から静かに外れる**が構造上ありえないようにするため |
+| `tools/tests/BindingGenerator.Tests.ps1` | **生成物と spec の一致を、外側から見る（M5。速いレーン）。** 10 assertion。一致していることに加えて、**生成された `.h` / `docs/api-map.md` を手で書き換えると `verify-generated` が落ちること・戻すと通ること**を実際にやって確かめる（`prove-a-check-works` の「壊して、落ちることを見る」をレーンの中に常設した形）。**逆向きも見る** —— `native/src/**/*.cpp` の `extern "C" ocvu_*` を全部拾い、spec に無いものがあれば落とす。**拾えた数と `extern "C"` の総数が合わなければ、空振りではなく失敗させる** |
 | `cmake/toolchains/<platform>.cmake` | クロスビルドの toolchain（M4。Android NDK / iOS）。**platform 固有の linker flag はここに置く** —— `tools/opencv-config.psd1` に書いても OpenCV は共有ライブラリを作らないので何にも当たらない（16 KB page size でこれを踏んだ）|
 | `tools/verify-android-page-size.ps1` | Android の `.so` が 16 KB page size に対応しているかを見る（M4）。**readelf に頼らず ELF の program header を直接読む**ので Windows でも動く。PT_LOAD が 0 件なら落とす |
 | `docs/m4-device-verification.md` | **CI では原理的に閉じない条件を、人が実行する手順書に落としたもの**（M4）。iOS 実機の smoke test と lifecycle / memory pressure |
 | `Packages/.../Runtime/UnityIntegration/WebCamTextureConverter.cs` | `WebCamTexture` から `CvMat` を作る（M4）。**新しい C ABI 関数は使わない**（既存の上に立つ純 C#）。既定で上下を反転する —— Unity は左下原点、OpenCV は左上原点 |
-| `tests/UnityProject/Assets/Tests/Shared/` | EditMode と PlayMode が**共有する**検証本体（M4）。**本体はここにしか無い** —— 写して 2 つ持つと、片方だけ直って「Editor と Player で同じ結果」を確かめられなくなる |
+| `tests/UnityProject/Assets/Tests/Shared/` | EditMode と PlayMode が**共有する**検証本体（M4）。**本体はここにしか無い** —— 写して 2 つ持つと、片方だけ直って「Editor と Player で同じ結果」を確かめられなくなる。**M5 で `AbiReachabilityChecks.g.cs` が加わった**（生成物）—— spec が載せる宣言を 1 本残らず 1 回ずつ呼ぶ。結果は見ず、**呼べたことだけ**を見る。IL2CPP の stripping が消せるのは**呼ばれない**宣言なので、これを確かめられるのは Player だけである |
 | `tools/assert-unity-results.ps1` | Unity のテスト結果 XML の判定。**ローカルと CI の両方がここを通る** —— CI では game-ci が Unity を起動するので起動の仕方は分かれるが、判定は分けない。「0 件で緑にしない」もここが持つ。**`-RequireTest` は「その 1 群だけが消えた」を捕まえる**（M3.5 の追補）—— passed が 1 以上なら緑になるので、`PluginGatingTests` が assembly から外れても残りが通れば気づけない。実測: 結果 XML から gating の 6 件を抜くと `10 passed` になり、以前はそれで緑だった。**`Passed` であることまで見る** —— NUnit は `[Ignore]` を `Skipped` として出力し `failed` に数えないので、存在だけを見ると `[Ignore]` 1 行で満たせる（実測）。**`-RequireOutput` はさらに「どの分岐を通ったか」を見る** —— テストが通っても、合図が届かなければ弱い側の分岐を通っただけで、出力は成功時と 1 バイトも違わない。入力（合図を書く step が在ること）をいくら検査しても届いたことの証明にはならないので、テスト自身が出した事実（`native plugins present: 5`）を要求する |
 | `tools/pack-upm-tarball.ps1` | UPM tarball を作る唯一の入口。`release.yml` と `dev.ps1 test-unity-tarball` の**両方**がここを通る（作り方が分かれると、導入を確かめた tarball と実際に配る tarball が別物になる）。中身は npm と同じく `package/` の下に入れる — package ID のディレクトリごと固めると UPM が 展開後の root に `package.json` を見つけられず導入に失敗する（M3 で実測）。**M3.5 で `-AllPlatforms` が加わり、これが配る正になった** —— 3 platform 分の binary を 1 つに束ね、名前から版番号を落とす（`com.ayutaz.opencv-unity-native.tgz`）。**存在検査だけにしない**: 全部入りは中身の一覧そのものが契約なので、3 つ揃っていることに加えて**予期しない binary が 1 つでもあれば止め**、固めた後の archive の中を数え直す。`-MaxBytes`（既定 512 MB）を**引数にしてあるのは、既定のままではこの検査が働くところを誰も確かめられないから**である（現在の配布物は上限に対して 1 桁以上小さい） |
 | `tools/assemble-plugins.ps1` | 3 platform の plugin 木を 1 つに重ねる（全部入りの材料。M3.5）。**何でもコピーしない** —— 既知の binary と `.meta` だけを運び、知らないファイルがあれば止める。binary と `.meta` は必ず対で運ぶ（**binary の無い `.meta` を置くと Unity が消す**。下の `tools/plugin-meta/` の行）。**位置引数を禁止してある** —— `pwsh -File` から空白区切りで 2 つ渡すと 2 つ目が `PackageDir` に入り、**元の木を上書き先と取り違えたまま静かに成功する**（実測で踏んだ）。複数の元は ';' 区切りで受ける |
 | `tools/package-release.ps1` | 配布物一式（`checksums.txt` / `sbom.spdx.json` / `build-manifest.json` / `THIRD_PARTY_NOTICES.md` の 4 点）を実物の artifact から生成する（M3 Task 6。手で書かない）。通知はリポジトリ root の全文に、**実物から拾った component 一覧の platform 固有ヘッダを足して**同梱する。**`-ChecksumsOnly` は `checksums.txt` だけを出す**（M3.5、全部入り用）—— SBOM と build-manifest はどちらも「復元済み OpenCV artifact（= 実行中 platform のもの）」から作るので、3 platform を束ねる job には元が無い。**統合版を捏造せず、中身の説明は platform ごとの物に任せる** |
 | `third_party/opencv/<hash>/` | 展開先（gitignore 済み）。`build-manifest.json` に実測の構成が入る |
 | `THIRD_PARTY_NOTICES.md` | OpenCV が bundle する third-party のライセンス全文。**構成ハッシュを埋め込まない** — パスは `<hash>` 表記で、取得方法を文書内に書いてある（値を書くと構成を変えるたびに古くなる。M3 で 19 箇所が一斉に死んだ）。`package-release.ps1` が配布物に同梱する |
+| `Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/` | P/Invoke の置き場。**宣言は `NativeMethods.<module>.g.cs`（生成物、`[DllImport]` 22 個）にあり、手書きは 1 本も無い**（M5）。手で残してある `NativeMethods.cs` が持つのは `LibraryName` と、spec が表現しない struct（`OcvuMatInfo`）だけである |
 | `Packages/com.ayutaz.opencv-unity-native/` | UPM パッケージ本体（`Runtime/Core`、`Runtime/Interop`、`Runtime/UnityIntegration`）。**`Runtime/Plugins/` は丸ごと成果物で、git は追跡しない**——binary も `.meta` も。`dev.ps1 build` がビルドした platform の binary と `.meta` をここへ置く。**配る正の全部入りでは 3 platform 分が同居する**（`tools/assemble-plugins.ps1` が重ねる） |
 | `tools/plugin-meta/<platform>/` | Plugin Import Settings（`.meta`）の正本。`Runtime/Plugins` を根とした鏡像。**package の中に置くと Unity に消される** — binary の無い platform の `.meta` は「asset の無い孤児」と見なされ、mutable な package では実際に削除される（`test-unity-editmode` を Windows で 1 回走らせるだけで macOS/Linux 分が消えることを実測。M3 のレビュー M4）|
 | `Packages/com.ayutaz.opencv-unity-native/Runtime/UnityIntegration/` | UnityEngine に依存するコード（`TextureConverter` 等）を置く別 asmdef。`Runtime/Core` / `Runtime/Interop` には置かない |
 | `Packages/com.ayutaz.opencv-unity-native/Samples~/BasicUsage/` | UPM sample（M3 Task 7）。末尾 `~` のため Unity にインポートされるまでコンパイルされない |
 | `docs/api-reference.md` | C ABI と C# 公開 API（`CvMat`/`CvOps`/`CvCodecs`/`CvNative`/`TextureConverter`/`NativeArrayExtensions`）のリファレンス（M3 Task 7。M3.5 で `ocvu_imencode` / `ocvu_imdecode` と `CvCodecs` が加わった） |
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
-| `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ |
+| `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0、**44 件**）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ。**同じ solution に `bindings/generator/Ocvu.Generator.Tests`（74 件）が同居する**ので、`dev.ps1 test-managed` は両方を回す —— 結果 XML は `managed-{assembly}.xml` で assembly ごとに分かれる（固定名だと後勝ちで上書きされ、先に走ったほうの失敗が読めなくなる。M5 で実測） |
 | `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する。**この参照はディレクトリであって tarball ではない**ので、tarball の中身が壊れていてもこのレーンは通る——**tarball からの導入は `dev.ps1 test-unity-tarball` が別に見る**（使い捨てのプロジェクトに tarball だけを入れて EditMode を走らせ、16/16 pass を実測済み。M3 でこのレーンを足して初めて「導入できない tarball」が見つかった。**M3.5 で `-PluginSource` が加わり、他 platform の plugin 木を重ねた全部入りも検証できる** —— このマシンでビルドできるのは 1 platform 分だけなので、他 platform は公開済み release から取ってくる）。**Git URL からの導入はこの構成では成立しない**（binary が git の追跡外にあるため） |
 | `tests/UnityProject/Assets/Tests/EditMode/PluginGatingTests.cs` | 全部入りで **Unity が自分の platform の plugin だけを有効にしていること**を、`PluginImporter` に問う（M3.5）。`PackageRelease.Tests.ps1` の `.meta` 検査との違いは、YAML を自分で読むか **Unity に読ませた結果を読むか**。**着手前の実測: macOS の `.meta` を「Windows でも有効」に壊しても、既存の EditMode は 10 passed のまま通った**（3 platform で binary のファイル名が違うので `DllImport` の解決が名前の時点で分岐し、壊れた gating に触れない）。同じ壊し方で今は 16 中 3 件が落ちる。**`GetCompatibleWithEditor()` は 3 つとも true を返す** —— `.meta` は Editor を 3 つとも有効にし、振り分けは `GetEditorData("OS")` が持つ。**Editor の可否だけを見る検査は常に true で、何も見ていない**。**「3 つ揃っていること」を要求するのは合図が置かれたときだけ**で、合図は**環境変数ではなくプロジェクト直下のファイル**（`ocvu-expect-all-platforms`）である —— game-ci がコンテナへ渡す環境変数は 34 個の固定一覧で、任意の名前は届かない（`@v4` の dist で実測）。届かなければこの検査は「合図が無い」分岐に落ちて**要素 1 個でも緑になる** |
 | `.github/workflows/` | 下の表を参照。9 本ある |
@@ -131,10 +143,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | workflow | trigger | 内容 | 実行実績 |
 | --- | --- | --- | --- |
-| `ci-native.yml` | push(main) / PR / 手動 | L1 + L3 を 3 platform で。macOS / Linux job には `test-tools-slow` も配線 | **3 platform とも green**（M3 の PR #8 以降） |
+| `ci-native.yml` | push(main) / PR / 手動 | `dev.ps1 test` を 3 platform で（**L0 + L1 + L3**。M5 以降、生成物と spec の一致検査もここに乗る）。macOS / Linux job には `test-tools-slow` も配線。モバイル 2 job はクロスビルドのみ | **3 platform とも green**（M3 の PR #8 以降） |
 | `ci-sanitizers.yml` | push(main) / PR / 手動 | L2。Windows は ASan、Linux は ASan+LSan（リーク検出はこのレーンだけが担う） | green |
 | `build-opencv.yml` | 手動 + 構成ファイルの変更 | allowlist 構成の OpenCV を 3 platform でビルドし artifact 公開 | 稼働中 |
-| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**Unity は ubuntu で走る**が、**2026-08-30 から他 platform の plugin もビルドし、Unity job がそれを重ねてから走る**（M4 以降は `windows-2022` / `macos-14` の 4 job で、全部入りの gating を**要素 5 個**の集合に当てる）（Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた。上記参照）。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通）。Unity の版は `ProjectVersion.txt` から取るので、載せ替えても workflow は変えなくてよい | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green）。**ただしM3.5 で Unity を 6000.3.16f1 へ、EditMode を 16 件へ替えた後も green**（run の詳細は `docs/roadmap.md` の M3.5 節。**同じ事実を 2 箇所に書かない**）。**2026-08-30 に 3 platform 構成でも green**（PR #37、run 33290375806。`native plugins present: 3` と gating 4 件の個別 Passed を CI が出した）。**M4 で 5 platform 構成になった後も green**（PR #41。`native plugins present: 5`、EditMode 33 passed / Standalone 18 passed）|
+| `ci-unity.yml` | push(main) / PR / 手動 | L4（EditMode）+ L5（IL2CPP Player）。**Unity は ubuntu で走る**が、**2026-08-30 から他 platform の plugin もビルドし、Unity job がそれを重ねてから走る**（M4 以降は `windows-2022` / `macos-14` の 4 job で、全部入りの gating を**要素 5 個**の集合に当てる）（Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた。上記参照）。したがって CI の L5 は Linux の IL2CPP Player で、Windows 版はローカルのレーンが担う。Unity の導入とアクティベーションは game-ci、合否の判定は `tools/assert-unity-results.ps1`（ローカルと共通）。Unity の版は `ProjectVersion.txt` から取るので、載せ替えても workflow は変えなくてよい | **green**（2026-08-29 に初めて。main の先端 `68fbdae` でも green）。**ただしM3.5 で Unity を 6000.3.16f1 へ、EditMode を 16 件へ替えた後も green**（run の詳細は `docs/roadmap.md` の M3.5 節。**同じ事実を 2 箇所に書かない**）。**2026-08-30 に 3 platform 構成でも green**（PR #37、run 33290375806。`native plugins present: 3` と gating 4 件の個別 Passed を CI が出した）。**M4 で 5 platform 構成になった後も green**（PR #41。`native plugins present: 5`、EditMode 33 passed / Standalone 18 passed）。**M5 で到達性テストが 1 件加わり、ローカルの実測は EditMode 34 / Player 19 になった**（2026-09-01。CI での実測はこのブランチの run を待つ）|
 | `ci-lint.yml` | push(main) / PR / 手動 | 4 job: actionlint（workflow の構文・式・`run:` の中の shell）/ shellcheck（hook と CI のスクリプト）/ PSScriptAnalyzer（`tools/` の PowerShell、Error のみ）/ 文書の相対リンク検査（コードブロックの中は見ない。0 件なら「壊れていない」ではなく走査が効いていないとして落とす）。**静的に読めば分かる誤りを CI 1 周（10〜20 分）かけて確かめていた**のを埋める。数分で終わるので重いレーンより先に落ちる | green |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C#。C++ は**配布する `opencv_unity_native` だけ**をビルドする——`paths-ignore` は C++ に効かず（解析対象は「実際にコンパイルされたもの」）、テストごとビルドすると FetchContent の GoogleTest の指摘が混ざるため。C# は P/Invoke していること自体への 2 規則を `query-filters` で外す（**設計どおりの指摘に本物が埋もれる**ため。実測で open 107 件中 84 件がこれで、その陰に本物が 4 件あった）。OpenCV の cache は `if: matrix.language == 'c-cpp'` で c-cpp の leg に限る——csharp の leg は OpenCV を一度も開かないので、揃えないと cache hit 時に使わない木を落として展開し、miss 時は post step が `Path Validation Error` を出して何も保存しない（後者は「なぜ cache が温まらないのか」を調べる人に偽の手がかりを渡す） | green。埋もれていた本物 4 件の現状は下記 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。**3 job 定義**（速いレーンの job は `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）: Linux 成果物の移植性（`ubuntu:22.04` でビルドし直して GLIBC の要求を見る）/ Windows・macOS の速いレーン（`dev.ps1 test`。結果を `if: always()` で artifact 化する。名前は `matrix.runner` で分ける——`matrix.name` は空白を含み、分けないと 2 つの job が同じ artifact 名を取り合う）/ OpenCV artifact の期限切れ確認 | **schedule で起動した実績はまだ無い。** 手動起動が 2 回あり、1 回目（run 33230097557、2026-08-29 02:54Z）は 4 job 中 3 job が API レート制限で失敗、2 回目（run 33233610215、同 04:21Z、修正後）は 4 job とも success |
@@ -217,7 +229,7 @@ Unity application
 - **例外を ABI の外へ伝播させない**。OpenCV / C++ 例外は status code + thread-local last-error に変換する。FFI 境界を越える unwind は未定義動作になり得る。公開 ABI 関数は原則 `OCVU_TRY_BEGIN` / `OCVU_TRY_END` で本体を囲む。**ただし `ocvu_get_last_error_status` と `ocvu_get_last_error_message` は囲んではならない**: `OCVU_TRY_BEGIN` は `clear_last_error()` を呼ぶため、エラーを報告するために存在する関数が、報告すべきエラーを読む直前に自分で消してしまう。同様に `ocvu_get_abi_version` と `ocvu_get_status_count` は `ocvu_status` を返さないので囲めない。囲まない関数は「throw し得ない実装であること」が条件であり、この一覧は `native/src/ocvu_error.h` のマクロ定義の隣にも書いてある。
 - **エラー報告経路自体が throw してはならない**。`ocvu::set_last_error` は `OCVU_TRY_END` の `catch (std::bad_alloc&)` の内側からも呼ばれる。よってアロケートせず、固定長 thread-local バッファへの bounded copy だけを行う（`noexcept` で契約を固定している）。上限を超えたメッセージは UTF-8 の文字境界で切り詰められ、`out_required_size` は常に「実際に取得できるバイト数 + NUL」を返す。
 - **`ocvu_mat_handle` は常に native が所有する。Unity 所有のメモリを指す handle を返さない**（`docs/abi-ownership-and-versioning.md` §1 で確定）。Unity 側の buffer はその場でポインタ・長さ・stride を受け取って読み書きするだけで、handle にはならない。借用は 1 回の ABI 呼び出しの内側で完結する。理由は、借用 handle が buffer より長く生きたときの壊れ方が「即座には落ちず、後から無関係な場所が壊れる」形で、Windows の ASan は Unity のアロケータを見られないため CI でも検出できないからである。規約で禁じるのではなく、**表現できなくする**。buffer 引数の長さと stride は必ず検証し、`rows * stride` が渡された長さを超えるなら何も書かずに `OCVU_STATUS_INVALID_ARGUMENT` を返す（呼ぶ側を信用しない）。
-- **C ABI と C# 宣言は手書き header の無制限解析から生成しない**。レビュー可能な binding specification（`bindings/spec/`）を正本とし、そこから C ABI 宣言 / C# P/Invoke / API 対応表 / conformance test を生成する。
+- **C ABI と C# 宣言は手書き header の無制限解析から生成しない**。レビュー可能な binding specification（`bindings/spec/`）を正本とし、そこから C ABI 宣言 / C# P/Invoke / API 対応表 / conformance test を生成する。**M5 で成立した** —— これは方針ではなく現状の説明である。宣言を手で足すと `dev.ps1 verify-generated` が落とす。
 - **IL2CPP / AOT を前提とする**。P/Invoke 宣言が stripping で消えないことを検証する。iOS は静的リンク + `DllImport("__Internal")`。
 - **毎フレームの細かな境界呼び出しを避ける**。必要に応じて処理をまとめた粒度の粗い API も用意する。
 
@@ -249,7 +261,7 @@ Unity application
 
 | 層 | 内容 | 想定時間 | 導入 |
 | --- | --- | --- | --- |
-| L0 | spec → 生成物の golden test | < 1 秒 | M5 |
+| L0 | spec → 生成物の golden test | < 1 秒 | M5（**導入済み**。`dev.ps1 verify-generated` と `tools/tests/BindingGenerator.Tests.ps1`、`bindings/generator/Ocvu.Generator.Tests` の 74 件。いずれも `dev.ps1 test` に入る） |
 | L1 | C ABI 契約テスト（GoogleTest + CTest） | 1〜5 秒 | M0 |
 | L2 | ASan / UBSan レーン | 10〜30 秒 | M0 |
 | L3 | **P/Invoke 検証（素の .NET、Unity 不使用）** | 2〜5 秒 | M0 |
@@ -264,7 +276,7 @@ Unity application
 
 - **L3 を維持するために `Runtime/Interop` と `Runtime/Core` は `UnityEngine` を参照してはならない。** UnityEngine 依存コードは `Runtime/UnityIntegration/`（別 asmdef）にのみ置く。この制約は netstandard2.1 の shim プロジェクト（`tests/Managed/CvUnity.Runtime.Shim/`）がビルドで機械的に強制する。
 - **ローカルループは秒単位を死守する。** 重い処理を持ち込まない。OpenCV はローカルでビルドせず、CI が生成した artifact を download する。
-- **クラッシュは「赤いテスト」でなければならない。** ネイティブ層でループを殺す最大要因はテスト失敗ではなくハングとモーダルダイアログ。テストは必ずタイムアウト付きサブプロセスで実行し、Windows では `SetErrorMode` / `_CrtSetReportMode` でダイアログを抑止する。
+- **クラッシュは「赤いテスト」でなければならない。** ネイティブ層でループを殺す最大要因はテスト失敗ではなくハングとモーダルダイアログ。テストは必ずタイムアウト付きサブプロセスで実行し、Windows では `SetErrorMode` / `_CrtSetReportMode` でダイアログを抑止する。**ただしこれが成立しているのは L3（`dev.ps1 test-managed-probe`）までである** —— **Unity のレーンでは成立しない。** M5 で実測した: `ocvu_debug_crash` を Unity Editor 経由で呼ぶと、テストが赤くなるのではなく**レーンが 10 分以上返らず、結果 XML が 1 バイトも出ない**。だから到達性テストはこの 1 本だけを呼ばない（`bindings/spec/infra.json` の `reachableNote`）。詳細は `prove-a-check-works` skill。
 - **CI はローカルと同一のコマンド（`tools/dev.ps1`）を呼ぶ。** CI 専用の手順を作らない。全ジョブに `timeout-minutes` を設定する。
 - **CI が唯一の正本の検証結果。** ローカルの green は速さのための近似であり、merge 可否は CI が決める。
 
@@ -276,7 +288,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: **M4（Mobile）は main に入った**（PR #41、2026-08-30。計画は `docs/superpowers/plans/2026-08-30-m4-mobile.md`）が、**完了していない**。**v0.2.0 が最新の公開版で、v0.3.0 は下書きのまま止めてある**（実機検証待ち）。**完了条件 9 件のうち 4 件は閉じていない** —— iOS 実機 / lifecycle / macOS 上の Unity / Windows IL2CPP の結論。詳細は roadmap）
+## マイルストーン（現在地: **M5（binding specification と generator）を実装し、完了条件 5 件のうち 4 件を満たした**（計画は `docs/superpowers/plans/2026-08-31-m5-binding-generator.md`）。**条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は計画の側で意図的に外してあり、次の計画で閉じる。** **M4（Mobile）も完了していない** —— 完了条件 9 件のうち 4 件が閉じていない（iOS 実機 / lifecycle / macOS 上の Unity / Windows IL2CPP の結論。うち後ろ 2 件は 2026-08-31 に「CI では閉じない」と結論した）。**v0.2.0 が最新の公開版で、v0.3.0 は下書きのまま止めてある**（実機検証待ち）。判定表はいずれも roadmap にある）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 
@@ -288,7 +300,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 | **M3** | **Desktop 3 platform と配布の再現性。Linux レーンでリーク検出、成果物 linkage の機械的検証 — 6 件すべて達成。CI に通した時点で、ローカルでは緑だった欠陥が 3 件出た（handle table の use-after-free、導入できない tarball、Release asset 名の衝突）。配布まで踏み、v0.1.0 と、Linux の欠陥を直した v0.1.1 を公開済み** |
 | **M3.5** | **配布の形と、実用に必要な最小の穴** —— 全部入りの package、`imgcodecs` の encode / decode（**ファイルパスではなく byte 列**）、Unity 6.3 LTS への載せ替え。2026-08-29 の再調査で足した。配る正を 3 platform 分を束ねた 1 つの tarball にしたので「エディタは Windows、実機は Android」が表現でき、M4 の成果物を配れるようになった。**完了（6 件すべて、2026-08-30）。** v0.2.0 を公開し、OpenUPM にも登録された（登録には新しい asset 名を持つ公開済み release が要る） |
 | M4 | Mobile。ここで見つかる制約（stripping、static link、16 KB page size）が M5 の生成コードの形を規定する。**16 KB 対応は 2027-02-01 から Google Play の要件**（それより前に満たす。止まるのは利用者のリリースである）。macOS の `.meta` 実測と Windows IL2CPP の結論もここ |
-| M5 | binding specification と generator。**`imgcodecs` は M3.5 で出した**（`ocvu_imencode` / `ocvu_imdecode`、2026-08-30）ので、ここには残っていない |
+| M5 | binding specification と generator。**`imgcodecs` は M3.5 で出した**（`ocvu_imencode` / `ocvu_imdecode`、2026-08-30）ので、ここには残っていない。**生成の仕組みは 2026-09-01 に成立し、完了条件 4 件を満たした。残る 1 件は新しい OpenCV module（`geometry` / `calib` / `features` / `objdetect`）の追加**で、別の subsystem（`COMPONENTS` / `Modules` / notice / 成果物の大きさ / 依存 allowlist が同時に動く）なので次の計画に分けてある —— 混ぜると「生成が壊れたのか module が壊れたのか」が切り分けられない |
 | M6 | Web / Wasm（Unity 同梱 Emscripten と整合） |
 | M7 | Optional profiles と性能。**OpenCV 5 の新しい DNN エンジンはここ** —— 競合が持たない最大の差になりうるが、Unity には推論の代替があるので前倒ししない。**2026-08-30 の上流調査で「5.0 で DNN を作り込むと 5.1 で作り直しになる」根拠が付き、`dnn` を足す前に native bridge を module 単位に分ける決定を入れた。** 決定の内訳・前提条件・一次情報は roadmap の M7 節にある（**ここに再掲しない** —— 2 箇所が同時に古くなる） |
 
@@ -297,7 +309,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 ## 実装に着手するとき
 
 1. `docs/roadmap.md` で対象マイルストーンの目的・ゴール・完了条件・**非ゴール**を確認する
-2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）、M3.5 の計画は `docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md`（実施済み。**完了条件 6 件をすべて満たした** —— 判定は `docs/roadmap.md` の M3.5 節）。M4 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
+2. 実装計画があればそれに従う。M0 の計画は `docs/superpowers/plans/2026-08-25-m0-tdd-harness.md`、M1 の計画は `docs/superpowers/plans/2026-08-25-m1-opencv-build.md`、M2 の計画は `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md`（いずれも実施済み。M2 は完了条件 8 件すべてを満たした）、M3 の計画は `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md`（Task 8 まで実施済み。完了条件 6 件すべて達成。v0.1.0 を公開し、Linux の欠陥を直した v0.1.1 を出した）、M3.5 の計画は `docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md`（実施済み。**完了条件 6 件をすべて満たした** —— 判定は `docs/roadmap.md` の M3.5 節）、M4 の計画は `docs/superpowers/plans/2026-08-30-m4-mobile.md`（実施済み。**9 件中 5 件**）、M5 の計画は `docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（実施済み。**5 件中 4 件。条件 2 は計画の側で意図的に外してある**）。M6 以降の計画はまだ無いので、`superpowers:writing-plans` で先に書く
 3. 計画は**マイルストーンごとに 1 つ**書く。各計画は単独で動作・テスト可能なソフトウェアを produce すること
 
 M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決定分）: OpenCV 5.0.0 の固定期間と 5.x update policy、ライセンス表示と SBOM の公開フロー、各 platform で必須とする Editor / Mono / IL2CPP / device test matrix。
@@ -311,7 +323,7 @@ M2 以降で確定が必要な残りの事項（計画書 §12 のうち未決�
 | C ABI の versioning / 後方互換 | 単一整数の `OCVU_ABI_VERSION`、C# 側は**完全一致**で検査。bump する変更としない変更を明記 | 同 §2 |
 | `core` / `imgproc` / `imgcodecs` API の allowlist | Mat の create / release / clone / get_info / copy_from_buffer / copy_to_buffer と cvtColor / resize / GaussianBlur（M2 の 9 本）に、M3.5 の imencode / imdecode を足した 11 本 | 同 §3 |
 
-ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになり、`tests/UnityProject/` は M2 で実在するようになった。`bindings/`（M5 予定）だけがまだ無い。
+ディレクトリ構成の想定は計画書 §10 にある（`native/`、`bindings/spec|generator|generated-checks/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/UnityProject/`、`tools/`、`cmake/`、`.github/workflows/`）。このうち `native/`、`Packages/com.ayutaz.opencv-unity-native/`、`tests/Managed/`、`tools/`、`cmake/`、`.github/workflows/` は M0 で実在するようになり、`tests/UnityProject/` は M2 で、`bindings/spec/` と `bindings/generator/` は M5 で実在するようになった。**想定にあった `bindings/generated-checks/` だけは作っていない** —— 生成物の一致検査は `bindings/generator/Ocvu.Generator.Tests`（L3 と同じ solution）と `tools/tests/BindingGenerator.Tests.ps1` が持ち、**既にあるレーンに載せたほうが「どこからも走らない検査」を作らずに済む**ためである。
 
 ## 変更を main へ入れるまで
 
@@ -455,6 +467,15 @@ CodeQL まで見る。それでも次は緑のまま通過する。
   古い環境で読み込めなかった。`tools/verify-plugin-portability.ps1` は
   その一形態（glibc の要求）を見るが、**「動く」の全部を機械が見ているわけでは
   ない**
+- **spec が実物の意味を正しく書いているか（M5）。** `verify-generated` が見るのは
+  「生成物が spec と一致するか」だけで、**spec の `summary` が実装の挙動を
+  正しく述べているかは誰も見ていない。** 一致検査は嘘を書いた spec でも緑になる。
+  同じ形で、**生成物の中身を構造として見る門があるのは `docs/api-map.md` だけ**である
+  —— C ヘッダはコンパイラが下流で受けるので手書きの検査を足す価値が薄いが、
+  **Markdown は決して文句を言わない**ので出口側に置いた（表の各行がちょうど 5 列
+  であること）。**XML doc は今のところどちらでもない** ——
+  `GenerateDocumentationFile` を有効にすればコンパイラが引き継ぐが、
+  有効にしていない（`Runtime/Core` に `CS1591` が大量に出るので別判断）
 
 **これらを見るのが PR 前の AI レビューである。** 2 つのゲートは重なっておらず、
 どちらかで代替できない。CI が機械的に検査できないものを人手なしで拾う唯一の場が
@@ -469,10 +490,10 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 
 | skill | いつ使うか |
 | --- | --- |
-| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。ヘッダ → 実装 → L1 → P/Invoke → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約 |
+| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。L1 → **spec に 1 エントリ + `dev.ps1 generate`** → 実装 → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約。**M5 以降、宣言は手で書かない** —— ヘッダにも `NativeMethods.cs` にも手で足さない（足せば `verify-generated` が落とす）|
 | `add-a-platform` | **対象 platform を足す・外す・変えるとき。** 一覧を持つ場所は **17 箇所**あり（M4 で実測。roadmap が長らく書いていた「2 か所」は誤りだった）、語彙が違うので grep 1 回では揃わない。`.meta` のキー名 / ファイル名の platform 間衝突 / クロスでの `find_package` の閉じ込め / 静的ライブラリの依存の束ね / 新しい third-party など、**クロスビルドが緑になってから CI で 8 回落ちた**罠を、踏んだ順に並べてある |
 | `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定。**M4 で 2 つ加わった** —— 実機が要る条件は「満たすが未実証」ですらなく人が実行する手順書に落とす / **必須チェックの充足は成功件数ではなく名前で突き合わせる**（GitHub は `skipped` と `neutral` も pass として通す）|
-| `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした。**M4 で 6 つの節が加わった** —— 壊す前にコミットする / 置換が空振りしていないか確かめる / 手前に別の門があると番人に到達しない / 述語のゆるさ（構造的に常に真・部分一致・大文字小文字・散文に当たる）/ **自分でパースする検査は本物の解釈を代理できない** / **正本を写さず正本から読む** |
+| `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした。**M4 で 6 つの節が加わった** —— 壊す前にコミットする / 置換が空振りしていないか確かめる / 手前に別の門があると番人に到達しない / 述語のゆるさ（構造的に常に真・部分一致・大文字小文字・散文に当たる）/ **自分でパースする検査は本物の解釈を代理できない** / **正本を写さず正本から読む**。**M5 でさらに 4 つ** —— **Unity 経由のクラッシュは赤いテストにならない**（無音で 10 分以上返り、結果が 1 バイトも出ない）/ 手前の門の 2 例目（`System.Text.Json` が先に落とすので、足した検査は 1 度も動いていなかった）/ **アンカーの意味**（.NET の `$` は末尾の `\n` の直前にも当たる。「一致したか」ではなく**値全体を覆ったか**を見る）/ **列挙に基づく門を出口側の構造に基づく門へ変える**（ただし下流に検査が無い所にだけ足す）|
 
 **hook**（`.claude/settings.json`）
 

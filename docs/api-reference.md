@@ -1,5 +1,11 @@
 # API リファレンス
 
+**この文書は手書きである。** 機械的な一覧は [API 対応表](./api-map.md)（生成物）にある。
+こちらが持つのは**契約と落とし穴**（所有権、stride、2 回呼びの作法、
+`WebCamTextureConverter` の上下反転など）で、**関数の一覧ではない。**
+**両者を同期させる仕組みは無い** —— 境界に関数が増えると対応表は自動で伸びるが、
+この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
+
 **対象範囲: C ABI の 11 関数（M2 の 9 本 + M3.5 の 2 本）と、その上に立つ C# の公開 API
 だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、**`imgcodecs` のファイルパス
 経路**など）はここに書かない。**`WebCamTexture` 連携は M4 で足したので §2.6 にある。**詳しい経緯は
@@ -25,7 +31,15 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 できない**（`.meta` しか届かず `DllImport` が実行時に全部失敗する）。導入手順は
 [README](../README.md) の Installing にある。
 
-## 1. C ABI（`native/include/opencv_unity_native.h`）
+## 1. C ABI（`native/include/ocvu/*.h`）
+
+**M5 で宣言の在り処が変わった。** 関数宣言は module ごとの
+`native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` にあり、
+**いずれも `bindings/spec/*.json` からの生成物である**（手で編集すると
+`./tools/dev.ps1 verify-generated` が落とす）。利用者が include するのは
+これまでどおり `native/include/opencv_unity_native.h` で、そちらは
+`OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数を持ち、4 つを include する。
+**「関数宣言は `opencv_unity_native.h` に在る」と書いていた記述は、この時点で誤りになった。**
 
 すべて `extern "C"`、呼び出し規約は Cdecl。戻り値は `ocvu_status`（`int32_t`）。
 `OCVU_STATUS_OK` (0) と `OCVU_STATUS_BUFFER_TOO_SMALL` (6) 以外はすべて失敗として扱う
@@ -325,6 +339,7 @@ byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の 
 ## 参照
 
 - `docs/abi-ownership-and-versioning.md` — 所有権契約・versioning・API allowlist の正本
-- `native/include/opencv_unity_native.h` — C ABI ヘッダ本体
+- [API 対応表](./api-map.md) — いま境界に在るものの機械的な一覧（`bindings/spec/*.json` からの生成物）
+- `native/include/opencv_unity_native.h` — C ABI ヘッダの入口（型・定数・status。**関数宣言は `native/include/ocvu/*.h` にあり、生成物である**）
 - `Packages/com.ayutaz.opencv-unity-native/Samples~/BasicUsage/` — この API を使う最小サンプル
 - `CLAUDE.md` — リポジトリ全体の不変条件と現在地

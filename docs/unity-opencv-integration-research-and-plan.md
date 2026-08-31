@@ -495,7 +495,12 @@ artifacts/<platform>/sbom.spdx.json
 `Interop` / `Core` / `UnityIntegration` の 3 つで **`ImgProc/` は作らなかった**
 （`CvOps` と `CvCodecs` は `Core` にある）。package の下の `Tests/` と
 `Documentation~/` も無い（テストは `tests/` 以下、文書は `docs/` 以下）。
-`bindings/` は M5 の予定でまだ存在しない。
+`bindings/` は **M5（2026-09-01）で実在するようになった** —— ただし `spec/` と
+`generator/` の 2 つだけで、**`generated-checks/` は作っていない**（生成物の
+一致検査は既存のレーンに載せた。理由は roadmap の M5 節）。**公開 C ABI の
+ヘッダも 1 枚ではない** —— `native/include/opencv_unity_native.h` は型・定数・
+status を持つ入口で、関数宣言は module ごとの `native/include/ocvu/*.h`
+（いずれも spec からの生成物）にある。
 
 ```text
 OpenCVUnityNative/

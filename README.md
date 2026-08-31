@@ -2,7 +2,7 @@
 
 OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible native UPM package.
 
-> **Status: v0.1.1 is the newest published release, and the repository is ahead of it. Desktop only — M0–M3 are in that release, M3.5 is in the repository and not yet released.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. The public C ABI is deliberately narrow — `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, and encoding/decoding images to and from byte arrays in memory — because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Two things described below are not in v0.1.1** and reach you in the next release: the in-memory image encode/decode functions, and the single package that carries all three platforms. Mobile (M4) and Web (M6) are not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+> **Status: v0.2.0 is the newest published release, and the repository is ahead of it. Desktop only — M0 through M3.5 are in that release.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. Everything described below — including the in-memory image encode/decode functions and the single package that carries all three platforms — is in v0.2.0. The public C ABI is deliberately narrow — `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, and encoding/decoding images to and from byte arrays in memory — because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web (M6) is not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -181,13 +181,21 @@ This downloads the prebuilt OpenCV 5.0.0 artifact CI publishes for the current c
 All local development after that goes through `tools/dev.ps1`:
 
 ```powershell
-# The fast tools tests plus both native lanes (L1 GoogleTest + L3 managed P/Invoke)
+# The fast tools tests, the generated-bindings check, and both native lanes
+# (L1 GoogleTest + L3 managed P/Invoke). Run this one lane at a time: the lanes
+# share artifacts/test-results/ and each one clears it on start.
 ./tools/dev.ps1 test
 
 # Individual lanes
 ./tools/dev.ps1 build
 ./tools/dev.ps1 test-native
 ./tools/dev.ps1 test-managed
+
+# Regenerate the C header, the C# P/Invoke declarations, the reachability test
+# and docs/api-map.md from bindings/spec/*.json, and check they are up to date.
+# The declarations are never written by hand; verify-generated is part of `test`.
+./tools/dev.ps1 generate
+./tools/dev.ps1 verify-generated
 
 # AddressSanitizer lane (L2)
 ./tools/dev.ps1 test-asan

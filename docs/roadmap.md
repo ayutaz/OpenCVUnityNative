@@ -28,7 +28,7 @@
 
 | 層 | 内容 | 想定時間 | 実行頻度 | 導入 |
 | --- | --- | --- | --- | --- |
-| L0 | spec → 生成物の golden test | < 1 秒 | 毎編集 | M5 |
+| L0 | spec → 生成物の golden test | < 1 秒 | 毎編集 | M5（**導入済み**。`dev.ps1 verify-generated` / `tools/tests/BindingGenerator.Tests.ps1` / `bindings/generator/Ocvu.Generator.Tests`。3 つとも `dev.ps1 test` に入るので **CI が 3 platform で毎回通す**）|
 | L1 | C ABI 契約テスト（GoogleTest + CTest） | 1〜5 秒 | 毎編集 | M0 |
 | L2 | ASan / UBSan レーン | 10〜30 秒 | 毎コミット | M0 |
 | L3 | P/Invoke 検証（素の .NET、Unity 不使用） | 2〜5 秒 | 毎編集 | M0 |
@@ -1225,6 +1225,56 @@ module ごとのヘッダになりうる。** どちらが先に着手される�
 **非ゴール**
 OpenCV 全 API の網羅。
 
+### M5 の判定（2026-09-01 時点）
+
+**5 件中 4 件を満たし、1 件は閉じていない。** 実装は
+`docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8）。
+
+実測はすべてこのマシン（Windows、2026-08-31〜09-01）。`pwsh tools/dev.ps1 test` は
+**exit 0 / 64.6 秒**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
+`BindingGenerator` の 10 assertion）+ `verify-generated`（**生成物は spec と
+一致しています（10 ファイル）**）+ L1（GoogleTest **64** / CTest **4**）+
+L3（`CvUnity.Tests.Managed` **44** / `Ocvu.Generator.Tests` **74**）である。
+Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **19**）。
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json`（22 エントリ）→ `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が毎回通す**。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
+| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **閉じていない。** 実装計画が冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**次の計画で閉じる。**部分的な達成を完了と呼ばない |
+| 3 | M3.5 で手書きした関数を spec の側へ寄せる | **満たす（実証済み）**。`imgcodecs` の 2 本を含む **20 本すべて**が spec から出ている。`Runtime/` の `[DllImport]` は 22 個で、**全部が `.g.cs` の中にある（手書きは 0 個）**。逆向きも見る —— `native/src/**/*.cpp` の `extern "C" ocvu_*` を全部拾って spec と突き合わせ、実測で「取り出せた 20 / `extern "C"` 20、spec に無い実装 0 件」。ダミーの `extern "C" ocvu_dummy_probe` を足すと**逆向き検査だけ**が名指しで落ち、ブロック形 `extern "C" { … }` で足すと**帰属の数が合わない**ことで落ちた（空振りしない） |
+| 4 | API 対応表を生成し、「OpenCV 全対応」という曖昧な表現を使わない | **満たす（実証済み）**。`docs/api-map.md`。**本数を数えるのはこの表の冒頭だけ**にし、他所からは数字を落とした。`ApiMapEmitter` は**自分が出した Markdown を読み直して**「全行が見出しと同じ列数」「本体の行数が spec の entry 数と一致」を見る。逃がしを外すと実際に落ちる（`区切りが 6 個であるべきところ 7 個`）。**この構造の門は入口の禁止文字の列挙とは独立で、著者が思いつかなかった文字にも効く** |
+| 5 | 生成された P/Invoke が IL2CPP stripping を生き延びることを L5 で確認 | **満たす（実証済み）**。`AbiReachabilityChecks.g.cs` が **21 本の宣言を 1 本残らず 1 回ずつ**呼び、EditMode と PlayMode の両方が 1 件のテストとして通す。実物の IL2CPP Player で `==> [player] 19 passed`。`NativeMethods.Infra.g.cs` の `ocvu_get_status_value` に存在しない `EntryPoint` を仕込むと **34 件中 1 件だけ**が `System.EntryPointNotFoundException` で落ちた —— **この関数は M5 の前は Editor でも Player でも一度も呼ばれておらず、同じ壊し方をしても 33 件が全部緑だった** |
+
+**残る穴（隠さずに書く）。**
+
+- **出口の構造検査があるのは `docs/api-map.md` だけである。** C ヘッダは
+  下流のコンパイラが受けるので手書きの門を足しても弱いだけだが、
+  **C# の XML doc はどちらでもない** —— `GenerateDocumentationFile` を
+  有効にすればコンパイラが引き継ぐが、**有効にしていない**
+  （`Runtime/Core` に `CS1591` が大量に出るので別判断）。
+- **`reachableNote` には `pattern` が無く、素通しである。** 値が届くのは
+  `docs/api-map.md` の箇条書き 1 箇所だけで、**表の外なので上の構造検査に
+  掛からない**（C ヘッダにも C# にも届かない）。壊れても表は妥当なままである。
+- **入口の禁止文字（`\r` `\n` `<` `>` `&` `*/`）は「思いついた範囲」のままである。**
+  表については出口の構造検査が独立に効くようになったが、**列挙そのものは
+  網羅ではない。**
+- **`docs/api-reference.md` は手書きのままで、対応表と同期する仕組みは無い。**
+  正しい本数が `api-map.md` に出るようになったので**数の食い違いは起きにくく
+  なった**が、**説明が古くなることは防げない。** 関数を足したら手で直す。
+- **`bindings/generated-checks/` は作っていない**（`docs/unity-opencv-integration-research-and-plan.md`
+  §10 の想定にある）。一致検査は既存のレーン（L3 の solution と `tools/tests/`）に
+  載せた —— **新しいディレクトリを作ると「どこからも走らない検査」を作りやすい**ためである。
+
+**この計画の後に残るもの**（完了条件 2 のほかに 2 つ）。
+
+- **M7 の決定 1 のうち、C# を別 assembly に割ること（決定 1 の 2）と
+  OpenCV の版を跨げるようにすること（同 3）。** M5 が割ったのは **C ABI の
+  ヘッダだけ**で、`Runtime/Interop` は 1 つの assembly のままである。
+- **実装（`.cpp`）は生成しない。** spec は境界の**形**を持つが、中で何をするかは
+  持たない。生成する価値が出るのは「`Mat` を 2 つ取って 1 つ返す」ような
+  **型どおりの薄い関数が増えたとき**で、いまの 20 本はどれも引数の検証や
+  2 回呼びの作法を持っており、**生成しても薄くならない。**
+
 ---
 
 ## M6 — Web / Wasm
@@ -1373,8 +1423,16 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
    `dnn` は別ヘッダ・別 `.cpp`・別 CMake target に置く。共通の型・status・version だけを
    `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る。**
+   → **M5 で済んだ（2026-09-01）。** 20 本の宣言は
+   `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` に分かれ、
+   `opencv_unity_native.h` に残ったのは型・status・定数だけである。**ただし分けたのは
+   ヘッダであって CMake target ではない** —— まだ 1 つの target が全 module を作る。
+   `OCVU_ABI_VERSION` を単一の整数のままにする判断とその留保は
+   [所有権と versioning](./abi-ownership-and-versioning.md) §2 に書いた（**正本はあちら**）。
 2. **C# 側も別 assembly にする。** `Runtime/Core` / `Runtime/Interop` の分離
    （`UnityEngine` を参照しない）と同じ理由で、**dnn が入らないビルドで参照が壊れない**形にする。
+   → **M5 では手を付けていない。** `Runtime/Interop` は 1 つの assembly のままで、
+   生成された `NativeMethods.<module>.g.cs` は `partial class` で同じ型に入る。
 3. **OpenCV の版を跨げるようにする。** 構成ハッシュには tag が入るので、tag を変えれば
    古い artifact は使われなくなる（tag は M1 から入っている。M3 Task 1 が足したのは
    `Platform` である）。**しかしこれは「2 つの版が同時に成立する」
@@ -1709,9 +1767,11 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               |
                                                               v
                                                           M4 Mobile
+                                            （9 件中 5 件 / 未公開 v0.3.0 の下書き）
                                                               |
                                                               v
                                                         M5 generator ──> M6 Web ──> M7 profiles
+                                        （5 件中 4 件。条件 2 は次の計画へ）
 ```
 
 ## 再評価のトリガー
