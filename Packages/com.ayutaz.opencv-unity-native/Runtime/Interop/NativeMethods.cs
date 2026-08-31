@@ -19,7 +19,7 @@ namespace CvUnity.Interop
         internal long TotalBytes;
     }
 
-    internal static class NativeMethods
+    internal static partial class NativeMethods
     {
 #if UNITY_IOS && !UNITY_EDITOR
         internal const string LibraryName = "__Internal";
@@ -28,17 +28,8 @@ namespace CvUnity.Interop
 #endif
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int ocvu_get_abi_version();
-
-        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int ocvu_get_last_error_status();
-
-        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_get_last_error_message(
             byte[] buffer, int bufferSize, out int requiredSize);
-
-        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
-        internal static extern int ocvu_get_status_count();
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_get_status_value(int index, out int value);

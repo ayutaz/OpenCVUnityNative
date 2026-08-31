@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
+    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
     [string]$Command = 'test',
 
     <#
@@ -159,6 +159,7 @@ function Reset-Results {
 $ToolsTestScriptsFast = @(
     'OpenCvConfig.Tests.ps1'
     'ConfigInvalidation.Tests.ps1'
+    'BindingGenerator.Tests.ps1'
 )
 
 $ToolsTestScriptsSlow = @(
@@ -291,6 +292,22 @@ function Copy-NativePluginForUnity {
             'tools/plugin-meta/<platform>/ は Runtime/Plugins を根とした鏡像である必要がある。'
         ) -join "`n")
     }
+}
+
+function Invoke-Generate {
+    $proj = Join-Path $RepoRoot 'bindings/generator/Ocvu.Generator'
+    Invoke-Checked {
+        & dotnet run --project $proj -- --repo-root $RepoRoot
+    } 'run the binding generator'
+}
+
+# 生成物が spec と食い違っていないかを見るだけで、書き直しはしない。
+# --check を渡すと Program.cs は差分を stderr に列挙して exit 1 で返る。
+function Test-Generated {
+    $proj = Join-Path $RepoRoot 'bindings/generator/Ocvu.Generator'
+    Invoke-Checked {
+        & dotnet run --project $proj -- --repo-root $RepoRoot --check
+    } 'verify the generated bindings are up to date'
 }
 
 function Test-Native {
@@ -924,6 +941,8 @@ if ($PSBoundParameters.ContainsKey('Platform') -and $Command -ne 'build') {
 # 見えないよう、結果を書くコマンドは開始時に Reset-Results で空にする。
 switch ($Command) {
     'build'        { Build-Native }
+    'generate'          { Invoke-Generate }
+    'verify-generated'  { Test-Generated }
     'test-native'  { Reset-Results; Test-Native }
     'test-asan'    { Reset-Results; Test-Asan }
     'test-managed' { Reset-Results; Test-Managed }
@@ -933,7 +952,7 @@ switch ($Command) {
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
     'test-unity-tarball' { Reset-Results; Test-UnityTarball }
-    'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
+    'test'         { Reset-Results; Test-Tools; Test-Generated; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
 
