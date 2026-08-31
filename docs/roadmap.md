@@ -1146,7 +1146,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 | 3 | iOS の `__Internal` static link と stripping 後の P/Invoke を**実機で**確認 | **閉じていない**。`native/CMakeLists.txt` が iOS で `STATIC` を作る分岐は入れたが、**実機が要る**（署名と端末）。手順は [実機検証](./m4-device-verification.md) §1 |
 | 4 | lifecycle / memory pressure | **閉じていない**。同上、§2 |
 | 5 | `WebCamTexture` から `CvMat` を作れる | **満たす**。`WebCamTextureConverter`（3 overload）。EditMode 9 件が通り、**上下反転をやめると `RowOrderIsFlippedSoTheMatOriginIsTopLeft` だけが落ちる**ことを実測した。Player でも 1 件通している（M4 のレビューで、この API が Editor しか通っていないと分かったため） |
-| 6 | macOS の Plugin Import Settings を Unity で実測 | **閉じていない**。`ci-native.yml` の `mobile` job は macos-14 で走るが **Unity は起動しない**（クロスビルドのみ）。M3.5 で `.meta` の解釈自体は他 OS の Unity から実測済みで、残るのは **macOS 上で Unity を動かすこと**。M4 でそこまで踏まなかった |
+| 6 | macOS の Plugin Import Settings を Unity で実測 | **閉じていない**（2026-08-31 に 4 回試して確定）。game-ci は macOS を支えない（`darwin-platform is not supported`）。Unity Hub の CLI で直接入れる経路も試し、**Editor は 14 分で入るところまで到達したが、ライセンスで止まる** —— `Found 0 entitlement groups and 0 free entitlements`。**認証を 2 系統（`-username`/`-password` と `.ulf`）とも試して同じ**なので、認証方法ではなく entitlement 自体が降りていない。**Editor の導入は障害ではなく、障害はライセンスである**（詳細は上記「担当が無かった制約」の節）|
 | 7 | Windows IL2CPP を CI で回すかの結論 | **満たす**（2026-08-31）。**結論は「諦める」。** `windows-2022` に 2 回投げた —— EditMode は動いた（33 passed、run 33350726005）が、**`Standalone` は `ToolchainNotFoundException` で落ちた**（run 33352025223）。game-ci の Windows コンテナに、IL2CPP が生成した C++ をコンパイルする MSVC が無い。**このとき game-ci 自身は success を返しており、結果 XML の有無を別に見ていなければ逆の結論を書いていた。** 根拠は 2 回の実測で、他人の issue ではない（詳細は上記「担当が無かった制約」の節）|
 | 8 | 対応 CPU アーキテクチャの決定 | **満たす**。Android arm64-v8a のみ / iOS 実機 arm64 のみ（上記「対応 CPU アーキテクチャの決定」） |
 | 9 | モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通る | **満たす**（2026-08-31、このマシン）。5 platform 分を束ねた tarball を使い捨ての Unity プロジェクトに導入して `==> UPM tarball install: 25 passed`。**ただしこのレーンはどの workflow からも走らない** —— game-ci の action の外で Unity を起動する必要があり、CI に載せるのは別作業である。**M4 でモバイルを足した時点からこのレーンは壊れており**（期待する binary の数が `3` と直書きされ、iOS の `.a` を binary と認めなかった）、無関係な作業の途中で 1 度手で回すまで誰も知らなかった |
@@ -1624,10 +1624,75 @@ M3.5 が足した `PluginGatingTests` は Windows と Linux でしか走らな�
 **設定では回避できない** —— action の対応範囲の問題である。同じ run の
 Windows 側は動いたので、こちらの設定不備ではないことも同時に分かった。
 
-**残る手は game-ci を経由しないことである。** macOS runner に Unity Hub の
-CLI で Editor を入れ、ローカルのレーンと同じ経路（`-batchmode -runTests`）で
-走らせる。第 2 回でそれを試す。**入らなかった場合はそれ自体を記録して、
-「この穴は CI では埋まらない」と結論する。**
+**game-ci を経由しない経路も試した。3 回投げて、いずれも閉じなかった。**
+
+| 回 | run | 結果 |
+| --- | --- | --- |
+| 第 2 回 | 33352025223 | 64 分で打ち切り |
+| 第 3 回 | 33356182306 | 25 分の上限で打ち切り |
+| 第 4 回 | 33358384921 | **Editor は 14 分で入った。** ライセンスで失敗 |
+| 第 5 回 | 33361012965 | 同上（認証方法を変えても同じ） |
+
+**64 分の待ちの正体は、ダウンロードではなく対話プロンプトだった。**
+
+```
+[hub] ? Please select preferred architecture:
+[hub] ❯ Apple silicon / Intel
+```
+
+`--headless` を渡しても Unity Hub は architecture を聞いてくる。**最初の 1 分で
+止まっており、残りは何もしていなかった。** `--architecture arm64` を渡し、
+stdin を閉じたら **14 分で入った**（第 4 回）。
+
+**そこから先はライセンスの壁だった。** 認証の 2 系統を両方試して、どちらも同じ:
+
+```
+[Licensing::Client] Error: Code 404 ... Found 0 entitlement groups and
+                           0 free entitlements matching requested entitlement
+[Licensing::Module] Error: 'com.unity.editor.headless' was not found.
+```
+
+- `-username` / `-password` による認証（第 4 回）
+- `UNITY_LICENSE` の `.ulf` を `/Library/Unity/Unity_lic.ulf` に置く（第 5 回）
+
+`.ulf` は **Linux のレーンが実際に使っているもの**である。それを macOS に置いても
+entitlement が 0 件になる —— **ライセンスは環境に紐づいており、Linux で通る鍵が
+macOS で通るわけではない。**
+
+### 判定: **閉じない**（2026-08-31）
+
+**条件 7 と違い、この条件は結論を書いても閉じない。** 文言が「macOS の Plugin
+Import Settings を Unity で**実測する**」だからである。**実測していない以上、
+満たしていない。** 部分的な達成を完了と呼ばない。
+
+**分かったことは記録する。**
+
+- **Editor の導入は障害ではない**（14 分。`--architecture` を渡せばよい）
+- **障害はライセンスである。** この Unity アカウントの entitlement が
+  macOS runner の headless 認証で 0 件になる。**認証方法の問題ではなく
+  （2 系統とも同じ）、entitlement そのものが降りていない**
+- したがって次に試す価値があるのは **別のライセンス種別**（Pro seat など）か、
+  **手元の macOS で 1 回走らせて記録すること**である。後者なら CI は要らない
+
+**探査の workflow（`.github/workflows/unity-probe.yml`）は残す。** ここまでの
+5 回分の壁が step のコメントに書いてあるので、**次に同じ疑問を持った人が
+ゼロから調べ直さずに済む。** `workflow_dispatch` のみなので費用は掛からない。
+
+### 恒久レーンにはしない（2026-08-31 の決定）
+
+**Windows も macOS も、Unity のレーンを CI に常設しない。** 実測で比べた:
+
+| レーン | 実測 | 判断 |
+| --- | --- | --- |
+| Linux Unity（既存・必須） | EditMode / Standalone で 3〜7 分 | **維持** |
+| Windows EditMode | 動く（33 passed） | **足さない** —— IL2CPP が動かない以上、Linux と重複するだけ |
+| Windows Standalone | **動かない**（MSVC 不在） | 足せない |
+| macOS EditMode | **動かない**（entitlement 0 件） | 足せない |
+
+**Windows の EditMode は「動くが足さない」という珍しい判断である。** 足しても
+Linux の EditMode と同じものを 2 回見るだけで、**Windows 固有の欠陥を捕まえるのは
+IL2CPP の方**だからである。そちらが動かないのだから、EditMode だけ足しても
+**「見ているが、見たいものは見ていない」レーンが 1 本増える。**
 
 ---
 
