@@ -14,11 +14,11 @@
         "required": ["name", "summary", "returns", "csReturns", "wrapInTryBarrier", "params"],
         "properties": {
           "name": { "type": "string", "pattern": "^ocvu_[a-z0-9_]+$" },
-          "summary": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n]+$" },
+          "summary": { "type": "string", "minLength": 1, "pattern": "^(?!.*\\*/)[^\\r\\n<>&]+$" },
           "returns": { "type": "string", "enum": ["ocvu_status", "int32_t", "void"] },
           "csReturns": { "type": "string", "enum": ["int", "void"] },
           "wrapInTryBarrier": { "type": "boolean" },
-          "barrierNote": { "type": "string" },
+          "barrierNote": { "type": "string", "pattern": "^(?!.*\\*/)[^\\r\\n<>&]+$" },
           "reachable": { "type": "boolean" },
           "reachableNote": { "type": "string" },
           "entryPoint": { "type": "string", "pattern": "^ocvu_[a-z0-9_]+$" },

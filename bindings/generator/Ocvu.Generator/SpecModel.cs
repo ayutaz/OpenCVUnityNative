@@ -97,6 +97,23 @@ public static class SpecModel
         return result;
     }
 
+    // **何が禁じられているかを、拒むときに全部言う。** pattern だけを見せられても
+    // 「どの 1 文字が引っかかったのか」「なぜ禁じられているのか」は読み取れない。
+    // 直すのは spec を書いた人なので、言い換えの手掛かりまで出す。
+    private static void RequireSafeText(
+        string fileName, string fnName, string field, string value, string pattern)
+    {
+        if (Regex.IsMatch(value, pattern)) { return; }
+
+        throw new SpecFormatException(
+            $"{fileName}: {fnName}.{field} が schema の pattern '{pattern}' に一致しません。" +
+            "生成物を壊す文字は禁じています —— 改行は Markdown の表の行を割り、" +
+            "'*/' は C ヘッダのブロックコメントをそこで終わらせ、" +
+            "'<' '>' '&' は C# の XML doc を壊します" +
+            "（Shim は TreatWarningsAsErrors なのでビルドが失敗します）。" +
+            "これらを使わない言い回しに直してください。");
+    }
+
     private static void ValidateAgainstSchema(string fileName, ModuleSpec spec, SchemaConstraints c)
     {
         if (!Regex.IsMatch(spec.Module, c.ModulePattern))
@@ -112,17 +129,21 @@ public static class SpecModel
                 throw new SpecFormatException(
                     $"{fileName}: 関数名 '{fn.Name}' が schema の pattern '{c.FunctionNamePattern}' に一致しません");
             }
-            // **改行は逃がすのではなく禁じる。** summary は Markdown の表の
-            // セルへ入る（docs/api-map.md）。表の 1 行の中で改行を表現する
-            // 方法は無いので、入れば行そのものが割れる —— Markdown は
-            // 文句を言わないので、気づけるのは読む人だけである。
-            // 規約で禁じるのではなく、spec の側で表現できなくする
+            // **生成物を壊す文字は逃がすのではなく禁じる。** summary は 3 つの
+            // 生成物へ**生のまま**入る: Markdown の表のセル（docs/api-map.md）、
+            // C のブロックコメント（native/include/ocvu/*.h）、C# の XML doc
+            // （NativeMethods.*.g.cs）。どれも逃がし方が違ううえ、壊れ方は
+            // 「読みにくい」ではなく「ビルドが通らない」か「黙って別物になる」
+            // である。summary は人が読む短い説明なので、この 4 つが書けなくても
+            // 困らない —— 規約で禁じるのではなく、spec の側で表現できなくする
             // （docs/abi-ownership-and-versioning.md §1 と同じ考え方）。
-            if (!Regex.IsMatch(fn.Summary, c.SummaryPattern))
+            RequireSafeText(fileName, fn.Name, "summary", fn.Summary, c.SummaryPattern);
+
+            // barrierNote は C ヘッダの同じブロックコメントへ入る（XML doc には
+            // 入らないが、pattern を分ける理由もないので同じものを当てる）。
+            if (fn.BarrierNote is not null)
             {
-                throw new SpecFormatException(
-                    $"{fileName}: {fn.Name}.summary が schema の pattern '{c.SummaryPattern}' に" +
-                    "一致しません（改行は表のセルに入れられないので禁じています）");
+                RequireSafeText(fileName, fn.Name, "barrierNote", fn.BarrierNote, c.BarrierNotePattern);
             }
             if (!c.ReturnsEnum.Contains(fn.Returns))
             {

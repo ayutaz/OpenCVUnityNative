@@ -221,17 +221,24 @@ public class SpecSchemaTests
         finally { Directory.Delete(tmp, recursive: true); }
     }
 
-    // --- summary の改行（M5 Task 7）---
+    // --- summary が生成物を壊さないこと（M5 Task 7）---
 
-    // **改行は逃がすのではなく禁じる。** summary は docs/api-map.md の表の
-    // セルへ入る。表の 1 行の中で改行を表現する方法は無いので、入れば行
-    // そのものが割れる —— しかも Markdown は文句を言わない。逃がしようが
-    // ないものは、spec の側で**表現できなくする**
-    // （docs/abi-ownership-and-versioning.md §1 と同じ考え方）。
+    // summary は 3 つの生成物へ**生のまま**入る。壊れ方はどれも
+    // 「読みにくい」ではなく「ビルドが通らない」か「黙って別物になる」。
+    //
+    // - Markdown の表のセル（docs/api-map.md）    -> 改行が行を割る
+    // - C のブロックコメント（ocvu/*.h）          -> `*/` がそこでコメントを終わらせる
+    // - C# の XML doc（NativeMethods.*.g.cs）     -> `<` `>` `&` が壊す
+    //   （Shim は TreatWarningsAsErrors なのでビルドが失敗する）
     [Theory]
-    [InlineData(@"1 行目\n2 行目")]   // JSON の \n（LF）
-    [InlineData(@"1 行目\r\n2 行目")] // CRLF
-    public void SummaryContainingANewlineIsRejected(string summaryLiteral)
+    [InlineData(@"1 行目\n2 行目", "改行 (LF)")]
+    [InlineData(@"1 行目\r\n2 行目", "改行 (CRLF)")]
+    [InlineData(@"a */ b を取る。", "C のコメントを終わらせる")]
+    [InlineData(@"Mat<T> を取る。", "XML doc を壊す <>")]
+    [InlineData(@"a > b のとき。", "XML doc を壊す >")]
+    [InlineData(@"a & b を取る。", "XML doc を壊す &")]
+    public void SummaryContainingSomethingThatBreaksAGeneratedFileIsRejected(
+        string summaryLiteral, string why)
     {
         var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
         Directory.CreateDirectory(tmp);
@@ -240,7 +247,7 @@ public class SpecSchemaTests
             CopyRealSchemaInto(tmp);
             File.WriteAllText(Path.Combine(tmp, "bad.json"), $$"""
                 {
-                  "module": "multiline",
+                  "module": "breaks",
                   "functions": [
                     {
                       "name": "ocvu_test_fn",
@@ -254,12 +261,98 @@ public class SpecSchemaTests
                 }
                 """);
             var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
-            Assert.Contains("summary", ex.Message);
+            // **「何かが落ちた」で満足しない。** JSON の構文など手前の門ではなく、
+            // schema の pattern が拒んだことまで見る —— 前回、生の改行を入れた
+            // ときは System.Text.Json が先に落としており、この検査は 1 度も
+            // 動いていなかった（prove-a-check-works の「手前に別の門がある」）。
+            Assert.True(ex.Message.Contains("summary") && ex.Message.Contains("pattern"),
+                        $"{why} を schema の pattern が拒んだのではない: {ex.Message}");
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
 
-    // 改行が無ければ通ること（上の検査が summary を一律に拒んでいない確認）。
+    // **`*` 単体は通ること。** 実物の summary が `OCVU_IMREAD_*` を含むので、
+    // `*` ごと禁じると現行の spec が読めなくなる。禁じたのは `*/` である。
+    [Fact]
+    public void AStarThatIsNotClosingACommentIsAccepted()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "ok.json"), """
+                {
+                  "module": "star",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "flags は OCVU_IMREAD_* である。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            Assert.Equal("flags は OCVU_IMREAD_* である。",
+                         SpecModel.Load(tmp).Single().Functions.Single().Summary);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // **barrierNote も C ヘッダの同じブロックコメントへ入る。**
+    [Fact]
+    public void BarrierNoteContainingACommentTerminatorIsRejected()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "bad.json"), """
+                {
+                  "module": "badnote",
+                  "functions": [
+                    {
+                      "name": "ocvu_test_fn",
+                      "summary": "1 行に収まっている。",
+                      "returns": "void",
+                      "csReturns": "void",
+                      "wrapInTryBarrier": false,
+                      "barrierNote": "a */ b",
+                      "params": []
+                    }
+                  ]
+                }
+                """);
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("barrierNote", ex.Message);
+            Assert.Contains("pattern", ex.Message);
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // **実物の 22 本がこの pattern を通ること。** 禁じた文字が現行 spec に
+    // 1 つでもあれば、この検査ではなく spec の文言を直すのが正しい。
+    [Fact]
+    public void EveryRealSummaryAndBarrierNotePassesThePattern()
+    {
+        var fns = SpecModel.Load(Path.Combine(RepoRoot(), "bindings", "spec"))
+            .SelectMany(s => s.Functions)
+            .ToList();
+        Assert.True(fns.Count > 10, "spec が空だと素通りする");
+        foreach (var fn in fns)
+        {
+            Assert.DoesNotContain("*/", fn.Summary);
+            Assert.DoesNotContain('<', fn.Summary);
+            Assert.DoesNotContain('>', fn.Summary);
+            Assert.DoesNotContain('&', fn.Summary);
+        }
+    }
+
+    // 素直な summary は通ること（上の検査が summary を一律に拒んでいない確認）。
     [Fact]
     public void SummaryOnASingleLineIsAccepted()
     {
