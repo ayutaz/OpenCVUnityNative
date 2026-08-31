@@ -7,21 +7,24 @@ using UnityEngine;
 /// <summary>
 /// **Unity のどちらのレーンからも一度も呼ばれていなかった公開 API を呼ぶ。**
 ///
-/// M4 の点検で実測した。package が宣言する P/Invoke は **19 本**
+/// M4 の点検で実測した。当時 package が宣言する P/Invoke は **19 本**
 /// （<c>[DllImport]</c> は 21 個あるが、<c>mat_copy_from_buffer</c> と
-/// <c>mat_copy_to_buffer</c> は byte[] 版と IntPtr 版で 2 重に宣言されている。
-/// また <c>ocvu_debug_crash</c> は C ABI には在るが package は宣言しないので、
-/// <c>CLAUDE.md</c> の「公開 ABI は 20 本」とは数え方が違う）。
-///
-/// そのうち **7 本が、Editor でも Player でも一度も到達していなかった**:
+/// <c>mat_copy_to_buffer</c> は byte[] 版とポインタ版で 2 重に宣言されている）
+/// で、そのうち **7 本が、Editor でも Player でも一度も到達していなかった**:
 /// cvt_color / resize / mat_clone / imencode / imdecode /
 /// get_build_information / debug_throw。このクラスがその 7 本を通す。
 ///
-/// 残る 2 本（<c>ocvu_get_status_count</c> / <c>ocvu_get_status_value</c>）は
-/// **出荷する C# のどこからも呼ばれていない** —— 呼ぶ側が無く、
+/// **M5 で数が変わった。** 宣言は <c>bindings/spec/*.json</c> から生成される
+/// ようになり、C ABI の 20 本すべてが package に現れる（<c>[DllImport]</c> は
+/// 22 個。上の 2 重宣言は <c>_ptr</c> 付きの別名になった）。増えた 1 本は
+/// <c>ocvu_debug_crash</c> で、**呼べばプロセスが死ぬので通す対象ではない。**
+///
+/// 通していない残りは 3 本（<c>ocvu_get_status_count</c> /
+/// <c>ocvu_get_status_value</c> / <c>ocvu_debug_crash</c>）である。
+/// 前の 2 本は **出荷する C# のどこからも呼ばれていない** —— 呼ぶ側が無く、
 /// <c>NativeMethods</c> は internal なので Unity のテストからも到達できない。
-/// **したがってここでも通していない。** stripping がこの 2 本を消しても
-/// 壊れるものは無いが、「通した」と書かないために明記しておく
+/// stripping がこの 2 本を消しても壊れるものは無いが、「通した」と
+/// 書かないために明記しておく
 /// （status 表の同期は L3 の <c>StatusCodeSyncTests</c> が見ている）。
 ///
 /// L1 と L3 は上記をすべて見ているので「テストが無い」わけではない。

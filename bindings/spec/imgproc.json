@@ -1,0 +1,46 @@
+{
+  "module": "imgproc",
+  "functions": [
+    {
+      "name": "ocvu_cvt_color",
+      "summary": "色空間を変換する。dst の形状と型は結果に応じて上書きされる。src と dst が同じ handle なら OCVU_STATUS_INVALID_ARGUMENT を返す（OpenCV の in-place 対応は関数ごとに異なり、曖昧さを ABI に持ち込まない）。OpenCV 由来の失敗は OCVU_STATUS_OPENCV_ERROR になる。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": [
+        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "code", "cType": "int32_t", "csType": "int", "direction": "in" }
+      ]
+    },
+    {
+      "name": "ocvu_resize",
+      "summary": "width x height に拡大縮小する。width / height が 1 未満なら OCVU_STATUS_INVALID_ARGUMENT。src と dst に同じ handle を渡した場合も同様に拒否する。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": [
+        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "width", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "height", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "interpolation", "cType": "int32_t", "csType": "int", "direction": "in" }
+      ]
+    },
+    {
+      "name": "ocvu_gaussian_blur",
+      "summary": "Gaussian ぼかしを掛ける。ksize は正の奇数でなければならず、そうでなければ OCVU_STATUS_INVALID_ARGUMENT。sigma に 0 を渡すと OpenCV が ksize から算出する。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": [
+        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "ksize_width", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "ksize_height", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "sigma_x", "cType": "double", "csType": "double", "direction": "in" },
+        { "name": "sigma_y", "cType": "double", "csType": "double", "direction": "in" }
+      ]
+    }
+  ]
+}

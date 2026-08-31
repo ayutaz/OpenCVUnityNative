@@ -1,0 +1,20 @@
+// このファイルは生成物である。手で編集しないこと。
+// 正本: bindings/spec/imgcodecs.json
+// 生成: ./tools/dev.ps1 generate
+
+using System.Runtime.InteropServices;
+
+namespace CvUnity.Interop
+{
+    internal static partial class NativeMethods
+    {
+        /// <summary>Mat を画像形式に符号化し buffer へ書く。符号化後の大きさは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。ext は .png のように先頭のドットを含む拡張子で、NULL と空文字列は拒否する。</summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_imencode(ulong src, byte[] ext, byte[] buffer, int buffer_size, out int out_required_size);
+
+        /// <summary>符号化された画像 byte 列を復号して dst に入れる。dst の形状と型は結果に応じて上書きされる。data はこの呼び出しの内側でのみ読む借用で、native は保持しない。length は 1 以上 INT32_MAX 以下でなければならず、画像として解釈できない byte 列は OCVU_STATUS_OPENCV_ERROR になる（メモリは壊さない）。flags は OCVU_IMREAD_* である。</summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_imdecode(byte[] data, long length, int flags, ulong dst);
+
+    }
+}
