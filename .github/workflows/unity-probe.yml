@@ -1,0 +1,174 @@
+name: unity-probe
+
+# **M4 の完了条件 6 と 7 を閉じるための探査。**
+#
+# どちらも「Linux 以外の runner で Unity を動かす」ことが本体で、
+# **やってみるまで分からない**という理由で残っていた条件である。
+#
+#   条件 6: macOS の Plugin Import Settings を Unity で**実測する**。
+#           macOS runner は iOS のクロスビルドで既に使っているが、
+#           **Unity は一度も起動していない。** 全部入りの package には
+#           macOS の .dylib と .meta が入って全利用者に届くのに、
+#           それを読む Unity は Windows と Linux 上でしか動かしていない。
+#
+#   条件 7: windows-2022 上で game-ci/unity-test-runner@v4 へ**実際に投げ**、
+#           その run の出力を根拠として、Windows の IL2CPP Player を CI で
+#           回すかどうかを結論として書く。**やると決めるか諦めると決めるかは
+#           問わない** —— roadmap が禁じているのは「上流の issue を読んだ
+#           結果を根拠にする」ことである。2026-08-29 に、まさにその経路で
+#           下した判断が崩れた（挙げていた 2 つの issue のうち 1 つは
+#           使っていない別 action のもので、もう 1 つは別系統のものだった）。
+#
+# **workflow_dispatch のみ。** PR に費用を掛けない。結論が出たら、恒久レーンに
+# するかを決める（決めるまでがこの探査の仕事である）。
+#
+# **落ちてよい。** 落ちた出力そのものが条件 7 の根拠になる。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read     # gh run download に要る
+  checks: write     # game-ci が check run を作る
+
+concurrency:
+  group: unity-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Unity on ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    # **1 つが落ちてももう 1 つを走らせる。** 片方の結果しか無いと、
+    # 条件 6 と 7 のどちらが閉じたのか分からなくなる。
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS
+            runner: macos-14
+            testMode: EditMode
+          - label: Windows
+            runner: windows-2022
+            testMode: EditMode
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve the Unity version
+        id: unity
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+          $m = Select-String -LiteralPath $file -Pattern '^m_EditorVersion:\s*(\S+)' |
+               Select-Object -First 1
+          if (-not $m) {
+              Write-Error "could not read m_EditorVersion from $file"
+              exit 1
+          }
+          "version=$($m.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          Write-Host "==> Unity $($m.Matches[0].Groups[1].Value) on ${{ matrix.runner }}"
+
+      - name: Install Ninja
+        if: matrix.runner == 'macos-14'
+        run: brew install ninja
+
+      # 出力名は既存の workflow と揃える（config-hash）。**検査は path と key の
+      # 両方がハッシュを参照し、参照先の step id が同じ job に在ることまで見る。**
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+          Write-Host "==> config hash $hash"
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ runner.os }}-${{ steps.opencv-config.outputs.config-hash }}
+
+      - name: Restore OpenCV
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./tools/opencv.ps1 restore
+
+      - name: Build the native plugin
+        shell: pwsh
+        run: ./tools/dev.ps1 build
+
+      # **plugin と .meta が実際に置かれたことを見てから Unity を起動する。**
+      # 置かれていないまま起動すると、Unity は「plugin が無い」で通り、
+      # **何を測ったのか分からない緑**になる。
+      - name: Check the plugin and its import settings are in place
+        shell: pwsh
+        run: |
+          $root = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+          $found = @(Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Extension -ne '.meta' })
+          if ($found.Count -lt 1) {
+              Write-Error "native plugin が $root にありません。"
+              exit 1
+          }
+          foreach ($f in $found) {
+              $meta = "$($f.FullName).meta"
+              if (-not (Test-Path -LiteralPath $meta)) {
+                  Write-Error "import settings がありません: $meta"
+                  exit 1
+              }
+              Write-Host "==> $($f.Name) と .meta が在る"
+          }
+
+      # **ここが本体。** customImage は渡さない —— あれは Linux の docker
+      # イメージを指すもので、macOS / Windows では別の導入経路になる。
+      - name: Run ${{ matrix.testMode }} tests on ${{ matrix.label }}
+        id: tests
+        continue-on-error: true
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: tests/UnityProject
+          unityVersion: ${{ steps.unity.outputs.version }}
+          testMode: ${{ matrix.testMode }}
+          artifactsPath: artifacts/unity-probe-${{ matrix.label }}
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: probe ${{ matrix.label }} results
+
+      # **game-ci の成否と、テストの中身の判定を分ける。**
+      # game-ci が起動に失敗した場合と、起動したがテストが落ちた場合は
+      # 別の結論に繋がる（前者は条件 7 の「諦める」根拠になりうるが、
+      # 後者は実装の欠陥である）。
+      - name: Report what happened
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "==> game-ci の結果: ${{ steps.tests.outcome }}"
+          $dir = 'artifacts/unity-probe-${{ matrix.label }}'
+          if (-not (Test-Path -LiteralPath $dir)) {
+              Write-Host "==> 結果ディレクトリが無い（Unity が起動しなかった可能性）"
+              exit 0
+          }
+          $xml = @(Get-ChildItem -LiteralPath $dir -Filter '*.xml' -Recurse -File)
+          if ($xml.Count -lt 1) {
+              Write-Host "==> 結果 XML が無い（Unity は起動したがテストが走っていない可能性）"
+              exit 0
+          }
+          ./tools/assert-unity-results.ps1 -ResultsPath $xml[0].FullName -Lane '${{ matrix.label }}'
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: unity-probe-${{ matrix.label }}
+          path: artifacts/unity-probe-${{ matrix.label }}
+          if-no-files-found: warn
