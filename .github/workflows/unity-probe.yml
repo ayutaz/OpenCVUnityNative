@@ -203,7 +203,7 @@ jobs:
           if [ -n "${UNITY_LICENSE:-}" ]; then
             sudo mkdir -p /Library/Unity
             printf "%s" "$UNITY_LICENSE" | sudo tee /Library/Unity/Unity_lic.ulf > /dev/null
-            echo "==> ULF を /Library/Unity/Unity_lic.ulf に置いた（$(sudo wc -c < /Library/Unity/Unity_lic.ulf) バイト）"
+            echo "==> ULF を /Library/Unity/Unity_lic.ulf に置いた（$(sudo stat -f%z /Library/Unity/Unity_lic.ulf) バイト）"
           else
             echo "==> UNITY_LICENSE が空。認証できない見込み。"
           fi
