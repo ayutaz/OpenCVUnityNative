@@ -83,7 +83,10 @@ public class SpecSchemaTests
         {
             CopyRealSchemaInto(tmp);
             var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
-            Assert.Contains("見つかりません", ex.Message);
+            // **"見つかりません" だけでは足りない。** schema.json が無いときの
+            // メッセージにも当たるので、CopyRealSchemaInto を消しても緑のまま
+            // 別の門へ移る —— この作業で 4 度踏んだ「手前に別の門」と同じ形である。
+            Assert.Contains("spec が 1 件も", ex.Message);
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
