@@ -28,7 +28,7 @@
 
 | 層 | 内容 | 想定時間 | 実行頻度 | 導入 |
 | --- | --- | --- | --- | --- |
-| L0 | spec → 生成物の golden test | < 1 秒 | 毎編集 | M5（**導入済み**。`dev.ps1 verify-generated` / `tools/tests/BindingGenerator.Tests.ps1` / `bindings/generator/Ocvu.Generator.Tests`。3 つとも `dev.ps1 test` に入るので **CI が 3 platform で毎回通す**）|
+| L0 | spec → 生成物の golden test | < 1 秒 | 毎編集 | M5（**導入済み**。`dev.ps1 verify-generated` / `tools/tests/BindingGenerator.Tests.ps1` / `bindings/generator/Ocvu.Generator.Tests`。3 つとも `dev.ps1 test` に入るので **`ci-native` が 3 platform で走らせる**）|
 | L1 | C ABI 契約テスト（GoogleTest + CTest） | 1〜5 秒 | 毎編集 | M0 |
 | L2 | ASan / UBSan レーン | 10〜30 秒 | 毎コミット | M0 |
 | L3 | P/Invoke 検証（素の .NET、Unity 不使用） | 2〜5 秒 | 毎編集 | M0 |
@@ -1239,11 +1239,11 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json`（22 エントリ）→ `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が毎回通す**。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
+| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（実際に走った run はまだ無い。下の穴 6）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
 | 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **閉じていない。** 実装計画が冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**次の計画で閉じる。**部分的な達成を完了と呼ばない |
-| 3 | M3.5 で手書きした関数を spec の側へ寄せる | **満たす（実証済み）**。`imgcodecs` の 2 本を含む **20 本すべて**が spec から出ている。`Runtime/` の `[DllImport]` は 22 個で、**全部が `.g.cs` の中にある（手書きは 0 個）**。逆向きも見る —— `native/src/**/*.cpp` の `extern "C" ocvu_*` を全部拾って spec と突き合わせ、実測で「取り出せた 20 / `extern "C"` 20、spec に無い実装 0 件」。ダミーの `extern "C" ocvu_dummy_probe` を足すと**逆向き検査だけ**が名指しで落ち、ブロック形 `extern "C" { … }` で足すと**帰属の数が合わない**ことで落ちた（空振りしない） |
+| 3 | M3.5 で手書きした関数を spec の側へ寄せる | **満たす（実証済み）**。`imgcodecs` の 2 本を含めて**手書きの宣言は 1 本も残っていない** —— `Runtime/` の `[DllImport]` は**全部が `.g.cs` の中にある（手書きは 0 個）**。逆向きも見る —— `native/src/**/*.cpp` の `extern "C" ocvu_*` を全部拾って spec と突き合わせ、実測で「**取り出せた数と `extern "C"` の総数が一致、spec に無い実装 0 件**」。ダミーの `extern "C" ocvu_dummy_probe` を足すと**逆向き検査だけ**が名指しで落ち、ブロック形 `extern "C" { … }` で足すと**帰属の数が合わない**ことで落ちた（空振りしない） |
 | 4 | API 対応表を生成し、「OpenCV 全対応」という曖昧な表現を使わない | **満たす（実証済み）**。`docs/api-map.md`。**本数を数えるのはこの表の冒頭だけ**にし、他所からは数字を落とした。`ApiMapEmitter` は**自分が出した Markdown を読み直して**「全行が見出しと同じ列数」「本体の行数が spec の entry 数と一致」を見る。逃がしを外すと実際に落ちる（`区切りが 6 個であるべきところ 7 個`）。**この構造の門は入口の禁止文字の列挙とは独立で、著者が思いつかなかった文字にも効く** |
-| 5 | 生成された P/Invoke が IL2CPP stripping を生き延びることを L5 で確認 | **満たす（実証済み）**。`AbiReachabilityChecks.g.cs` が **21 本の宣言を 1 本残らず 1 回ずつ**呼び、EditMode と PlayMode の両方が 1 件のテストとして通す。実物の IL2CPP Player で `==> [player] 19 passed`。`NativeMethods.Infra.g.cs` の `ocvu_get_status_value` に存在しない `EntryPoint` を仕込むと **34 件中 1 件だけ**が `System.EntryPointNotFoundException` で落ちた —— **この関数は M5 の前は Editor でも Player でも一度も呼ばれておらず、同じ壊し方をしても 33 件が全部緑だった** |
+| 5 | 生成された P/Invoke が IL2CPP stripping を生き延びることを L5 で確認 | **満たす（実証済み）**。`AbiReachabilityChecks.g.cs` が **spec の宣言を 1 本残らず 1 回ずつ**呼び（除外は `ocvu_debug_crash` の 1 本だけ。呼ぶと戻ってこない）、EditMode と PlayMode の両方が 1 件のテストとして通す。実物の IL2CPP Player で `==> [player] 19 passed`。`NativeMethods.Infra.g.cs` の `ocvu_get_status_value` に存在しない `EntryPoint` を仕込むと **34 件中 1 件だけ**が `System.EntryPointNotFoundException` で落ちた —— **この関数は M5 の前は Editor でも Player でも一度も呼ばれておらず、同じ壊し方をしても 33 件が全部緑だった** |
 
 **残る穴（隠さずに書く）。**
 
@@ -1264,6 +1264,14 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
 - **`bindings/generated-checks/` は作っていない**（`docs/unity-opencv-integration-research-and-plan.md`
   §10 の想定にある）。一致検査は既存のレーン（L3 の solution と `tools/tests/`）に
   載せた —— **新しいディレクトリを作ると「どこからも走らない検査」を作りやすい**ためである。
+- **この判定はローカルの実測だけで、CI の run はまだ 1 度も無い。**
+  上の表で「`ci-native` が走らせる」と書いたのは**構造の事実**であって、
+  観測ではない —— このブランチはまだ CI に出ていないので、
+  `verify-generated` が 3 platform で通ったところも、Unity のレーンが
+  CI で 34 / 19 になるところも、**誰も見ていない。**
+  **「ファイルが存在する」は「CI で実行された」ではない**（`nightly` の cron を
+  判定したときと同じ基準を、こちらにも当てる）。**この判定は PR が緑になるまで
+  確定しない**（`milestone-complete` skill の手順 7）。
 
 **この計画の後に残るもの**（完了条件 2 のほかに 2 つ）。
 
@@ -1272,7 +1280,7 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
   ヘッダだけ**で、`Runtime/Interop` は 1 つの assembly のままである。
 - **実装（`.cpp`）は生成しない。** spec は境界の**形**を持つが、中で何をするかは
   持たない。生成する価値が出るのは「`Mat` を 2 つ取って 1 つ返す」ような
-  **型どおりの薄い関数が増えたとき**で、いまの 20 本はどれも引数の検証や
+  **型どおりの薄い関数が増えたとき**で、いま在る関数はどれも引数の検証や
   2 回呼びの作法を持っており、**生成しても薄くならない。**
 
 ---
@@ -1423,7 +1431,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
    `dnn` は別ヘッダ・別 `.cpp`・別 CMake target に置く。共通の型・status・version だけを
    `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る。**
-   → **M5 で済んだ（2026-09-01）。** 20 本の宣言は
+   → **M5 で済んだ（2026-09-01）。** 関数宣言は
    `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` に分かれ、
    `opencv_unity_native.h` に残ったのは型・status・定数だけである。**ただし分けたのは
    ヘッダであって CMake target ではない** —— まだ 1 つの target が全 module を作る。

@@ -13,8 +13,11 @@
 所有権契約そのものは同 §1 を参照。
 
 対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
-6000.3.16f1 の 1 版だけ**）。**対応 platform は Windows x64 / macOS arm64 / Linux x64 の 3 つ**
-（mobile と Web は未対応）。
+6000.3.16f1 の 1 版だけ**）。**対応 platform は最新の公開版（v0.2.0）の
+Windows x64 / macOS arm64 / Linux x64 の 3 つ**で、この文書はその 3 つを前提に書いてある。
+**どこまでが「対応」かの正本は [README](../README.md) の Status である** ——
+mobile と Web の現況（何がビルドされ、何が公開版に入っておらず、何が実機で
+動いていないか）はあちらに 1 箇所だけ書いてあるので、**ここには写さない。**
 
 **native plugin の binary はリポジトリに入っていない。**
 `Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/` は丸ごと成果物で、binary も
