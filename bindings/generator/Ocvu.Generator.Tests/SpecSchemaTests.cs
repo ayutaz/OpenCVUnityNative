@@ -63,7 +63,12 @@ public class SpecSchemaTests
             CopyRealSchemaInto(tmp);
             File.WriteAllText(Path.Combine(tmp, "bad.json"),
                 "{ \"module\": \"bad\", \"functions\": [], \"typoField\": 1 }");
-            Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            // **どの門が落としたのかまで見る。** 例外の型だけを見ると、手前に
+            // 別の門が立ったときに「通っているが何も見ていない」状態へ静かに
+            // 移る（実測で 6 件がそうなった）。
+            Assert.Contains("bad.json", ex.Message);
+            Assert.Contains("読めません", ex.Message);
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
@@ -77,7 +82,8 @@ public class SpecSchemaTests
         try
         {
             CopyRealSchemaInto(tmp);
-            Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("見つかりません", ex.Message);
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
@@ -108,7 +114,9 @@ public class SpecSchemaTests
                   ]
                 }
                 """);
-            Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("returns", ex.Message);
+            Assert.Contains("enum", ex.Message);
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
@@ -139,7 +147,11 @@ public class SpecSchemaTests
                   ]
                 }
                 """);
-            Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            // **csType の門がこの直前に入った。** direction ではなくそちらで
+            // 落ちていないことを、名指しで確かめる。
+            Assert.Contains("direction", ex.Message);
+            Assert.Contains("enum", ex.Message);
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }
@@ -168,7 +180,9 @@ public class SpecSchemaTests
                   ]
                 }
                 """);
-            Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            var ex = Assert.Throws<SpecFormatException>(() => SpecModel.Load(tmp));
+            Assert.Contains("関数名", ex.Message);
+            Assert.Contains("pattern", ex.Message);
         }
         finally { Directory.Delete(tmp, recursive: true); }
     }

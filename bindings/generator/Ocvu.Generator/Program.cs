@@ -45,7 +45,13 @@ foreach (var (path, text) in outputs)
 {
     // **申告するのは、書き込むのと同じ 1 つの繰り返しである。** 早い return で
     // 別に列挙すると、その下に足した outputs だけが「生成されるのに申告されない」
-    // 状態になる（実測で踏んだ）。同じ loop に置けば、その形は表現できない。
+    // 状態になる（実測で踏んだ）。同じ loop に置けば、**outputs に入れた物が
+    // 申告から漏れることは無い。**
+    //
+    // **これは outputs を通る物だけの保証である。** outputs を経由せず
+    // File.WriteAllText で直接書けば、その file は申告にも --check にも現れない
+    // —— そこを塞いでいるのは構造ではなく「生成物は冒頭で生成物だと名乗る」
+    // 規約で、tools/tests/BindingGenerator.Tests.ps1 がその名乗りを走査している。
     if (listOutputs)
     {
         // 区切りは '/' に固定する。検査する側が platform で別の文字列を見ないため。
