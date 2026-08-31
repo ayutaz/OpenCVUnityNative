@@ -60,10 +60,10 @@ jobs:
           # 第 1 回で EditMode が 33 件通ったが、**EditMode が通ったことは
           # IL2CPP が通る根拠にならない** —— IL2CPP は別のモジュールを要求する。
           # 条件 7 が問うているのは IL2CPP Player の方である。
-          - label: Windows
-            runner: windows-2022
-            useGameCi: true
-            testMode: Standalone
+          # **Windows はこの回では回さない。** 第 2 回（run 33352025223）で
+          # 結論が出た —— game-ci の Windows コンテナには IL2CPP が生成した
+          # C++ をコンパイルする MSVC のツールチェーンが無く、Player build が
+          # ToolchainNotFoundException で落ちる。**同じことを 2 度払わない。**
 
     steps:
       - name: Checkout
@@ -139,8 +139,17 @@ jobs:
       # **ここが本体。** customImage は渡さない —— あれは Linux の docker
       # イメージを指すもので、macOS / Windows では別の導入経路になる。
       # ---- macOS: game-ci を経由せず Unity Hub の CLI で入れる ----
+      # **モジュールを足さない。** 第 2 回で `--module mac-il2cpp --childModules`
+      # を付けたところ、**64 分かけても終わらず打ち切った**（run 33352025223）。
+      # 条件 6 が要るのは「macOS の Unity が .dylib と .meta をどう扱うか」で、
+      # **それは EditMode（Mono）で分かる。** IL2CPP のモジュールは要らない。
+      #
+      # **step に timeout を置く。** 前回は job の 90 分しか上限が無く、進捗も
+      # 出していなかったので「進んでいるのか止まっているのか」が分からなかった。
+      # **分からない待ちを作らない。**
       - name: Install Unity via Hub (macOS)
         if: matrix.useGameCi == false
+        timeout-minutes: 25
         shell: bash
         run: |
           set -euo pipefail
@@ -151,13 +160,17 @@ jobs:
           echo "==> Unity $version ($changeset) を入れる"
           hub='/Applications/Unity Hub.app/Contents/MacOS/Unity Hub'
           # **失敗しても続ける。** 入らなかったこと自体が条件 6 の根拠になる。
-          "$hub" -- --headless install --version "$version" --changeset "$changeset" \
-            --module mac-il2cpp --childModules || echo '==> Hub の install が非 0 で戻った'
+          # モジュールを指定しない = Editor 本体だけ。EditMode に要るのはこれだけ。
+          # stdbuf で行バッファにして進捗を流す（前回は無音で 64 分待った）。
+          "$hub" -- --headless install --version "$version" --changeset "$changeset" 2>&1 |
+            while IFS= read -r line; do echo "[hub] $line"; done
+          echo "==> Hub の install が終わった"
           ls -la "/Applications/Unity/Hub/Editor/$version/Unity.app/Contents/MacOS/" 2>&1 || \
             echo '==> Editor が入っていない'
 
       - name: Activate and run EditMode (macOS)
         if: matrix.useGameCi == false
+        timeout-minutes: 25
         id: mac-tests
         continue-on-error: true
         shell: bash
