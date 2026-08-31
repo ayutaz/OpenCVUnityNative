@@ -48,12 +48,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # **macOS は game-ci を使わない。** 第 1 回の探査で
+          # `Currently darwin-platform is not supported` が返った（run 33350726005）。
+          # 道具の対応範囲の問題で、設定では回避できない。Unity Hub の CLI で
+          # 直接入れて、ローカルのレーンと同じ経路（dev.ps1）で走らせる。
           - label: macOS
             runner: macos-14
+            useGameCi: false
             testMode: EditMode
+          # **Windows は Standalone（= IL2CPP Player）を投げる。**
+          # 第 1 回で EditMode が 33 件通ったが、**EditMode が通ったことは
+          # IL2CPP が通る根拠にならない** —— IL2CPP は別のモジュールを要求する。
+          # 条件 7 が問うているのは IL2CPP Player の方である。
           - label: Windows
             runner: windows-2022
-            testMode: EditMode
+            useGameCi: true
+            testMode: Standalone
 
     steps:
       - name: Checkout
@@ -128,7 +138,68 @@ jobs:
 
       # **ここが本体。** customImage は渡さない —— あれは Linux の docker
       # イメージを指すもので、macOS / Windows では別の導入経路になる。
+      # ---- macOS: game-ci を経由せず Unity Hub の CLI で入れる ----
+      - name: Install Unity via Hub (macOS)
+        if: matrix.useGameCi == false
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install --cask unity-hub
+          file=tests/UnityProject/ProjectSettings/ProjectVersion.txt
+          version=$(sed -n 's/^m_EditorVersion: *//p' "$file")
+          changeset=$(grep -o '([0-9a-f]*)' "$file" | head -1 | tr -d '()')
+          echo "==> Unity $version ($changeset) を入れる"
+          hub='/Applications/Unity Hub.app/Contents/MacOS/Unity Hub'
+          # **失敗しても続ける。** 入らなかったこと自体が条件 6 の根拠になる。
+          "$hub" -- --headless install --version "$version" --changeset "$changeset" \
+            --module mac-il2cpp --childModules || echo '==> Hub の install が非 0 で戻った'
+          ls -la "/Applications/Unity/Hub/Editor/$version/Unity.app/Contents/MacOS/" 2>&1 || \
+            echo '==> Editor が入っていない'
+
+      - name: Activate and run EditMode (macOS)
+        if: matrix.useGameCi == false
+        id: mac-tests
+        continue-on-error: true
+        shell: bash
+        env:
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          set -uo pipefail
+          file=tests/UnityProject/ProjectSettings/ProjectVersion.txt
+          version=$(sed -n 's/^m_EditorVersion: *//p' "$file")
+          editor="/Applications/Unity/Hub/Editor/$version/Unity.app/Contents/MacOS/Unity"
+          if [ ! -x "$editor" ]; then
+            echo '==> Unity Editor が入らなかった。ここで終える。'
+            exit 1
+          fi
+          mkdir -p artifacts/unity-probe-macOS
+          # **Personal ライセンスの認証。** 秘密は環境変数から渡し、
+          # コマンドラインに出さない（ps で見える）。
+          "$editor" -batchmode -quit -nographics \
+            -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" \
+            -logFile artifacts/unity-probe-macOS/activate.log || \
+            echo '==> 認証が非 0 で戻った（続ける）'
+          # -quit は付けない（-runTests は自分で終了する。付けるとテスト前に落ちる）
+          "$editor" -batchmode -nographics -projectPath tests/UnityProject \
+            -runTests -testPlatform EditMode \
+            -testResults "$PWD/artifacts/unity-probe-macOS/results.xml" \
+            -logFile artifacts/unity-probe-macOS/editmode.log
+          echo "==> Unity の終了コード: $?"
+
+      - name: Show the macOS log tail
+        if: always() && matrix.useGameCi == false
+        shell: bash
+        run: |
+          for f in artifacts/unity-probe-macOS/*.log; do
+            [ -f "$f" ] || continue
+            echo "---------- $f（末尾 40 行）"
+            tail -40 "$f"
+          done
+
+      # ---- Windows: game-ci に投げる ----
       - name: Run ${{ matrix.testMode }} tests on ${{ matrix.label }}
+        if: matrix.useGameCi
         id: tests
         continue-on-error: true
         uses: game-ci/unity-test-runner@v4
@@ -152,7 +223,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          Write-Host "==> game-ci の結果: ${{ steps.tests.outcome }}"
+          Write-Host "==> game-ci の結果: ${{ steps.tests.outcome }} / macOS の結果: ${{ steps.mac-tests.outcome }}"
           $dir = 'artifacts/unity-probe-${{ matrix.label }}'
           if (-not (Test-Path -LiteralPath $dir)) {
               Write-Host "==> 結果ディレクトリが無い（Unity が起動しなかった可能性）"
