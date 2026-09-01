@@ -867,34 +867,30 @@ marshalling の検査から外れる**という性質を持つ（`SpecModel.cs` 
 （既存の型表テストの隣に置く）:
 
 ```csharp
-    [Fact]
-    public void KeypointPointerAcceptsTheArrayAndThePointerForm()
+    // ocvu_keypoint* は 2 つの入口を持つ。managed 配列を marshal する版と、
+    // アドレスを直接渡す版で、どちらも正しい（const uint8_t* と同じ形）。
+    [Theory]
+    [InlineData("ocvu_keypoint*", "OcvuKeyPoint[]")]
+    [InlineData("ocvu_keypoint*", "System.IntPtr")]
+    public void BothSpellingsOfAKeypointParamAreAccepted(string cType, string csType)
     {
-        // ocvu_keypoint* は 2 つの入口を持つ。managed 配列を marshal する版と、
-        // アドレスを直接渡す版で、どちらも正しい（const uint8_t* と同じ形）。
-        foreach (var csType in new[] { "OcvuKeyPoint[]", "System.IntPtr" })
-        {
-            var spec = OneFunctionSpecWithParam("ocvu_keypoint*", csType);
-            var ex = Record.Exception(() => SpecModel.LoadFrom(spec));
-            Assert.Null(ex);
-        }
+        Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
     }
 
     [Fact]
-    public void KeypointPointerRejectsAnUnrelatedCsType()
+    public void AKeypointParamRejectsAnUnrelatedCsType()
     {
         // 型表が「知らない cType は拒む」だけでなく、
         // 「知っている cType に合わない csType も拒む」ことを見る。
-        var spec = OneFunctionSpecWithParam("ocvu_keypoint*", "out int");
-        var ex = Assert.Throws<SpecFormatException>(() => SpecModel.LoadFrom(spec));
+        var ex = Assert.Throws<SpecFormatException>(() => LoadOneParam("ocvu_keypoint*", "out int"));
         Assert.Contains("ocvu_keypoint*", ex.Message);
     }
 ```
 
-**`OneFunctionSpecWithParam` は既存のヘルパを使う。** 同じ形のテストが
-既に在るので（`EveryRealParamPassesTheCTypeToCsTypeCheck` の周辺）、
-そこで使われている作り方に揃えること。**無ければこのテストの中で
-最小の spec を組み立てる** —— 名前を勝手に変えない。
+**`LoadOneParam` は既存の private ヘルパである**（同ファイル内。
+`BothSpellingsOfABufferParamAreAccepted` が同じ形で使っている）。
+**新しいヘルパを作らないこと** —— 同じことをする 2 つ目のヘルパは、
+次に型を足す人がどちらを使うか迷う原因になる。
 
 - [ ] **Step 2: RED を確認する**
 
@@ -902,7 +898,7 @@ marshalling の検査から外れる**という性質を持つ（`SpecModel.cs` 
 pwsh tools/dev.ps1 test-managed
 ```
 
-期待: `KeypointPointerAcceptsTheArrayAndThePointerForm` が **FAIL**
+期待: `BothSpellingsOfAKeypointParamAreAccepted` が **FAIL**
 （「cType 'ocvu_keypoint*' を知りません」）。
 
 - [ ] **Step 3: C の struct を足す**
@@ -982,9 +978,10 @@ pwsh tools/dev.ps1 test-managed
 
 - [ ] **Step 7: 型表の検査が効くことを確かめる（prove-a-check-works）**
 
-足した行を一時的に消して `KeypointPointerAcceptsTheArrayAndThePointerForm` が
-落ちること、`OcvuKeyPoint[]` を `byte[]` に書き換えて
-`KeypointPointerRejectsAnUnrelatedCsType` が落ちることを確認してから戻す。
+足した行を一時的に消して `BothSpellingsOfAKeypointParamAreAccepted` が
+落ちること、`AllowedCsTypes` の `"OcvuKeyPoint[]"` を `"byte[]"` に
+書き換えて `AKeypointParamRejectsAnUnrelatedCsType` の側が変わることを
+確認してから戻す。
 
 - [ ] **Step 8: コミット**
 
@@ -1270,9 +1267,12 @@ extern "C" ocvu_status ocvu_orb_detect(ocvu_mat_handle src, int32_t max_features
 
 ```
 pwsh tools/dev.ps1 test-native
+pwsh tools/dev.ps1 verify-generated
 ```
 
-期待: `Features.*` の 4 件が PASS。
+期待: `Features.*` の 4 件が PASS。`verify-generated` は
+`==> 生成物は spec と一致しています（14 ファイル）` を出す
+（10 → objdetect で 12 → features で 14）。
 
 - [ ] **Step 6: ASan を回す**
 
@@ -1660,7 +1660,8 @@ git status --short   # .meta が 2 つ増えているはず
 pwsh tools/dev.ps1 test
 ```
 
-期待: exit 0。`verify-generated` が 12 ファイルで一致し、L1 と L3 が緑。
+期待: exit 0。`verify-generated` が **14 ファイル**で一致し、L1 と L3 が緑。
+（10 → objdetect で 12 → features で 14。ヘッダと P/Invoke が module ごとに 1 つずつ増える。）
 
 - [ ] **Step 9: コミット**
 
@@ -1751,7 +1752,7 @@ pwsh tools/dev.ps1 test-unity-player
   → 5 つ）
 - `bindings/spec/*.json` の行の module 名（4 → 6）
 - `native/include/ocvu/{...}.h` の行の module 名（4 → 6）
-- `dev.ps1 generate` の行の「**10 ファイル**」→ **12 ファイル**
+- `dev.ps1 generate` の行の「**10 ファイル**」→ **14 ファイル**
 - `dev.ps1 test-managed` の行の件数（**件数を書いてあるのはこの行だけである**）
 - `dev.ps1 test-native` の行の GoogleTest 件数（64 → 実測値）
 
