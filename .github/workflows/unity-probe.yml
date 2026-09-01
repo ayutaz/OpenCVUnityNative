@@ -229,7 +229,10 @@ jobs:
         if: matrix.useGameCi
         id: tests
         continue-on-error: true
-        uses: game-ci/unity-test-runner@v4
+        # ci-unity と同じ版に揃える（理由はあちらのコメントにある）。
+        # **過去の 5 回の実行は `@v4` で行った** —— 上の条件 7 の記述は
+        # その run のことなので、そのままにしてある。
+        uses: game-ci/unity-test-runner@v5.0.0-beta.1
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}

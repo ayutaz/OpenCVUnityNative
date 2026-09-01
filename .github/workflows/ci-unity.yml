@@ -404,8 +404,24 @@ jobs:
           Set-Content -LiteralPath 'tests/UnityProject/ocvu-expect-all-platforms' `
                       -Value '1' -NoNewline
 
+      # **pre-release を固定してある。** これだけが node20 を宣言する action
+      # だった（GitHub は 2025-09 に node20 を非推奨にし、いまは node24 上で
+      # 強制実行している —— 実測: ci-unity の annotation に
+      # `being forced to run on Node.js 24` が出ていた）。
+      #
+      # **安定版に node24 のものが無い。** `@v4` と最新安定版 `@v4.3.1` は
+      # 同一コミットで、どちらも node20 である。node24 なのは
+      # `v5.0.0-beta.1`（2026-08-18）だけ。
+      #
+      # **action.yml の差は node20 -> node24 の 1 行だけである**（実測。
+      # 入力 24 個・出力 2 個とも名前も既定値も同一で、他の行に差は無い）。
+      # 実装は game-ci/cli へ移されたが、こちらから見える契約は変わらない。
+      #
+      # 上流は「main CI ではなく別 workflow で試すのが安全」と書いている。
+      # **それでもここに入れたのは、このレーンが必須チェックだからである** ——
+      # 壊れていれば PR が merge できない。判定は CI がする。
       - name: Run ${{ matrix.lane }} tests
-        uses: game-ci/unity-test-runner@v4
+        uses: game-ci/unity-test-runner@v5.0.0-beta.1
         id: tests
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
