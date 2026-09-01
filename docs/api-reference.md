@@ -164,13 +164,27 @@ status:
 | `OCVU_IMREAD_GRAYSCALE` | 0 | 1 チャンネルの灰色 |
 | `OCVU_IMREAD_COLOR` | 1 | 3 チャンネルの BGR |
 
-### objdetect / features（M5 で追加）
+### objdetect / features / geometry（M5 で追加）
 
 | 関数 | 内容 |
 | --- | --- |
 | `ocvu_qr_encode(const char* text, ocvu_mat_handle dst)` | `text`（UTF-8 の NUL 終端 byte 列）を QR コードの画像に符号化して `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、8 bit 1 channel の正方形になる |
 | `ocvu_qr_decode(ocvu_mat_handle src, char* buffer, int32_t buffer_size, int32_t* out_required_size)` | `src` に写っている QR コードを 1 つ検出して復号し、`buffer` へ UTF-8・NUL 終端で書く。**2 回呼ぶ**（下記） |
 | `ocvu_orb_detect(ocvu_mat_handle src, int32_t max_features, ocvu_keypoint* out_keypoints, int32_t capacity, int32_t* out_count)` | `src` から ORB の特徴点を検出する。**1 回呼び**（下記） |
+| `ocvu_find_homography(const float* src_points, int64_t src_length, const float* dst_points, int64_t dst_length, int32_t point_count, int32_t method, double ransac_threshold, ocvu_mat_handle dst)` | 2 組の点の対応から射影変換（3x3）を求めて `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、64 bit 1 channel の 3x3 になる |
+
+**`ocvu_find_homography` は点の配列の長さを個別に受け取る。** `src_length` /
+`dst_length` は要素数（点数ではない）で、`point_count * 2` に満たなければ
+**何も読まずに** `OCVU_STATUS_INVALID_ARGUMENT` を返す —— `ocvu_imdecode` や
+`ocvu_mat_copy_from_buffer` と同じ「呼ぶ側を信用しない」契約である（§1.1）。
+**上限の定数は設けていない**: `point_count` を大きく渡しても、長さがそこに
+届かないので同じ検査で断られる。
+
+`method` は `OCVU_HOMOGRAPHY_METHOD_DEFAULT`（全点の最小二乗）/ `_LMEDS` /
+`_RANSAC`（外れ値を捨てる）のいずれかで、**それ以外は境界で断る** ——
+OpenCV に落とすと「原因不明」になるか、黙って既定の挙動になるためである。
+**点が退化していて解が求まらないときは `OCVU_STATUS_NOT_FOUND`** で、
+これは誤りではない（入力の形は正しく、解が存在しないだけである）。
 
 **`ocvu_qr_decode` は `ocvu_imdecode` と同じ 2 回呼びの作法だが、「見つからない」を
 表す status が別にある。** QR コードが写っていない画像は `OCVU_STATUS_NOT_FOUND` を

@@ -44,7 +44,7 @@ double At(const std::vector<double>& m, int row, int col) {
 
 TEST(Geometry, FindHomographyRecoversAScale) {
     ScopedMat dst;
-    ASSERT_EQ(ocvu_find_homography(kSquare.data(), kDoubled.data(), 4,
+    ASSERT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_OK);
 
@@ -73,31 +73,31 @@ TEST(Geometry, FindHomographyRecoversAScale) {
 TEST(Geometry, FindHomographyRejectsInvalidArguments) {
     ScopedMat dst;
 
-    EXPECT_EQ(ocvu_find_homography(nullptr, kDoubled.data(), 4,
+    EXPECT_EQ(ocvu_find_homography(nullptr, 8, kDoubled.data(), 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NULL_POINTER);
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), nullptr, 4,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, nullptr, 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NULL_POINTER);
 
     // **4 点未満では射影変換が決まらない。** 3 点で呼べてしまうと、
     // OpenCV の中で落ちるか、意味の無い行列が返る。
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), kDoubled.data(), 3,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 3,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), kDoubled.data(), 0,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 0,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), kDoubled.data(), -1,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, -1,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
 
     // 知らない method は素通しにしない —— OpenCV に落として
     // 「原因不明」にするより、境界で断るほうが呼ぶ側に分かる。
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), kDoubled.data(), 4, 12345, 3.0, dst.get()),
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4, 12345, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
 
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), kDoubled.data(), 4,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, OCVU_MAT_HANDLE_NONE),
               OCVU_STATUS_INVALID_HANDLE);
 }
@@ -106,13 +106,13 @@ TEST(Geometry, FindHomographyLeavesTheDestinationUntouchedWhenItFails) {
     ScopedMat dst;
 
     // 先に成功させて、既知の形にしておく。
-    ASSERT_EQ(ocvu_find_homography(kSquare.data(), kDoubled.data(), 4,
+    ASSERT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_OK);
     ocvu_mat_info before{};
     ASSERT_EQ(ocvu_mat_get_info(dst.get(), &before), OCVU_STATUS_OK);
 
-    EXPECT_EQ(ocvu_find_homography(nullptr, kDoubled.data(), 4,
+    EXPECT_EQ(ocvu_find_homography(nullptr, 8, kDoubled.data(), 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NULL_POINTER);
 
@@ -129,7 +129,7 @@ TEST(Geometry, FindHomographyReportsNotFoundWhenThePointsAreDegenerate) {
     const std::vector<float> same{5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f};
 
     ScopedMat dst;
-    EXPECT_EQ(ocvu_find_homography(same.data(), same.data(), 4,
+    EXPECT_EQ(ocvu_find_homography(same.data(), 8, same.data(), 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NOT_FOUND);
 }
@@ -143,7 +143,7 @@ TEST(Geometry, FindHomographyAcceptsRansacWithOutliers) {
                                      0.0f, 20.0f, 900.0f, 900.0f};
 
     ScopedMat dst;
-    ASSERT_EQ(ocvu_find_homography(src.data(), dst_pts.data(), 5,
+    ASSERT_EQ(ocvu_find_homography(src.data(), 10, dst_pts.data(), 10, 5,
                                    OCVU_HOMOGRAPHY_METHOD_RANSAC, 3.0, dst.get()),
               OCVU_STATUS_OK);
 
@@ -157,4 +157,38 @@ TEST(Geometry, FindHomographyAcceptsRansacWithOutliers) {
     ASSERT_NE(w, 0.0);
     EXPECT_NEAR(At(m, 0, 0) / w, 2.0, 1e-3) << "RANSAC は外れ値を捨てるはず";
     EXPECT_NEAR(At(m, 1, 1) / w, 2.0, 1e-3);
+}
+
+TEST(Geometry, FindHomographyRejectsALengthThatCannotHoldThePoints) {
+    // **呼ぶ側を信用しない。** point_count だけを受け取ると、
+    // 配列の終端を越えて読んでも native からは分からない。
+    // 長さを明示的に受け取り、point_count * 2 に足りなければ断る
+    // （ocvu_imdecode / ocvu_mat_copy_from_buffer と同じ契約）。
+    ScopedMat dst;
+
+    // 4 点には float が 8 個要る。7 個しか無いと言われたら断る。
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 7, kDoubled.data(), 8, 4,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 7, 4,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_INVALID_ARGUMENT);
+
+    // 負の長さも断る。
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), -1, kDoubled.data(), 8, 4,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_INVALID_ARGUMENT);
+
+    // **桁あふれを計算で作らない。** point_count * 2 は int64_t の掛け算だが、
+    // point_count が INT32_MAX なら 2 倍しても int64_t には収まる —— それでも
+    // 長さがそこに届かないので断る。**上限を別に設けなくても、
+    // 長さの検証だけで塞がる。**
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, INT32_MAX,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_INVALID_ARGUMENT);
+
+    // 長さが余分にあるのは問題ない（先頭 point_count 分だけ読む）。
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_OK);
 }

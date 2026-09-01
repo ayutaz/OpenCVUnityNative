@@ -106,9 +106,11 @@ namespace CvUnity
                     nameof(srcPoints));
             }
 
-            // **長さの一致はここでしか見られない。** native に渡すのは
-            // point_count 1 つだけなので、食い違っていても native からは
-            // 見えず、短いほうの配列の終端を越えて読むことになる。
+            // **2 つの点列が同じ長さであることは、ここでしか見られない。**
+            // native は各配列の長さを個別に受け取って point_count と突き合わせるので、
+            // 「短すぎる」は境界で断られる。**だが「片方だけ長い」は native から見て
+            // 正常であり、呼ぶ側の意図と食い違っていることは分からない** ——
+            // 対応の付いていない点を黙って無視するより、ここで断るほうがよい。
             if (srcPoints.Length != dstPoints.Length)
             {
                 throw new ArgumentException(
@@ -116,8 +118,14 @@ namespace CvUnity
                     nameof(dstPoints));
             }
 
+            // 長さは native にも渡す —— **C# が正しく詰めたことを native は
+            // 信用しない。** 直接 C ABI を叩く呼び手（他の言語、テスト）が
+            // 短い配列に大きな点数を渡しても、境界で断られる。
+            var src = Flatten(srcPoints);
+            var dstFlat = Flatten(dstPoints);
+
             var status = (CvStatus)NativeMethods.ocvu_find_homography(
-                Flatten(srcPoints), Flatten(dstPoints), srcPoints.Length,
+                src, src.Length, dstFlat, dstFlat.Length, srcPoints.Length,
                 (int)method, ransacThreshold, dst.Handle);
 
             // **解が無いのは失敗ではない。** 呼ぶ側には false で返す。
