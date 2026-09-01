@@ -42,7 +42,7 @@
 | `infra` | `ocvu_debug_throw` | `ocvu_debug_throw` | 呼ぶ | conformance test 用に、内部で意図的に例外を投げる。kind は 0 が std::runtime_error、1 が std::bad_alloc、2 が非標準例外、3 が投げない。例外が ABI 境界を越えないことの検証に使う。 |
 | `infra` | `ocvu_debug_crash` | `ocvu_debug_crash` | 呼ばない | conformance test 用に、意図的にプロセスを壊す。kind は 0 が不正アクセスで即死、1 が戻ってこない（無限ループ）。managed 側からネイティブが死んだときに L3 が有限時間で赤くなるかを確かめるためだけに存在し、通常の経路からは決して呼ばれない。 |
 | `objdetect` | `ocvu_qr_encode` | `ocvu_qr_encode` | 呼ぶ | text を QR コードの画像に符号化して dst に入れる。dst の形状と型は結果に応じて上書きされ、8 bit 1 channel の正方形になる。text は NUL 終端の UTF-8 byte 列で、NULL と空文字列は拒否する。符号化できない長さの text は OCVU_STATUS_OPENCV_ERROR になる。失敗したときは dst を書き換えない。 |
-| `objdetect` | `ocvu_qr_decode` | `ocvu_qr_decode` | 呼ぶ | src に写っている QR コードを 1 つ検出して復号し、NUL 終端の UTF-8 byte 列として buffer へ書く。復号後の長さは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に NUL を含む必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。QR が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。 |
+| `objdetect` | `ocvu_qr_decode` | `ocvu_qr_decode` | 呼ぶ | src に写っている QR コードを 1 つ検出して復号し、NUL 終端の UTF-8 byte 列として buffer へ書く。検出の前に白い余白（quiet zone）を必ず足し、短いほうの辺が 200 px 未満の画像はさらに最近傍補間で拡大してから検出する。復号後の長さは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に NUL を含む必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。QR が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。 |
 
 ## 到達性
 

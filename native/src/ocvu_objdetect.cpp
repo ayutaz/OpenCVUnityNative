@@ -117,11 +117,18 @@ extern "C" ocvu_status ocvu_qr_decode(ocvu_mat_handle src, char* buffer, int32_t
             cv::resize(*src_mat, scaled, cv::Size(), scaleFactor, scaleFactor, cv::INTER_NEAREST);
         }
 
-        // **quiet zone を足してから検出する。** cv::QRCodeEncoder が作る画像は
-        // 仕様上必要な周囲の余白（quiet zone）を持たない。decode は
-        // 「encode が作った画像を含め、渡された画像から検出を試みる」責務
-        // なので、ここで余白を足してから検出する（呼ぶ側に quiet zone の
-        // 用意を要求しない）。
+        // **quiet zone は無条件で足す。** 上の拡大とは直している失敗が違う。
+        // 拡大は「module が小さすぎて解像できない」を直すので大きさと
+        // 相関し、大きい画像には不要（だから条件付き）。quiet zone は
+        // 「余白が無くて finder pattern を切り出せない」を直すので大きさと
+        // 相関しない —— 大きく切り詰められた（余白の無い）QR 画像は、
+        // 大きくても余白が無い。ここを条件付きにすると、その種の画像だけ
+        // 検出できなくなる。cv::QRCodeEncoder が作る画像は仕様上必要な
+        // 周囲の余白（quiet zone）を持たない。decode は「encode が作った
+        // 画像を含め、渡された画像から検出を試みる」責務なので、ここで
+        // 余白を足してから検出する（呼ぶ側に quiet zone の用意を要求
+        // しない）。無条件のコピー 1 回分のコストは受け入れている
+        // ——実測でボトルネックになったら見直す。
         cv::Mat padded;
         cv::copyMakeBorder(scaled, padded, kQrQuietZonePixels, kQrQuietZonePixels,
                             kQrQuietZonePixels, kQrQuietZonePixels,
