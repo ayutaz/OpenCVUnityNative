@@ -39,8 +39,26 @@ jobs:
       # actionlint は workflow の YAML を構文・式・shell まで見る。
       # `${{ }}` の型、runner ラベルの綴り、`run:` の中の shell 構文まで
       # 読むので、上に挙げた種類の誤りが実行前に出る。
+      #
+      # **版を固定する。** `:latest` にしていた版は、上流が規則を足した日に
+      # こちらは 1 行も変えていないのに必須チェックが赤くなる —— そして
+      # 差分が無いので、何が変わったのかを追う手がかりも無い。
+      #
+      # **これだけは Dependabot が追えない。** github-actions ecosystem の
+      # parser は `docker://` で始まる `uses:` を明示的に読み飛ばす
+      # （dependabot-core の github_actions/lib/dependabot/github_actions/
+      # file_parser.rb に `# TODO: Support Docker references` と共に在る）。
+      # つまりここは**手で上げる**。上げ方:
+      #
+      #   1. https://github.com/rhysd/actionlint/releases で最新版を見る
+      #   2. 下のタグを差し替えて PR を出す（新しい指摘が出たら直す）
+      #
+      # 固定してあることは tools/tests/OpenCvConfig.Tests.ps1 が見る。
+      # **見るのは「固定されているか」だけで、「最新か」は見ない** ——
+      # 後者は上流に問い合わせるしかなく、ネットワークに依存する検査を
+      # 速いレーンに持ち込むことになる。
       - name: Run actionlint
-        uses: docker://rhysd/actionlint:latest
+        uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color
 

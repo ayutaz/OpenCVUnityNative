@@ -404,8 +404,35 @@ jobs:
           Set-Content -LiteralPath 'tests/UnityProject/ocvu-expect-all-platforms' `
                       -Value '1' -NoNewline
 
+      # **pre-release を固定してある。** これだけが node20 を宣言する action
+      # だった（GitHub は 2025-09 に node20 を非推奨にし、いまは node24 上で
+      # 強制実行している —— 実測: ci-unity の annotation に
+      # `being forced to run on Node.js 24` が出ていた）。
+      #
+      # **安定版に node24 のものが無い。** `@v4` と最新安定版 `@v4.3.1` は
+      # 同一コミットで、どちらも node20 である。node24 なのは
+      # `v5.0.0-beta.1`（2026-08-18）だけ。
+      #
+      # **action.yml の差は node20 -> node24 の 1 行だけである**（実測。
+      # 入力 24 個・出力 2 個とも名前も既定値も同一）。**ただしそれは
+      # インタフェースの話であって、挙動の証明ではない** —— 中身は
+      # `dist/index.js` に在り、そちらは実装が game-ci/cli の
+      # `plugins/unity/` へ移ったことで大きく入れ替わっている。
+      # **挙動の根拠はこの PR の CI run そのものに置く**（EditMode と
+      # IL2CPP Standalone が両方緑になったこと）。
+      #
+      # 上流は「main CI ではなく別 workflow で試すのが安全」と書いている。
+      # **それでもここに入れたのは、このレーンが必須チェックだからである** ——
+      # 壊れていれば PR が merge できない。判定は CI がする。
+      #
+      # **タグではなく commit で固定する。** pre-release のタグは上流が
+      # 消せる —— v5.0.0 が正式に出た日に `v5.0.0-beta.1` が消えると、
+      # こちらは 1 行も変えていないのに**全 PR が merge できなくなる**
+      # （必須チェックが「action を解決できない」で落ちるため）。
+      # major を指すタグ（`@v7` など）が動くのは上流が維持する約束が
+      # あるからで、pre-release にその約束は無い。
       - name: Run ${{ matrix.lane }} tests
-        uses: game-ci/unity-test-runner@v4
+        uses: game-ci/unity-test-runner@f7d28f891263d875d47ef34370e9e8dd6087e1ef # v5.0.0-beta.1
         id: tests
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
