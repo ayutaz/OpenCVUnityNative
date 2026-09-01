@@ -15,7 +15,10 @@ namespace CvUnity
     public static class CvQrCode
     {
         /// <summary>
-        /// text を QR コードの画像に符号化して dst に入れる。
+        /// text を QR コードの画像に符号化して <paramref name="dst"/> に入れる。
+        /// <paramref name="dst"/> は結果に応じて丸ごと置き換わり、8 bit 1 channel の
+        /// 正方形になる —— 呼び出し前に <paramref name="dst"/> が持っていた形状・型・
+        /// 内容は保持されない。
         /// </summary>
         public static void Encode(string text, CvMat dst)
         {
@@ -33,8 +36,14 @@ namespace CvUnity
         }
 
         /// <summary>
-        /// src に写っている QR コードを 1 つ復号する。写っていなければ null を返す。
+        /// <paramref name="src"/> に写っている QR コードを 1 つ復号する。
+        /// 写っていなければ null を返す。
         /// </summary>
+        /// <remarks>
+        /// 検出の前に白い余白(quiet zone)を必ず足し、短いほうの辺が 200 px 未満の
+        /// 画像はさらに最近傍補間で拡大してから検出する。**この前処理は内部で作る
+        /// 加工済みのコピーに対して行われ、<paramref name="src"/> 自体は変更しない。**
+        /// </remarks>
         public static string Decode(CvMat src)
         {
             if (src == null) throw new ArgumentNullException(nameof(src));
