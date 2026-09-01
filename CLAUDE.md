@@ -30,7 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **M4（Mobile）は実装が済み、CI も green で main に入った**（PR #41、`5354658`、2026-08-30）。**対象 platform は 3 から 5 になった** —— Android arm64-v8a と iOS arm64 が加わり、**クロスコンパイルがこのリポジトリに初めて入った**（M0〜M3.5 の完了条件はすべて「実行中の OS で確かめる」形だった）。成立させたのは 4 つ: (1) **5 platform の OpenCV を CI がビルドし、plugin をクロスビルドする**。(2) **Android の 16 KB page size を実物の `.so` で両方向検証する** —— 対応時は `p_align = 16384`、linker flag の書き方を変えて効かなくすると `4096` で赤くなる（後者は事故だったが、**「16 KB 整列は NDK の既定ではなくこの flag が作っている」ことと「検査が実物で落ちる」ことを同時に証明した**）。(3) **iOS は静的ライブラリを作り、libtool で OpenCV を束ねる** —— 束ねられていることを「こちらの object が要求する `cv::` シンボルをこの archive が定義しているか」で測り、**同じ step の負の対照が毎回それを裏づける**。(4) `WebCamTexture` から `CvMat` を作れる（**新しい C ABI 関数は 1 本も増えていない**。既存の上に立つ C# である）。
 
-**M4 は完了していない。完了条件 9 件のうち 5 件を満たし、4 件は閉じていない** ——iOS / Android の実機、lifecycle と memory pressure、macOS 上での Unity 起動、Windows IL2CPP の結論。**実機が要る 2 件は CI では原理的に閉じない**ので、人が実行する手順書（`docs/m4-device-verification.md`）に落としてある。判定表は `docs/roadmap.md` の M4 節。
+**M4 は完了していない。完了条件 9 件のうち 5 件を満たし、4 件は閉じていない。2026-09-01 に、残る 4 件をすべてスキップすると決めた** ——iOS / Android の実機、lifecycle と memory pressure、macOS 上での Unity 起動、Windows IL2CPP の結論。**実機が要る 2 件は CI では原理的に閉じない**ので、人が実行する手順書（`docs/m4-device-verification.md`）に落としてある。**この 4 件はどれも自然には閉じない** —— **「まだ調べていない」ではなく「やらないと決めた」である**（判断と帰結は `docs/roadmap.md` の「配布 その 4」に 1 箇所だけ書いてある）。帰結: **Android / iOS は「CI がビルドするが誰も動かしたことがない」まま残り、利用者に届く最新版は v0.2.0（3 platform）のままである。**判定表は `docs/roadmap.md` の M4 節。
 
 **クロスビルドが緑になってから CI で 8 回落ちた。** Android の sample プロジェクト / install 配置 /新しい third-party（`cpufeatures`）/ 自分が起こした回帰 / クロスでの `find_package` の閉じ込め /`.meta` のキーが `iPhone` ではなく `iOS` であること。**最後の 1 件は、`.meta` を自分でパースする検査は通し、Unity に問う検査だけが落とした。**
 
@@ -288,7 +288,7 @@ C++ を選んだ主因は、**sanitizer が安定版ツールチェーンで使�
 
 再評価を安価に保つため、**public C header と契約テスト（L1 / L3）は backend 実装から独立に保つ**。この不変条件は M0 で確立し、以降のすべてのマイルストーンで維持する。
 
-## マイルストーン（現在地: **M5（binding specification と generator）を実装し、完了条件 5 件のうち 4 件を満たした**（計画は `docs/superpowers/plans/2026-08-31-m5-binding-generator.md`）。**条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は計画の側で意図的に外してあり、次の計画で閉じる。** **M4（Mobile）も完了していない** —— 完了条件 9 件のうち 4 件が閉じていない（iOS 実機 / lifecycle / macOS 上の Unity / Windows IL2CPP の結論。うち後ろ 2 件は 2026-08-31 に「CI では閉じない」と結論した）。**v0.2.0 が最新の公開版で、v0.3.0 は下書きのまま止めてある**（実機検証待ち）。判定表はいずれも roadmap にある）
+## マイルストーン（現在地: **M5（binding specification と generator）を実装し、完了条件 5 件のうち 4 件を満たした**（計画は `docs/superpowers/plans/2026-08-31-m5-binding-generator.md`）。**条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は計画の側で意図的に外してあり、次の計画で閉じる。** **M4（Mobile）も完了していない** —— 完了条件 9 件のうち 4 件が閉じていない（iOS 実機 / lifecycle / macOS 上の Unity / Windows IL2CPP の結論。うち後ろ 2 件は 2026-08-31 に「CI では閉じない」と結論した）。**v0.2.0 が最新の公開版で、v0.3.0 は下書きのまま止めてある**（2026-09-01 に公開しないと決めた）。**その下書きをそのまま公開してはならない** —— 作った時点は M5 が main に入る前で、生成物が 1 つも入っていない。判定表はいずれも roadmap にある）
 
 詳細と完了条件は `docs/roadmap.md` にある。要点のみ:
 

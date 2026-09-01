@@ -953,6 +953,24 @@ M4 の完了条件 9 件のうち 4 件が閉じておらず、2 件が実機で
 **公開の条件**: [実機検証の手順](./m4-device-verification.md) の §1 と §2 を実施し、
 問題が無いこと。実施したら `gh release edit v0.3.0 --draft=false`。
 
+**2026-09-01 に、利用者が「実機検証も v0.3.0 の公開もスキップする」と決めた。**
+これは「まだやっていない」ではなく**やらないと決めた**である ——
+次に読む人が調べ直さないよう、判断として記録する。帰結は 3 つある。
+
+1. **M4 は 9 件中 5 件のまま止まる。** 条件 3・4 は実機が要り、条件 6・7 は
+   2026-08-31 に「CI では閉じない」と結論済みなので、**この 4 件はどれも
+   自然には閉じない。** 誰かが実機を用意して手順書を実施するまで動かない。
+2. **Android / iOS は「CI がビルドするが、誰も動かしたことがない」まま残る。**
+   コードは main に在り、CI は 5 platform 分をビルドし、`release.yml` は
+   28 asset を作れる。**動くかどうかだけが未知である。**
+3. **利用者に届く最新版は v0.2.0（3 platform）のままである。** OpenUPM が
+   配信しているのもそれで、**モバイル対応は誰の手にも渡らない。**
+
+**この下書きをそのまま公開してはならない。** 作った時点（2026-08-31T01:40Z）は
+**M5 が main に入る前**で、asset の中の `.g.cs` も `docs/api-map.md` も
+入っていない。**配ると決めたら、tag を打ち直して作り直すこと。**
+下書きを消す必要は無い —— 残っていても誰にも見えないし、期限も無い。
+
 ### OpenUPM への登録（条件 4 (c)）
 
 **openupm/openupm PR #6843 として提出し、自動マージされた**（2026-08-30。`Data validation`
@@ -1143,8 +1161,8 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 | --- | --- | --- |
 | 1 | Android arm64-v8a と iOS arm64 の native artifact を CI が生成する | **満たす**（2026-08-31）。`build-opencv.yml` が 5 platform 分の OpenCV を作り、`ci-native.yml` の `mobile` job が両方の plugin をクロスビルドして CI で緑になった（run 33319185326）。iOS の `.a` は 424 member・16,782,128 バイト |
 | 2 | Android の 16 KB page size を CI で検証する | **満たす**（2026-08-31）。合成 ELF の 4 通りに加え、**実物の `.so` で両方向を実測した** —— 対応時は `==> libopencv_unity_native.so: PT_LOAD 3 件、最小 p_align = 16384`（run 33319185326）、**linker flag の書き方を変えて効かなくしたときは `PT_LOAD[1] p_align = 4096（16384 以上が要る）` で赤くなった**（run 33323002468）。後者は事故だったが、**「16 KB 整列は NDK の既定ではなくこの flag が作っている」ことと「検査が実物で落ちる」ことを同時に証明した** |
-| 3 | iOS の `__Internal` static link と stripping 後の P/Invoke を**実機で**確認 | **閉じていない**。`native/CMakeLists.txt` が iOS で `STATIC` を作る分岐は入れたが、**実機が要る**（署名と端末）。手順は [実機検証](./m4-device-verification.md) §1 |
-| 4 | lifecycle / memory pressure | **閉じていない**。同上、§2 |
+| 3 | iOS の `__Internal` static link と stripping 後の P/Invoke を**実機で**確認 | **閉じていない。2026-09-01 に利用者がスキップと決めた**（下の「配布 その 4」に理由と帰結）。`native/CMakeLists.txt` が iOS で `STATIC` を作る分岐は入れたが、**実機が要る**（署名と端末）。**やらないと決めたのであって、調べ残しではない。** 手順は [実機検証](./m4-device-verification.md) §1 —— **実機を用意すればいつでも実施できる** |
+| 4 | lifecycle / memory pressure | **閉じていない。同じくスキップと決めた**（2026-09-01）。同上、§2 |
 | 5 | `WebCamTexture` から `CvMat` を作れる | **満たす**。`WebCamTextureConverter`（3 overload）。EditMode 9 件が通り、**上下反転をやめると `RowOrderIsFlippedSoTheMatOriginIsTopLeft` だけが落ちる**ことを実測した。Player でも 1 件通している（M4 のレビューで、この API が Editor しか通っていないと分かったため） |
 | 6 | macOS の Plugin Import Settings を Unity で実測 | **閉じていない**（2026-08-31 に 4 回試して確定）。game-ci は macOS を支えない（`darwin-platform is not supported`）。Unity Hub の CLI で直接入れる経路も試し、**Editor は 14 分で入るところまで到達したが、ライセンスで止まる** —— `Found 0 entitlement groups and 0 free entitlements`。**認証を 2 系統（`-username`/`-password` と `.ulf`）とも試して同じ**なので、認証方法ではなく entitlement 自体が降りていない。**Editor の導入は障害ではなく、障害はライセンスである**（詳細は上記「担当が無かった制約」の節）|
 | 7 | Windows IL2CPP を CI で回すかの結論 | **満たす**（2026-08-31）。**結論は「諦める」。** `windows-2022` に 2 回投げた —— EditMode は動いた（33 passed、run 33350726005）が、**`Standalone` は `ToolchainNotFoundException` で落ちた**（run 33352025223）。game-ci の Windows コンテナに、IL2CPP が生成した C++ をコンパイルする MSVC が無い。**このとき game-ci 自身は success を返しており、結果 XML の有無を別に見ていなければ逆の結論を書いていた。** 根拠は 2 回の実測で、他人の issue ではない（詳細は上記「担当が無かった制約」の節）|
@@ -1241,6 +1259,32 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
 | --- | --- | --- |
 | 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
 | 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **閉じていない。** 実装計画が冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**次の計画で閉じる。**部分的な達成を完了と呼ばない |
+
+**条件 2 に着手するとき、どこを読むか**（M5 完了時に書いた。**skill にはしていない** ——
+実際に module を足すまで「壊して落ちることを見る」ができないので、手順を先に
+固めると確かめられない規約が増える。`prove-a-check-works` の規律に従う）。
+
+- **前例は M3.5 の `imgcodecs` である。** 同じことを全部やった 1 例が
+  この文書の M3.5 節に在る。**そこで踏んだ罠が 1 つある** ——
+  `tools/opencv-config.psd1` の `Modules` に足しても、
+  `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` に足さなければ
+  **リンクされない。** 「OpenCV に入っている」と「このプラグインが
+  リンクしている」は別で、`ocvu_get_build_information()` は前者しか報告しない。
+  気づいたのは CMake を読み直してではなく、リンカが未解決シンボルを出したからである。
+- **同時に動く場所**: `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` /
+  `tools/opencv-config.psd1` の `Modules`（構成ハッシュが変わるので **OpenCV を
+  ビルドし直す**）/ `THIRD_PARTY_NOTICES.md` / 成果物の大きさ /
+  `tools/verify-opencv-artifact.ps1` の依存 allowlist。
+- **ABI 関数の足し方そのものは `add-abi-function` skill が持つ。**
+  M5 以降、**宣言は `bindings/spec/*.json` に 1 エントリ書いて `generate` する** ——
+  新しい module なら `bindings/spec/<module>.json` を作り、
+  `native/include/opencv_unity_native.h` の `#include` に 1 行足す
+  （**その 1 行だけは生成物ではない**）。
+- **API allowlist の正本は `docs/abi-ownership-and-versioning.md` §3 である。**
+  関数を足したらそこにも足す —— **allowlist に無い関数を出荷している状態は、
+  正本が正本でなくなっているということである。**
+- **`COMPONENTS` に足すだけでは binary は 1 バイトも増えない**（静的リンクは
+  参照された object しか引かない）。大きさが増えるのは関数を書いたときである。
 | 3 | M3.5 で手書きした関数を spec の側へ寄せる | **満たす（実証済み）**。`imgcodecs` の 2 本を含めて**手書きの宣言は 1 本も残っていない** —— `Runtime/` の `[DllImport]` は**全部が `.g.cs` の中にある（手書きは 0 個）**。逆向きも見る —— `native/src/**/*.cpp` の `extern "C" ocvu_*` を全部拾って spec と突き合わせ、実測で「**取り出せた数と `extern "C"` の総数が一致、spec に無い実装 0 件**」。ダミーの `extern "C" ocvu_dummy_probe` を足すと**逆向き検査だけ**が名指しで落ち、ブロック形 `extern "C" { … }` で足すと**帰属の数が合わない**ことで落ちた（空振りしない） |
 | 4 | API 対応表を生成し、「OpenCV 全対応」という曖昧な表現を使わない | **満たす（実証済み）**。`docs/api-map.md`。**本数を数えるのはこの表の冒頭だけ**にし、他所からは数字を落とした。`ApiMapEmitter` は**自分が出した Markdown を読み直して**「全行が見出しと同じ列数」「本体の行数が spec の entry 数と一致」を見る。逃がしを外すと実際に落ちる（`区切りが 6 個であるべきところ 7 個`）。**この構造の門は入口の禁止文字の列挙とは独立で、著者が思いつかなかった文字にも効く** |
 | 5 | 生成された P/Invoke が IL2CPP stripping を生き延びることを L5 で確認 | **満たす（実証済み）**。`AbiReachabilityChecks.g.cs` が **spec の宣言を 1 本残らず 1 回ずつ**呼び（除外は `ocvu_debug_crash` の 1 本だけ。呼ぶと戻ってこない）、EditMode と PlayMode の両方が 1 件のテストとして通す。実物の IL2CPP Player で `==> [player] 19 passed`。`NativeMethods.Infra.g.cs` の `ocvu_get_status_value` に存在しない `EntryPoint` を仕込むと **34 件中 1 件だけ**が `System.EntryPointNotFoundException` で落ちた —— **この関数は M5 の前は Editor でも Player でも一度も呼ばれておらず、同じ壊し方をしても 33 件が全部緑だった** |
