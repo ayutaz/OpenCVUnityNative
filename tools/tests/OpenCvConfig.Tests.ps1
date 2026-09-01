@@ -1738,18 +1738,30 @@ Assert-That (@($releaseLines | Where-Object {
 # `github/codeql-action/init` と `.../analyze` のように 1 つの action の
 # 別 path を使う場合があるので、名前は owner/repo に丸めて突き合わせる。
 # **片方だけ上げると落ちる**のが狙いである。
+#
+# **参照は「認識できたら通す」ではなく「認識できなければ落とす」で扱う。**
+# レビューで実測された抜け道がこれである —— 値を \S+ で拾っていた版は
+# 引用符付きの `uses: "actions/checkout@main"` を名前 `"actions/checkout`・
+# 版 `main"` に割ってしまい、**pin 検査と版の割れ検査の両方を素通りした**
+# （引用符が付くだけで、動くタグも版違いも 1 件も FAIL が出なかった）。
+# しかも下の「拾えた数」の門も、誤った値で 1 件と数えるので発火しない ——
+# **2 つの門が同じ穴を共有していた。**
 $usesLines = @()
 foreach ($wf in $workflowFiles) {
     foreach ($line in (Get-Content -LiteralPath $wf.FullName)) {
         if ($line -match '^\s*#') { continue }
-        if ($line -notmatch '^\s*(-\s+)?uses:\s*(\S+)\s*$') { continue }
-        $usesLines += [pscustomobject]@{ Workflow = $wf.Name; Ref = $Matches[2] }
+        if ($line -notmatch '^\s*(-\s+)?uses:\s*(.+?)\s*$') { continue }
+        # 行末コメントを落とし、引用符を剥がす。`@<40 桁 SHA> # v4.2.2` は
+        # GitHub が推奨する固定の形なので、**誤検知で落としてはいけない。**
+        $value = ($Matches[2] -replace '\s+#.*$', '').Trim().Trim('"').Trim("'")
+        $usesLines += [pscustomobject]@{ Workflow = $wf.Name; Ref = $value }
     }
 }
 
 # **拾えた数が合わなければ、空振りではなく落とす。** 上の正規表現が
-# 書き方の揺れ（引用符付き、行末コメント）で当たらなくなると、以下の
-# assertion は全部「対象 0 件」で緑になる。
+# 書き方の揺れで当たらなくなると、以下の assertion は全部「対象 0 件」で
+# 緑になる。**ただしこの門だけでは足りない**（上のコメント参照）ので、
+# 値の側でも「分類できなければ落とす」を持つ。
 $looseUses = 0
 foreach ($wf in $workflowFiles) {
     $looseUses += @(Get-Content -LiteralPath $wf.FullName |
@@ -1759,35 +1771,39 @@ Assert-That ($usesLines.Count -gt 0) 'the workflows declare at least one action 
 Assert-That ($usesLines.Count -eq $looseUses) `
     "every uses: line was parsed (parsed $($usesLines.Count) / found $looseUses)"
 
-# 参照を「名前」と「版」に割る。docker:// はタグが版である。
+# 参照を「名前」と「版」に割る。**知っている 3 つの形のどれでもなければ落とす。**
+#   1. docker://image[:tag]      —— タグが版
+#   2. ./path                    —— リポジトリ内の action。版という概念が無い
+#   3. owner/repo[/path]@ref     —— ref が版（タグでも SHA でもよい）
 $actionRefs = @()
 foreach ($u in $usesLines) {
-    if ($u.Ref.StartsWith('docker://')) {
+    if ($u.Ref -like 'docker://*') {
         $image = $u.Ref.Substring('docker://'.Length)
         $sep   = $image.LastIndexOf(':')
         # `host:port/image` にタグが無い形を版付きと誤認しない。
         if ($sep -lt 0 -or $image.Substring($sep + 1).Contains('/')) { $name = $image; $version = '' }
         else { $name = $image.Substring(0, $sep); $version = $image.Substring($sep + 1) }
-        $name = "docker://$name"
-    }
-    else {
-        $at = $u.Ref.IndexOf('@')
-        if ($at -lt 0) { $name = $u.Ref; $version = '' }
-        else {
-            $path    = $u.Ref.Substring(0, $at)
-            $version = $u.Ref.Substring($at + 1)
-            # owner/repo/sub/path -> owner/repo。1 つの action の別 path を
-            # 別物として数えると、片方だけ上げた状態が緑で通る。
-            $parts = @($path -split '/')
-            $name  = if ($parts.Count -ge 2) { $parts[0..1] -join '/' } else { $path }
+        $actionRefs += [pscustomobject]@{
+            Workflow = $u.Workflow; Ref = $u.Ref; Name = "docker://$name"; Version = $version
         }
     }
-    $actionRefs += [pscustomobject]@{
-        Workflow = $u.Workflow; Ref = $u.Ref; Name = $name; Version = $version
+    elseif ($u.Ref -match '^\.{1,2}/') {
+        # リポジトリ内の action は git が版を持つ。pin する対象が無いので
+        # 以下の 2 つの検査には掛けない（**掛けると必ず落ちる誤検知になる**）。
+        continue
+    }
+    elseif ($u.Ref -match '^([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)(/[A-Za-z0-9._/-]+)?@(\S+)$') {
+        $actionRefs += [pscustomobject]@{
+            Workflow = $u.Workflow; Ref = $u.Ref; Name = $Matches[1]; Version = $Matches[3]
+        }
+    }
+    else {
+        Assert-That $false "$($u.Workflow) uses a reference this check can classify (saw '$($u.Ref)')"
     }
 }
+Assert-That ($actionRefs.Count -gt 0) 'at least one external action reference was classified'
 
-# (a) 動くタグを禁じる。空の版（`@` が無い）もここで落ちる。
+# (a) 動くタグを禁じる。空の版（`@` の後ろが無い）もここで落ちる。
 $floating = @('main', 'master', 'head', 'latest', '')
 foreach ($a in $actionRefs) {
     Assert-That (-not ($floating -contains $a.Version.ToLowerInvariant())) `
@@ -1817,19 +1833,41 @@ foreach ($group in ($actionRefs | Group-Object -Property Name)) {
 # solution からの project 参照で繋がっているだけである（依存グラフは
 # パッケージ名でまとめてしまうので、どちらの manifest 由来かも読めない）。
 # **この検査はその答を要らなくする** —— 片方だけ上がれば落ちる。
+#
+# **正規表現ではなく XML として読む。** 属性の順を入れ替えた書き方
+# （`Version=` が先）と、版を `<Version>` 子要素で書く形は、どちらも
+# MSBuild として妥当である。**レビューで実測されたとおり、属性順を頼りに
+# した版はその 2 つを黙って読み飛ばし、版が割れているのに全部緑になった。**
 $packagePins = @{}
+$parsedRefs  = 0
+$looseRefs   = 0
 $csprojFiles = @(& git -C $repoRoot ls-files '*.csproj')
 Assert-That ($csprojFiles.Count -gt 0) 'git lists the csproj files (0 件なら以下は空振りする)'
 foreach ($rel in $csprojFiles) {
     $path = Join-Path $repoRoot $rel
     if (-not (Test-Path -LiteralPath $path)) { continue }
-    foreach ($line in (Get-Content -LiteralPath $path)) {
-        if ($line -notmatch '<PackageReference\s+Include="([^"]+)"\s+Version="([^"]+)"') { continue }
-        $pkg = $Matches[1]; $ver = $Matches[2]
+    $looseRefs += @(Get-Content -LiteralPath $path |
+                    Where-Object { $_ -match '<PackageReference[\s>]' }).Count
+    $xml = [xml](Get-Content -LiteralPath $path -Raw)
+    foreach ($node in $xml.SelectNodes("//*[local-name()='PackageReference']")) {
+        $pkg = $node.GetAttribute('Include')
+        if (-not $pkg) { $pkg = $node.GetAttribute('Update') }
+        $ver = $node.GetAttribute('Version')
+        if (-not $ver) {
+            $child = @($node.ChildNodes | Where-Object { $_.LocalName -eq 'Version' })
+            if ($child.Count -gt 0) { $ver = $child[0].InnerText.Trim() }
+        }
+        if (-not $pkg) { continue }
+        $parsedRefs++
         if (-not $packagePins.ContainsKey($pkg)) { $packagePins[$pkg] = @() }
         $packagePins[$pkg] += [pscustomobject]@{ Project = $rel; Version = $ver }
     }
 }
+
+# **workflow 側と同じ門を csproj 側にも置く。** 片方にだけ置いていた版は、
+# 読み飛ばした PackageReference が 1 件も報告されずに緑になった。
+Assert-That ($parsedRefs -eq $looseRefs) `
+    "every PackageReference was parsed (parsed $parsedRefs / found $looseRefs)"
 Assert-That ($packagePins.Count -gt 0) 'the csproj files declare at least one PackageReference'
 foreach ($pkg in ($packagePins.Keys | Sort-Object)) {
     $versions = @($packagePins[$pkg] | ForEach-Object { $_.Version } | Sort-Object -Unique)
@@ -1839,6 +1877,7 @@ foreach ($pkg in ($packagePins.Keys | Sort-Object)) {
         $packagePins[$pkg] | ForEach-Object { Write-Host "      $($_.Project): $($_.Version)" -ForegroundColor Yellow }
     }
 }
+
 
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red

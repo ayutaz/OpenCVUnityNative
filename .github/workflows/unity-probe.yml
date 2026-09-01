@@ -11,13 +11,19 @@ name: unity-probe
 #           macOS の .dylib と .meta が入って全利用者に届くのに、
 #           それを読む Unity は Windows と Linux 上でしか動かしていない。
 #
-#   条件 7: windows-2022 上で game-ci/unity-test-runner@v4 へ**実際に投げ**、
+#   条件 7: windows-2022 上で game-ci/unity-test-runner へ**実際に投げ**、
 #           その run の出力を根拠として、Windows の IL2CPP Player を CI で
 #           回すかどうかを結論として書く。**やると決めるか諦めると決めるかは
 #           問わない** —— roadmap が禁じているのは「上流の issue を読んだ
 #           結果を根拠にする」ことである。2026-08-29 に、まさにその経路で
 #           下した判断が崩れた（挙げていた 2 つの issue のうち 1 つは
 #           使っていない別 action のもので、もう 1 つは別系統のものだった）。
+#
+# **この workflow が投げる版は、上の 5 回のときと違う。** 記録された結論は
+# すべて `@v4` に対するもので、いまは ci-unity と同じ版（step のコメントに
+# ある）を投げる。**もう一度探査するなら、結論を突き合わせる前にそこを見ること**
+# —— `darwin-platform is not supported` のような「game-ci の対応範囲」に
+# ついての結論は、実装が game-ci/cli へ移った版でも同じとは限らない。
 #
 # **workflow_dispatch のみ。** PR に費用を掛けない。結論が出たら、恒久レーンに
 # するかを決める（決めるまでがこの探査の仕事である）。
@@ -230,9 +236,10 @@ jobs:
         id: tests
         continue-on-error: true
         # ci-unity と同じ版に揃える（理由はあちらのコメントにある）。
-        # **過去の 5 回の実行は `@v4` で行った** —— 上の条件 7 の記述は
-        # その run のことなので、そのままにしてある。
-        uses: game-ci/unity-test-runner@v5.0.0-beta.1
+        # **過去の 5 回の実行は `@v4` で行った** —— roadmap に記録した
+        # 結論はその run のものなので、そちらの `@v4` は直さない
+        # （記録は当時の版を名乗るのが正しい）。
+        uses: game-ci/unity-test-runner@f7d28f891263d875d47ef34370e9e8dd6087e1ef # v5.0.0-beta.1
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
