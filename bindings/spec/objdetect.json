@@ -24,6 +24,21 @@
         { "name": "buffer_size", "cType": "int32_t", "csType": "int", "direction": "in" },
         { "name": "out_required_size", "cType": "int32_t*", "csType": "out int", "direction": "out" }
       ]
+    },
+    {
+      "name": "ocvu_find_chessboard_corners",
+      "summary": "src に写っているチェスボードの内側の格子点を見つけて out_corners へ x と y が交互に並ぶ形で書き、見つかった個数を out_count に返す。呼ぶ側は必要量を事前に知り得るので 2 回呼ぶ必要は無い（pattern_cols * pattern_rows 点で、capacity がそれに満たなければ何も書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し out_count に必要量を入れる）。pattern_cols と pattern_rows はどちらも 2 以上でなければならない。格子が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。buffer の所有権は最初から最後まで呼ぶ側にある。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": [
+        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "pattern_cols", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "pattern_rows", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "out_corners", "cType": "float*", "csType": "float[]", "direction": "out-buffer" },
+        { "name": "capacity", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "out_count", "cType": "int32_t*", "csType": "out int", "direction": "out" }
+      ]
     }
   ]
 }

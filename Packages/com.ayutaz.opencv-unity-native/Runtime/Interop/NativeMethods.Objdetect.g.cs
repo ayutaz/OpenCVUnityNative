@@ -16,5 +16,9 @@ namespace CvUnity.Interop
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_qr_decode(ulong src, byte[] buffer, int buffer_size, out int out_required_size);
 
+        /// <summary>src に写っているチェスボードの内側の格子点を見つけて out_corners へ x と y が交互に並ぶ形で書き、見つかった個数を out_count に返す。呼ぶ側は必要量を事前に知り得るので 2 回呼ぶ必要は無い（pattern_cols * pattern_rows 点で、capacity がそれに満たなければ何も書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し out_count に必要量を入れる）。pattern_cols と pattern_rows はどちらも 2 以上でなければならない。格子が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。buffer の所有権は最初から最後まで呼ぶ側にある。</summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_find_chessboard_corners(ulong src, int pattern_cols, int pattern_rows, float[] out_corners, int capacity, out int out_count);
+
     }
 }

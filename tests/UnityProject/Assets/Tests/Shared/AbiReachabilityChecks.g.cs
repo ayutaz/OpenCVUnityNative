@@ -49,6 +49,7 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_debug_throw(0);
         NativeMethods.ocvu_qr_encode(null, 0UL);
         NativeMethods.ocvu_qr_decode(0UL, null, 0, out _);
-        return 26;
+        NativeMethods.ocvu_find_chessboard_corners(0UL, 0, 0, default, 0, out _);
+        return 27;
     }
 }

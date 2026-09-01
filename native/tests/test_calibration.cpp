@@ -137,14 +137,23 @@ TEST(Calibration, UndistortAcceptsTheSameHandleForSourceAndDestination) {
     // OCVU_STATUS_OPENCV_ERROR になる（実測で確認済み）。一時 Mat を経由する
     // 実装は dst_mat 自身を cv::undistort へ渡さないので、この assert に
     // 触れずに成功する。
+    //
+    // **形（rows/cols/type）だけでなく画素の中身も見る。** 形だけでは
+    // 「同じ handle なら何もせず OK を返す」退化実装でも通ってしまう。
+    // `UndistortWithZeroCoefficientsIsNearlyIdentity` に倣い、歪み係数を 0 にして
+    // 計算結果が入力とほぼ一致することまで確かめる。
     ScopedMat m(32, 32);
-    std::vector<uint8_t> pixels(32 * 32, 7);
+    std::vector<uint8_t> pixels(32 * 32, 0);
+    for (size_t i = 0; i < pixels.size(); ++i) {
+        pixels[i] = static_cast<uint8_t>(i % 256);
+    }
     ASSERT_EQ(ocvu_mat_copy_from_buffer(m.get(), pixels.data(),
                                         static_cast<int64_t>(pixels.size()), 32),
               OCVU_STATUS_OK);
 
+    const std::vector<double> zero{0, 0, 0, 0, 0};
     EXPECT_EQ(ocvu_undistort(m.get(), kCamera.data(), kCameraBytes,
-                             kCoeffs.data(), kCoeffsBytes, m.get()),
+                             zero.data(), 5 * static_cast<int64_t>(sizeof(double)), m.get()),
               OCVU_STATUS_OK);
 
     ocvu_mat_info info{};
@@ -152,6 +161,21 @@ TEST(Calibration, UndistortAcceptsTheSameHandleForSourceAndDestination) {
     EXPECT_EQ(info.rows, 32);
     EXPECT_EQ(info.cols, 32);
     EXPECT_EQ(info.type, OCVU_MAT_TYPE_8UC1);
+
+    std::vector<uint8_t> out(32 * 32, 0);
+    ASSERT_EQ(ocvu_mat_copy_to_buffer(m.get(), out.data(),
+                                      static_cast<int64_t>(out.size()), 32),
+              OCVU_STATUS_OK);
+
+    // 補間で端が僅かに動くので、中央付近だけを比べる
+    // （`UndistortWithZeroCoefficientsIsNearlyIdentity` と同じ形）。
+    for (int y = 8; y < 24; ++y) {
+        for (int x = 8; x < 24; ++x) {
+            const size_t i = static_cast<size_t>(y) * 32 + static_cast<size_t>(x);
+            EXPECT_NEAR(static_cast<int>(out[i]), static_cast<int>(pixels[i]), 2)
+                << "(" << x << ", " << y << ")";
+        }
+    }
 }
 
 TEST(Calibration, UndistortWithZeroCoefficientsIsNearlyIdentity) {
@@ -186,4 +210,106 @@ TEST(Calibration, UndistortWithZeroCoefficientsIsNearlyIdentity) {
                 << "(" << x << ", " << y << ")";
         }
     }
+}
+
+TEST(Calibration, FindChessboardCornersReportsNotFoundOnABlankImage) {
+    // 真っ黒な画像に格子は写っていない。**これは誤りではない** ——
+    // 入力の形は正しく、見つからなかっただけである
+    // （ocvu_qr_decode / ocvu_find_homography と同じ扱い）。
+    ScopedMat blank(64, 64);
+
+    std::vector<float> corners(7 * 7 * 2, 0.0f);
+    int32_t count = 4321;  // 0 以外で汚す
+    EXPECT_EQ(ocvu_find_chessboard_corners(blank.get(), 7, 7, corners.data(),
+                                           7 * 7, &count),
+              OCVU_STATUS_NOT_FOUND);
+    EXPECT_EQ(count, 0) << "見つからなかったときは 0 を書くこと";
+}
+
+TEST(Calibration, FindChessboardCornersRejectsInvalidArgumentsAndAlwaysWritesZero) {
+    ScopedMat src(64, 64);
+    std::vector<float> corners(7 * 7 * 2, 0.0f);
+
+    EXPECT_EQ(ocvu_find_chessboard_corners(src.get(), 7, 7, corners.data(), 49, nullptr),
+              OCVU_STATUS_NULL_POINTER);
+
+    // **格子は 2x2 以上でなければならない。** 1 列や 0 列では格子にならない。
+    int32_t count = 4321;
+    EXPECT_EQ(ocvu_find_chessboard_corners(src.get(), 1, 7, corners.data(), 49, &count),
+              OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(count, 0);
+
+    count = 4321;
+    EXPECT_EQ(ocvu_find_chessboard_corners(src.get(), 7, 0, corners.data(), 49, &count),
+              OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(count, 0);
+
+    count = 4321;
+    EXPECT_EQ(ocvu_find_chessboard_corners(src.get(), 7, 7, nullptr, 49, &count),
+              OCVU_STATUS_NULL_POINTER);
+    EXPECT_EQ(count, 0);
+
+    count = 4321;
+    EXPECT_EQ(ocvu_find_chessboard_corners(OCVU_MAT_HANDLE_NONE, 7, 7,
+                                           corners.data(), 49, &count),
+              OCVU_STATUS_INVALID_HANDLE);
+    EXPECT_EQ(count, 0);
+}
+
+TEST(Calibration, FindChessboardCornersRejectsATooSmallBufferWithoutWriting) {
+    ScopedMat src(64, 64);
+
+    // 7x7 の格子には 49 点分（float 98 個）要る。48 点分しか無いと言われたら断る。
+    std::vector<float> corners(7 * 7 * 2, 0.0f);
+    std::memset(corners.data(), 0xAB, corners.size() * sizeof(float));
+
+    int32_t count = 999;
+    EXPECT_EQ(ocvu_find_chessboard_corners(src.get(), 7, 7, corners.data(), 48, &count),
+              OCVU_STATUS_BUFFER_TOO_SMALL);
+    EXPECT_EQ(count, 49) << "必要量を返すこと";
+
+    const auto* bytes = reinterpret_cast<const uint8_t*>(corners.data());
+    for (size_t i = 0; i < corners.size() * sizeof(float); ++i) {
+        ASSERT_EQ(bytes[i], 0xAB) << "足りない buffer には何も書かないこと";
+    }
+}
+
+TEST(Calibration, FindChessboardCornersFindsASyntheticBoard) {
+    // **「呼べた」だけでなく「見つけられた」ことを見る。**
+    // 8x8 の市松模様を描くと、内側の格子点は 7x7 になる。
+    constexpr int kCell = 16;
+    constexpr int kSize = kCell * 8;
+
+    ocvu_mat_handle board = OCVU_MAT_HANDLE_NONE;
+    ASSERT_EQ(ocvu_mat_create(kSize, kSize, OCVU_MAT_TYPE_8UC1, &board), OCVU_STATUS_OK);
+
+    std::vector<uint8_t> pixels(static_cast<size_t>(kSize) * kSize, 0);
+    for (int y = 0; y < kSize; ++y) {
+        for (int x = 0; x < kSize; ++x) {
+            const bool white = ((x / kCell) + (y / kCell)) % 2 == 0;
+            pixels[static_cast<size_t>(y) * kSize + static_cast<size_t>(x)] =
+                white ? 255 : 0;
+        }
+    }
+    ASSERT_EQ(ocvu_mat_copy_from_buffer(board, pixels.data(),
+                                        static_cast<int64_t>(pixels.size()), kSize),
+              OCVU_STATUS_OK);
+
+    std::vector<float> corners(7 * 7 * 2, 0.0f);
+    int32_t count = 0;
+    const ocvu_status status =
+        ocvu_find_chessboard_corners(board, 7, 7, corners.data(), 49, &count);
+
+    // **見つかることを要求する。** 合成した完璧な市松模様で見つからないなら、
+    // 実物の写真で見つかるはずがない。
+    EXPECT_EQ(status, OCVU_STATUS_OK);
+    EXPECT_EQ(count, 49);
+
+    // 見つかった点が画像の中に収まっていること。
+    for (int32_t i = 0; i < count * 2; ++i) {
+        EXPECT_GE(corners[static_cast<size_t>(i)], 0.0f);
+        EXPECT_LE(corners[static_cast<size_t>(i)], static_cast<float>(kSize));
+    }
+
+    ocvu_mat_release(board);
 }

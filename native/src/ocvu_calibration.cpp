@@ -4,6 +4,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <vector>
 
@@ -86,6 +87,75 @@ extern "C" ocvu_status ocvu_undistort(ocvu_mat_handle src, const double* camera_
     }
 
     *dst_mat = corrected;
+    return OCVU_STATUS_OK;
+    OCVU_TRY_END
+}
+
+extern "C" ocvu_status ocvu_find_chessboard_corners(ocvu_mat_handle src, int32_t pattern_cols, int32_t pattern_rows, float* out_corners, int32_t capacity, int32_t* out_count) {
+    OCVU_TRY_BEGIN
+    if (out_count == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_find_chessboard_corners: out_count is NULL");
+    }
+    // どの経路で返っても、呼ぶ側が読む値が前回の残りにならないようにする。
+    *out_count = 0;
+
+    // 格子は 2x2 以上でなければ格子にならない。
+    if (pattern_cols < 2 || pattern_rows < 2) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_find_chessboard_corners: pattern_cols and pattern_rows must be at least 2");
+    }
+    if (capacity < 0) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                      "ocvu_find_chessboard_corners: capacity is negative");
+    }
+    if (capacity > 0 && out_corners == nullptr) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_NULL_POINTER,
+            "ocvu_find_chessboard_corners: out_corners is NULL but capacity is positive");
+    }
+
+    cv::Mat* src_mat = ::ocvu::mat_table_get(src);
+    if (src_mat == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_HANDLE,
+                                      "ocvu_find_chessboard_corners: src handle is invalid");
+    }
+
+    // **検出より先に容量を見る。** 足りないと分かっている呼び出しで検出まで
+    // 走らせるのは無駄で、しかも「何も書かない」契約は書く前に返ることでしか守れない。
+    const int32_t needed = pattern_cols * pattern_rows;
+    if (capacity < needed) {
+        *out_count = needed;
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_BUFFER_TOO_SMALL,
+            "ocvu_find_chessboard_corners: capacity is smaller than pattern_cols * pattern_rows");
+    }
+
+    std::vector<cv::Point2f> corners;
+    bool found = false;
+    try {
+        found = cv::findChessboardCorners(*src_mat, cv::Size(pattern_cols, pattern_rows),
+                                          corners);
+    } catch (const cv::Exception& e) {
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
+    }
+
+    // **見つからないのは誤りではない。** 格子が写っていなかっただけである。
+    if (!found || corners.empty()) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_NOT_FOUND,
+            "ocvu_find_chessboard_corners: no chessboard was found in src");
+    }
+
+    // OpenCV は pattern の点数ちょうどを返すが、契約は自分でも守る。
+    const int32_t n = static_cast<int32_t>(
+        std::min<size_t>(corners.size(), static_cast<size_t>(needed)));
+    for (int32_t i = 0; i < n; ++i) {
+        out_corners[i * 2] = corners[static_cast<size_t>(i)].x;
+        out_corners[(i * 2) + 1] = corners[static_cast<size_t>(i)].y;
+    }
+    *out_count = n;
     return OCVU_STATUS_OK;
     OCVU_TRY_END
 }

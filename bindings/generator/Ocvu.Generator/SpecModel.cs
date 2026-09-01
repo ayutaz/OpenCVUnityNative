@@ -131,6 +131,8 @@ public static class SpecModel
             ["ocvu_mat_info*"] = new[] { "out OcvuMatInfo" },
             // 点の座標を渡す配列（x と y が交互に並ぶ）。buffer と同じ形。
             ["const float*"] = new[] { "float[]", "System.IntPtr" },
+            // 点の座標を書き出す配列（x と y が交互に並ぶ）。const float* の書き込み版。
+            ["float*"] = new[] { "float[]", "System.IntPtr" },
             // カメラ行列・歪み係数など、小さい固定長を借用で渡す配列。
             ["const double*"] = new[] { "double[]", "System.IntPtr" },
             // 特徴点配列。managed 配列版とアドレス版のどちらも正しい（buffer と同じ形）。
