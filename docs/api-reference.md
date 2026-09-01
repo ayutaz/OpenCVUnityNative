@@ -202,7 +202,10 @@ status:
 
 | 条件 | status |
 | --- | --- |
-| `text` / `src` / `dst` / `out_required_size` / `out_count` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `text` / `out_required_size` / `out_count` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `capacity` が 1 以上なのに `out_keypoints` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `src` / `dst` の handle が無効（0、解放済み、未知） | `OCVU_STATUS_INVALID_HANDLE` |
+| `src` が空（現在の ABI では `ocvu_mat_create` が空を作れないので到達しない防御） | `OCVU_STATUS_INVALID_ARGUMENT` |
 | `text` が空文字列 | `OCVU_STATUS_INVALID_ARGUMENT` |
 | handle が無効 | `OCVU_STATUS_INVALID_HANDLE` |
 | `ocvu_qr_decode` の `buffer_size` が必要量に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（**buffer は書かない**） |

@@ -15,6 +15,24 @@ public class FeaturesTests
     }
 
     [Fact]
+    public void EveryKeypointFieldSitsWhereTheNativeStructPutsIt()
+    {
+        // **合計の大きさだけでは足りない。** 同じ型のフィールドを入れ替えても
+        // sizeof は 28 のままで、C 側の static_assert も C# の SizeOf も通る
+        // （X と Y、Size と Angle、Octave と ClassId はどれも同型）。
+        // そのとき壊れるのは呼んだ場所ではなく、後から値を読む無関係な場所である。
+        // native の ocvu_keypoint は x, y, size, angle, response（float 5 つ）に
+        // octave, class_id（int32_t 2 つ）が続く並びで、offset はそれを写したもの。
+        Assert.Equal(0, Marshal.OffsetOf<OcvuKeyPoint>(nameof(OcvuKeyPoint.X)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<OcvuKeyPoint>(nameof(OcvuKeyPoint.Y)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<OcvuKeyPoint>(nameof(OcvuKeyPoint.Size)).ToInt32());
+        Assert.Equal(12, Marshal.OffsetOf<OcvuKeyPoint>(nameof(OcvuKeyPoint.Angle)).ToInt32());
+        Assert.Equal(16, Marshal.OffsetOf<OcvuKeyPoint>(nameof(OcvuKeyPoint.Response)).ToInt32());
+        Assert.Equal(20, Marshal.OffsetOf<OcvuKeyPoint>(nameof(OcvuKeyPoint.Octave)).ToInt32());
+        Assert.Equal(24, Marshal.OffsetOf<OcvuKeyPoint>(nameof(OcvuKeyPoint.ClassId)).ToInt32());
+    }
+
+    [Fact]
     public void DetectOrbFindsKeypointsOnACheckerboard()
     {
         using var img = MakeCheckerboard(128, 16);

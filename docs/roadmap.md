@@ -1268,7 +1268,7 @@ Unity の 2 レーンも実行し、`objdetect` / `features` を足した後も
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
 | 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 14 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
-| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **部分的に満たした（2026-09-01 更新）。** 当初の実装計画は冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**続く計画（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`）で `objdetect`（QR コードの符号化・復号）と `features`（ORB 特徴点検出）の 2 module を実際に出した** —— C ABI は 20 → 23 本、うち allowlist は 11 → 14 本になった（内訳は `docs/abi-ownership-and-versioning.md` §3.6）。**残る `geometry` / `calib` はまだ出していない。この計画で分かったこと**: `geometry` は**リンクが安い** —— 復元済みの OpenCV ツリーには 7 つのライブラリが在り、`flann` と `geometry` は他 module の依存として既にビルドされている（`COMPONENTS` に足すだけでリンクできる）。**対して `calib` だけが高い** —— `tools/opencv-config.psd1` の `Modules` に無いため、足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる（実測: `4785d98e9aad` → `a197bbcbdaf5`）。**「`geometry` はビルドされていない」と読める記述は、この文書のどこにも見当たらなかった**（確認のため roadmap 全体を検索した）ので、訂正すべき誤りは無い。API の設計判断としてこの 2 つを出さなかった理由（利用例が無い）は変わっていないので、**まだ「満たした」ではなく「部分的に満たした」に留める** |
+| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **部分的に満たした（2026-09-01 更新）。** 当初の実装計画は冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**続く計画（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`）で `objdetect`（QR コードの符号化・復号）と `features`（ORB 特徴点検出）の 2 module を実際に出した** —— C ABI は 20 → 23 本、うち allowlist は 11 → 14 本になった（内訳は `docs/abi-ownership-and-versioning.md` §3.6）。**残る `geometry` / `calib` はまだ出していない。この計画で分かったこと**: `geometry` は**リンクが安いはずである** —— 復元済みの OpenCV ツリーには 7 つのライブラリが在り、`flann` と `geometry` は他 module の依存として既にビルドされている（`OpenCVModules.cmake` も component として公開している）。**ただし実際に `COMPONENTS` に足してビルドした人はいない** —— 「ビルドされている」と「リンクできる」の間には M3.5 で踏んだ取り違えの 1 段上の距離があるので、ここは実測ではなく推測である。**対して `calib` だけが高い** —— `tools/opencv-config.psd1` の `Modules` に無いため、足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる（実測: `4785d98e9aad` → `a197bbcbdaf5`）。**「`geometry` はビルドされていない」と読める記述は、この文書のどこにも見当たらなかった**（確認のため roadmap 全体を検索した）ので、訂正すべき誤りは無い。**条件の「利用例に基づいて」について、正直に書いておく。** QR の読み取り（チケット・名刺・機器の識別）と ORB の特徴点（追跡・位置合わせ）は Unity で十分ありふれた用途だが、**この 2 つを選んだ実際の動機は 「新しい module を spec から生成できることを実証する」ほうが大きい** —— `objdetect` / `features` は OpenCV 側が既にビルドしており、リンクが安かった。**利用者の要望から選んだのではない。** `geometry` / `calib` を出さなかった理由（利用例が無い）は変わっていないので、**まだ「満たした」ではなく「部分的に満たした」に留める** |
 
 **条件 2 に着手するとき、どこを読むか**（M5 完了時に書いた。**skill にはしていない** ——
 実際に module を足すまで「壊して落ちることを見る」ができないので、手順を先に
@@ -1315,10 +1315,23 @@ Unity の 2 レーンも実行し、`objdetect` / `features` を足した後も
   禁じたのと同じ形である）。いまは `SpecModel.AllowedCsTypes` が
   `cType` ごとに書いてよい `csType` を持ち、**知らない `cType` は拒む**ので
   表は定義上いつも完全である。**閉じていないのは byte 列を渡す 4 つと `ocvu_keypoint*` の計 5 つ**
-  （`const uint8_t*` / `uint8_t*` / `const char*` / `char*`）で、これらは
-  `byte[]`（managed 配列を marshal する版）と `System.IntPtr`（アドレスを
-  直接渡す版）のどちらも正しい —— **その 2 つのうち取り違えても誰も落ちない。**
-  一意に決められないので強制していない。
+  （`const uint8_t*` / `uint8_t*` / `const char*` / `char*`）と、M5 の module 追加で
+  足した `ocvu_keypoint*` である。これらは `byte[]` / `OcvuKeyPoint[]`（managed 配列を
+  marshal する版）と `System.IntPtr`（アドレスを直接渡す版）のどちらも正しい ——
+  **その 2 つのうち取り違えても誰も落ちない。** 一意に決められないので強制していない。
+
+  **ただし 5 つは同じ危険度ではない。** byte 列の 4 つには `_ptr` 系という実在の
+  利用者があって両方許す必然があった。`ocvu_keypoint*` のほうは **`System.IntPtr` を
+  使う entry が spec にまだ 1 つも無い**（対称性のために許してある）。
+  **それでも外していないのは、低確保の入口を足すときの受け皿だからである** ——
+  `CvFeatures.DetectOrb` はいま呼ぶたびに配列を 2 本確保するので、`WebCamTexture` を
+  毎フレーム走査する用途では `System.IntPtr` 版が要る。許す綴りを先に削ると、
+  そのとき型表を触り直すことになる。
+
+  **サイズの不一致（`int64_t` に `int`）とは危険度が違う。** wrapper がある宣言なら
+  C# のコンパイラが型で落とすので、素通りするのは wrapper の無い宣言に限られる
+  —— **そして到達性テストの `default` は配列でも `IntPtr` でも通る**ので、
+  そこでも誰も落とさない。
 - **`reachableNote` には `pattern` が無く、素通しである。** 値が届くのは
   `docs/api-map.md` の箇条書き 1 箇所だけで、**表の外なので上の構造検査に
   掛からない**（C ヘッダにも C# にも届かない）。壊れても表は妥当なままである。
