@@ -299,7 +299,34 @@ public static class SpecModel
                         $"{fileName}: {fn.Name}.{p.Name}.direction '{p.Direction}' は schema の enum" +
                         $"（{string.Join(", ", c.DirectionEnum)}）のいずれでもありません");
                 }
+                RequireNonConstPointersAreNotInbound(fileName, fn.Name, p);
             }
         }
+    }
+
+    /// <summary>
+    /// 非 const のポインタ型（書き込み先）が <c>in</c> / <c>in-buffer</c> に
+    /// 書かれていないことを見る。
+    /// </summary>
+    /// <remarks>
+    /// **下流に門が無い向きだけを見る。** const のポインタを <c>out</c> /
+    /// <c>out-buffer</c> に書く逆向きは、実装がそこへ書き込もうとした瞬間に
+    /// C コンパイラが const 修飾違反として落とすので、下流に既に門がある。
+    /// 非 const 側は <c>in</c> / <c>in-buffer</c> に書いても C も C# も
+    /// ビルドが通り、実行時の意図の食い違いだけが残る —— こちらにだけ
+    /// 検査を足す（<c>float*</c> / <c>const float*</c> が並んで以降、
+    /// 意味を持つようになった。M5 module 追加のレビュー M6）。
+    /// </remarks>
+    private static void RequireNonConstPointersAreNotInbound(
+        string fileName, string fnName, ParamSpec p)
+    {
+        if (!p.CType.EndsWith("*", StringComparison.Ordinal)) { return; }
+        if (p.CType.StartsWith("const ", StringComparison.Ordinal)) { return; }
+        if (p.Direction != "in" && p.Direction != "in-buffer") { return; }
+
+        throw new SpecFormatException(
+            $"{fileName}: {fnName}.{p.Name} の cType '{p.CType}' は const が付いていません" +
+            $"（書き込み先です）が、direction は '{p.Direction}' です。" +
+            "const を付けるか、direction を 'out' / 'out-buffer' にしてください。");
     }
 }

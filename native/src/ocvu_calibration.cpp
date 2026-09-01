@@ -106,6 +106,18 @@ extern "C" ocvu_status ocvu_find_chessboard_corners(ocvu_mat_handle src, int32_t
             OCVU_STATUS_INVALID_ARGUMENT,
             "ocvu_find_chessboard_corners: pattern_cols and pattern_rows must be at least 2");
     }
+
+    // **int64_t で計算し、上限を設ける。** pattern_cols * pattern_rows を
+    // int32_t のまま掛けると符号付き整数の乗算オーバーフロー（未定義動作）に
+    // なりうる。折り返して負の値になった needed は、この先の capacity 比較の
+    // 門をすり抜けてしまう（レビュー I3）。
+    const int64_t point_count = static_cast<int64_t>(pattern_cols) * pattern_rows;
+    if (point_count > OCVU_CHESSBOARD_MAX_CORNERS) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_find_chessboard_corners: pattern_cols * pattern_rows exceeds OCVU_CHESSBOARD_MAX_CORNERS");
+    }
+
     if (capacity < 0) {
         return ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
                                       "ocvu_find_chessboard_corners: capacity is negative");
@@ -121,15 +133,26 @@ extern "C" ocvu_status ocvu_find_chessboard_corners(ocvu_mat_handle src, int32_t
         return ::ocvu::set_last_error(OCVU_STATUS_INVALID_HANDLE,
                                       "ocvu_find_chessboard_corners: src handle is invalid");
     }
+    if (src_mat->empty()) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                      "ocvu_find_chessboard_corners: src is empty");
+    }
 
+    // **capacity は out_corners の float の個数である**（点の個数ではない）。
+    // x と y が交互に並ぶので、必要な float 数は point_count * 2。
+    // point_count は上で OCVU_CHESSBOARD_MAX_CORNERS 以下と確かめてあるので、
+    // ここでの *2 は int64_t の範囲で安全である（オーバーフローしない）。
+    //
     // **検出より先に容量を見る。** 足りないと分かっている呼び出しで検出まで
     // 走らせるのは無駄で、しかも「何も書かない」契約は書く前に返ることでしか守れない。
-    const int32_t needed = pattern_cols * pattern_rows;
-    if (capacity < needed) {
-        *out_count = needed;
+    const int64_t needed = point_count * 2;
+    if (static_cast<int64_t>(capacity) < needed) {
+        // needed <= OCVU_CHESSBOARD_MAX_CORNERS * 2 は int32_t に収まる
+        // （OCVU_CHESSBOARD_MAX_CORNERS の値がそれを保証する）。
+        *out_count = static_cast<int32_t>(needed);
         return ::ocvu::set_last_error(
             OCVU_STATUS_BUFFER_TOO_SMALL,
-            "ocvu_find_chessboard_corners: capacity is smaller than pattern_cols * pattern_rows");
+            "ocvu_find_chessboard_corners: capacity is smaller than pattern_cols * pattern_rows * 2");
     }
 
     std::vector<cv::Point2f> corners;
@@ -149,13 +172,12 @@ extern "C" ocvu_status ocvu_find_chessboard_corners(ocvu_mat_handle src, int32_t
     }
 
     // OpenCV は pattern の点数ちょうどを返すが、契約は自分でも守る。
-    const int32_t n = static_cast<int32_t>(
-        std::min<size_t>(corners.size(), static_cast<size_t>(needed)));
-    for (int32_t i = 0; i < n; ++i) {
+    const int64_t n = std::min<int64_t>(static_cast<int64_t>(corners.size()), point_count);
+    for (int64_t i = 0; i < n; ++i) {
         out_corners[i * 2] = corners[static_cast<size_t>(i)].x;
         out_corners[(i * 2) + 1] = corners[static_cast<size_t>(i)].y;
     }
-    *out_count = n;
+    *out_count = static_cast<int32_t>(n * 2);
     return OCVU_STATUS_OK;
     OCVU_TRY_END
 }
