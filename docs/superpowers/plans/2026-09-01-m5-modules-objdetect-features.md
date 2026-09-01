@@ -108,8 +108,8 @@ opencv_imgcodecs  opencv_imgproc  opencv_objdetect
 | --- | --- |
 | `native/include/ocvu/objdetect.h` | 新規 |
 | `native/include/ocvu/features.h` | 新規 |
-| `Packages/.../Runtime/Interop/NativeMethods.objdetect.g.cs`（+ `.meta`） | 新規 |
-| `Packages/.../Runtime/Interop/NativeMethods.features.g.cs`（+ `.meta`） | 新規 |
+| `Packages/.../Runtime/Interop/NativeMethods.Objdetect.g.cs`（+ `.meta`） | 新規 |
+| `Packages/.../Runtime/Interop/NativeMethods.Features.g.cs`（+ `.meta`） | 新規 |
 | `tests/UnityProject/.../AbiReachabilityChecks.g.cs` | 3 行増える |
 | `docs/api-map.md` | 本数が 20 → 23、行が 3 つ増える |
 
@@ -492,7 +492,7 @@ pwsh tools/dev.ps1 generate
 ```
 
 期待: `native/include/ocvu/objdetect.h` と
-`Packages/.../Runtime/Interop/NativeMethods.objdetect.g.cs` が**新規に**出る。
+`Packages/.../Runtime/Interop/NativeMethods.Objdetect.g.cs` が**新規に**出る。
 `docs/api-map.md` の本数が 20 → 21 になる。
 
 **`.meta` も出ているか確認する** —— Unity は `.meta` の無い `.cs` を
@@ -588,8 +588,8 @@ pwsh tools/dev.ps1 verify-generated
 git add bindings/spec/objdetect.json native/src/ocvu_objdetect.cpp native/tests/test_objdetect.cpp \
         native/CMakeLists.txt native/tests/CMakeLists.txt native/include/opencv_unity_native.h \
         native/include/ocvu/objdetect.h \
-        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.objdetect.g.cs \
-        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.objdetect.g.cs.meta \
+        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.Objdetect.g.cs \
+        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.Objdetect.g.cs.meta \
         tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs \
         docs/api-map.md
 git commit -m "feat(m5): ocvu_qr_encode を spec から生成し実装する"
@@ -837,7 +837,7 @@ pwsh tools/dev.ps1 test-asan
 ```bash
 git add bindings/spec/objdetect.json native/src/ocvu_objdetect.cpp native/tests/test_objdetect.cpp \
         native/include/ocvu/objdetect.h \
-        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.objdetect.g.cs \
+        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.Objdetect.g.cs \
         tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs \
         docs/api-map.md
 git commit -m "feat(m5): ocvu_qr_decode を 2 回呼びで足す"
@@ -1296,8 +1296,8 @@ pwsh tools/dev.ps1 test-asan
 git add bindings/spec/features.json native/src/ocvu_features.cpp native/tests/test_features.cpp \
         native/CMakeLists.txt native/tests/CMakeLists.txt native/include/opencv_unity_native.h \
         native/include/ocvu/features.h \
-        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.features.g.cs \
-        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.features.g.cs.meta \
+        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.Features.g.cs \
+        Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.Features.g.cs.meta \
         tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs \
         docs/api-map.md
 git commit -m "feat(m5): ocvu_orb_detect を spec から生成し実装する"
