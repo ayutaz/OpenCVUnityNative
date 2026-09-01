@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
+    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
     [string]$Command = 'test',
 
     <#
@@ -122,7 +122,7 @@ function Write-DevFailure([string]$Message) {
 
 # 結果ディレクトリを空にしてから作り直す。
 # New-Item -Force は既存の中身を消さないので、L1 が落ちて L3 が走らなかった
-# ときに前回の緑の managed.xml がそのまま残り、最新の結果に見えてしまう。
+# ときに前回の緑の managed-*.xml がそのまま残り、最新の結果に見えてしまう。
 function Reset-Results {
     if (Test-Path $ResultsDir) {
         Remove-Item -Recurse -Force $ResultsDir
@@ -159,6 +159,7 @@ function Reset-Results {
 $ToolsTestScriptsFast = @(
     'OpenCvConfig.Tests.ps1'
     'ConfigInvalidation.Tests.ps1'
+    'BindingGenerator.Tests.ps1'
 )
 
 $ToolsTestScriptsSlow = @(
@@ -293,6 +294,22 @@ function Copy-NativePluginForUnity {
     }
 }
 
+function Invoke-Generate {
+    $proj = Join-Path $RepoRoot 'bindings/generator/Ocvu.Generator'
+    Invoke-Checked {
+        & dotnet run --project $proj -- --repo-root $RepoRoot
+    } 'run the binding generator'
+}
+
+# 生成物が spec と食い違っていないかを見るだけで、書き直しはしない。
+# --check を渡すと Program.cs は差分を stderr に列挙して exit 1 で返る。
+function Test-Generated {
+    $proj = Join-Path $RepoRoot 'bindings/generator/Ocvu.Generator'
+    Invoke-Checked {
+        & dotnet run --project $proj -- --repo-root $RepoRoot --check
+    } 'verify the generated bindings are up to date'
+}
+
 function Test-Native {
     Build-Native
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
@@ -338,10 +355,18 @@ function Test-Managed {
         # Category!=Probe: HarnessProbeTests は意図的に落ちる／固まるための
         # プローブで、通常の実行に含めると常に赤くなる。実行は
         # test-managed-probe (tools/run-managed-probe.ps1) が名指しで行う。
+        #
+        # LogFilePath の {assembly} トークン: CvUnity.Managed.sln は M5 から
+        # テストプロジェクトを 2 つ以上持つ（CvUnity.Tests.Managed、
+        # Ocvu.Generator.Tests、…）。固定ファイル名だと dotnet test が
+        # プロジェクトごとに順に書き出す結果を後勝ちで上書きし、先に走った
+        # プロジェクトの失敗が artifact から読めなくなる（実測）。
+        # {assembly} で assembly ごとに分けることで、どちらが落ちても
+        # 個別の XML として残る。
         dotnet test (Join-Path $RepoRoot 'tests/Managed/CvUnity.Managed.sln') `
             --filter "Category!=Probe" `
             --blame-hang --blame-hang-timeout 60s `
-            --logger "junit;LogFilePath=$(Join-Path $ResultsDir 'managed.xml')" `
+            --logger "junit;LogFilePath=$(Join-Path $ResultsDir 'managed-{assembly}.xml')" `
             --logger 'console;verbosity=normal'
     } 'run managed tests (L3)'
 }
@@ -828,6 +853,46 @@ function Test-UnityTarball {
     どちらの起動も Test-UnityEditMode と同じ理由で `&` ではなく
     Start-Process -Wait -PassThru を使う。
 #>
+<#
+    **Unity が起動する PlayerWithTests.exe は Unity の孫であって子ではない。**
+    Start-Process -Wait が待つのは Unity 本体だけなので、**Unity が終わっても
+    Player は残る**。実測（2026-08-31、このマシン）: 250 MB の Player が
+    4 時間以上生きていたものが 2 件、レーンを途中で止めたものが 1 件。
+
+    置き去りは 2 つの経路で起きる。
+      (a) レーンが最後まで走った後も Player が終わらない
+      (b) レーンが timeout・キャンセル・ハードキルで途中で死ぬ
+
+    (a) は finally で、**(b) は次回の実行の頭で**片づける —— ハードキルされた
+    実行には後始末をする機会がそもそも無いので、**掃除は開始時にも要る**。
+
+    **対象はこのプロジェクトの Temp 配下から起動されたものだけに絞る。**
+    名前だけで拾うと、別のプロジェクトや利用者が手で起動した Player を
+    巻き添えにする。
+#>
+function Stop-UnityTestPlayers {
+    param([Parameter(Mandatory)][string]$ProjectPath)
+
+    if (-not $IsWindows) { return 0 }
+
+    $prefix = (Join-Path $ProjectPath 'Temp') + [System.IO.Path]::DirectorySeparatorChar
+    $killed = 0
+    $procs  = @(Get-CimInstance Win32_Process -Filter "Name='PlayerWithTests.exe'" -ErrorAction SilentlyContinue)
+    foreach ($p in $procs) {
+        if (-not $p.ExecutablePath) { continue }
+        if (-not $p.ExecutablePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        try {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop
+            $killed++
+        } catch {
+            Write-Host "Player (PID=$($p.ProcessId)) を終了できませんでした: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+    if ($killed -gt 0) {
+        Write-Host "置き去りの Player を $killed 件終了しました。" -ForegroundColor Yellow
+    }
+    return $killed
+}
 function Test-UnityPlayer {
     Build-Native
 
@@ -840,45 +905,55 @@ function Test-UnityPlayer {
     # 合図は木から導出する（置き去りがあってもなくても結果が変わらない）。
     Sync-AllPlatformsMarker -ProjectPath $project
 
+    # **開始時にも掃除する。** ハードキルされた前回の実行には
+    # 後始末をする機会がそもそも無く、置き去りはそこからしか消えない。
+    Stop-UnityTestPlayers -ProjectPath $project | Out-Null
 
-    # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
-    # M2 が確かめたい stripping の問題が再現しない。
-    $configureArgs = @(
-        '-projectPath', $project, '-batchmode', '-nographics', '-quit',
-        '-executeMethod', 'BuildPlayer.ConfigureIl2cpp', '-logFile', "$log.configure"
-    )
-    $configure = Start-Process -FilePath $unity -ArgumentList $configureArgs -Wait -PassThru -NoNewWindow
-    if ($configure.ExitCode -ne 0) {
-        Write-DevFailure "IL2CPP の設定に失敗しました。ログ: $log.configure"
+    try {
+
+
+        # 先に backend を IL2CPP に固定する。Mono のまま走らせると、
+        # M2 が確かめたい stripping の問題が再現しない。
+        $configureArgs = @(
+            '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+            '-executeMethod', 'BuildPlayer.ConfigureIl2cpp', '-logFile', "$log.configure"
+        )
+        $configure = Start-Process -FilePath $unity -ArgumentList $configureArgs -Wait -PassThru -NoNewWindow
+        if ($configure.ExitCode -ne 0) {
+            Write-DevFailure "IL2CPP の設定に失敗しました。ログ: $log.configure"
+        }
+
+        $unityArgs = @(
+            '-projectPath', $project,
+            '-runTests', '-testPlatform', 'StandaloneWindows64',
+            '-testResults', $results, '-logFile', $log,
+            '-batchmode', '-nographics'
+        )
+        $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+        $exit = $proc.ExitCode
+
+        if ($exit -ne 0) {
+            Write-DevFailure "Unity Player が exit $exit で終了しました。`nログ: $log"
+        }
+
+        <#
+            合否の判定は tools/assert-unity-results.ps1 に出してある。
+
+            **CI では Unity を起動するのが game-ci の action で、この関数では
+            ない**（理由は .github/workflows/ci-unity.yml の冒頭にある）。
+            起動の仕方が分かれても、**判定だけは同じコードを通す** — ここが
+            分かれると、ローカルで赤くなるものが CI で緑になり得る。
+
+            「0 件で緑にしない」もその script が持っている。理由はそちらに書いた。
+        #>
+        Invoke-Checked {
+            & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
+                -ResultsPath $results -Lane 'player' -LogPath $log
+        } 'assert the player results'
+    } finally {
+        # Unity が終わっても Player は残るので、成功しても失敗しても片づける。
+        Stop-UnityTestPlayers -ProjectPath $project | Out-Null
     }
-
-    $unityArgs = @(
-        '-projectPath', $project,
-        '-runTests', '-testPlatform', 'StandaloneWindows64',
-        '-testResults', $results, '-logFile', $log,
-        '-batchmode', '-nographics'
-    )
-    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
-    $exit = $proc.ExitCode
-
-    if ($exit -ne 0) {
-        Write-DevFailure "Unity Player が exit $exit で終了しました。`nログ: $log"
-    }
-
-    <#
-        合否の判定は tools/assert-unity-results.ps1 に出してある。
-
-        **CI では Unity を起動するのが game-ci の action で、この関数では
-        ない**（理由は .github/workflows/ci-unity.yml の冒頭にある）。
-        起動の仕方が分かれても、**判定だけは同じコードを通す** — ここが
-        分かれると、ローカルで赤くなるものが CI で緑になり得る。
-
-        「0 件で緑にしない」もその script が持っている。理由はそちらに書いた。
-    #>
-    Invoke-Checked {
-        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
-            -ResultsPath $results -Lane 'player' -LogPath $log
-    } 'assert the player results'
 }
 
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
@@ -911,11 +986,13 @@ if ($PSBoundParameters.ContainsKey('Platform') -and $Command -ne 'build') {
 }
 
 # 'test' は fail-fast である。Invoke-Checked が最初の失敗で throw するため、
-# L1 が落ちた時点で L3 は実行されず、managed.xml は生成されない。
+# L1 が落ちた時点で L3 は実行されず、managed-*.xml は生成されない。
 # 「L1 赤 = L3 の結果なし」が正しい状態であり、前回の結果が残って最新に
 # 見えないよう、結果を書くコマンドは開始時に Reset-Results で空にする。
 switch ($Command) {
     'build'        { Build-Native }
+    'generate'          { Invoke-Generate }
+    'verify-generated'  { Test-Generated }
     'test-native'  { Reset-Results; Test-Native }
     'test-asan'    { Reset-Results; Test-Asan }
     'test-managed' { Reset-Results; Test-Managed }
@@ -925,7 +1002,7 @@ switch ($Command) {
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
     'test-unity-tarball' { Reset-Results; Test-UnityTarball }
-    'test'         { Reset-Results; Test-Tools; Test-Native; Test-Managed }
+    'test'         { Reset-Results; Test-Tools; Test-Generated; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
 

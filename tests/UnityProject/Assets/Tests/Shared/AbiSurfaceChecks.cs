@@ -7,22 +7,32 @@ using UnityEngine;
 /// <summary>
 /// **Unity のどちらのレーンからも一度も呼ばれていなかった公開 API を呼ぶ。**
 ///
-/// M4 の点検で実測した。package が宣言する P/Invoke は **19 本**
+/// M4 の点検で実測した。当時 package が宣言する P/Invoke は **19 本**
 /// （<c>[DllImport]</c> は 21 個あるが、<c>mat_copy_from_buffer</c> と
-/// <c>mat_copy_to_buffer</c> は byte[] 版と IntPtr 版で 2 重に宣言されている。
-/// また <c>ocvu_debug_crash</c> は C ABI には在るが package は宣言しないので、
-/// <c>CLAUDE.md</c> の「公開 ABI は 20 本」とは数え方が違う）。
-///
-/// そのうち **7 本が、Editor でも Player でも一度も到達していなかった**:
+/// <c>mat_copy_to_buffer</c> は byte[] 版とポインタ版で 2 重に宣言されている）
+/// で、そのうち **7 本が、Editor でも Player でも一度も到達していなかった**:
 /// cvt_color / resize / mat_clone / imencode / imdecode /
 /// get_build_information / debug_throw。このクラスがその 7 本を通す。
 ///
-/// 残る 2 本（<c>ocvu_get_status_count</c> / <c>ocvu_get_status_value</c>）は
-/// **出荷する C# のどこからも呼ばれていない** —— 呼ぶ側が無く、
-/// <c>NativeMethods</c> は internal なので Unity のテストからも到達できない。
-/// **したがってここでも通していない。** stripping がこの 2 本を消しても
-/// 壊れるものは無いが、「通した」と書かないために明記しておく
-/// （status 表の同期は L3 の <c>StatusCodeSyncTests</c> が見ている）。
+/// **M5 で数が変わった。** 宣言は <c>bindings/spec/*.json</c> から生成される
+/// ようになり、C ABI が package に 1 本残らず現れる。
+/// **本数はここに書かない** —— 数えるのは <c>docs/api-map.md</c> の冒頭だけで、
+/// あちらは spec から生成されるので ABI が増えれば勝手に増える。ここに写すと、
+/// **増えた瞬間にこの行だけが嘘になる**（M3.5 で <c>docs/api-reference.md</c> が
+/// そうなり、M5 でこの行が 3 度開き直した）。
+///
+/// **M5 Task 6 で穴が閉じた。** この一覧が触るのは公開 API から辿れる
+/// 宣言だけで、<c>ocvu_get_status_count</c> / <c>ocvu_get_status_value</c> は
+/// 出荷する C# のどこからも呼ばれていなかった。いまは spec から生成された
+/// <c>AbiReachabilityChecks</c> が **spec の載せる宣言を 1 つ残らず** 呼び、
+/// EditMode と PlayMode の両方がそれを 1 件のテストとして通す。
+/// 呼ばないのは <c>ocvu_debug_crash</c> だけで、**呼べば戻ってこないので
+/// 到達性テストから外してある**（理由は <c>bindings/spec/infra.json</c> の
+/// <c>reachableNote</c>。表の「到達性」の列にも出る）。
+///
+/// **それでもこの一覧は要る。** あちらは「呼べること」しか見ない ——
+/// 引数は型ごとの無害な既定値で、返る status も結果も見ない。
+/// 下の 8 件は**正しく動くこと**を見ており、2 つは別のものを守っている。
 ///
 /// L1 と L3 は上記をすべて見ているので「テストが無い」わけではない。
 /// しかし**このリポジトリが守ると宣言しているのは

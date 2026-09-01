@@ -88,7 +88,7 @@ namespace CvUnity
         public void CopyFrom(IntPtr source, long length, long stride)
         {
             if (source == IntPtr.Zero) { throw new ArgumentNullException(nameof(source)); }
-            CvNative.ThrowIfFailed((CvStatus)NativeMethods.ocvu_mat_copy_from_buffer(
+            CvNative.ThrowIfFailed((CvStatus)NativeMethods.ocvu_mat_copy_from_buffer_ptr(
                 Handle, source, length, stride));
         }
 
@@ -99,7 +99,7 @@ namespace CvUnity
         public void CopyTo(IntPtr destination, long length, long stride)
         {
             if (destination == IntPtr.Zero) { throw new ArgumentNullException(nameof(destination)); }
-            CvNative.ThrowIfFailed((CvStatus)NativeMethods.ocvu_mat_copy_to_buffer(
+            CvNative.ThrowIfFailed((CvStatus)NativeMethods.ocvu_mat_copy_to_buffer_ptr(
                 Handle, destination, length, stride));
         }
 

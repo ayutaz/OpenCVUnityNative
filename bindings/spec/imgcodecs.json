@@ -1,0 +1,32 @@
+{
+  "module": "imgcodecs",
+  "functions": [
+    {
+      "name": "ocvu_imencode",
+      "summary": "Mat を画像形式に符号化し buffer へ書く。符号化後の大きさは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。ext は .png のように先頭のドットを含む拡張子で、NULL と空文字列は拒否する。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": [
+        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "ext", "cType": "const char*", "csType": "byte[]", "direction": "in-buffer" },
+        { "name": "buffer", "cType": "uint8_t*", "csType": "byte[]", "direction": "out-buffer" },
+        { "name": "buffer_size", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "out_required_size", "cType": "int32_t*", "csType": "out int", "direction": "out" }
+      ]
+    },
+    {
+      "name": "ocvu_imdecode",
+      "summary": "符号化された画像 byte 列を復号して dst に入れる。dst の形状と型は結果に応じて上書きされる。data はこの呼び出しの内側でのみ読む借用で、native は保持しない。length は 1 以上 INT32_MAX 以下でなければならず、画像として解釈できない byte 列は OCVU_STATUS_OPENCV_ERROR になる（メモリは壊さない）。flags は OCVU_IMREAD_* である。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": [
+        { "name": "data", "cType": "const uint8_t*", "csType": "byte[]", "direction": "in-buffer" },
+        { "name": "length", "cType": "int64_t", "csType": "long", "direction": "in" },
+        { "name": "flags", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" }
+      ]
+    }
+  ]
+}

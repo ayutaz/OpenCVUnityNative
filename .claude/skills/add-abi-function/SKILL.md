@@ -1,6 +1,6 @@
 ---
 name: add-abi-function
-description: Use when adding, changing, or removing a function in the ocvu_ C ABI - the TDD order across the header, native implementation, L1 test, C# P/Invoke declaration and L3 test, plus the ownership, buffer and exception-barrier rules that the boundary must satisfy. Triggers on work involving opencv_unity_native.h, native/src, NativeMethods.cs, OCVU_TRY_BEGIN, ocvu_status, or any new ocvu_* entry point.
+description: Use when adding, changing, or removing a function in the ocvu_ C ABI - the TDD order across the binding spec, native implementation, L1 test and L3 test, plus the ownership, buffer and exception-barrier rules that the boundary must satisfy. Since M5 the C header and the C# P/Invoke are generated from bindings/spec, never written by hand. Triggers on work involving bindings/spec, dev.ps1 generate, native/include/ocvu, opencv_unity_native.h, native/src, NativeMethods, OCVU_TRY_BEGIN, ocvu_status, or any new ocvu_* entry point.
 ---
 
 # C ABI 関数を追加する
@@ -9,8 +9,10 @@ ABI 関数を 1 本足す作業は 5〜7 ファイルにまたがる。順序を
 先にできてしまいテストが後追いになるか、C# 側との対応が抜けたまま緑になる。
 
 **この ABI が唯一の native contract である。** ここを通る型・所有権・エラーの
-規約が、以降のすべての C# API と（M5 以降は）生成コードの形を決める。M0 の
-時点で規約を曖昧にすると、generator が誤った契約を大量に複製することになる。
+規約が、以降のすべての C# API と生成コードの形を決める。**M5 で generator が
+実在するようになったので、これはもう予告ではない** —— spec に曖昧な契約を
+書けば、C ヘッダ・C# の P/Invoke・到達性テスト・API 対応表の 4 箇所へ
+同時に複製される。
 
 ## 先に決めること
 
@@ -25,6 +27,60 @@ ABI 関数を 1 本足す作業は 5〜7 ファイルにまたがる。順序を
    `int32_t` などを直接返してよいが、その根拠をコメントに書く。
 3. **境界に出る型は固定サイズか。** `int32_t`、`uint64_t`、明示 struct、
    opaque handle のみ。`std::string`、`std::vector`、`cv::Mat` は出せない。
+
+## M5 以降: 宣言は手で書かない
+
+`bindings/spec/<module>.json` に 1 エントリ足して `./tools/dev.ps1 generate` を
+実行する。**C ヘッダ・C# の P/Invoke・到達性テスト・API 対応表が同時に出る。**
+**手で書いた宣言は `verify-generated` が落とす**（`dev.ps1 test` に入っている）。
+
+手で書くのは**実装（`native/src/*.cpp`）と、意味のあるテスト（L1 / L3）だけ**である。
+下の手順のうち「ヘッダに宣言する」（手順 2）と「C# 側の P/Invoke を足す」（手順 5）は、
+**spec を書くことに置き換わる。** 残りはそのまま有効である。
+
+**`wrapInTryBarrier` を spec に正しく書くこと。** 囲ってはならない関数の一覧は
+`native/src/ocvu_error.h` にある —— `ocvu_get_last_error_*` は囲うと
+報告すべきエラーを自分で消す。`false` にするなら `barrierNote` に理由を書く
+（印だけ付けて理由が無い spec は生成器が拒む）。
+
+**`reachable` も同じ形で決める。** 既定は `true` で、生成された到達性テストが
+その宣言を 1 回呼ぶ。**呼べない関数だけ `false` にし、`reachableNote` に理由を書く**
+（いまこれに当たるのは `ocvu_debug_crash` の 1 本だけである —— 呼ぶと戻ってこない）。
+**`false` を選ぶのは最後の手段である**: IL2CPP の stripping が消せるのは
+呼ばれない宣言なので、**呼ばない宣言は消えても誰も気づかない。**
+
+**逆向きの検査が見ているのは `native/src/**/*.cpp` だけである。**
+`tools/tests/BindingGenerator.Tests.ps1` は、そこにある
+`extern "C"` の `ocvu_*` を全部拾って spec に無いものを落とす。
+**他所に定義を置くと網に入らない** —— 「一覧を持つ場所」がこれで 1 つ増えた。
+`native/src` の外に ABI の実装を置くなら、この検査の走査範囲も一緒に広げること。
+
+### 生成物を増やすなら、先頭 5 行で名乗らせる
+
+emitter を足して新しい生成物を出すときは、**その出力の先頭 5 行に
+「このファイルは生成物である。手で編集しないこと。」を必ず含めること。**
+既存の 4 つの emitter は全部そうしており、**2 つの機構がこの規約に乗っている**:
+
+- `tools/tests/BindingGenerator.Tests.ps1` —— 「冒頭で生成物だと名乗るファイルが
+  全部 `--list-outputs` の申告に載っているか」を見る。**名乗るのに申告されない
+  ファイルがあれば落ちる**（配線が外れると、ファイルは名乗ったまま残り誰も
+  再生成しなくなる）
+- `.claude/hooks/check-generated-file-edit.sh` —— **編集した瞬間に指摘する。**
+  一致は `verify-generated` も見るが、そちらが赤くなるのはずっと後で、
+  そのとき手で書いた分は全部無駄になっている
+
+**どちらも一覧を持たない。名乗りだけを見る。** 一覧にすると新しい生成物が
+静かに漏れる —— M5 でその形を踏んだ（生成物 10 個のうち名指しで守られていたのは
+2 個だけで、**到達性テストの配線を外しても検査は全部 PASS した**）。
+
+**名乗らない生成物は、どちらの網にも入らない。** これが現在の限界である。
+
+**もう 1 つ限界がある。** hook は速い経路として `.h` / `.cs` / `.md` を含む payload
+だけを見る（`jq` の起動が 1 回 62 ms かかり、sh 本体の 0.19 秒に対して無視できない
+ため）。**これは拡張子の一覧なので、別の拡張子の生成物を出すと、名乗っていても
+黙って素通しする**（実測: 名乗る `.json` は捕まらない）。**新しい拡張子の生成物を
+足すなら、`.claude/hooks/check-generated-file-edit.sh` の `case` にも足すこと。**
+一覧が残るのはここだけで、**漏れる場所を 1 箇所に固定してある。**
 
 ## 手順
 
@@ -41,15 +97,31 @@ pwsh tools/dev.ps1 test-native
 **RED を目で確認する。** 未定義シンボルでも、コンパイルエラーでもよい。
 落ちない場合はテストが契約を検査していない。
 
-### 2. ヘッダに宣言する
+### 2. spec に 1 エントリ足して生成する
 
-`native/include/opencv_unity_native.h` の `extern "C"` ブロック内に足す。
-doc コメントには最低限これを書く:
+**ヘッダを手で編集しない**（M5 以降。上の節を参照）。
+`bindings/spec/<module>.json` の `functions` に 1 エントリ足し、
+`./tools/dev.ps1 generate` を実行する。
+
+エントリの `summary` には最低限これを書く。**これが C ヘッダの doc コメント・
+C# の XML doc・API 対応表の「内容」列に同時に出る** —— 3 箇所に別々に書かない:
 
 - 引数の意味と、NULL を許すかどうか
 - 出力バッファがあるなら、必要サイズの求め方と NUL の扱い
 - 所有権（呼び出し側が解放するのか、native が解放するのか）
 - 失敗し得る status code
+
+**`summary` は 1 行で書く。** 改行を入れると生成物が壊れるので、
+`schema.json` の `pattern` が弾く。**その pattern は「一致したか」ではなく
+「値の全体を覆ったか」で判定している** —— .NET の `$` は末尾の `\n` の
+直前にも当たるので、`Regex.IsMatch` だけでは末尾の改行を通してしまう
+（`prove-a-check-works` skill に実例がある）。
+
+**module ごとにファイルが分かれている。** 既存の 4 つ（`infra` / `core` /
+`imgproc` / `imgcodecs`）のどれにも入らないなら新しい `<module>.json` を作る ——
+そのとき生成されるヘッダも `native/include/ocvu/<module>.h` として増え、
+`native/include/opencv_unity_native.h` の `#include` 一覧に手で 1 行足す必要がある
+（**その 1 行だけは生成物ではない**）。
 
 新しい status code が要るなら `OCVU_STATUS_LIST` に 1 行足す。この X-macro が
 status の唯一の定義元で、列挙子と実行時テーブルの両方がここから生成される。
@@ -240,18 +312,18 @@ C# 側から読み取れなくなる。
 pwsh tools/dev.ps1 test-native
 ```
 
-### 5. C# 側の P/Invoke を足す
+### 5. C# 側の P/Invoke —— **手順 2 で既に出ている**
 
-`Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.cs`:
+`NativeMethods.<module>.g.cs` に `[DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]`
+付きで生成済みである。**`NativeMethods.cs` に手で足さないこと** —— そこに残すのは
+`LibraryName` と、spec が表現しない型（`OcvuMatInfo` のような struct）だけである。
 
-```csharp
-[DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
-internal static extern int ocvu_example(int value, out int outResult);
-```
+**C の entry point 1 本に C# の入口を 2 つ出したいとき**（`byte[]` 版と `IntPtr` 版など）は、
+spec に**もう 1 エントリ**書いて `entryPoint` に元の C の名前を指す。**C ヘッダには
+出ない**（C 側の宣言は 1 本のまま）が、C# の宣言と到達性テストは 2 本になる。
+参照は `ocvu_mat_copy_from_buffer_ptr` / `ocvu_mat_copy_to_buffer_ptr`。
 
-`CallingConvention.Cdecl` は必須。C 側の型と 1 対 1 に対応させる。
-
-公開 API を出すなら `Runtime/Core/` に薄いラッパを書く。**この 2 フォルダは
+公開 API を出すなら `Runtime/Core/` に薄いラッパを書く。**こちらは生成しない。****この 2 フォルダは
 `UnityEngine` を参照してはならない。** 参照した瞬間に netstandard2.1 shim の
 ビルドが落ち、Unity を起動しない L3 レーンが失われる。
 UnityEngine に依存するコードは `Runtime/UnityIntegration/`（別 asmdef）へ置く。
@@ -286,13 +358,22 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 
 変更したパスを個別に stage する。`git add -A` と `git add .` はフックが拒否する。
 
+**生成物も一緒にコミットする。** `native/include/ocvu/*.h`、
+`Runtime/Interop/NativeMethods.<module>.g.cs`（**`.meta` も**）、
+`tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs`、
+`docs/api-map.md` は git が追跡している。spec だけ入れて生成物を入れないと、
+**CI の `dev.ps1 test` が全 platform で落ちる。**
+
 ## よくある取りこぼし
 
 | 症状 | 原因 |
 | --- | --- |
 | `StatusCodeSyncTests` が赤い | `OCVU_STATUS_LIST` に足したが `CvStatus.cs` に足していない |
 | リンクエラー（テストのみ） | 新規 `.cpp` を `OCVU_SOURCES` に足していない |
-| L1 は緑だが L3 で `EntryPointNotFoundException` | ヘッダに宣言したが `.cpp` に定義がない、または名前が違う |
+| L1 は緑だが L3 で `EntryPointNotFoundException` | spec に書いて生成したが `.cpp` に定義がない、または名前が違う |
+| `dev.ps1 test` が「生成物が spec と食い違っています」で落ちる | spec を直して `dev.ps1 generate` を実行していない（生成物をコミットするところまでが 1 手である）か、生成物を手で編集した |
+| `BindingGenerator.Tests.ps1` の「every extern C ocvu_* in native/src is declared in the spec」が落ちる | 実装だけ書いて spec に書いていない。**逆向きの網はここだけが持つ** |
+| spec を書いたのに生成器が受け付けない | `wrapInTryBarrier: false` に `barrierNote` が無い / `reachable: false` に `reachableNote` が無い / `summary` に改行が入っている / `schema.json` の enum に無い型を書いた |
 | L3 でスタックが壊れる | `CallingConvention.Cdecl` の付け忘れ、または型幅の不一致 |
 | フックが例外バリアの囲い忘れを指摘する | `OCVU_TRY_BEGIN` / `OCVU_TRY_END` を書いていない |
 | `cv::` の関数だけがリンクエラー（`LNK2019` / undefined reference） | そのモジュールが `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` に無い。**「OpenCV がそのモジュールを含んでビルドされている」と「この plugin がそれをリンクしている」は別である** —— `tools/opencv-config.psd1` の `Modules` に載っていれば OpenCV 側は当然ビルドされ、`ocvu_get_build_information()` も `To be built:` にその名前を出す。それを根拠にすると誤る（M3.5 の `imgcodecs` がこれで、リンカが `cv::imencode` / `cv::imdecode` を未解決にして初めて分かった） |
@@ -312,7 +393,11 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 
 ## 参照
 
-- `native/include/opencv_unity_native.h` — 公開 ABI と `OCVU_STATUS_LIST`
+- `bindings/spec/*.json` — **宣言の正本（M5）。** ここに 1 エントリ書くのが関数を足す唯一の経路
+- `bindings/spec/schema.json` — spec の形を縛る。読めない enum / pattern があれば `SpecModel` が**素通りせず落ちる**
+- `native/include/opencv_unity_native.h` — 型・定数・`OCVU_STATUS_LIST`。**関数宣言はもう無い**（`ocvu/*.h` を include する）
+- `native/include/ocvu/*.h` — module ごとの `extern "C"` 宣言（**生成物**）
+- `tools/tests/BindingGenerator.Tests.ps1` — 生成物と spec の一致、および**実装 → spec の逆向き**を見る
 - `native/src/ocvu_error.h` — バリアのマクロと、囲ってはならない関数の一覧
 - `native/src/ocvu_mat_table.h` / `.cpp` — 世代番号つき handle table の参照実装
 - `native/src/ocvu_mat_buffer.cpp` — buffer 引数の検証順序の参照実装（`validate()`）

@@ -53,6 +53,12 @@
             "command": "sh .claude/hooks/check-platform-list-drift.sh",
             "timeout": 15,
             "statusMessage": "platform 一覧のずれを検査中"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-generated-file-edit.sh",
+            "timeout": 15,
+            "statusMessage": "生成物の手編集を検査中"
           }
         ]
       }

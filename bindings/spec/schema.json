@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["module", "functions"],
+  "properties": {
+    "module": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "functions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "summary", "returns", "csReturns", "wrapInTryBarrier", "params"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^ocvu_[a-z0-9_]+$" },
+          "summary": { "type": "string", "minLength": 1, "pattern": "^(?!.*\\*/)[^\\r\\n<>&]+$" },
+          "returns": { "type": "string", "enum": ["ocvu_status", "int32_t", "void"] },
+          "csReturns": { "type": "string", "enum": ["int", "void"] },
+          "wrapInTryBarrier": { "type": "boolean" },
+          "barrierNote": { "type": "string", "pattern": "^(?!.*\\*/)[^\\r\\n<>&]+$" },
+          "reachable": { "type": "boolean" },
+          "reachableNote": { "type": "string" },
+          "entryPoint": { "type": "string", "pattern": "^ocvu_[a-z0-9_]+$" },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "cType", "csType", "direction"],
+              "properties": {
+                "name": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
+                "cType": { "type": "string", "minLength": 1 },
+                "csType": { "type": "string", "minLength": 1 },
+                "direction": { "type": "string", "enum": ["in", "out", "in-buffer", "out-buffer"] }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
