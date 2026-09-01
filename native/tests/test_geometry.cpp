@@ -44,7 +44,7 @@ double At(const std::vector<double>& m, int row, int col) {
 
 TEST(Geometry, FindHomographyRecoversAScale) {
     ScopedMat dst;
-    ASSERT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
+    ASSERT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_OK);
 
@@ -73,31 +73,31 @@ TEST(Geometry, FindHomographyRecoversAScale) {
 TEST(Geometry, FindHomographyRejectsInvalidArguments) {
     ScopedMat dst;
 
-    EXPECT_EQ(ocvu_find_homography(nullptr, 8, kDoubled.data(), 8, 4,
+    EXPECT_EQ(ocvu_find_homography(nullptr, 8, kDoubled.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NULL_POINTER);
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, nullptr, 8, 4,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, nullptr, 8, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NULL_POINTER);
 
     // **4 点未満では射影変換が決まらない。** 3 点で呼べてしまうと、
     // OpenCV の中で落ちるか、意味の無い行列が返る。
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 3,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, 3,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 0,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, 0,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, -1,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, -1,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
 
     // 知らない method は素通しにしない —— OpenCV に落として
     // 「原因不明」にするより、境界で断るほうが呼ぶ側に分かる。
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4, 12345, 3.0, dst.get()),
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, 4, 12345, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
 
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, OCVU_MAT_HANDLE_NONE),
               OCVU_STATUS_INVALID_HANDLE);
 }
@@ -106,13 +106,13 @@ TEST(Geometry, FindHomographyLeavesTheDestinationUntouchedWhenItFails) {
     ScopedMat dst;
 
     // 先に成功させて、既知の形にしておく。
-    ASSERT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
+    ASSERT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_OK);
     ocvu_mat_info before{};
     ASSERT_EQ(ocvu_mat_get_info(dst.get(), &before), OCVU_STATUS_OK);
 
-    EXPECT_EQ(ocvu_find_homography(nullptr, 8, kDoubled.data(), 8, 4,
+    EXPECT_EQ(ocvu_find_homography(nullptr, 8, kDoubled.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NULL_POINTER);
 
@@ -129,7 +129,7 @@ TEST(Geometry, FindHomographyReportsNotFoundWhenThePointsAreDegenerate) {
     const std::vector<float> same{5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f};
 
     ScopedMat dst;
-    EXPECT_EQ(ocvu_find_homography(same.data(), 8, same.data(), 8, 4,
+    EXPECT_EQ(ocvu_find_homography(same.data(), 32, same.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_NOT_FOUND);
 }
@@ -143,7 +143,7 @@ TEST(Geometry, FindHomographyAcceptsRansacWithOutliers) {
                                      0.0f, 20.0f, 900.0f, 900.0f};
 
     ScopedMat dst;
-    ASSERT_EQ(ocvu_find_homography(src.data(), 10, dst_pts.data(), 10, 5,
+    ASSERT_EQ(ocvu_find_homography(src.data(), 40, dst_pts.data(), 40, 5,
                                    OCVU_HOMOGRAPHY_METHOD_RANSAC, 3.0, dst.get()),
               OCVU_STATUS_OK);
 
@@ -162,33 +162,67 @@ TEST(Geometry, FindHomographyAcceptsRansacWithOutliers) {
 TEST(Geometry, FindHomographyRejectsALengthThatCannotHoldThePoints) {
     // **呼ぶ側を信用しない。** point_count だけを受け取ると、
     // 配列の終端を越えて読んでも native からは分からない。
-    // 長さを明示的に受け取り、point_count * 2 に足りなければ断る
+    // 長さを明示的に受け取り、必要量に足りなければ断る
     // （ocvu_imdecode / ocvu_mat_copy_from_buffer と同じ契約）。
+    //
+    // **単位はバイトである** —— この ABI の length は全部そうなっている。
+    // 4 点なら float 8 個 = 32 バイト。
     ScopedMat dst;
 
-    // 4 点には float が 8 個要る。7 個しか無いと言われたら断る。
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 7, kDoubled.data(), 8, 4,
+    // 32 バイト要るところに 31 バイトしか無いと言われたら断る。
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 31, kDoubled.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 7, 4,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 31, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
 
     // 負の長さも断る。
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), -1, kDoubled.data(), 8, 4,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), -1, kDoubled.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
 
-    // **桁あふれを計算で作らない。** point_count * 2 は int64_t の掛け算だが、
-    // point_count が INT32_MAX なら 2 倍しても int64_t には収まる —— それでも
+    // **桁あふれを計算で作らない。** point_count * 2 * sizeof(float) は
+    // int64_t に上げてから作るので、INT32_MAX でも収まる —— それでも
     // 長さがそこに届かないので断る。**上限を別に設けなくても、
     // 長さの検証だけで塞がる。**
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, INT32_MAX,
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, INT32_MAX,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_INVALID_ARGUMENT);
 
-    // 長さが余分にあるのは問題ない（先頭 point_count 分だけ読む）。
-    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 8, kDoubled.data(), 8, 4,
+    // **ちょうどの長さは通る**（32 バイト = 4 点分）。
+    EXPECT_EQ(ocvu_find_homography(kSquare.data(), 32, kDoubled.data(), 32, 4,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_OK);
+
+    // **余分にあるのも通る**（先頭の point_count 分だけ読む）。ここまで書かないと
+    // 「余分」の経路を 1 度も通らない —— 上の行はちょうど一致であって余分ではない。
+    const std::vector<float> padded{0, 0, 10, 0, 10, 10, 0, 10, 99, 99, 99, 99};
+    EXPECT_EQ(ocvu_find_homography(padded.data(), 48, kDoubled.data(), 32, 4,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_OK);
+}
+
+TEST(Geometry, WhichDegenerateInputsReportNotFound) {
+    // **想像ではなく実測を固定する。** 実装が見ているのは homography.empty() だけで、
+    // 共線判定はしていない。OpenCV は x 方向と y 方向の広がりを別々に見ており、
+    // **どちらかが 0 のときだけ**空を返す —— したがって「一直線なら NOT_FOUND」は
+    // 成り立たない。ここが上流の版で変わったら、このテストが教える。
+    ScopedMat dst;
+
+    // 軸に平行な直線: x 方向の広がりが 0 -> 空 -> NOT_FOUND
+    const std::vector<float> vertical{0, 0, 0, 1, 0, 2, 0, 3};
+    const std::vector<float> vertical2{0, 0, 0, 2, 0, 4, 0, 6};
+    EXPECT_EQ(ocvu_find_homography(vertical.data(), 32, vertical2.data(), 32, 4,
+                                   OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
+              OCVU_STATUS_NOT_FOUND);
+
+    // **斜めの直線は NOT_FOUND にならない。** どちらの広がりも 0 ではないので
+    // 関門を通過し、rank 不足の行列がそのまま返る。**文書がここを
+    // 「一直線なら NOT_FOUND」と書いていたのは誤りで、実測で分かった。**
+    const std::vector<float> diagonal{0, 0, 1, 1, 2, 2, 3, 3};
+    const std::vector<float> diagonal2{0, 0, 2, 2, 4, 4, 6, 6};
+    EXPECT_EQ(ocvu_find_homography(diagonal.data(), 32, diagonal2.data(), 32, 4,
                                    OCVU_HOMOGRAPHY_METHOD_DEFAULT, 3.0, dst.get()),
               OCVU_STATUS_OK);
 }

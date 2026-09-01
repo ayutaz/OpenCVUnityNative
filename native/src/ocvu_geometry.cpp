@@ -50,20 +50,26 @@ extern "C" ocvu_status ocvu_find_homography(const float* src_points, int64_t src
     // 必要量に足りなければ何も読まずに断る
     // （ocvu_imdecode / ocvu_mat_copy_from_buffer と同じ契約）。
     //
-    // **積を先に作らない。** point_count は int32_t なので 2 倍しても
-    // int64_t には収まるが、桁あふれを「収まるはずだから安全」で済ませない
-    // のがこの境界の作法である（M2 で stride の積が反転して踏んだ）。
-    // 必要な要素数は point_count * 2 で、両方とも int64_t に上げてから比べる。
-    const int64_t needed = static_cast<int64_t>(point_count) * 2;
+    // **単位はバイトである。** この ABI の *_length はすべてバイト数で
+    // （ocvu_mat_copy_from_buffer / ocvu_mat_copy_to_buffer / ocvu_imdecode）、
+    // ここだけ要素数にすると、既存に慣れた呼び手が 4 倍の値を渡して
+    // **検査を通過する**方向に倒れる。
+    //
+    // **積は int64_t に上げてから作る。** point_count は int32_t なので
+    // 2 * sizeof(float) 倍しても int64_t には収まるが、桁あふれを
+    // 「収まるはずだから安全」で済ませないのがこの境界の作法である
+    // （M2 で stride の積が反転して踏んだ）。
+    const int64_t needed =
+        static_cast<int64_t>(point_count) * 2 * static_cast<int64_t>(sizeof(float));
     if (src_length < needed) {
         return ::ocvu::set_last_error(
             OCVU_STATUS_INVALID_ARGUMENT,
-            "ocvu_find_homography: src_length is too small for point_count");
+            "ocvu_find_homography: src_length (bytes) is too small for point_count");
     }
     if (dst_length < needed) {
         return ::ocvu::set_last_error(
             OCVU_STATUS_INVALID_ARGUMENT,
-            "ocvu_find_homography: dst_length is too small for point_count");
+            "ocvu_find_homography: dst_length (bytes) is too small for point_count");
     }
     // **知らない method は素通しにしない。** OpenCV に落とすと
     // 「原因不明」（UNKNOWN_ERROR）になるか、黙って既定の挙動になる。
@@ -94,9 +100,16 @@ extern "C" ocvu_status ocvu_find_homography(const float* src_points, int64_t src
         return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
     }
 
-    // **空は誤りではない。** 点が退化していて解が求まらなかっただけである
-    // （全部同じ点、一直線に並んでいる、など）。入力の形は正しいので
-    // INVALID_ARGUMENT ではなく NOT_FOUND で返す。
+    // **空は誤りではない。** 点が退化していて解が求まらなかっただけである。
+    // 入力の形は正しいので INVALID_ARGUMENT ではなく NOT_FOUND で返す。
+    //
+    // **どの入力で空になるかは OpenCV が決める。実測（2026-09-01）:**
+    //   全部同じ点               -> 空（NOT_FOUND）
+    //   軸に平行な直線上の 4 点  -> 空（NOT_FOUND）
+    //   **斜めの直線上の 4 点    -> 空でない（OK）**
+    // OpenCV は x 方向と y 方向の広がりを別々に見ており、**どちらかが 0 の
+    // ときだけ**空を返す。したがって「一直線なら NOT_FOUND」は成り立たない ——
+    // 斜めの直線は rank 不足の行列がそのまま返る。**共線判定はしていない。**
     if (homography.empty()) {
         return ::ocvu::set_last_error(
             OCVU_STATUS_NOT_FOUND,

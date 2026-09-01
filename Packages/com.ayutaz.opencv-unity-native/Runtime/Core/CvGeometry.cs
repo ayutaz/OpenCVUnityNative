@@ -78,9 +78,11 @@ namespace CvUnity
         /// <remarks>
         /// <paramref name="dst"/> は結果に応じて丸ごと置き換わり、64 bit 1 channel の
         /// 3x3 になる —— 呼び出し前に持っていた形状・型・内容は保持されない。
-        /// **false を返すのは誤りではない** —— 全部同じ点、一直線に並んでいる、
-        /// といった入力では解が存在しないだけである（入力の形が誤っている場合は
-        /// 例外になる）。
+        /// **false を返すのは誤りではない** —— 点が退化していて解が存在しない
+        /// だけである（入力の形が誤っている場合は例外になる）。
+        /// **どの入力で false になるかは OpenCV が決める** —— 実測では
+        /// 全部同じ点と軸に平行な直線が false で、**斜めの直線は true を返す**
+        /// （rank 不足の行列がそのまま返る）。共線判定はしていない。
         /// 求めた変換は imgproc の透視変換に渡して使う。
         /// </remarks>
         /// <param name="srcPoints">変換前の点。4 点以上。</param>
@@ -118,14 +120,16 @@ namespace CvUnity
                     nameof(dstPoints));
             }
 
-            // 長さは native にも渡す —— **C# が正しく詰めたことを native は
+            // 長さは native にも渡す（**バイト数** —— この ABI の length は
+            // 全部そうなっている）。**C# が正しく詰めたことを native は
             // 信用しない。** 直接 C ABI を叩く呼び手（他の言語、テスト）が
             // 短い配列に大きな点数を渡しても、境界で断られる。
             var src = Flatten(srcPoints);
             var dstFlat = Flatten(dstPoints);
 
             var status = (CvStatus)NativeMethods.ocvu_find_homography(
-                src, src.Length, dstFlat, dstFlat.Length, srcPoints.Length,
+                src, (long)src.Length * sizeof(float),
+                dstFlat, (long)dstFlat.Length * sizeof(float), srcPoints.Length,
                 (int)method, ransacThreshold, dst.Handle);
 
             // **解が無いのは失敗ではない。** 呼ぶ側には false で返す。

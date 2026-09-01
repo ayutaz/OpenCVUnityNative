@@ -174,7 +174,8 @@ status:
 | `ocvu_find_homography(const float* src_points, int64_t src_length, const float* dst_points, int64_t dst_length, int32_t point_count, int32_t method, double ransac_threshold, ocvu_mat_handle dst)` | 2 組の点の対応から射影変換（3x3）を求めて `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、64 bit 1 channel の 3x3 になる |
 
 **`ocvu_find_homography` は点の配列の長さを個別に受け取る。** `src_length` /
-`dst_length` は要素数（点数ではない）で、`point_count * 2` に満たなければ
+`dst_length` は**バイト数**（要素数でも点数でもない —— この ABI の `length` は
+すべてバイト数で統一してある）で、`point_count * 2 * sizeof(float)` に満たなければ
 **何も読まずに** `OCVU_STATUS_INVALID_ARGUMENT` を返す —— `ocvu_imdecode` や
 `ocvu_mat_copy_from_buffer` と同じ「呼ぶ側を信用しない」契約である（§1.1）。
 **上限の定数は設けていない**: `point_count` を大きく渡しても、長さがそこに
