@@ -25,7 +25,7 @@ namespace CvUnity
     }
 
     /// <summary>
-    /// 特徴点の検出(OpenCV の features)。
+    /// 特徴点の検出（OpenCV の features）。
     /// </summary>
     public static class CvFeatures
     {

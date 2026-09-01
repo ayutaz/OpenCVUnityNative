@@ -1245,20 +1245,30 @@ OpenCV 全 API の網羅。
 
 ### M5 の判定（2026-09-01 時点）
 
-**5 件中 4 件を満たし、1 件は閉じていない。** 実装は
-`docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8）。
+**5 件中 4 件を満たし、1 件は部分的に満たした。** 実装は
+`docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8）と、
+`objdetect` / `features` を足した続きの計画
+（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`、Task 1〜8）。
 
 実測はすべてこのマシン（Windows、2026-08-31〜09-01）。`pwsh tools/dev.ps1 test` は
-**exit 0 / 73.4 秒**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
+**exit 0**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
 `BindingGenerator` の 16 assertion）+ `verify-generated`（**生成物は spec と
-一致しています（10 ファイル）**）+ L1（GoogleTest **64** / CTest **4**）+
-L3（`CvUnity.Tests.Managed` **44** / `Ocvu.Generator.Tests` **88**）である。
-Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **19**）。
+一致しています（14 ファイル）**）+ L1（GoogleTest **78** / CTest **4**）+
+L3（`CvUnity.Tests.Managed` **51** / `Ocvu.Generator.Tests` **91**）である。
+Unity の 2 レーンも実行し、`objdetect` / `features` を足した後も
+壊れていないことを確認した: EditMode は **34 passed**（`PluginGatingTests` の
+4 件を含む）、IL2CPP Player は **19 passed**（`EveryEntryPointIsReachable` が
+`Passed`）。**件数はどちらも足す前と同じ** —— 到達性テストは 1 件のままで、
+その中で呼ぶ宣言が 22 → 25 に増えただけだからである。**この確認こそが今回の作業で
+最も重要だった** —— 生成した 25 本の P/Invoke 宣言が IL2CPP の stripping を
+生き延びて全部解決することを、実物の Player で実証した。
+**公開 C ABI は 20 → 23 本、うち allowlist は 14 本、C# の P/Invoke 宣言は 25 本になった**
+（内訳は `docs/abi-ownership-and-versioning.md` §3・§3.6）。
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
 | 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
-| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **閉じていない。** 実装計画が冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**次の計画で閉じる。**部分的な達成を完了と呼ばない |
+| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **部分的に満たした（2026-09-01 更新）。** 当初の実装計画は冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**続く計画（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`）で `objdetect`（QR コードの符号化・復号）と `features`（ORB 特徴点検出）の 2 module を実際に出した** —— C ABI は 20 → 23 本、うち allowlist は 11 → 14 本になった（内訳は `docs/abi-ownership-and-versioning.md` §3.6）。**残る `geometry` / `calib` はまだ出していない。この計画で分かったこと**: `geometry` は**リンクが安い** —— 復元済みの OpenCV ツリーには 7 つのライブラリが在り、`flann` と `geometry` は他 module の依存として既にビルドされている（`COMPONENTS` に足すだけでリンクできる）。**対して `calib` だけが高い** —— `tools/opencv-config.psd1` の `Modules` に無いため、足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる（実測: `4785d98e9aad` → `a197bbcbdaf5`）。**「`geometry` はビルドされていない」と読める記述は、この文書のどこにも見当たらなかった**（確認のため roadmap 全体を検索した）ので、訂正すべき誤りは無い。API の設計判断としてこの 2 つを出さなかった理由（利用例が無い）は変わっていないので、**まだ「満たした」ではなく「部分的に満たした」に留める** |
 
 **条件 2 に着手するとき、どこを読むか**（M5 完了時に書いた。**skill にはしていない** ——
 実際に module を足すまで「壊して落ちることを見る」ができないので、手順を先に

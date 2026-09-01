@@ -301,6 +301,11 @@ native library と C# は同じ UPM パッケージで同時に配布される�
 - 実装の内部変更で、観測できる挙動が変わらないもの
 - コメント・文書
 
+**実例（2 つ目）**: `OCVU_STATUS_NOT_FOUND` は M5 で `OCVU_STATUS_LIST` の末尾に足した
+status で、bump しなかった。`ocvu_qr_decode` が「QR コードが写っていない」ことを
+`OCVU_STATUS_OK` + 長さ 0（＝「空文字列の QR」と区別が付かない）ではなくこの新しい
+status で表すために追加した。既存の status の数値・意味は 1 つも変えていない。
+
 status の追加が bump にならないのは、**呼ぶ側が未知の status を扱えることを契約にしている**
 ためである。`OCVU_STATUS_OK` と `OCVU_STATUS_BUFFER_TOO_SMALL` 以外はすべて失敗として扱う
 （C# 側の `CvNative.IsFailure` がこの形になっている）。網羅的な分岐を書いて未知の値で壊れる
@@ -314,10 +319,11 @@ status 表の同期は `StatusCodeSyncTests` が見ている。**この 2 つを
 
 ---
 
-## 3. API の allowlist（M2 で確定、M3.5 で追加）
+## 3. API の allowlist（M2 で確定、M3.5・M5 で追加）
 
 M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わないのが M2 の目的である。
-**M3.5 で 2 本足したので、現在の allowlist は §3.5 を含めて 11 本である。**
+**M3.5 で 2 本、M5 で 3 本足したので、現在の allowlist は §3.5 と §3.6 を含めて
+14 本である。**
 
 **この節は「何を出すと決めたか」の正本であって、「いま何が出ているか」の一覧ではない。**
 後者は `bindings/spec/*.json`（機械可読の正本）と、そこから生成される
@@ -388,12 +394,50 @@ byte 列だけで、ファイルパスは受けない**（理由は §1.6）。
 静的リンクは参照された object しか取り込まない。増えたのは関数を書いてからで、
 Windows の debug ビルドで 8,831,488 → 10,177,536 バイト（+1.35 MB。2026-08-30 実測）。
 
+### 3.6 objdetect / features（M5 で追加）
+
+| 関数 | 内容 |
+| --- | --- |
+| `ocvu_qr_encode` | text を QR コードの画像に符号化して `dst` に入れる。`dst` は結果に応じて丸ごと置き換わり、8 bit 1 channel の正方形になる |
+| `ocvu_qr_decode` | `src` に写っている QR コードを 1 つ検出して復号する。**2 回呼び**（§1.6） |
+| `ocvu_orb_detect` | `src` から ORB の特徴点を検出する。**1 回呼び**（下記） |
+
+**これで allowlist は 14 本になった**（M2 の 9 本 + M3.5 の 2 本 + この 3 本）。
+
+**`ocvu_qr_encode` を出した理由は decode 単体では説明できない** —— decode の
+conformance test を fixture 画像に頼らず自己完結させるためで、`ocvu_imencode` /
+`ocvu_imdecode` の関係と対になっている。
+
+**`ocvu_qr_decode` は「見つからない」を新しい status で表す。** QR コードが
+写っていない場合は `OCVU_STATUS_OK` + 長さ 0 ではなく `OCVU_STATUS_NOT_FOUND` を
+返す —— 前者だと「空文字列を符号化した QR コード」と区別が付かないためである
+（§2 の bump しない変更の実例）。それ以外は `ocvu_imdecode` と同じ 2 回呼びの
+作法に従う。検出の前に白い余白（quiet zone）を足し、短い辺が 200 px 未満なら
+拡大してから検出する（渡した `Mat` 自体は変更しない、加工済みの内部コピーに対して行う）。
+
+**`ocvu_orb_detect` は `ocvu_imencode` / `ocvu_qr_decode` と違い 1 回呼びである。**
+出力の必要量（検出された特徴点の個数）は呼ぶ側に事前には分からないが、
+**上限は `max_features` で呼ぶ側が決める**ので、その上限ぶんの buffer を
+最初から用意させれば 2 回呼びにする理由が無い。`capacity` が `max_features` に
+満たなければ何も書かずに `OCVU_STATUS_BUFFER_TOO_SMALL` を返し、`out_count` に
+`max_features` を入れる。`max_features` の上限（`OCVU_ORB_MAX_FEATURES` = 10000）は
+C の `#define` と C# の `CvFeatures.MaxFeatures` に**二重に定義されている** —— C# から
+C の `#define` を読む経路が無いためで、両側が native に同じ値を問うテスト
+（`FeaturesTests.TheManagedUpperBoundMatchesWhatNativeAccepts`）が同期を守る。
+
+出力の struct は `ocvu_keypoint`（`x` / `y` / `size` / `angle` / `response` /
+`octave` / `class_id`、いずれも `cv::KeyPoint` のフィールドをそのまま写した固定サイズ型）。
+buffer の所有権は `ocvu_mat_copy_from_buffer` などと同じく最初から最後まで呼ぶ側にある。
+
 ### まだ作らないもの
 
 `Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、**`imgcodecs` の
-ファイルパス経路**。いずれも契約が固まってから足す。
+ファイルパス経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、
+`geometry` / `calib`（判断の根拠は `docs/roadmap.md` の M5 節。**リンクの可否と
+API を出す判断は別** —— `geometry` はリンクが安いが、それでも出していない）。
+いずれも契約が固まってから足す。
 **メモリ上の byte 列の encode / decode は M3.5 で足した（§3.5）。ファイルパスを
-受けない判断の理由は §1.6 にある。**
+受けない判断の理由は §1.6 にある。QR の符号化・復号と ORB 検出は M5 で足した（§3.6）。**
 
 **`WebCamTexture` 連携はここから外した。** M4 で `WebCamTextureConverter` を
 足したが、**新しい C ABI 関数は 1 本も増えていない** —— `CvMat.Create` と
@@ -406,7 +450,7 @@ Windows の debug ビルドで 8,831,488 → 10,177,536 バイト（+1.35 MB。2
 
 - `CLAUDE.md` — 「アーキテクチャの中核」の不変条件。この文書はその具体化である
 - `docs/roadmap.md` — M2 の目的・ゴール・完了条件（上記 §1 の食い違いに従って更新済み）
-- `docs/api-reference.md` — この文書が決めた契約の、利用者向けの現れ方（C ABI 11 本と C# 公開 API）。**手書きである**
+- `docs/api-reference.md` — この文書が決めた契約の、利用者向けの現れ方（C ABI 14 本と C# 公開 API）。**手書きである**
 - `docs/api-map.md` — いま境界に在るものの機械的な一覧（M5 の生成物）。**手で編集しない**
 - `bindings/spec/*.json` — 宣言の機械可読な正本（M5）。C ヘッダ・C# の P/Invoke・到達性テスト・上の対応表はここから出る
 - `.claude/skills/add-abi-function/SKILL.md` — 関数を 1 本足すときの TDD 順序

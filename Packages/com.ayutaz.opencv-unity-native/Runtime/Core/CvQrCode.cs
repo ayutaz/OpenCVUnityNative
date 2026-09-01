@@ -5,7 +5,7 @@ using CvUnity.Interop;
 namespace CvUnity
 {
     /// <summary>
-    /// QR コードの符号化と復号(OpenCV の objdetect)。
+    /// QR コードの符号化と復号（OpenCV の objdetect）。
     /// </summary>
     /// <remarks>
     /// **CvOps に入れていない。** あちらは imgproc の範囲である。
@@ -29,7 +29,7 @@ namespace CvUnity
 
             // **文字列は自分で UTF-8 の NUL 終端 byte 列にする。**
             // string のまま marshaller に任せると、境界の文字コード変換が
-            // 既定の CharSet に依存する(Mono と IL2CPP で違い得る)。
+            // 既定の CharSet に依存する（Mono と IL2CPP で違い得る）。
             var status = (CvStatus)NativeMethods.ocvu_qr_encode(
                 ToNulTerminatedUtf8(text), dst.Handle);
             CvNative.ThrowIfFailed(status);
@@ -40,7 +40,7 @@ namespace CvUnity
         /// 写っていなければ null を返す。
         /// </summary>
         /// <remarks>
-        /// 検出の前に白い余白(quiet zone)を必ず足し、短いほうの辺が 200 px 未満の
+        /// 検出の前に白い余白（quiet zone）を必ず足し、短いほうの辺が 200 px 未満の
         /// 画像はさらに最近傍補間で拡大してから検出する。**この前処理は内部で作る
         /// 加工済みのコピーに対して行われ、<paramref name="src"/> 自体は変更しない。**
         /// </remarks>
@@ -75,7 +75,7 @@ namespace CvUnity
 
             // 2 回目で足りなくなるのは、1 回目との間に src が変わった場合である。
             // native は 1 バイトも書いていないので、ここで見ないと
-            // **呼ぶ側は例外も無しに全部 0 の byte 列を受け取る**(CvCodecs と同じ形)。
+            // **呼ぶ側は例外も無しに全部 0 の byte 列を受け取る**（CvCodecs と同じ形）。
             if (status != CvStatus.Ok || written != required)
             {
                 throw new CvNativeException(status,
