@@ -151,5 +151,6 @@ typedef struct ocvu_keypoint {
 #include "ocvu/imgproc.h"
 #include "ocvu/imgcodecs.h"
 #include "ocvu/objdetect.h"
+#include "ocvu/features.h"
 
 #endif /* OPENCV_UNITY_NATIVE_H */
