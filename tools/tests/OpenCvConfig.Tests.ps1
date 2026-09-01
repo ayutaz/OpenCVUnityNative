@@ -1718,6 +1718,93 @@ Assert-That (@($releaseLines | Where-Object {
 }).Count -eq 1) 'release.yml runs verify-android-page-size.ps1 in exactly one step (配る binary に掛からないと意味が無い)'
 
 
+
+# --- action の参照は固定されていて、同じ action の版が割れていないこと ---
+#
+# **動くタグを踏むと、こちらは 1 行も変えていないのに CI が落ちる。**
+# `.github/dependabot.yml` の冒頭がそのために在る —— 上流の変化を
+# 「いつの間にか変わっていた」ではなく「差分として見える変更」にする。
+# ただし Dependabot が見るのは `owner/repo@ref` の形だけで、
+# **`docker://` は parser が明示的に読み飛ばす**（dependabot-core の
+# github_actions/lib/dependabot/github_actions/file_parser.rb）。
+# つまり最も追跡しにくい参照が、最も追跡されない。だからここで見る。
+#
+# **版の割れも見る。** 実際に踏んだ: Dependabot が upload-artifact を
+# v4 -> v7 に上げた PR を手で当てたとき、そのとき手元に無かった
+# unity-probe.yml だけ v6 のまま残った（2026-09-01 に発見）。
+# **どの workflow も緑のまま**で、気づく契機が無い —— unity-probe は
+# 手動起動なので、次に誰かが起動するまで走りさえしない。
+#
+# `github/codeql-action/init` と `.../analyze` のように 1 つの action の
+# 別 path を使う場合があるので、名前は owner/repo に丸めて突き合わせる。
+# **片方だけ上げると落ちる**のが狙いである。
+$usesLines = @()
+foreach ($wf in $workflowFiles) {
+    foreach ($line in (Get-Content -LiteralPath $wf.FullName)) {
+        if ($line -match '^\s*#') { continue }
+        if ($line -notmatch '^\s*(-\s+)?uses:\s*(\S+)\s*$') { continue }
+        $usesLines += [pscustomobject]@{ Workflow = $wf.Name; Ref = $Matches[2] }
+    }
+}
+
+# **拾えた数が合わなければ、空振りではなく落とす。** 上の正規表現が
+# 書き方の揺れ（引用符付き、行末コメント）で当たらなくなると、以下の
+# assertion は全部「対象 0 件」で緑になる。
+$looseUses = 0
+foreach ($wf in $workflowFiles) {
+    $looseUses += @(Get-Content -LiteralPath $wf.FullName |
+                    Where-Object { $_ -notmatch '^\s*#' -and $_ -match '(?<![-\w])uses:' }).Count
+}
+Assert-That ($usesLines.Count -gt 0) 'the workflows declare at least one action (0 件なら以下は全部空振りする)'
+Assert-That ($usesLines.Count -eq $looseUses) `
+    "every uses: line was parsed (parsed $($usesLines.Count) / found $looseUses)"
+
+# 参照を「名前」と「版」に割る。docker:// はタグが版である。
+$actionRefs = @()
+foreach ($u in $usesLines) {
+    if ($u.Ref.StartsWith('docker://')) {
+        $image = $u.Ref.Substring('docker://'.Length)
+        $sep   = $image.LastIndexOf(':')
+        # `host:port/image` にタグが無い形を版付きと誤認しない。
+        if ($sep -lt 0 -or $image.Substring($sep + 1).Contains('/')) { $name = $image; $version = '' }
+        else { $name = $image.Substring(0, $sep); $version = $image.Substring($sep + 1) }
+        $name = "docker://$name"
+    }
+    else {
+        $at = $u.Ref.IndexOf('@')
+        if ($at -lt 0) { $name = $u.Ref; $version = '' }
+        else {
+            $path    = $u.Ref.Substring(0, $at)
+            $version = $u.Ref.Substring($at + 1)
+            # owner/repo/sub/path -> owner/repo。1 つの action の別 path を
+            # 別物として数えると、片方だけ上げた状態が緑で通る。
+            $parts = @($path -split '/')
+            $name  = if ($parts.Count -ge 2) { $parts[0..1] -join '/' } else { $path }
+        }
+    }
+    $actionRefs += [pscustomobject]@{
+        Workflow = $u.Workflow; Ref = $u.Ref; Name = $name; Version = $version
+    }
+}
+
+# (a) 動くタグを禁じる。空の版（`@` が無い）もここで落ちる。
+$floating = @('main', 'master', 'head', 'latest', '')
+foreach ($a in $actionRefs) {
+    Assert-That (-not ($floating -contains $a.Version.ToLowerInvariant())) `
+        "$($a.Workflow) pins $($a.Name) to a fixed version (saw '$($a.Ref)')"
+}
+
+# (b) 同じ action が 2 つの版で参照されていないこと。
+foreach ($group in ($actionRefs | Group-Object -Property Name)) {
+    $versions = @($group.Group | ForEach-Object { $_.Version } | Sort-Object -Unique)
+    Assert-That ($versions.Count -eq 1) `
+        "$($group.Name) is referenced at one version across the workflows (saw: $($versions -join ', '))"
+    if ($versions.Count -gt 1) {
+        $group.Group | ForEach-Object { Write-Host "      $($_.Workflow): $($_.Ref)" -ForegroundColor Yellow }
+    }
+}
+
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
