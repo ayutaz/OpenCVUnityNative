@@ -124,5 +124,6 @@ typedef struct ocvu_mat_info {
 #include "ocvu/core.h"
 #include "ocvu/imgproc.h"
 #include "ocvu/imgcodecs.h"
+#include "ocvu/objdetect.h"
 
 #endif /* OPENCV_UNITY_NATIVE_H */

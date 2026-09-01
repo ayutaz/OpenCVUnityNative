@@ -44,6 +44,7 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_get_opencv_version(null, 0, out _);
         NativeMethods.ocvu_get_build_information(null, 0, out _);
         NativeMethods.ocvu_debug_throw(0);
-        return 21;
+        NativeMethods.ocvu_qr_encode(null, 0UL);
+        return 22;
     }
 }
