@@ -428,6 +428,18 @@ TEST(Objdetect, EncodeRejectsInvalidArguments) {
     EXPECT_EQ(ocvu_qr_encode("x", OCVU_MAT_HANDLE_NONE), OCVU_STATUS_INVALID_HANDLE);
 }
 
+TEST(Objdetect, EncodeReportsAnOpenCvErrorForTextThatDoesNotFit) {
+    // **spec の summary が「符号化できない長さの text は OCVU_STATUS_OPENCV_ERROR
+    // になる」と約束している。** その文字列は C の doc コメント・C# の XML doc・
+    // API 対応表の 3 箇所に出るので、**約束したなら実証する。**
+    //
+    // cv::Exception を個別に受けていないと、ここは UNKNOWN_ERROR(5) になる
+    // （OCVU_TRY_END の catch(std::exception) に落ちるため）。
+    ScopedMat dst;
+    const std::string too_long(5000, 'A');  // QR 1 個の容量を超える
+    EXPECT_EQ(ocvu_qr_encode(too_long.c_str(), dst.get()), OCVU_STATUS_OPENCV_ERROR);
+}
+
 TEST(Objdetect, EncodeLeavesTheDestinationUntouchedWhenItFails) {
     ScopedMat dst;
 
@@ -548,8 +560,15 @@ extern "C" ocvu_status ocvu_qr_encode(const char* text, ocvu_mat_handle dst) {
     // **符号化してから dst に入れる。** 直接 dst_mat へ encode させると、
     // 失敗したときに dst が途中まで書き換わった状態で残りうる。
     cv::Mat encoded;
-    cv::Ptr<cv::QRCodeEncoder> encoder = cv::QRCodeEncoder::create();
-    encoder->encode(std::string(text), encoded);
+    try {
+        cv::Ptr<cv::QRCodeEncoder> encoder = cv::QRCodeEncoder::create();
+        encoder->encode(std::string(text), encoded);
+    } catch (const cv::Exception& e) {
+        // OCVU_TRY_END でも捕まるが、そこでは UNKNOWN_ERROR になる。
+        // OpenCV 由来だと分かる status を返すためにここで先に受ける
+        // （QR の容量を超える長さの text がここに来る）。
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
+    }
 
     if (encoded.empty()) {
         return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR,
@@ -564,6 +583,12 @@ extern "C" ocvu_status ocvu_qr_encode(const char* text, ocvu_mat_handle dst) {
 
 `native/CMakeLists.txt` の `OCVU_SOURCES` に `src/ocvu_objdetect.cpp` を足す。
 **SHARED と STATIC の両ターゲットがこのリストを共有しているので 1 箇所で済む。**
+
+**`cv::Exception` は個別に受ける。** `OCVU_TRY_END` は `std::exception` を
+`OCVU_STATUS_UNKNOWN_ERROR` にするので、そこへ落とすと **OpenCV 由来の失敗が
+「原因不明」として報告される**。`native/src/ocvu_imgcodecs.cpp` が確立済みの
+形（同ファイルのコメントに理由が書いてある）で、この計画の 3 本もそれに揃える。
+
 
 - [ ] **Step 7: GREEN を確認する**
 
@@ -776,8 +801,15 @@ extern "C" ocvu_status ocvu_qr_decode(ocvu_mat_handle src, char* buffer, int32_t
                                       "ocvu_qr_decode: src is empty");
     }
 
-    cv::QRCodeDetector detector;
-    const std::string text = detector.detectAndDecode(*src_mat);
+    std::string text;
+    try {
+        cv::QRCodeDetector detector;
+        text = detector.detectAndDecode(*src_mat);
+    } catch (const cv::Exception& e) {
+        // OCVU_TRY_END でも捕まるが、そこでは UNKNOWN_ERROR になる。
+        // OpenCV 由来だと分かる status を返すためにここで先に受ける。
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
+    }
     if (text.empty()) {
         // **誤りではない。** 画像に QR が写っていなかっただけである。
         return ::ocvu::set_last_error(OCVU_STATUS_NOT_FOUND,
@@ -1239,9 +1271,15 @@ extern "C" ocvu_status ocvu_orb_detect(ocvu_mat_handle src, int32_t max_features
                                       "ocvu_orb_detect: capacity is smaller than max_features");
     }
 
-    cv::Ptr<cv::ORB> orb = cv::ORB::create(max_features);
     std::vector<cv::KeyPoint> found;
-    orb->detect(*src_mat, found);
+    try {
+        cv::Ptr<cv::ORB> orb = cv::ORB::create(max_features);
+        orb->detect(*src_mat, found);
+    } catch (const cv::Exception& e) {
+        // OCVU_TRY_END でも捕まるが、そこでは UNKNOWN_ERROR になる。
+        // OpenCV 由来だと分かる status を返すためにここで先に受ける。
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
+    }
 
     // ORB は nfeatures を超えないが、契約は自分でも守る。
     const int32_t n = static_cast<int32_t>(
