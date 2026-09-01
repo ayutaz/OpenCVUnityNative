@@ -1314,7 +1314,7 @@ Unity の 2 レーンも実行し、`objdetect` / `features` を足した後も
   無関係な場所で、`docs/abi-ownership-and-versioning.md` §1 が借用 handle を
   禁じたのと同じ形である）。いまは `SpecModel.AllowedCsTypes` が
   `cType` ごとに書いてよい `csType` を持ち、**知らない `cType` は拒む**ので
-  表は定義上いつも完全である。**閉じていないのは byte 列を渡す 4 つ**
+  表は定義上いつも完全である。**閉じていないのは byte 列を渡す 4 つと `ocvu_keypoint*` の計 5 つ**
   （`const uint8_t*` / `uint8_t*` / `const char*` / `char*`）で、これらは
   `byte[]`（managed 配列を marshal する版）と `System.IntPtr`（アドレスを
   直接渡す版）のどちらも正しい —— **その 2 つのうち取り違えても誰も落ちない。**

@@ -404,6 +404,17 @@ Windows の debug ビルドで 8,831,488 → 10,177,536 バイト（+1.35 MB。2
 
 **これで allowlist は 14 本になった**（M2 の 9 本 + M3.5 の 2 本 + この 3 本）。
 
+**配る binary の大きさ**（M3.5 が §3.5 に同じ数字を残しているので、こちらも残す）。
+Windows の debug ビルドで **10,177,536 → 20,136,960 バイト**（+9,959,424。約 2 倍。
+2026-09-01 実測）。**`COMPONENTS` に `objdetect features` を足しただけの時点では
+1 バイトも増えていない**（Task 1 で実測）—— 静的リンクは参照された object しか
+引かないので、増やしたのは 3 本の関数を書いたことである。M3.5 の `imgcodecs` と
+同じ形で、そのときは 8,831,488 → 10,177,536 だった。
+
+**Release ビルドと他の 4 platform では測っていない。** debug の値なので、
+配布物そのものの大きさではない（全部入りの tarball の実測は 9.6 MB で、
+`tools/pack-upm-tarball.ps1` の `-MaxBytes` 既定 512 MB に対して 1 桁以上余っている）。
+
 **`ocvu_qr_encode` を出した理由は decode 単体では説明できない** —— decode の
 conformance test を fixture 画像に頼らず自己完結させるためで、`ocvu_imencode` /
 `ocvu_imdecode` の関係と対になっている。
