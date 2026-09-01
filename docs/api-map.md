@@ -3,7 +3,7 @@
 <!-- このファイルは生成物である。手で編集しないこと。 -->
 <!-- 正本: bindings/spec/*.json  生成: ./tools/dev.ps1 generate -->
 
-**公開している C ABI は 20 本**である。C# の P/Invoke 宣言は 22 本ある。
+**公開している C ABI は 23 本**である。C# の P/Invoke 宣言は 25 本ある。
 
 **差の 2 本は C ABI を増やさない。** 既にある C の entry point へ
 別の引数の形で入る C# 側の入口で、C 側に対応する宣言が無い。
@@ -27,6 +27,7 @@
 | `core` |  | `ocvu_mat_copy_from_buffer_ptr` | 呼ぶ | ocvu_mat_copy_from_buffer にアドレスを直接渡す C# 側の入口。NativeArray や Texture2D の生データを managed 配列へ写さずに渡すためにある。領域はこの呼び出しが戻るまで生きていなければならない。 |
 | `core` | `ocvu_mat_copy_to_buffer` | `ocvu_mat_copy_to_buffer` | 呼ぶ | Mat から外部 buffer へコピーする。借用と検証の規則は ocvu_mat_copy_from_buffer と同じである。 |
 | `core` |  | `ocvu_mat_copy_to_buffer_ptr` | 呼ぶ | ocvu_mat_copy_to_buffer にアドレスを直接渡す C# 側の入口。借用の契約は ocvu_mat_copy_from_buffer_ptr と同じである。 |
+| `features` | `ocvu_orb_detect` | `ocvu_orb_detect` | 呼ぶ | src から ORB の特徴点を検出して out_keypoints へ書き、見つかった個数を out_count に返す。呼ぶ側は必要量を事前に知り得るので 2 回呼ぶ必要は無い（上限は max_features で、capacity がそれに満たなければ何も書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し out_count に max_features を入れる）。max_features は 1 以上 OCVU_ORB_MAX_FEATURES 以下でなければならない。buffer の所有権は最初から最後まで呼ぶ側にある。 |
 | `imgcodecs` | `ocvu_imencode` | `ocvu_imencode` | 呼ぶ | Mat を画像形式に符号化し buffer へ書く。符号化後の大きさは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。ext は .png のように先頭のドットを含む拡張子で、NULL と空文字列は拒否する。 |
 | `imgcodecs` | `ocvu_imdecode` | `ocvu_imdecode` | 呼ぶ | 符号化された画像 byte 列を復号して dst に入れる。dst の形状と型は結果に応じて上書きされる。data はこの呼び出しの内側でのみ読む借用で、native は保持しない。length は 1 以上 INT32_MAX 以下でなければならず、画像として解釈できない byte 列は OCVU_STATUS_OPENCV_ERROR になる（メモリは壊さない）。flags は OCVU_IMREAD_* である。 |
 | `imgproc` | `ocvu_cvt_color` | `ocvu_cvt_color` | 呼ぶ | 色空間を変換する。dst の形状と型は結果に応じて上書きされる。src と dst が同じ handle なら OCVU_STATUS_INVALID_ARGUMENT を返す（OpenCV の in-place 対応は関数ごとに異なり、曖昧さを ABI に持ち込まない）。OpenCV 由来の失敗は OCVU_STATUS_OPENCV_ERROR になる。 |
@@ -41,6 +42,8 @@
 | `infra` | `ocvu_get_build_information` | `ocvu_get_build_information` | 呼ぶ | cv::getBuildInformation() の内容を UTF-8 で書く。どの依存が有効なリンクになっているかを実行時に確認するために使う。バッファ規約は ocvu_get_opencv_version と同一である。 |
 | `infra` | `ocvu_debug_throw` | `ocvu_debug_throw` | 呼ぶ | conformance test 用に、内部で意図的に例外を投げる。kind は 0 が std::runtime_error、1 が std::bad_alloc、2 が非標準例外、3 が投げない。例外が ABI 境界を越えないことの検証に使う。 |
 | `infra` | `ocvu_debug_crash` | `ocvu_debug_crash` | 呼ばない | conformance test 用に、意図的にプロセスを壊す。kind は 0 が不正アクセスで即死、1 が戻ってこない（無限ループ）。managed 側からネイティブが死んだときに L3 が有限時間で赤くなるかを確かめるためだけに存在し、通常の経路からは決して呼ばれない。 |
+| `objdetect` | `ocvu_qr_encode` | `ocvu_qr_encode` | 呼ぶ | text を QR コードの画像に符号化して dst に入れる。dst の形状と型は結果に応じて上書きされ、8 bit 1 channel の正方形になる。text は NUL 終端の UTF-8 byte 列で、NULL と空文字列は拒否する。符号化できない長さの text は OCVU_STATUS_OPENCV_ERROR になる。失敗したときは dst を書き換えない。 |
+| `objdetect` | `ocvu_qr_decode` | `ocvu_qr_decode` | 呼ぶ | src に写っている QR コードを 1 つ検出して復号し、NUL 終端の UTF-8 byte 列として buffer へ書く。検出の前に白い余白（quiet zone）を必ず足し、短いほうの辺が 200 px 未満の画像はさらに最近傍補間で拡大してから検出する。復号後の長さは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に NUL を含む必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。QR が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。 |
 
 ## 到達性
 

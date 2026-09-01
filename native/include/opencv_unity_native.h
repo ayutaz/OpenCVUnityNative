@@ -47,7 +47,8 @@ typedef int32_t ocvu_status;
     X(OCVU_STATUS_OPENCV_ERROR,        4) \
     X(OCVU_STATUS_UNKNOWN_ERROR,       5) \
     X(OCVU_STATUS_BUFFER_TOO_SMALL,    6) \
-    X(OCVU_STATUS_INVALID_HANDLE,      7)
+    X(OCVU_STATUS_INVALID_HANDLE,      7) \
+    X(OCVU_STATUS_NOT_FOUND,           8)
 
 #define OCVU_STATUS_ENUMERATOR_(name, value) name = value,
 enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
@@ -95,6 +96,32 @@ typedef struct ocvu_mat_info {
     int64_t total_bytes; /* rows * step */
 } ocvu_mat_info;
 
+/*
+ * 特徴点 1 つ。境界に出るので固定サイズ型だけで構成する。
+ *
+ * cv::KeyPoint をそのまま出すことはできない（C++ のクラスで、
+ * layout の保証も無い）。**この struct の layout がこちら側の正本である。**
+ * 実装 .cpp に static_assert を置いて大きさを固定してあり、
+ * C# 側の OcvuKeyPoint とは L3 が Marshal.SizeOf で突き合わせる。
+ *
+ * x / y は画素座標、size は特徴点の直径、angle は度（見つからない場合は -1）、
+ * response は応答の強さ、octave は検出したピラミッドの段、
+ * class_id は分類の識別子（ORB は使わないので -1 になる）。
+ */
+typedef struct ocvu_keypoint {
+    float   x;
+    float   y;
+    float   size;
+    float   angle;
+    float   response;
+    int32_t octave;
+    int32_t class_id;
+} ocvu_keypoint;
+
+/* ocvu_orb_detect の max_features の上限。
+ * 呼ぶ側が過大な値を渡したときに native 側で確保しないための歯止めである。 */
+#define OCVU_ORB_MAX_FEATURES 10000
+
 /* cvtColor の変換コード。cv::COLOR_* の値をそのまま使う（写し間違いを避けるため
  * 実装側で static_assert する）。M2 で必要な 3 つだけを公開する。 */
 #define OCVU_CVT_BGRA2BGR   1
@@ -123,5 +150,7 @@ typedef struct ocvu_mat_info {
 #include "ocvu/core.h"
 #include "ocvu/imgproc.h"
 #include "ocvu/imgcodecs.h"
+#include "ocvu/objdetect.h"
+#include "ocvu/features.h"
 
 #endif /* OPENCV_UNITY_NATIVE_H */

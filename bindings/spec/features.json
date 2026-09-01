@@ -1,0 +1,19 @@
+{
+  "module": "features",
+  "functions": [
+    {
+      "name": "ocvu_orb_detect",
+      "summary": "src から ORB の特徴点を検出して out_keypoints へ書き、見つかった個数を out_count に返す。呼ぶ側は必要量を事前に知り得るので 2 回呼ぶ必要は無い（上限は max_features で、capacity がそれに満たなければ何も書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し out_count に max_features を入れる）。max_features は 1 以上 OCVU_ORB_MAX_FEATURES 以下でなければならない。buffer の所有権は最初から最後まで呼ぶ側にある。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": [
+        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
+        { "name": "max_features", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "out_keypoints", "cType": "ocvu_keypoint*", "csType": "OcvuKeyPoint[]", "direction": "out-buffer" },
+        { "name": "capacity", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "out_count", "cType": "int32_t*", "csType": "out int", "direction": "out" }
+      ]
+    }
+  ]
+}

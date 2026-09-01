@@ -84,6 +84,34 @@ emitter を足して新しい生成物を出すときは、**その出力の先�
 
 ## 手順
 
+### 新しい OpenCV module を足すなら、先にリンクを実証する
+
+**`cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` に足すだけでは、binary は
+1 バイトも増えない。** 静的リンクは参照された object しか引かないので、
+**「ビルドされている」と「リンクされている」は別**である（M3.5 の `imgcodecs` で
+取り違え、M5 の module 追加で改めて実測した）。
+
+したがって **`cv::` のシンボルを実際に参照する L1 テストだけが証拠になる。**
+`native/tests/test_module_linkage.cpp` がその形で、`COMPONENTS` から外すと
+`LNK2019` が出て戻すと通ることを確かめてある。
+
+**`tools/opencv-config.psd1` の `Modules` は触らない。** あれは OpenCV 側が何を
+ビルドするかで、変えると構成ハッシュが変わり 5 platform 分の OpenCV を作り直す
+（実測: `4785d98e9aad` → `a197bbcbdaf5`）。**`COMPONENTS` を変えてもハッシュは
+変わらない** —— ハッシュを算出する `Get-OpenCvConfigHash` が読むのは `psd1` だけである。
+
+**関数を書いた後の binary の大きさを測って記録する。** roadmap は module を足すとき
+同時に動く 5 つの 1 つに成果物の大きさを挙げており、`docs/abi-ownership-and-versioning.md`
+の §3.5 / §3.6 に前例がある。**M5 の module 追加では 10,177,536 → 20,136,960 バイトで
+約 2 倍になった**（Windows の debug）。
+
+**`cv::Exception` は個別に受ける。** `OCVU_TRY_END` は `std::exception` を
+`OCVU_STATUS_UNKNOWN_ERROR` にするので、そこへ落とすと **OpenCV 由来の失敗が
+「原因不明」として報告される**。`native/src/ocvu_imgcodecs.cpp` が確立済みの形で、
+M5 の 3 本もそれに揃えてある。**spec の `summary` が `OPENCV_ERROR` を約束しているなら、
+それを実証する L1 テストも書くこと** —— 約束だけして実装が返さない状態は、
+ビルドも既存テストも緑のまま隠れる。
+
 ### 1. 失敗する L1 テストを先に書く
 
 `native/tests/test_*.cpp` に、これから作る関数の契約をテストとして書く。
@@ -117,11 +145,17 @@ C# の XML doc・API 対応表の「内容」列に同時に出る** —— 3 �
 直前にも当たるので、`Regex.IsMatch` だけでは末尾の改行を通してしまう
 （`prove-a-check-works` skill に実例がある）。
 
-**module ごとにファイルが分かれている。** 既存の 4 つ（`infra` / `core` /
-`imgproc` / `imgcodecs`）のどれにも入らないなら新しい `<module>.json` を作る ——
-そのとき生成されるヘッダも `native/include/ocvu/<module>.h` として増え、
-`native/include/opencv_unity_native.h` の `#include` 一覧に手で 1 行足す必要がある
-（**その 1 行だけは生成物ではない**）。
+**module ごとにファイルが分かれている。** 既存の 6 つ（`infra` / `core` /
+`imgproc` / `imgcodecs` / `objdetect` / `features`）のどれにも入らないなら新しい
+`<module>.json` を作る —— そのとき生成されるヘッダも `native/include/ocvu/<module>.h`
+として増え、`native/include/opencv_unity_native.h` の `#include` 一覧に手で 1 行足す
+必要がある（**その 1 行だけは生成物ではない**）。
+
+**生成される C# のファイル名は module 名が大文字である**（`NativeMethods.Objdetect.g.cs`）。
+Windows は大文字小文字を区別しないので小文字で `git add` しても通ってしまうが、
+実物は大文字である。**`.meta` は生成器が作らない**ので、既存のもの（60 バイト、
+1 行目のみ CRLF、末尾改行なし）と同じ形で手で作り、guid がリポジトリ内で一意で
+あることを確かめる。
 
 新しい status code が要るなら `OCVU_STATUS_LIST` に 1 行足す。この X-macro が
 status の唯一の定義元で、列挙子と実行時テーブルの両方がここから生成される。

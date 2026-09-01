@@ -22,6 +22,9 @@ add_executable(ocvu_tests
     test_imgproc.cpp
     test_imgcodecs.cpp
     test_mat_table_stability.cpp
+    test_module_linkage.cpp
+    test_objdetect.cpp
+    test_features.cpp
 )
 
 # SHARED ではなく STATIC 側にリンクする（native/CMakeLists.txt の注記を参照）

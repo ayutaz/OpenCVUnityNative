@@ -28,5 +28,15 @@ namespace CvUnity
         /// （docs/abi-ownership-and-versioning.md §1）。
         /// </summary>
         InvalidHandle = 7,
+
+        /// <summary>
+        /// 探した対象が見つからなかった。**誤りではない。**
+        /// </summary>
+        /// <remarks>
+        /// 画像に QR コードが写っていない場合がこれである。
+        /// OCVU_STATUS_OK と長さ 0 で表すと「空文字列を符号化した QR」と
+        /// 区別できないので、別の status にしてある。
+        /// </remarks>
+        NotFound = 8,
     }
 }

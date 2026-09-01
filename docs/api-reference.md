@@ -6,11 +6,14 @@
 **両者を同期させる仕組みは無い** —— 境界に関数が増えると対応表は自動で伸びるが、
 この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
 
-**対象範囲: C ABI の 11 関数（M2 の 9 本 + M3.5 の 2 本）と、その上に立つ C# の公開 API
-だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、**`imgcodecs` のファイルパス
-経路**など）はここに書かない。**`WebCamTexture` 連携は M4 で足したので §2.6 にある。**詳しい経緯は
-`docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5）を、
-所有権契約そのものは同 §1 を参照。
+**対象範囲: C ABI の 14 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 3 本）と、その上に立つ
+C# の公開 API だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、
+**`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
+`geometry` / `calib` など）はここに書かない。**`WebCamTexture` 連携は M4 で足したので
+§2.6 にある。QR コードの符号化・復号と ORB 特徴点検出は M5 で足したので §1「objdetect /
+features」と §2.8・§2.9 にある。**詳しい経緯は
+`docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
+M5 の追加は §3.6）を、所有権契約そのものは同 §1 を参照。
 
 対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
 6000.3.16f1 の 1 版だけ**）。**対応 platform は最新の公開版（v0.2.0）の
@@ -37,18 +40,19 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 ## 1. C ABI（`native/include/ocvu/*.h`）
 
 **M5 で宣言の在り処が変わった。** 関数宣言は module ごとの
-`native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` にあり、
+`native/include/ocvu/{infra,core,imgproc,imgcodecs,objdetect,features}.h` にあり、
 **いずれも `bindings/spec/*.json` からの生成物である**（手で編集すると
 `./tools/dev.ps1 verify-generated` が落とす）。利用者が include するのは
 これまでどおり `native/include/opencv_unity_native.h` で、そちらは
-`OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数を持ち、4 つを include する。
+`OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数を持ち、6 つを include する。
 **「関数宣言は `opencv_unity_native.h` に在る」と書いていた記述は、この時点で誤りになった。**
 
 すべて `extern "C"`、呼び出し規約は Cdecl。戻り値は `ocvu_status`（`int32_t`）。
 `OCVU_STATUS_OK` (0) と `OCVU_STATUS_BUFFER_TOO_SMALL` (6) 以外はすべて失敗として扱う
 （詳細後述）。C# から直接この層を呼ぶことは想定していない —
 `CvUnity.Interop.NativeMethods`（`internal`）が P/Invoke 宣言を持ち、`CvUnity.CvMat` /
-`CvUnity.CvOps` / `CvUnity.CvCodecs` / `CvUnity.CvNative` がそれを包んで公開する。
+`CvUnity.CvOps` / `CvUnity.CvCodecs` / `CvUnity.CvNative` / `CvUnity.CvQrCode` /
+`CvUnity.CvFeatures` がそれを包んで公開する。
 
 ### Mat のライフサイクル
 
@@ -160,13 +164,63 @@ status:
 | `OCVU_IMREAD_GRAYSCALE` | 0 | 1 チャンネルの灰色 |
 | `OCVU_IMREAD_COLOR` | 1 | 3 チャンネルの BGR |
 
+### objdetect / features（M5 で追加）
+
+| 関数 | 内容 |
+| --- | --- |
+| `ocvu_qr_encode(const char* text, ocvu_mat_handle dst)` | `text`（UTF-8 の NUL 終端 byte 列）を QR コードの画像に符号化して `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、8 bit 1 channel の正方形になる |
+| `ocvu_qr_decode(ocvu_mat_handle src, char* buffer, int32_t buffer_size, int32_t* out_required_size)` | `src` に写っている QR コードを 1 つ検出して復号し、`buffer` へ UTF-8・NUL 終端で書く。**2 回呼ぶ**（下記） |
+| `ocvu_orb_detect(ocvu_mat_handle src, int32_t max_features, ocvu_keypoint* out_keypoints, int32_t capacity, int32_t* out_count)` | `src` から ORB の特徴点を検出する。**1 回呼び**（下記） |
+
+**`ocvu_qr_decode` は `ocvu_imdecode` と同じ 2 回呼びの作法だが、「見つからない」を
+表す status が別にある。** QR コードが写っていない画像は `OCVU_STATUS_NOT_FOUND` を
+返す —— `OCVU_STATUS_OK` + 長さ 0 だと「空文字列を符号化した QR コード」と
+区別が付かないためである。それ以外の失敗・`BufferTooSmall` の扱いは
+`ocvu_imencode` / `ocvu_imdecode` と同じ。検出の前に白い余白（quiet zone）を必ず
+足し、短いほうの辺が 200 px 未満の画像はさらに最近傍補間で拡大してから検出する
+（`src` 自体は変更しない、内部で作る加工済みのコピーに対して行う）。
+
+**`ocvu_orb_detect` は 1 回呼びである。** 出力される特徴点の個数は事前に分からないが、
+**上限は呼ぶ側が渡す `max_features` で決まる**ので、その上限ぶんの buffer を
+最初から用意させれば 2 回呼ぶ理由が無い。`capacity` が `max_features` に満たなければ
+何も書かずに `OCVU_STATUS_BUFFER_TOO_SMALL` を返し、`out_count` に `max_features` を
+入れる。`max_features` は 1 以上 `OCVU_ORB_MAX_FEATURES`（10000）以下でなければ
+`OCVU_STATUS_INVALID_ARGUMENT`。buffer の所有権は最初から最後まで呼ぶ側にある。
+
+`ocvu_keypoint` の各フィールド（`cv::KeyPoint` をそのまま写した固定サイズ型）:
+
+| フィールド | 型 | 内容 |
+| --- | --- | --- |
+| `x` / `y` | `float` | 画像座標系での位置 |
+| `size` | `float` | 特徴点の直径に相当する近傍のサイズ |
+| `angle` | `float` | 支配的な向き（度）。算出できない場合 -1 |
+| `response` | `float` | 強さ（フィルタ・ソートに使う） |
+| `octave` | `int32_t` | 検出されたピラミッドの階層 |
+| `class_id` | `int32_t` | クラスタや物体の ID。ORB 単体では常に -1 |
+
+status:
+
+| 条件 | status |
+| --- | --- |
+| `text` / `out_required_size` / `out_count` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `capacity` が 1 以上なのに `out_keypoints` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `src` / `dst` の handle が無効（0、解放済み、未知） | `OCVU_STATUS_INVALID_HANDLE` |
+| `src` が空（現在の ABI では `ocvu_mat_create` が空を作れないので到達しない防御） | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `text` が空文字列 | `OCVU_STATUS_INVALID_ARGUMENT` |
+| handle が無効 | `OCVU_STATUS_INVALID_HANDLE` |
+| `ocvu_qr_decode` の `buffer_size` が必要量に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（**buffer は書かない**） |
+| QR コードが写っていない | `OCVU_STATUS_NOT_FOUND`（**失敗ではない**） |
+| `max_features` が範囲外（1 未満、または `OCVU_ORB_MAX_FEATURES` 超） | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `ocvu_orb_detect` の `capacity` が `max_features` に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_count` に `max_features`。**buffer は書かない**） |
+| OpenCV 由来の失敗（符号化できない長さの `text` など） | `OCVU_STATUS_OPENCV_ERROR` |
+
 ### この allowlist に含まれないもの
 
 `ocvu_get_abi_version` / last-error 取得 / status 表の照会 / `ocvu_get_opencv_version` /
 `ocvu_get_build_information` / `ocvu_debug_throw` / `ocvu_debug_crash` は存在するが、
 M0/M1 由来の診断・conformance test 用 API であり、この allowlist（M2 の 9 本 + M3.5 の
-2 本 = 11 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを包んでいるので、
-公開 C# API としての契約は §2.4 に記載する。
+2 本 + M5 の 3 本 = 14 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを
+包んでいるので、公開 C# API としての契約は §2.4 に記載する。
 
 ## 2. C# 公開 API
 
@@ -247,10 +301,12 @@ byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の 
 
 `CvStatus`（`enum`）: `Ok = 0`、`InvalidArgument = 1`、`NullPointer = 2`、
 `OutOfMemory = 3`、`OpenCvError = 4`、`UnknownError = 5`、`BufferTooSmall = 6`、
-`InvalidHandle = 7`。native 側の `OCVU_STATUS_LIST` と数値が一致することを L3 の
-`StatusCodeSyncTests` が検査する。`BufferTooSmall` は失敗ではなく、出力バッファの
-必要サイズを問い合わせる正規の使い方の結果である。**M3.5 以降、これは診断 API だけの
-話ではない** —— `ocvu_imencode` が同じ作法で画像データの必要量を返す。
+`InvalidHandle = 7`、`NotFound = 8`（M5 で追加）。native 側の `OCVU_STATUS_LIST` と
+数値が一致することを L3 の `StatusCodeSyncTests` が検査する。`BufferTooSmall` は
+失敗ではなく、出力バッファの必要サイズを問い合わせる正規の使い方の結果である。
+**M3.5 以降、これは診断 API だけの話ではない** —— `ocvu_imencode` が同じ作法で
+画像データの必要量を返す。**`NotFound` も失敗ではない** —— `ocvu_qr_decode` が
+「QR コードが写っていない」ことを表すために使う（§1「objdetect / features」）。
 
 `CvNativeException`（`class`, `Exception` 派生）: `CvStatus Status { get; }` を持つ。
 `Message` は `ThrowIfFailed` が `GetLastErrorMessage()` から埋める。
@@ -310,6 +366,48 @@ byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の 
 **借用契約**は `CvMat.CopyFrom(IntPtr, long, long)` と同じ: 渡した `NativeArray<T>` は
 呼び出しが戻るまで `Dispose` してはならない。
 
+### 2.8 `CvUnity.CvQrCode`
+
+`static class`（`CvUnity.Core` アセンブリ、M5 で追加）。QR コードの符号化と復号
+（OpenCV の `objdetect`）。**`CvOps` に入れていない** —— あちらは `imgproc` の
+範囲である。クラスを分けてあるので、この plugin がどの OpenCV モジュールを
+リンクしているかが C# 側から読み取れる。
+
+| メンバ | 内容 |
+| --- | --- |
+| `static void Encode(string text, CvMat dst)` | `text` を QR コードの画像に符号化して `dst` に入れる。`dst` は呼び出し前の形状・型・内容を保持せず、結果に応じて丸ごと置き換わる |
+| `static string Decode(CvMat src)` | `src` に写っている QR コードを 1 つ復号する。**写っていなければ `null` を返す**（例外にしない） |
+
+`Encode` は `text` を自分で UTF-8 の NUL 終端 byte 列にしてから渡す —— `string` の
+まま marshaller に任せると、境界の文字コード変換が既定の `CharSet` に依存する
+（Mono と IL2CPP で違い得る）。`text` が `null` なら `ArgumentNullException`、
+空文字列なら `ArgumentException`。
+
+`Decode` は `ocvu_qr_decode` の 2 回呼びを隠す。1 回目のサイズ問い合わせが
+`OCVU_STATUS_NOT_FOUND` を返したときだけ `null` を返し、それ以外の失敗
+（無効な handle など）は `CvNativeException` を投げる —— `null` を「検出できない
+理由すべて」の意味に広げない。検出の前に白い余白（quiet zone）を必ず足し、
+短いほうの辺が 200 px 未満の画像はさらに最近傍補間で拡大してから検出する
+（この前処理は内部の加工済みコピーに対して行われ、`src` 自体は変更しない）。
+
+### 2.9 `CvUnity.CvFeatures` / `CvUnity.CvKeyPoint`
+
+`CvFeatures` は `static class`（`CvUnity.Core` アセンブリ、M5 で追加）。
+特徴点の検出（OpenCV の `features`）。
+
+| メンバ | 内容 |
+| --- | --- |
+| `static CvKeyPoint[] DetectOrb(CvMat src, int maxFeatures)` | `src` から ORB の特徴点を最大 `maxFeatures` 個検出する。`maxFeatures` が 1 未満、または上限（10000）を超えると `ArgumentOutOfRangeException` |
+
+`maxFeatures` の上限は C 側の `OCVU_ORB_MAX_FEATURES` の**写しとして C# 側にも
+複製されている** —— C# から C の `#define` を読む経路が無いためで、両側が
+native に同じ値を問うテスト（`FeaturesTests.TheManagedUpperBoundMatchesWhatNativeAccepts`）
+が二重定義の同期を守っている。
+
+`CvKeyPoint`（`readonly struct`）は `ocvu_keypoint` に対応する読み取り専用の値:
+`float X` / `Y` / `Size` / `Angle` / `Response`、`int Octave` / `ClassId`。
+`DetectOrb` が返す配列は検出できた個数ぶんだけで、`maxFeatures` 分のダミー要素は
+含まれない。
 
 ### スレッドから使うとき
 
@@ -332,12 +430,14 @@ byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の 
 ## 3. 対象外（この文書に書かないもの）
 
 `Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
-経路** — いずれも `docs/abi-ownership-and-versioning.md` §3 が
-「まだ作らないもの」として明記しており、この API リファレンスにも存在しない。
-契約が固まり実装されたマイルストーンで、この文書に追記する形にする。
+経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、`geometry` / `calib` —
+いずれも `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
+しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
+この文書に追記する形にする。
 **メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と
-§2.3 にある。`WebCamTexture` 連携は M4 で足したので §2.6 にある** —— どちらも
-ここには残っていない。
+§2.3 にある。`WebCamTexture` 連携は M4 で足したので §2.6 にある。QR コードの符号化・
+復号と ORB 特徴点検出は M5 で足したので §1「objdetect / features」と §2.8・§2.9 にある**
+—— いずれもここには残っていない。
 
 ## 参照
 

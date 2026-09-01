@@ -679,6 +679,25 @@ public class SpecSchemaTests
         Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
     }
 
+    // ocvu_keypoint* は 2 つの入口を持つ。managed 配列を marshal する版と、
+    // アドレスを直接渡す版で、どちらも正しい（const uint8_t* と同じ形）。
+    [Theory]
+    [InlineData("ocvu_keypoint*", "OcvuKeyPoint[]")]
+    [InlineData("ocvu_keypoint*", "System.IntPtr")]
+    public void BothSpellingsOfAKeypointParamAreAccepted(string cType, string csType)
+    {
+        Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
+    }
+
+    [Fact]
+    public void AKeypointParamRejectsAnUnrelatedCsType()
+    {
+        // 型表が「知らない cType は拒む」だけでなく、
+        // 「知っている cType に合わない csType も拒む」ことを見る。
+        var ex = Assert.Throws<SpecFormatException>(() => LoadOneParam("ocvu_keypoint*", "out int"));
+        Assert.Contains("ocvu_keypoint*", ex.Message);
+    }
+
     // **実物の 22 エントリが通ること。** 通らないものがあれば、直すのは
     // spec ではなく上の表（網が広すぎる）である。
     [Fact]

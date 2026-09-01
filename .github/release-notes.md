@@ -60,7 +60,7 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   `TextureConverter.ToTexture` へ往復させるときは `flipVertically: false` を使うこと
 - **Unity の下限は 6000.3 のまま。** 検証しているのは 6000.3.16f1 の 1 版だけである
 
-`OCVU_ABI_VERSION` は 1 のまま変わっていない（C ABI の関数は 1 本も増えていない）。
+`OCVU_ABI_VERSION` は 1 のまま変わっていない（関数の追加は bump しない変更である。**この本文は v0.3.0 の下書き時点のもので、その後 objdetect / features の 3 本が増えた** —— 次に tag を打つ人は本文を書き直すこと）。
 
 ## この版で確かめていないこと
 

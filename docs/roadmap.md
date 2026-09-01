@@ -709,8 +709,9 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
 本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
-`imgcodecs` の 11 本に留まる（M3.5 で `imgcodecs` の 2 本が加わった。公開 ABI 全体は
-18 → 20 本）—— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
+`imgcodecs` / `objdetect` / `features` の 14 本に留まる（M3.5 で `imgcodecs` の 2 本、
+M5 の module 追加で 3 本が加わった。公開 ABI 全体は 18 → 23 本。**本数を数える正本は
+[API 対応表](./api-map.md) の冒頭である**）—— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
 商用（OpenCV for Unity 3.0.3 / OpenCV 4.13.0）も OSS（neon-izm 版 / OpenCV 4.11）も
 4.x 系のままである。
 
@@ -1245,20 +1246,30 @@ OpenCV 全 API の網羅。
 
 ### M5 の判定（2026-09-01 時点）
 
-**5 件中 4 件を満たし、1 件は閉じていない。** 実装は
-`docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8）。
+**5 件中 4 件を満たし、1 件は部分的に満たした。** 実装は
+`docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8）と、
+`objdetect` / `features` を足した続きの計画
+（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`、Task 1〜8）。
 
 実測はすべてこのマシン（Windows、2026-08-31〜09-01）。`pwsh tools/dev.ps1 test` は
-**exit 0 / 73.4 秒**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
+**exit 0**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
 `BindingGenerator` の 16 assertion）+ `verify-generated`（**生成物は spec と
-一致しています（10 ファイル）**）+ L1（GoogleTest **64** / CTest **4**）+
-L3（`CvUnity.Tests.Managed` **44** / `Ocvu.Generator.Tests` **88**）である。
-Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **19**）。
+一致しています（14 ファイル）**）+ L1（GoogleTest **78** / CTest **4**）+
+L3（`CvUnity.Tests.Managed` **51** / `Ocvu.Generator.Tests` **91**）である。
+Unity の 2 レーンも実行し、`objdetect` / `features` を足した後も
+壊れていないことを確認した: EditMode は **34 passed**（`PluginGatingTests` の
+4 件を含む）、IL2CPP Player は **19 passed**（`EveryEntryPointIsReachable` が
+`Passed`）。**件数はどちらも足す前と同じ** —— 到達性テストは 1 件のままで、
+その中で呼ぶ宣言が 22 → 25 に増えただけだからである。**この確認こそが今回の作業で
+最も重要だった** —— 生成した 25 本の P/Invoke 宣言が IL2CPP の stripping を
+生き延びて全部解決することを、実物の Player で実証した。
+**公開 C ABI は 20 → 23 本、うち allowlist は 14 本、C# の P/Invoke 宣言は 25 本になった**
+（内訳は `docs/abi-ownership-and-versioning.md` §3・§3.6）。
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
-| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **閉じていない。** 実装計画が冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**次の計画で閉じる。**部分的な達成を完了と呼ばない |
+| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 14 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
+| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **部分的に満たした（2026-09-01 更新）。** 当初の実装計画は冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**続く計画（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`）で `objdetect`（QR コードの符号化・復号）と `features`（ORB 特徴点検出）の 2 module を実際に出した** —— C ABI は 20 → 23 本、うち allowlist は 11 → 14 本になった（内訳は `docs/abi-ownership-and-versioning.md` §3.6）。**残る `geometry` / `calib` はまだ出していない。この計画で分かったこと**: `geometry` は**リンクが安いはずである** —— 復元済みの OpenCV ツリーには 7 つのライブラリが在り、`flann` と `geometry` は他 module の依存として既にビルドされている（`OpenCVModules.cmake` も component として公開している）。**ただし実際に `COMPONENTS` に足してビルドした人はいない** —— 「ビルドされている」と「リンクできる」の間には M3.5 で踏んだ取り違えの 1 段上の距離があるので、ここは実測ではなく推測である。**対して `calib` だけが高い** —— `tools/opencv-config.psd1` の `Modules` に無いため、足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる（実測: `4785d98e9aad` → `a197bbcbdaf5`）。**「`geometry` はビルドされていない」と読める記述は、この文書のどこにも見当たらなかった**（確認のため roadmap 全体を検索した）ので、訂正すべき誤りは無い。**条件の「利用例に基づいて」について、正直に書いておく。** QR の読み取り（チケット・名刺・機器の識別）と ORB の特徴点（追跡・位置合わせ）は Unity で十分ありふれた用途だが、**この 2 つを選んだ実際の動機は 「新しい module を spec から生成できることを実証する」ほうが大きい** —— `objdetect` / `features` は OpenCV 側が既にビルドしており、リンクが安かった。**利用者の要望から選んだのではない。** `geometry` / `calib` を出さなかった理由（利用例が無い）は変わっていないので、**まだ「満たした」ではなく「部分的に満たした」に留める** |
 
 **条件 2 に着手するとき、どこを読むか**（M5 完了時に書いた。**skill にはしていない** ——
 実際に module を足すまで「壊して落ちることを見る」ができないので、手順を先に
@@ -1304,11 +1315,24 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
   無関係な場所で、`docs/abi-ownership-and-versioning.md` §1 が借用 handle を
   禁じたのと同じ形である）。いまは `SpecModel.AllowedCsTypes` が
   `cType` ごとに書いてよい `csType` を持ち、**知らない `cType` は拒む**ので
-  表は定義上いつも完全である。**閉じていないのは byte 列を渡す 4 つ**
-  （`const uint8_t*` / `uint8_t*` / `const char*` / `char*`）で、これらは
-  `byte[]`（managed 配列を marshal する版）と `System.IntPtr`（アドレスを
-  直接渡す版）のどちらも正しい —— **その 2 つのうち取り違えても誰も落ちない。**
-  一意に決められないので強制していない。
+  表は定義上いつも完全である。**閉じていないのは byte 列を渡す 4 つと `ocvu_keypoint*` の計 5 つ**
+  （`const uint8_t*` / `uint8_t*` / `const char*` / `char*`）と、M5 の module 追加で
+  足した `ocvu_keypoint*` である。これらは `byte[]` / `OcvuKeyPoint[]`（managed 配列を
+  marshal する版）と `System.IntPtr`（アドレスを直接渡す版）のどちらも正しい ——
+  **その 2 つのうち取り違えても誰も落ちない。** 一意に決められないので強制していない。
+
+  **ただし 5 つは同じ危険度ではない。** byte 列の 4 つには `_ptr` 系という実在の
+  利用者があって両方許す必然があった。`ocvu_keypoint*` のほうは **`System.IntPtr` を
+  使う entry が spec にまだ 1 つも無い**（対称性のために許してある）。
+  **それでも外していないのは、低確保の入口を足すときの受け皿だからである** ——
+  `CvFeatures.DetectOrb` はいま呼ぶたびに配列を 2 本確保するので、`WebCamTexture` を
+  毎フレーム走査する用途では `System.IntPtr` 版が要る。許す綴りを先に削ると、
+  そのとき型表を触り直すことになる。
+
+  **サイズの不一致（`int64_t` に `int`）とは危険度が違う。** wrapper がある宣言なら
+  C# のコンパイラが型で落とすので、素通りするのは wrapper の無い宣言に限られる
+  —— **そして到達性テストの `default` は配列でも `IntPtr` でも通る**ので、
+  そこでも誰も落とさない。
 - **`reachableNote` には `pattern` が無く、素通しである。** 値が届くのは
   `docs/api-map.md` の箇条書き 1 箇所だけで、**表の外なので上の構造検査に
   掛からない**（C ヘッダにも C# にも届かない）。壊れても表は妥当なままである。
@@ -1491,9 +1515,9 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 
 1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
    `dnn` は別ヘッダ・別 `.cpp`・別 CMake target に置く。共通の型・status・version だけを
-   `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る。**
+   `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る**（この「20 本」は決定を書いた 2026-08-30 時点の値である）。
    → **M5 で済んだ（2026-09-01）。** 関数宣言は
-   `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` に分かれ、
+   `native/include/ocvu/{infra,core,imgproc,imgcodecs,objdetect,features}.h` に分かれ、
    `opencv_unity_native.h` に残ったのは型・status・定数だけである。**ただし分けたのは
    ヘッダであって CMake target ではない** —— まだ 1 つの target が全 module を作る。
    `OCVU_ABI_VERSION` を単一の整数のままにする判断とその留保は
@@ -1840,7 +1864,7 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               |
                                                               v
                                                         M5 generator ──> M6 Web ──> M7 profiles
-                                        （5 件中 4 件。条件 2 は次の計画へ）
+                                        （4 件 + 条件 2 は部分的。objdetect / features を出した）
 ```
 
 ## 再評価のトリガー

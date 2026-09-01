@@ -298,13 +298,15 @@ passing, so requiring it would stop nothing.
 Apache License 2.0 for this repository's own source. That does not by itself determine the terms of third-party code linked into the distributed binary — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses of what the pinned OpenCV build bundles. That file lists every licence the artifact ships and says, per component, which of **OpenCV's own static libraries** it is compiled into — SoftFloat, annoylib, MSCR's chi table and the Rubik font are linked alongside zlib, libpng, libjpeg-turbo and libclapack; a few others ship a licence file without being linked. The Rubik font is under the SIL Open Font License, not a BSD-family licence, so the set is not uniform. Dependencies are constrained by an allowlist (`tools/verify-opencv-artifact.ps1`) and documented per build profile.
 
 Which of those then reach the plugin **you** redistribute depends on which OpenCV
-modules this plugin links, and that changed: it now links `core`, `imgproc` and
-`imgcodecs`, where before it linked only `core` and `imgproc`. Static linking pulls in
-only what is referenced, so until the encode/decode functions were written no codec
-code reached the shipped library at all; now it does — zlib, libpng and libjpeg-turbo
-among it. On Windows the debug library grew from 8,831,488 to 10,177,536 bytes across
-that change. Adding the module to the build system alone changed nothing; writing the
-functions is what pulled the code in.
+modules this plugin links, and that has changed twice. It now links `core`, `imgproc`,
+`imgcodecs`, `objdetect` and `features`; before `imgcodecs` it linked only `core` and
+`imgproc`. Static linking pulls in only what is referenced, so until the functions that
+call into a module are written, none of that module's code reaches the shipped library.
+Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
+10,177,536 bytes when the encode/decode functions landed (zlib, libpng and libjpeg-turbo
+came with them), and to 20,136,960 bytes when the QR and ORB functions landed
+(`annoylib` and the MSCR chi_table come with `features`). Adding a module to the build
+system alone changes nothing.
 
 That distinction is easy to lose, and this repository lost it for a while. The pinned
 OpenCV build has always been configured with `imgcodecs`, and
