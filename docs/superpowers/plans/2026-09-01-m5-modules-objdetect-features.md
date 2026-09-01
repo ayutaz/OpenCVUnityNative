@@ -841,7 +841,7 @@ extern "C" ocvu_status ocvu_qr_decode(ocvu_mat_handle src, char* buffer, int32_t
 pwsh tools/dev.ps1 test-native
 ```
 
-期待: `Objdetect.*` の 7 件が PASS。
+期待: `Objdetect.*` の 8 件が PASS（既存 4 件 + このタスクの 4 件）。
 
 - [ ] **Step 6: 「失敗時に 0 を書く」規則が本当に守られていることを確かめる**
 
