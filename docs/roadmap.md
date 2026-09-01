@@ -1239,7 +1239,7 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（実際に走った run はまだ無い。下の穴 6）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
+| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 10 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
 | 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **閉じていない。** 実装計画が冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**次の計画で閉じる。**部分的な達成を完了と呼ばない |
 | 3 | M3.5 で手書きした関数を spec の側へ寄せる | **満たす（実証済み）**。`imgcodecs` の 2 本を含めて**手書きの宣言は 1 本も残っていない** —— `Runtime/` の `[DllImport]` は**全部が `.g.cs` の中にある（手書きは 0 個）**。逆向きも見る —— `native/src/**/*.cpp` の `extern "C" ocvu_*` を全部拾って spec と突き合わせ、実測で「**取り出せた数と `extern "C"` の総数が一致、spec に無い実装 0 件**」。ダミーの `extern "C" ocvu_dummy_probe` を足すと**逆向き検査だけ**が名指しで落ち、ブロック形 `extern "C" { … }` で足すと**帰属の数が合わない**ことで落ちた（空振りしない） |
 | 4 | API 対応表を生成し、「OpenCV 全対応」という曖昧な表現を使わない | **満たす（実証済み）**。`docs/api-map.md`。**本数を数えるのはこの表の冒頭だけ**にし、他所からは数字を落とした。`ApiMapEmitter` は**自分が出した Markdown を読み直して**「全行が見出しと同じ列数」「本体の行数が spec の entry 数と一致」を見る。逃がしを外すと実際に落ちる（`区切りが 6 個であるべきところ 7 個`）。**この構造の門は入口の禁止文字の列挙とは独立で、著者が思いつかなかった文字にも効く** |
@@ -1277,14 +1277,18 @@ Unity のレーンは Task 6・7 の実測（EditMode **34** / IL2CPP Player **1
 - **`bindings/generated-checks/` は作っていない**（`docs/unity-opencv-integration-research-and-plan.md`
   §10 の想定にある）。一致検査は既存のレーン（L3 の solution と `tools/tests/`）に
   載せた —— **新しいディレクトリを作ると「どこからも走らない検査」を作りやすい**ためである。
-- **この判定はローカルの実測だけで、CI の run はまだ 1 度も無い。**
-  上の表で「`ci-native` が走らせる」と書いたのは**構造の事実**であって、
-  観測ではない —— このブランチはまだ CI に出ていないので、
-  `verify-generated` が 3 platform で通ったところも、Unity のレーンが
-  CI で 34 / 19 になるところも、**誰も見ていない。**
+- ~~**この判定はローカルの実測だけで、CI の run はまだ 1 度も無い。**~~
+  **閉じた（2026-09-01、PR #55）。** 判定を書いた時点ではこれが穴だった ——
+  「`ci-native` が走らせる」は**構造の事実**であって観測ではなく、
   **「ファイルが存在する」は「CI で実行された」ではない**（`nightly` の cron を
-  判定したときと同じ基準を、こちらにも当てる）。**この判定は PR が緑になるまで
-  確定しない**（`milestone-complete` skill の手順 7）。
+  判定したときと同じ基準）。PR #55 が**必須 21 本すべてを緑にし**、
+  観測に変わった: **`==> [EditMode] 34 passed` / `==> [Standalone] 19 passed`**
+  （**ローカルの実測と一致**。Standalone は stripping 済みの実物の IL2CPP Player で、
+  **生成した 21 本の P/Invoke が全部解決した**）。`verify-generated` を含む
+  `dev.ps1 test` は 3 platform とも通った（Windows 4m31s / macOS 2m15s /
+  Linux 2m58s、run 33429400415）。**充足は成功件数ではなく名前で突き合わせた**
+  —— GitHub は `skipped` と `neutral` も pass として通すので、
+  数で見ると常に skip される job が数に入る（`milestone-complete` skill）。
 
 **この計画の後に残るもの**（完了条件 2 のほかに 2 つ）。
 
