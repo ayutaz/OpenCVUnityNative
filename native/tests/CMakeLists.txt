@@ -21,6 +21,7 @@ add_executable(ocvu_tests
     test_mat_buffer.cpp
     test_imgproc.cpp
     test_imgcodecs.cpp
+    test_geometry.cpp
     test_mat_table_stability.cpp
     test_module_linkage.cpp
     test_objdetect.cpp

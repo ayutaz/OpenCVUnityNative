@@ -129,6 +129,8 @@ public static class SpecModel
             ["ocvu_mat_handle"] = new[] { "ulong" },
             ["ocvu_mat_handle*"] = new[] { "out ulong" },
             ["ocvu_mat_info*"] = new[] { "out OcvuMatInfo" },
+            // 点の座標を渡す配列（x と y が交互に並ぶ）。buffer と同じ形。
+            ["const float*"] = new[] { "float[]", "System.IntPtr" },
             // 特徴点配列。managed 配列版とアドレス版のどちらも正しい（buffer と同じ形）。
             ["ocvu_keypoint*"] = new[] { "OcvuKeyPoint[]", "System.IntPtr" },
             // byte 列を渡す 4 つ。managed 配列版とアドレス版のどちらも正しい。

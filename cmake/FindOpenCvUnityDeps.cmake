@@ -81,7 +81,7 @@ endforeach()
 # NO_CMAKE_FIND_ROOT_PATH: この呼び出しに限って sysroot への読み替えを外す。
 # PATHS は既に絶対パスで、NO_DEFAULT_PATH が他の経路を閉じている。
 find_package(OpenCV ${OCVU_OPENCV_REQUIRED_VERSION} EXACT REQUIRED
-    COMPONENTS core imgproc imgcodecs objdetect features
+    COMPONENTS core imgproc imgcodecs objdetect features geometry
     NO_DEFAULT_PATH
     NO_CMAKE_FIND_ROOT_PATH
     PATHS ${OCVU_OPENCV_CONFIG_CANDIDATES})

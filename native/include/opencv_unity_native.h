@@ -118,6 +118,16 @@ typedef struct ocvu_keypoint {
     int32_t class_id;
 } ocvu_keypoint;
 
+/* ocvu_find_homography の method。OpenCV の値をそのまま出す
+ * （実装 .cpp の static_assert が写し間違いをコンパイル時に落とす）。
+ *
+ * DEFAULT は全点を使う最小二乗で、外れ値があると引きずられる。
+ * RANSAC と LMEDS は外れ値を捨てる —— 特徴点の対応のように
+ * 誤対応が混ざる入力ではそちらを使う。 */
+#define OCVU_HOMOGRAPHY_METHOD_DEFAULT 0
+#define OCVU_HOMOGRAPHY_METHOD_LMEDS   4
+#define OCVU_HOMOGRAPHY_METHOD_RANSAC  8
+
 /* ocvu_orb_detect の max_features の上限。
  * 呼ぶ側が過大な値を渡したときに native 側で確保しないための歯止めである。 */
 #define OCVU_ORB_MAX_FEATURES 10000
@@ -152,5 +162,6 @@ typedef struct ocvu_keypoint {
 #include "ocvu/imgcodecs.h"
 #include "ocvu/objdetect.h"
 #include "ocvu/features.h"
+#include "ocvu/geometry.h"
 
 #endif /* OPENCV_UNITY_NATIVE_H */

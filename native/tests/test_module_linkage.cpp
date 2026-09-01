@@ -15,6 +15,7 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/features.hpp>
+#include <opencv2/geometry.hpp>
 #include <opencv2/objdetect.hpp>
 
 TEST(ModuleLinkage, ObjdetectSymbolsResolve) {
@@ -35,4 +36,21 @@ TEST(ModuleLinkage, FeaturesSymbolsResolve) {
     cv::Ptr<cv::ORB> orb = cv::ORB::create(16);
     ASSERT_FALSE(orb.empty());
     EXPECT_EQ(orb->getMaxFeatures(), 16);
+}
+
+TEST(ModuleLinkage, GeometrySymbolsResolve) {
+    // **geometry は Modules に無いが、ビルドされている。** flann と同じく
+    // features / objdetect の依存として引かれるためで、OpenCVModules.cmake も
+    // component として公開している。**ただしそれは「リンクできる」ことの
+    // 証拠ではない** —— COMPONENTS に足して、実際にシンボルを参照して初めて分かる。
+    //
+    // 4 点の対応から射影変換を求める。同一平面上の 4 点なので解は一意に決まり、
+    // ここでは結果ではなく **cv::findHomography が呼べたこと**を見る。
+    const std::vector<cv::Point2f> src{{0, 0}, {10, 0}, {10, 10}, {0, 10}};
+    const std::vector<cv::Point2f> dst{{0, 0}, {20, 0}, {20, 20}, {0, 20}};
+
+    const cv::Mat h = cv::findHomography(src, dst);
+    ASSERT_FALSE(h.empty());
+    EXPECT_EQ(h.rows, 3);
+    EXPECT_EQ(h.cols, 3);
 }

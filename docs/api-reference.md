@@ -9,7 +9,7 @@
 **対象範囲: C ABI の 14 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 3 本）と、その上に立つ
 C# の公開 API だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、
 **`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
-`geometry` / `calib` など）はここに書かない。**`WebCamTexture` 連携は M4 で足したので
+`calib` など）はここに書かない。**`WebCamTexture` 連携は M4 で足したので
 §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出は M5 で足したので §1「objdetect /
 features」と §2.8・§2.9 にある。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
@@ -164,13 +164,28 @@ status:
 | `OCVU_IMREAD_GRAYSCALE` | 0 | 1 チャンネルの灰色 |
 | `OCVU_IMREAD_COLOR` | 1 | 3 チャンネルの BGR |
 
-### objdetect / features（M5 で追加）
+### objdetect / features / geometry（M5 で追加）
 
 | 関数 | 内容 |
 | --- | --- |
 | `ocvu_qr_encode(const char* text, ocvu_mat_handle dst)` | `text`（UTF-8 の NUL 終端 byte 列）を QR コードの画像に符号化して `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、8 bit 1 channel の正方形になる |
 | `ocvu_qr_decode(ocvu_mat_handle src, char* buffer, int32_t buffer_size, int32_t* out_required_size)` | `src` に写っている QR コードを 1 つ検出して復号し、`buffer` へ UTF-8・NUL 終端で書く。**2 回呼ぶ**（下記） |
 | `ocvu_orb_detect(ocvu_mat_handle src, int32_t max_features, ocvu_keypoint* out_keypoints, int32_t capacity, int32_t* out_count)` | `src` から ORB の特徴点を検出する。**1 回呼び**（下記） |
+| `ocvu_find_homography(const float* src_points, int64_t src_length, const float* dst_points, int64_t dst_length, int32_t point_count, int32_t method, double ransac_threshold, ocvu_mat_handle dst)` | 2 組の点の対応から射影変換（3x3）を求めて `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、64 bit 1 channel の 3x3 になる |
+
+**`ocvu_find_homography` は点の配列の長さを個別に受け取る。** `src_length` /
+`dst_length` は**バイト数**（要素数でも点数でもない —— この ABI の `length` は
+すべてバイト数で統一してある）で、`point_count * 2 * sizeof(float)` に満たなければ
+**何も読まずに** `OCVU_STATUS_INVALID_ARGUMENT` を返す —— `ocvu_imdecode` や
+`ocvu_mat_copy_from_buffer` と同じ「呼ぶ側を信用しない」契約である（§1.1）。
+**上限の定数は設けていない**: `point_count` を大きく渡しても、長さがそこに
+届かないので同じ検査で断られる。
+
+`method` は `OCVU_HOMOGRAPHY_METHOD_DEFAULT`（全点の最小二乗）/ `_LMEDS` /
+`_RANSAC`（外れ値を捨てる）のいずれかで、**それ以外は境界で断る** ——
+OpenCV に落とすと「原因不明」になるか、黙って既定の挙動になるためである。
+**点が退化していて解が求まらないときは `OCVU_STATUS_NOT_FOUND`** で、
+これは誤りではない（入力の形は正しく、解が存在しないだけである）。
 
 **`ocvu_qr_decode` は `ocvu_imdecode` と同じ 2 回呼びの作法だが、「見つからない」を
 表す status が別にある。** QR コードが写っていない画像は `OCVU_STATUS_NOT_FOUND` を
@@ -427,16 +442,41 @@ native に同じ値を問うテスト（`FeaturesTests.TheManagedUpperBoundMatch
 1 つ目を支えるために、handle が指す `Mat` のアドレスは他の handle の作成・
 解放で動かないようにしてある（M3 でここが壊れていたのを直した。経緯は §1.5）。
 
+### 2.10 `CvUnity.CvGeometry` / `CvUnity.CvPoint2` / `CvUnity.CvHomographyMethod`
+
+点の対応から変換を求める（OpenCV の `geometry`）。
+
+| メンバ | 内容 |
+| --- | --- |
+| `CvGeometry.FindHomography(CvPoint2[] srcPoints, CvPoint2[] dstPoints, CvMat dst, CvHomographyMethod method = Default, double ransacThreshold = 3.0)` | 2 組の点の対応から射影変換（3x3）を求めて `dst` に入れる。求まったら true、点が退化していて求まらなければ **false**（誤りではない） |
+| `CvPoint2(float x, float y)` | 画像上の点。`X` / `Y` を持つ |
+| `CvHomographyMethod` | `Default`（全点の最小二乗）/ `LeastMedianOfSquares` / `Ransac`（外れ値を捨てる） |
+
+**`dst` は結果に応じて丸ごと置き換わり、64 bit 1 channel の 3x3 になる** ——
+呼び出し前に持っていた形状・型・内容は保持されない。
+
+**`UnityEngine.Vector2` ではなく `CvPoint2` を使う。** `Runtime/Core` は
+`UnityEngine` を参照してはならない（参照するとビルドで強制している
+netstandard2.1 shim が落ち、Unity を起動しない L3 レーンが失われる）。
+Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
+
+**2 つの点列は同じ長さでなければならない。** C ABI に渡すのは点数 1 つだけなので、
+食い違っていても native からは見えず、短いほうの配列の終端を越えて読むことになる。
+**C# の入口が唯一それを見られる場所である。**
+
+求めた変換を画像に当てるには透視変換が要るが、**それはまだ C ABI に出していない**
+（`imgproc` にはあるがラップしていない）。
+
 ## 3. 対象外（この文書に書かないもの）
 
 `Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
-経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、`geometry` / `calib` —
+経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、`calib`、**透視変換の適用**（`warpPerspective`）—
 いずれも `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
 しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
 この文書に追記する形にする。
 **メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と
 §2.3 にある。`WebCamTexture` 連携は M4 で足したので §2.6 にある。QR コードの符号化・
-復号と ORB 特徴点検出は M5 で足したので §1「objdetect / features」と §2.8・§2.9 にある**
+復号と ORB 特徴点検出、および射影変換の推定は M5 で足したので §1「objdetect / features / geometry」と §2.8・§2.9・§2.10 にある**
 —— いずれもここには残っていない。
 
 ## 参照

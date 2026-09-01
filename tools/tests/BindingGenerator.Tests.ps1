@@ -161,6 +161,46 @@ $notInSpec = @($implNames | Where-Object { $specEntryPoints -notcontains $_ })
 $detail = if ($notInSpec.Count -gt 0) { ' — spec に無い実装: ' + ($notInSpec -join ', ') } else { '' }
 Assert-That ($notInSpec.Count -eq 0) "every extern C ocvu_* in native/src is declared in the spec$detail"
 
+# --- **手で書く唯一の行を見る。** ---
+#
+# M5 以降、境界の宣言はすべて生成物である。**例外は 1 つだけ** ——
+# `native/include/opencv_unity_native.h` の `#include "ocvu/<module>.h"` で、
+# 新しい module を足した人が手で書く（add-abi-function skill にそう書いてある）。
+#
+# **その 1 行を見るものが、どこにも無かった。** 忘れたときの壊れ方が悪い:
+#
+#   - 実装 (.cpp) は**コンパイルが通る** —— extern "C" の定義は事前宣言なしでも合法
+#   - plugin はシンボルを export し、C# の P/Invoke は名前で解決するので **L3 も L5 も緑**
+#   - 下の「実装 -> spec」の検査は native/src しか見ないので **緑**
+#   - 壊れるのは**公開ヘッダを include する外部の C の呼び手だけ**で、
+#     それを試すレーンはこのリポジトリに 1 本も無い
+#
+# いま気づけるのは L1 が公開ヘッダ経由で関数を呼んでいるからだが、
+# **その L1 の登録（native/tests/CMakeLists.txt）も手作業**である ——
+# **2 つを同時に忘れると、必須チェック 21 本が全部緑のまま公開ヘッダだけが壊れる。**
+$umbrella = Join-Path $repoRoot 'native/include/opencv_unity_native.h'
+$umbrellaText = Get-Content -LiteralPath $umbrella -Raw
+
+$specModules = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'bindings/spec') -Filter '*.json' |
+                 Where-Object { $_.BaseName -ne 'schema' } |
+                 ForEach-Object { $_.BaseName })
+Assert-That ($specModules.Count -gt 0) 'the spec directory lists modules (0 件なら以下は空振りする)'
+
+foreach ($m in $specModules) {
+    $line = '#include "ocvu/' + $m + '.h"'
+    Assert-That ($umbrellaText.Contains($line)) `
+        "opencv_unity_native.h includes ocvu/$m.h (**この 1 行だけは生成物ではない。手で足す**)"
+}
+
+# **逆向きも見る。** module を消したのに include が残ると、次の generate で
+# ヘッダが消えてコンパイルが落ちる —— そちらはコンパイラが捕まえるので
+# 検査は要らないが、**数が合わないことは言う**（spec に無い module を
+# include している状態は、どちらかが古い）。
+$includedModules = @([regex]::Matches($umbrellaText, '#include\s+"ocvu/([a-z0-9_]+)\.h"') |
+                     ForEach-Object { $_.Groups[1].Value })
+Assert-That ($includedModules.Count -eq $specModules.Count) `
+    "opencv_unity_native.h includes exactly the spec modules (included $($includedModules.Count) / spec $($specModules.Count))"
+
 if ($script:failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($script:failures.Count) assertion(s) failed")
     exit 1

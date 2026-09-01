@@ -3,7 +3,7 @@
 <!-- このファイルは生成物である。手で編集しないこと。 -->
 <!-- 正本: bindings/spec/*.json  生成: ./tools/dev.ps1 generate -->
 
-**公開している C ABI は 23 本**である。C# の P/Invoke 宣言は 25 本ある。
+**公開している C ABI は 24 本**である。C# の P/Invoke 宣言は 26 本ある。
 
 **差の 2 本は C ABI を増やさない。** 既にある C の entry point へ
 別の引数の形で入る C# 側の入口で、C 側に対応する宣言が無い。
@@ -28,6 +28,7 @@
 | `core` | `ocvu_mat_copy_to_buffer` | `ocvu_mat_copy_to_buffer` | 呼ぶ | Mat から外部 buffer へコピーする。借用と検証の規則は ocvu_mat_copy_from_buffer と同じである。 |
 | `core` |  | `ocvu_mat_copy_to_buffer_ptr` | 呼ぶ | ocvu_mat_copy_to_buffer にアドレスを直接渡す C# 側の入口。借用の契約は ocvu_mat_copy_from_buffer_ptr と同じである。 |
 | `features` | `ocvu_orb_detect` | `ocvu_orb_detect` | 呼ぶ | src から ORB の特徴点を検出して out_keypoints へ書き、見つかった個数を out_count に返す。呼ぶ側は必要量を事前に知り得るので 2 回呼ぶ必要は無い（上限は max_features で、capacity がそれに満たなければ何も書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し out_count に max_features を入れる）。max_features は 1 以上 OCVU_ORB_MAX_FEATURES 以下でなければならない。buffer の所有権は最初から最後まで呼ぶ側にある。 |
+| `geometry` | `ocvu_find_homography` | `ocvu_find_homography` | 呼ぶ | 2 組の点の対応から射影変換（3x3）を求めて dst に入れる。dst は結果に応じて丸ごと置き換わり、64 bit 1 channel の 3x3 になる。src_points と dst_points はどちらも x と y が交互に並ぶ float の配列で、src_length と dst_length はその配列の**バイト数**である（要素数でも点数でもない —— この ABI の length はすべてバイト数で統一してある）。**呼ぶ側を信用せず、長さが point_count * 2 * sizeof(float) に満たなければ何も読まずに OCVU_STATUS_INVALID_ARGUMENT を返す。** point_count は 4 以上でなければならない（4 点未満では射影変換が決まらない）。method は OCVU_HOMOGRAPHY_METHOD_* のいずれかで、それ以外は拒否する。ransac_threshold は RANSAC のときだけ使う画素単位のしきい値である。点が退化していて解が求まらないときは OCVU_STATUS_NOT_FOUND を返し、これは誤りではない（どの入力がそうなるかは OpenCV が決める。実測では全部同じ点と軸に平行な直線が NOT_FOUND で、斜めの直線は rank 不足の行列がそのまま返り OCVU_STATUS_OK になる —— 共線判定はしていない）。失敗したときは dst を書き換えない。 |
 | `imgcodecs` | `ocvu_imencode` | `ocvu_imencode` | 呼ぶ | Mat を画像形式に符号化し buffer へ書く。符号化後の大きさは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。ext は .png のように先頭のドットを含む拡張子で、NULL と空文字列は拒否する。 |
 | `imgcodecs` | `ocvu_imdecode` | `ocvu_imdecode` | 呼ぶ | 符号化された画像 byte 列を復号して dst に入れる。dst の形状と型は結果に応じて上書きされる。data はこの呼び出しの内側でのみ読む借用で、native は保持しない。length は 1 以上 INT32_MAX 以下でなければならず、画像として解釈できない byte 列は OCVU_STATUS_OPENCV_ERROR になる（メモリは壊さない）。flags は OCVU_IMREAD_* である。 |
 | `imgproc` | `ocvu_cvt_color` | `ocvu_cvt_color` | 呼ぶ | 色空間を変換する。dst の形状と型は結果に応じて上書きされる。src と dst が同じ handle なら OCVU_STATUS_INVALID_ARGUMENT を返す（OpenCV の in-place 対応は関数ごとに異なり、曖昧さを ABI に持ち込まない）。OpenCV 由来の失敗は OCVU_STATUS_OPENCV_ERROR になる。 |
