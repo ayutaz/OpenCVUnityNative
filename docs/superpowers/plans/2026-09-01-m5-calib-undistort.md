@@ -920,6 +920,7 @@ git commit -m "feat(m5): ocvu_find_chessboard_corners を足す"
 
 ```csharp
 using System;
+using System.Linq;
 using CvUnity;
 using Xunit;
 
@@ -986,16 +987,24 @@ public class CalibrationTests
     [Fact]
     public void FindChessboardCornersFindsASyntheticBoard()
     {
-        using var board = MakeCheckerboard(128, 16);
+        // **盤は正方形にしない。** 正方形だと x と y の値域が同じになるので、
+        // 取り違えても格子の形が変わらず、この検査が入れ替えを見抜けない
+        // （L1 で実測した —— 7x7 では xy を入れ替えても緑のままだった）。
+        // 128 x 112、16 画素のセルで 8x7 のセル = 7x6 の内側格子点になる。
+        using var board = MakeCheckerboard(128, 112, 16);
 
-        CvPoint2[] corners = CvCalibration.FindChessboardCorners(board, 7, 7);
+        CvPoint2[] corners = CvCalibration.FindChessboardCorners(board, 7, 6);
 
-        Assert.Equal(49, corners.Length);
-        Assert.All(corners, p =>
-        {
-            Assert.InRange(p.X, 0f, 128f);
-            Assert.InRange(p.Y, 0f, 128f);
-        });
+        Assert.Equal(42, corners.Length);
+
+        // **範囲だけを見ない。** 範囲しか見ない検査は、平面配置でも
+        // xy 入れ替えでも同一点 42 個でも緑になる（これも L1 で実測した）。
+        // 格子の構造そのものを見る —— x は 7 通り、y は 6 通りに落ちるはずである。
+        var xs = corners.Select(p => (int)Math.Round(p.X / 16.0)).Distinct().OrderBy(v => v).ToArray();
+        var ys = corners.Select(p => (int)Math.Round(p.Y / 16.0)).Distinct().OrderBy(v => v).ToArray();
+
+        Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7 }, xs);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5, 6 }, ys);
     }
 
     [Fact]
@@ -1009,18 +1018,20 @@ public class CalibrationTests
             () => CvCalibration.FindChessboardCorners(src, 7, 0));
     }
 
-    private static CvMat MakeCheckerboard(int size, int cell)
+    /// <summary>市松模様を作る。**幅と高さを別々に取る** —— 正方形の盤では
+    /// x と y の取り違えを検出できないため。</summary>
+    private static CvMat MakeCheckerboard(int width, int height, int cell)
     {
-        var mat = CvMat.Create(size, size, CvMatType.Gray8);
-        var pixels = new byte[size * size];
-        for (int y = 0; y < size; y++)
+        var mat = CvMat.Create(height, width, CvMatType.Gray8);
+        var pixels = new byte[width * height];
+        for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < size; x++)
+            for (int x = 0; x < width; x++)
             {
-                pixels[(y * size) + x] = ((x / cell) + (y / cell)) % 2 == 0 ? (byte)255 : (byte)0;
+                pixels[(y * width) + x] = ((x / cell) + (y / cell)) % 2 == 0 ? (byte)255 : (byte)0;
             }
         }
-        mat.CopyFrom(pixels, size);
+        mat.CopyFrom(pixels, width);
         return mat;
     }
 }
@@ -1131,20 +1142,25 @@ namespace CvUnity
                     nameof(patternRows), patternRows, "格子の行数は 2 以上でなければなりません。");
             }
 
-            // 必要量は patternCols * patternRows と分かっているので 1 回で済む。
-            int expected = patternCols * patternRows;
-            var flat = new float[expected * 2];
+            // 必要量は事前に分かっているので 1 回で済む。
+            // **capacity も out_count も float の個数である**（点の個数ではない）。
+            // x と y の 2 つで 1 点なので、点数の 2 倍が float 数になる。
+            // この単位は `ocvu_orb_detect` と同じ「capacity == 配列長」であり、
+            // **要素数で数える規則がこの ABI 全体で 1 つだけになるようにしてある。**
+            int expectedFloats = patternCols * patternRows * 2;
+            var flat = new float[expectedFloats];
 
             var status = (CvStatus)NativeMethods.ocvu_find_chessboard_corners(
-                src.Handle, patternCols, patternRows, flat, expected, out int count);
+                src.Handle, patternCols, patternRows, flat, expectedFloats, out int floatCount);
 
             // **見つからないのは失敗ではない。** 呼ぶ側には空配列で返す。
             if (status == CvStatus.NotFound) { return Array.Empty<CvPoint2>(); }
 
             CvNative.ThrowIfFailed(status);
 
-            var corners = new CvPoint2[count];
-            for (int i = 0; i < count; i++)
+            // native が返すのは float の個数なので、点に戻すのはここの仕事である。
+            var corners = new CvPoint2[floatCount / 2];
+            for (int i = 0; i < corners.Length; i++)
             {
                 corners[i] = new CvPoint2(flat[i * 2], flat[(i * 2) + 1]);
             }
