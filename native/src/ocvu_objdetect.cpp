@@ -29,7 +29,14 @@ extern "C" ocvu_status ocvu_qr_encode(const char* text, ocvu_mat_handle dst) {
     // 失敗したときに dst が途中まで書き換わった状態で残りうる。
     cv::Mat encoded;
     cv::Ptr<cv::QRCodeEncoder> encoder = cv::QRCodeEncoder::create();
-    encoder->encode(std::string(text), encoded);
+    try {
+        encoder->encode(std::string(text), encoded);
+    } catch (const cv::Exception& e) {
+        // OCVU_TRY_END でも捕まるが、そこでは UNKNOWN_ERROR になる。
+        // OpenCV 由来だと分かる status を返すためにここで先に受ける
+        // （ocvu_imgcodecs.cpp の ocvu_imencode / ocvu_imdecode と同じ形）。
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
+    }
 
     if (encoded.empty()) {
         return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR,

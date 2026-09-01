@@ -62,3 +62,16 @@ TEST(Objdetect, EncodeLeavesTheDestinationUntouchedWhenItFails) {
     EXPECT_EQ(before.rows, after.rows);
     EXPECT_EQ(before.cols, after.cols);
 }
+
+TEST(Objdetect, EncodeReportsAnOpenCvErrorForTextThatDoesNotFit) {
+    ScopedMat dst;
+
+    // QR コードの最大容量を超える長さ。OpenCV 5.0.0 実測:
+    // cv::Exception "(-5:Bad argument) The given input exceeds the maximum
+    // capacity of a QR code" を投げる。spec は「符号化できない長さの text は
+    // OCVU_STATUS_OPENCV_ERROR になる」と約束しているので、ここでその契約を
+    // 確かめる（OCVU_TRY_END 任せだと std::exception 経由で UNKNOWN_ERROR に
+    // なってしまう。ocvu_imgcodecs.cpp の catch (const cv::Exception&) と同じ形）。
+    const std::string oversized(5000, 'x');
+    EXPECT_EQ(ocvu_qr_encode(oversized.c_str(), dst.get()), OCVU_STATUS_OPENCV_ERROR);
+}
