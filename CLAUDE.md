@@ -510,7 +510,9 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 
 **後の 5 つは、どれも実際に起きたものを機械に見させている。** `check-powershell-encoding.sh`
 と `check-assertions-reachable.sh` は M1 で、`check-shared-temp-paths.sh` と
-`check-platform-list-drift.sh` は M4 で、`check-generated-file-edit.sh` は M5 で踏んだ。1 つ目は修正が隣のファイルに在っても
+`check-platform-list-drift.sh` は M4 で踏んだ。**`check-generated-file-edit.sh` だけは
+性質が違う** —— 事故を受けてではなく、M5 で境界の宣言が生成物になったときに
+**先回りで置いた**（生成物を手で編集する経路は、まだ誰も踏んでいない）。1 つ目は修正が隣のファイルに在っても
 再発し、2 つ目は PASS 表示が出るので目視では気づけず、3 つ目は**再実行すると緑になる**
 ので原因の追跡が最も難しく、4 つ目は**ビルドも CI も通ったまま**配布物の中身だけが
 食い違い、**5 つ目は最終的には赤くなるが、赤くなる頃には「その編集は全部無駄だった」
