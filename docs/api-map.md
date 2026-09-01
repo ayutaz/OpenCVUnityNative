@@ -3,7 +3,7 @@
 <!-- このファイルは生成物である。手で編集しないこと。 -->
 <!-- 正本: bindings/spec/*.json  生成: ./tools/dev.ps1 generate -->
 
-**公開している C ABI は 24 本**である。C# の P/Invoke 宣言は 26 本ある。
+**公開している C ABI は 25 本**である。C# の P/Invoke 宣言は 27 本ある。
 
 **差の 2 本は C ABI を増やさない。** 既にある C の entry point へ
 別の引数の形で入る C# 側の入口で、C 側に対応する宣言が無い。
@@ -34,6 +34,7 @@
 | `imgproc` | `ocvu_cvt_color` | `ocvu_cvt_color` | 呼ぶ | 色空間を変換する。dst の形状と型は結果に応じて上書きされる。src と dst が同じ handle なら OCVU_STATUS_INVALID_ARGUMENT を返す（OpenCV の in-place 対応は関数ごとに異なり、曖昧さを ABI に持ち込まない）。OpenCV 由来の失敗は OCVU_STATUS_OPENCV_ERROR になる。 |
 | `imgproc` | `ocvu_resize` | `ocvu_resize` | 呼ぶ | width x height に拡大縮小する。width / height が 1 未満なら OCVU_STATUS_INVALID_ARGUMENT。src と dst に同じ handle を渡した場合も同様に拒否する。 |
 | `imgproc` | `ocvu_gaussian_blur` | `ocvu_gaussian_blur` | 呼ぶ | Gaussian ぼかしを掛ける。ksize は正の奇数でなければならず、そうでなければ OCVU_STATUS_INVALID_ARGUMENT。sigma に 0 を渡すと OpenCV が ksize から算出する。 |
+| `imgproc` | `ocvu_undistort` | `ocvu_undistort` | 呼ぶ | src の歪みを camera_matrix と dist_coeffs で補正して dst に入れる。dst は結果に応じて丸ごと置き換わり、src と同じ形状・型になる。camera_matrix は行優先の 3x3（double 9 個）、dist_coeffs は OpenCV が受ける長さ（4 / 5 / 8 / 12 / 14 個）でなければならない。camera_matrix_length と dist_coeffs_length はどちらもバイト数で、この ABI の length は全部そうである。呼ぶ側を信用せず、長さが合わなければ何も読まずに OCVU_STATUS_INVALID_ARGUMENT を返す。失敗したときは dst を書き換えない。src と dst に同じ handle を渡してもよい（結果を求めてから入れ替えるので、cvtColor と違い in-place 呼び出しを禁じていない）。 |
 | `infra` | `ocvu_get_abi_version` | `ocvu_get_abi_version` | 呼ぶ | 現在の C ABI バージョンを返す。失敗しない。 |
 | `infra` | `ocvu_get_last_error_status` | `ocvu_get_last_error_status` | 呼ぶ | 直近のエラー status を返す。呼び出しスレッドごとに独立している。 |
 | `infra` | `ocvu_get_last_error_message` | `ocvu_get_last_error_message` | 呼ぶ | 直近のエラーメッセージを UTF-8・NUL 終端で buffer に書く。buffer に NULL を渡して必要サイズだけを聞くのが正規の 1 回目で、そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない。out_required_size が NULL なら OCVU_STATUS_NULL_POINTER。この関数自身は last-error を変更しない。 |

@@ -38,6 +38,7 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_cvt_color(0UL, 0UL, 0);
         NativeMethods.ocvu_resize(0UL, 0UL, 0, 0, 0);
         NativeMethods.ocvu_gaussian_blur(0UL, 0UL, 0, 0, 0.0, 0.0);
+        NativeMethods.ocvu_undistort(0UL, default, 0L, default, 0L, 0UL);
         NativeMethods.ocvu_get_abi_version();
         NativeMethods.ocvu_get_last_error_status();
         NativeMethods.ocvu_get_last_error_message(null, 0, out _);
@@ -48,6 +49,6 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_debug_throw(0);
         NativeMethods.ocvu_qr_encode(null, 0UL);
         NativeMethods.ocvu_qr_decode(0UL, null, 0, out _);
-        return 25;
+        return 26;
     }
 }

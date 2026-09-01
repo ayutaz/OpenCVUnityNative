@@ -686,6 +686,8 @@ public class SpecSchemaTests
     [InlineData("const float*", "System.IntPtr")]
     [InlineData("ocvu_keypoint*", "OcvuKeyPoint[]")]
     [InlineData("ocvu_keypoint*", "System.IntPtr")]
+    [InlineData("const double*", "double[]")]
+    [InlineData("const double*", "System.IntPtr")]
     public void BothSpellingsOfAnArrayParamAreAccepted(string cType, string csType)
     {
         Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
