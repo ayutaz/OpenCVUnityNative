@@ -1,14 +1,37 @@
 # action の版を追いかける。
 #
-# **なぜ要るか。** workflow は `actions/checkout@v4` のように可変タグで固定して
-# いる。タグは動くので、上流が壊れた版を出したときにこちらは何も変えていない
-# のに壊れる。逆に、修正が出ても気づかない。
+# **なぜ要るか。** workflow は `actions/checkout@v7` のように major だけを
+# 指す可変タグで固定している。タグは動くので、上流が壊れた版を出したときに
+# こちらは何も変えていないのに壊れる。逆に、修正が出ても気づかない。
 #
 # Dependabot に PR を出させれば、変更が差分として見え、CI が判定してから入る。
 # **「いつの間にか変わっていた」を「見て分かる変更」に変える**のが目的である。
 #
 # NuGet も見る。L3 は xUnit と .NET SDK に載っており、そこが古いまま気づかない
 # のは native 側の固定を丁寧にやっている意味を薄める。
+#
+# **bot の PR はそのままでは merge できない。** 必須チェックのうち
+# `Unity EditMode (Linux)` と `Unity Standalone (Linux)` は落ちる ——
+# GitHub は Dependabot が起こした実行にリポジトリの secret を渡さない
+# （Dependabot 用の別の secret 置き場があり、こちらは空である）。
+# **実測**（PR #49、run 33361183061、2026-08-31）: `UNITY_LICENSE:` が空で
+# game-ci が `Missing Unity License File and no Serial was found` で停止し、
+# **他の 25 チェックは全部緑**だった。原因は差分ではなく起こし手である。
+#
+# したがって扱いはこうなる: **bot の PR の差分を人が出す PR に取り込み、
+# bot の PR は閉じる。** #18〜#26 の 9 件がこの形で閉じてある（版はどれも
+# 適用済みで、閉じたのは取り込んだ後である）。
+#
+# **これを変える唯一の道は Dependabot 側の secret 置き場に UNITY_* を入れる
+# ことだが、やっていない** —— bot が起こす実行に Unity のライセンスを渡す
+# ことになる。入れるなら `gh secret set UNITY_LICENSE --app dependabot`。
+#
+# **ecosystem: github-actions が見ないものが 1 つある。** `uses:` が
+# `docker://` で始まる参照は parser が明示的に読み飛ばす（dependabot-core の
+# github_actions/lib/dependabot/github_actions/file_parser.rb に
+# `# TODO: Support Docker references` と共に在る）。`ci-lint.yml` の
+# actionlint がそれで、**手で上げる**。固定されていることは
+# `tools/tests/OpenCvConfig.Tests.ps1` が見る。
 version: 2
 
 updates:

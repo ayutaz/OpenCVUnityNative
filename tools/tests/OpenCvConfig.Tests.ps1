@@ -1805,6 +1805,41 @@ foreach ($group in ($actionRefs | Group-Object -Property Name)) {
 }
 
 
+# --- NuGet の版が csproj の間で割れていないこと ---
+#
+# 同じ 4 つのテスト用パッケージを 2 つの csproj が持つ
+# （`tests/Managed/CvUnity.Tests.Managed` と、M5 で足した
+# `bindings/generator/Ocvu.Generator.Tests`）。**割れると、同じ solution の
+# 中で 2 つの test runner が別の版で走る。**
+#
+# **Dependabot が両方を見るかは確かめていない。** 設定に書いてある
+# `directory` は `/tests/Managed` の 1 つで、generator の csproj は
+# solution からの project 参照で繋がっているだけである（依存グラフは
+# パッケージ名でまとめてしまうので、どちらの manifest 由来かも読めない）。
+# **この検査はその答を要らなくする** —— 片方だけ上がれば落ちる。
+$packagePins = @{}
+$csprojFiles = @(& git -C $repoRoot ls-files '*.csproj')
+Assert-That ($csprojFiles.Count -gt 0) 'git lists the csproj files (0 件なら以下は空振りする)'
+foreach ($rel in $csprojFiles) {
+    $path = Join-Path $repoRoot $rel
+    if (-not (Test-Path -LiteralPath $path)) { continue }
+    foreach ($line in (Get-Content -LiteralPath $path)) {
+        if ($line -notmatch '<PackageReference\s+Include="([^"]+)"\s+Version="([^"]+)"') { continue }
+        $pkg = $Matches[1]; $ver = $Matches[2]
+        if (-not $packagePins.ContainsKey($pkg)) { $packagePins[$pkg] = @() }
+        $packagePins[$pkg] += [pscustomobject]@{ Project = $rel; Version = $ver }
+    }
+}
+Assert-That ($packagePins.Count -gt 0) 'the csproj files declare at least one PackageReference'
+foreach ($pkg in ($packagePins.Keys | Sort-Object)) {
+    $versions = @($packagePins[$pkg] | ForEach-Object { $_.Version } | Sort-Object -Unique)
+    Assert-That ($versions.Count -eq 1) `
+        "$pkg is pinned to one version across the csproj files (saw: $($versions -join ', '))"
+    if ($versions.Count -gt 1) {
+        $packagePins[$pkg] | ForEach-Object { Write-Host "      $($_.Project): $($_.Version)" -ForegroundColor Yellow }
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1
