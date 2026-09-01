@@ -467,7 +467,7 @@ buffer の所有権は `ocvu_mat_copy_from_buffer` などと同じく最初か�
 `Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、**`imgcodecs` の
 ファイルパス経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、
 `geometry` / `calib`（判断の根拠は `docs/roadmap.md` の M5 節。**リンクの可否と
-API を出す判断は別** —— `geometry` はリンクが安いが、それでも出していない）。
+API を出す判断は別**）。**`geometry` は 2026-09-01 に出した**（§3.7）—— 残るは `calib` だけである。
 いずれも契約が固まってから足す。
 **メモリ上の byte 列の encode / decode は M3.5 で足した（§3.5）。ファイルパスを
 受けない判断の理由は §1.6 にある。QR の符号化・復号と ORB 検出は M5 で足した（§3.6）。**

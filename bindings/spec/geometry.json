@@ -8,54 +8,14 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        {
-          "name": "src_points",
-          "cType": "const float*",
-          "csType": "float[]",
-          "direction": "in-buffer"
-        },
-        {
-          "name": "src_length",
-          "cType": "int64_t",
-          "csType": "long",
-          "direction": "in"
-        },
-        {
-          "name": "dst_points",
-          "cType": "const float*",
-          "csType": "float[]",
-          "direction": "in-buffer"
-        },
-        {
-          "name": "dst_length",
-          "cType": "int64_t",
-          "csType": "long",
-          "direction": "in"
-        },
-        {
-          "name": "point_count",
-          "cType": "int32_t",
-          "csType": "int",
-          "direction": "in"
-        },
-        {
-          "name": "method",
-          "cType": "int32_t",
-          "csType": "int",
-          "direction": "in"
-        },
-        {
-          "name": "ransac_threshold",
-          "cType": "double",
-          "csType": "double",
-          "direction": "in"
-        },
-        {
-          "name": "dst",
-          "cType": "ocvu_mat_handle",
-          "csType": "ulong",
-          "direction": "in"
-        }
+        { "name": "src_points", "cType": "const float*", "csType": "float[]", "direction": "in-buffer" },
+        { "name": "src_length", "cType": "int64_t", "csType": "long", "direction": "in" },
+        { "name": "dst_points", "cType": "const float*", "csType": "float[]", "direction": "in-buffer" },
+        { "name": "dst_length", "cType": "int64_t", "csType": "long", "direction": "in" },
+        { "name": "point_count", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "method", "cType": "int32_t", "csType": "int", "direction": "in" },
+        { "name": "ransac_threshold", "cType": "double", "csType": "double", "direction": "in" },
+        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" }
       ]
     }
   ]
