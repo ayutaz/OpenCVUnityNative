@@ -709,8 +709,9 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
 本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
-`imgcodecs` の 11 本に留まる（M3.5 で `imgcodecs` の 2 本が加わった。公開 ABI 全体は
-18 → 20 本）—— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
+`imgcodecs` / `objdetect` / `features` の 14 本に留まる（M3.5 で `imgcodecs` の 2 本、
+M5 の module 追加で 3 本が加わった。公開 ABI 全体は 18 → 23 本。**本数を数える正本は
+[API 対応表](./api-map.md) の冒頭である**）—— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
 商用（OpenCV for Unity 3.0.3 / OpenCV 4.13.0）も OSS（neon-izm 版 / OpenCV 4.11）も
 4.x 系のままである。
 
@@ -1514,9 +1515,9 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 
 1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
    `dnn` は別ヘッダ・別 `.cpp`・別 CMake target に置く。共通の型・status・version だけを
-   `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る。**
+   `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る**（この「20 本」は決定を書いた 2026-08-30 時点の値である）。
    → **M5 で済んだ（2026-09-01）。** 関数宣言は
-   `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h` に分かれ、
+   `native/include/ocvu/{infra,core,imgproc,imgcodecs,objdetect,features}.h` に分かれ、
    `opencv_unity_native.h` に残ったのは型・status・定数だけである。**ただし分けたのは
    ヘッダであって CMake target ではない** —— まだ 1 つの target が全 module を作る。
    `OCVU_ABI_VERSION` を単一の整数のままにする判断とその留保は

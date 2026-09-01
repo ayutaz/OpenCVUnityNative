@@ -61,7 +61,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 3 本（OpenCV 構成・ハッシュ無効化・**生成物と spec の一致**） | 約 18 秒（**2 本だった頃の値**） |
 | `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証・restore の実 download・linkage 検証・配布物生成 | 約 4 分 15 秒（2026-08-28 実測。M3 で `VerifyArtifactLinkage.Tests.ps1` と `PackageRelease.Tests.ps1` が加わり、M1 時点の約 70 秒から伸びた） |
 | `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest **78 件** + CTest **4 件**） | 約 10 秒 |
-| `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **51 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **91 件**（M5 で新設）。**件数を書いてあるのはこの行だけである** —— 他所に写すと、テストを 1 件足した瞬間にそちらだけが嘘になる（M5 で実際に 4 箇所が同時に古くなった） | 約 11 秒（**44 件だけだった頃の値**） |
+| `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **52 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **91 件**（M5 で新設）。**件数を書いてあるのはこの行だけである** —— 他所に写すと、テストを 1 件足した瞬間にそちらだけが嘘になる（M5 で実際に 4 箇所が同時に古くなった） | 約 11 秒（**44 件だけだった頃の値**） |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 18 秒（増分。2026-08-28 実測。M1 時点の約 11 秒より伸びているが、原因は未特定——増えたのは L1 側で計測済みの再コンパイル対象と同じファイル群で、M3 固有の変更ではない） |
 | `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
 | `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、**34 件**） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値。** その後 M3.5 で 16 件、M4 で 33 件、M5 で 34 件になったが所要時間は取り直していない） |
@@ -492,14 +492,14 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 
 | skill | いつ使うか |
 | --- | --- |
-| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。L1 → **spec に 1 エントリ + `dev.ps1 generate`** → 実装 → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約。**M5 以降、宣言は手で書かない** —— ヘッダにも `NativeMethods.cs` にも手で足さない（足せば `verify-generated` が落とす）|
+| `add-abi-function` | `ocvu_` の ABI 関数を追加・変更・削除するとき。L1 → **spec に 1 エントリ + `dev.ps1 generate`** → 実装 → L3 → status 同期の TDD 順序と、所有権・バッファ・例外バリアの規約。**M5 以降、宣言は手で書かない** —— ヘッダにも `NativeMethods.cs` にも手で足さない（足せば `verify-generated` が落とす）。**新しい OpenCV module を足すなら、先にリンクを実証する節**も読むこと —— `COMPONENTS` に足すだけでは binary は 1 バイトも増えず、`cv::` を実際に参照する L1 テストだけが証拠になる |
 | `add-a-platform` | **対象 platform を足す・外す・変えるとき。** 一覧を持つ場所は **17 箇所**あり（M4 で実測。roadmap が長らく書いていた「2 か所」は誤りだった）、語彙が違うので grep 1 回では揃わない。`.meta` のキー名 / ファイル名の platform 間衝突 / クロスでの `find_package` の閉じ込め / 静的ライブラリの依存の束ね / 新しい third-party など、**クロスビルドが緑になってから CI で 8 回落ちた**罠を、踏んだ順に並べてある |
 | `milestone-complete` | マイルストーンの完了を判定するとき。roadmap の完了条件との実測照合、**文書の陳腐化確認**、CI での確定。**M4 で 2 つ加わった** —— 実機が要る条件は「満たすが未実証」ですらなく人が実行する手順書に落とす / **必須チェックの充足は成功件数ではなく名前で突き合わせる**（GitHub は `skipped` と `neutral` も pass として通す）|
 | `prove-a-check-works` | テスト・assertion・検証スクリプト・allowlist・CI ゲート・hook を足すか変えるとき。**壊して落ちることを見るまで、その検査は動くと言えない。** M1 の全タスクが同じ欠陥（著者が列挙した形だけを見る）を生んだので手順にした。**M4 で 6 つの節が加わった** —— 壊す前にコミットする / 置換が空振りしていないか確かめる / 手前に別の門があると番人に到達しない / 述語のゆるさ（構造的に常に真・部分一致・大文字小文字・散文に当たる）/ **自分でパースする検査は本物の解釈を代理できない** / **正本を写さず正本から読む**。**M5 でさらに 4 つ** —— **Unity 経由のクラッシュは赤いテストにならない**（無音で 10 分以上返り、結果が 1 バイトも出ない）/ 手前の門の 2 例目（`System.Text.Json` が先に落とすので、足した検査は 1 度も動いていなかった）/ **アンカーの意味**（.NET の `$` は末尾の `\n` の直前にも当たる。「一致したか」ではなく**値全体を覆ったか**を見る）/ **列挙に基づく門を出口側の構造に基づく門へ変える**（ただし下流に検査が無い所にだけ足す）|
 
 **hook**（`.claude/settings.json`）
 
-| hook | 契機 | 動作 |
+| hook。**M5 の module 追加でさらに 3 つ** —— **契約を書いただけで、実装がそれを満たすかは誰も見ていない**（`verify-generated` が見るのは生成物と spec の一致だけで、spec が書いた挙動を実装がするかは見ない。実測で 2 回踏んだ）/ **合計だけを固定した検査は中身の入れ替えを通す**（`sizeof == 28` は同じ型のフィールドを入れ替えても通る。`Marshal.OffsetOf` を全部並べて閉じた）/ **ディレクトリが在ることは中身が在ることではない**（`test-tools-slow` の中断で OpenCV のツリーが空になったが、`opencv.ps1 status` は `present` と答えた） | 契機 | 動作 |
 | --- | --- | --- |
 | `block-bulk-git-add.sh` | PreToolUse (Bash/PowerShell) | `git add -A` / `git add .` を**拒否**。連結コマンド内も見る |
 | `check-unityengine-leak.sh` | PostToolUse (Write/Edit) | `Runtime/Interop` と `Runtime/Core` への `UnityEngine` 混入を指摘 |
@@ -508,7 +508,7 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 | `check-assertions-reachable.sh` | PostToolUse (Write/Edit) | `*.Tests.ps1` で、終了コードを決めた後ろに置かれ**落ちようがない** assertion を指摘 |
 | `check-shared-temp-paths.sh` | PostToolUse (Write/Edit) | `tools/tests/*.Tests.ps1` の**固定名の一時ファイル**を指摘。`dev.ps1 test` はレーンを並べて走らせるので、名前を固定すると 2 つの実行が潰し合う —— **落ちるのは無関係な assertion**で、再実行すると緑になるためフレークとして片付けられる（M4 で実測）|
 | `check-platform-list-drift.sh` | PostToolUse (Write/Edit) | **binary の相対パスで** platform を列挙しているファイルが、**正本より短いまま**置いていかれるのを指摘。**platform 名（`nightly.yml`）・`BuildTarget`（`Slots`）・workflow の matrix は構造的に見えない** —— M4 のレビューで `nightly.yml` の取りこぼしが実例として出た。正本は `tools/dev.ps1` の `$script:AllPlatformBinaries` で、**写さずそこから読む**ので platform が増えれば判定も増える。M4 で 3 platform のまま残った一覧が 3 つ出た（うち 1 つは直したのに巻き戻して再発）。**見えないのは同一ファイル内の 2 つ目以降の一覧**で、そちらは検査側が正本と突き合わせる |
-| `check-generated-file-edit.sh` | PostToolUse (Write/Edit) | **生成物を手で編集したことを、その場で指摘する**（M5）。一致は `verify-generated` が見て CI も落とすが、**赤くなるのはずっと後**で、そのとき手で書いた分は全部無駄になる（`generate` が上書きする）。**対象を一覧で持たない** —— 生成物が先頭 5 行で名乗る規約だけを見るので、**11 個目の生成物も自動で網に入る**（実測）。一覧にした場合の壊れ方は M5 で踏んだ: 生成物 10 個のうち名指しで守られていたのは 2 個だけで、**配線を外しても検査は全部 PASS した** |
+| `check-generated-file-edit.sh` | PostToolUse (Write/Edit) | **生成物を手で編集したことを、その場で指摘する**（M5）。一致は `verify-generated` が見て CI も落とすが、**赤くなるのはずっと後**で、そのとき手で書いた分は全部無駄になる（`generate` が上書きする）。**対象を一覧で持たない** —— 生成物が先頭 5 行で名乗る規約だけを見るので、**11 個目の生成物も自動で網に入る**。**M5 の module 追加でそれが実際に起きた** —— `objdetect` / `features` で生成物が 10 → 14 に増えたが、**hook は 1 行も変えていない**のに 新しい 4 つを検知した（`features.h` / `objdetect.h` / `NativeMethods.Features.g.cs` で実測）。一覧にした場合の壊れ方は M5 で踏んだ: 生成物 10 個のうち名指しで守られていたのは 2 個だけで、**配線を外しても検査は全部 PASS した** |
 
 **後の 5 つは、どれも実際に起きたものを機械に見させている。** `check-powershell-encoding.sh`
 と `check-assertions-reachable.sh` は M1 で、`check-shared-temp-paths.sh` と
