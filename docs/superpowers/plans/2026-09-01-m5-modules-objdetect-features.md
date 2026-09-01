@@ -241,13 +241,15 @@ pwsh tools/dev.ps1 test-native
 通っても証拠にならない。**
 
 ```
-git diff cmake/FindOpenCvUnityDeps.cmake   # 戻したことを確認
-pwsh tools/dev.ps1 test-native             # 落ちることを確認
-git checkout -- cmake/FindOpenCvUnityDeps.cmake
+# COMPONENTS から objdetect features を手で外す
+git diff cmake/FindOpenCvUnityDeps.cmake   # 外れたことを確認
+pwsh tools/dev.ps1 test-native             # Step 2 と同じリンクエラーが出ることを確認
+# COMPONENTS に objdetect features を手で戻す
 ```
 
-**戻す前にコミットしないこと** —— Step 6 でまとめて入れる。
-`git checkout --` で消える状態にしておく。
+**`git checkout --` を使わないこと。** この時点ではまだコミットしていないので、
+それを実行すると**足した COMPONENTS ごと消える**。外すのも戻すのも手で行う。
+（Task 1 の実装者が実際にこの矛盾を踏み、散文の「また足す」を優先して正しく処理した。）
 
 - [ ] **Step 6: binary の大きさを測って記録する**
 
