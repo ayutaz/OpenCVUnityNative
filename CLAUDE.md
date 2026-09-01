@@ -55,7 +55,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | コマンド | 内容 | 実測 |
 | --- | --- | --- |
 | `./tools/dev.ps1 build` | native の configure + build | — |
-| `./tools/dev.ps1 generate` | **M5。** `bindings/spec/*.json` から C ヘッダ・C# の P/Invoke・到達性テスト・API 対応表を書き出す（**14 ファイル**）。**境界の宣言を手で書く経路はもう無い** | — |
+| `./tools/dev.ps1 generate` | **M5。** `bindings/spec/*.json` から C ヘッダ・C# の P/Invoke・到達性テスト・API 対応表を書き出す（**16 ファイル**）。**境界の宣言を手で書く経路はもう無い** | — |
 | `./tools/dev.ps1 verify-generated` | **M5。** 生成物が spec と一致しているかだけを見る（書き直さない）。食い違えば差分を並べて非 0 で返る。`test` に入っている | — |
 | `./tools/dev.ps1 test` | **既定**。tools の速いテスト 3 本 + `verify-generated` + L1 + L3 | **約 65 秒**（増分、成果物が最新。2026-09-01 実測、exit 0）。**M3.5 以前の「約 21 秒」から伸びた** —— tools のテストが 3 本になり、`verify-generated` と L3 の 2 つ目の assembly が `dotnet` の起動を 2 回増やした |
 | `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 3 本（OpenCV 構成・ハッシュ無効化・**生成物と spec の一致**） | 約 18 秒（**2 本だった頃の値**） |
@@ -131,7 +131,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `tools/plugin-meta/<platform>/` | Plugin Import Settings（`.meta`）の正本。`Runtime/Plugins` を根とした鏡像。**package の中に置くと Unity に消される** — binary の無い platform の `.meta` は「asset の無い孤児」と見なされ、mutable な package では実際に削除される（`test-unity-editmode` を Windows で 1 回走らせるだけで macOS/Linux 分が消えることを実測。M3 のレビュー M4）|
 | `Packages/com.ayutaz.opencv-unity-native/Runtime/UnityIntegration/` | UnityEngine に依存するコード（`TextureConverter` 等）を置く別 asmdef。`Runtime/Core` / `Runtime/Interop` には置かない |
 | `Packages/com.ayutaz.opencv-unity-native/Samples~/BasicUsage/` | UPM sample（M3 Task 7）。末尾 `~` のため Unity にインポートされるまでコンパイルされない |
-| `docs/api-reference.md` | C ABI と C# 公開 API（`CvMat`/`CvOps`/`CvCodecs`/`CvQrCode`/`CvFeatures`/`CvNative`/`TextureConverter`/`NativeArrayExtensions`）のリファレンス（M3 Task 7。M3.5 で `ocvu_imencode` / `ocvu_imdecode` と `CvCodecs` が加わった） |
+| `docs/api-reference.md` | C ABI と C# 公開 API（`CvMat`/`CvOps`/`CvCodecs`/`CvQrCode`/`CvFeatures`/`CvGeometry`/`CvNative`/`TextureConverter`/`NativeArrayExtensions`）のリファレンス（M3 Task 7。M3.5 で `ocvu_imencode` / `ocvu_imdecode` と `CvCodecs` が加わった） |
 | `tests/Managed/CvUnity.Runtime.Shim/` | netstandard2.1 の shim。UnityEngine 非依存をビルドで強制する |
 | `tests/Managed/CvUnity.Tests.Managed/` | L3 の xUnit テスト（net8.0）。`HarnessProbeTests.cs` がクラッシュ・ハングプローブを持つ。**同じ solution に `bindings/generator/Ocvu.Generator.Tests` が同居する**ので、`dev.ps1 test-managed` は両方を回す（**件数はその行にある**） —— 結果 XML は `managed-{assembly}.xml` で assembly ごとに分かれる（固定名だと後勝ちで上書きされ、先に走ったほうの失敗が読めなくなる。M5 で実測） |
 | `tests/UnityProject/` | L4（EditMode）と L5（IL2CPP Player）用の最小 Unity プロジェクト。UPM パッケージは `manifest.json` から `file:../../../Packages/...` でローカル参照する。**この参照はディレクトリであって tarball ではない**ので、tarball の中身が壊れていてもこのレーンは通る——**tarball からの導入は `dev.ps1 test-unity-tarball` が別に見る**（使い捨てのプロジェクトに tarball だけを入れて EditMode を走らせ、16/16 pass を実測済み。M3 でこのレーンを足して初めて「導入できない tarball」が見つかった。**M3.5 で `-PluginSource` が加わり、他 platform の plugin 木を重ねた全部入りも検証できる** —— このマシンでビルドできるのは 1 platform 分だけなので、他 platform は公開済み release から取ってくる）。**Git URL からの導入はこの構成では成立しない**（binary が git の追跡外にあるため） |

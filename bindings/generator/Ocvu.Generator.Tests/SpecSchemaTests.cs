@@ -679,12 +679,14 @@ public class SpecSchemaTests
         Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
     }
 
-    // ocvu_keypoint* は 2 つの入口を持つ。managed 配列を marshal する版と、
+    // 配列を渡す cType は 2 つの入口を持つ。managed 配列を marshal する版と、
     // アドレスを直接渡す版で、どちらも正しい（const uint8_t* と同じ形）。
     [Theory]
+    [InlineData("const float*", "float[]")]
+    [InlineData("const float*", "System.IntPtr")]
     [InlineData("ocvu_keypoint*", "OcvuKeyPoint[]")]
     [InlineData("ocvu_keypoint*", "System.IntPtr")]
-    public void BothSpellingsOfAKeypointParamAreAccepted(string cType, string csType)
+    public void BothSpellingsOfAnArrayParamAreAccepted(string cType, string csType)
     {
         Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
     }

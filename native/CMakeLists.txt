@@ -18,6 +18,7 @@ set(OCVU_SOURCES
     src/ocvu_imgcodecs.cpp
     src/ocvu_objdetect.cpp
     src/ocvu_features.cpp
+    src/ocvu_geometry.cpp
 )
 
 # **iOS だけ静的ライブラリにする。**

@@ -427,16 +427,41 @@ native に同じ値を問うテスト（`FeaturesTests.TheManagedUpperBoundMatch
 1 つ目を支えるために、handle が指す `Mat` のアドレスは他の handle の作成・
 解放で動かないようにしてある（M3 でここが壊れていたのを直した。経緯は §1.5）。
 
+### 2.10 `CvUnity.CvGeometry` / `CvUnity.CvPoint2` / `CvUnity.CvHomographyMethod`
+
+点の対応から変換を求める（OpenCV の `geometry`）。
+
+| メンバ | 内容 |
+| --- | --- |
+| `CvGeometry.FindHomography(CvPoint2[] srcPoints, CvPoint2[] dstPoints, CvMat dst, CvHomographyMethod method = Default, double ransacThreshold = 3.0)` | 2 組の点の対応から射影変換（3x3）を求めて `dst` に入れる。求まったら true、点が退化していて求まらなければ **false**（誤りではない） |
+| `CvPoint2(float x, float y)` | 画像上の点。`X` / `Y` を持つ |
+| `CvHomographyMethod` | `Default`（全点の最小二乗）/ `LeastMedianOfSquares` / `Ransac`（外れ値を捨てる） |
+
+**`dst` は結果に応じて丸ごと置き換わり、64 bit 1 channel の 3x3 になる** ——
+呼び出し前に持っていた形状・型・内容は保持されない。
+
+**`UnityEngine.Vector2` ではなく `CvPoint2` を使う。** `Runtime/Core` は
+`UnityEngine` を参照してはならない（参照するとビルドで強制している
+netstandard2.1 shim が落ち、Unity を起動しない L3 レーンが失われる）。
+Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
+
+**2 つの点列は同じ長さでなければならない。** C ABI に渡すのは点数 1 つだけなので、
+食い違っていても native からは見えず、短いほうの配列の終端を越えて読むことになる。
+**C# の入口が唯一それを見られる場所である。**
+
+求めた変換を画像に当てるには透視変換が要るが、**それはまだ C ABI に出していない**
+（`imgproc` にはあるがラップしていない）。
+
 ## 3. 対象外（この文書に書かないもの）
 
 `Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
-経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、`geometry` / `calib` —
+経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、`calib`、**透視変換の適用**（`warpPerspective`）—
 いずれも `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
 しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
 この文書に追記する形にする。
 **メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と
 §2.3 にある。`WebCamTexture` 連携は M4 で足したので §2.6 にある。QR コードの符号化・
-復号と ORB 特徴点検出は M5 で足したので §1「objdetect / features」と §2.8・§2.9 にある**
+復号と ORB 特徴点検出、および射影変換の推定は M5 で足したので §1「objdetect / features / geometry」と §2.8・§2.9・§2.10 にある**
 —— いずれもここには残っていない。
 
 ## 参照

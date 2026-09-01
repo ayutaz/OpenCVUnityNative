@@ -32,6 +32,7 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_mat_copy_to_buffer(0UL, null, 0L, 0L);
         NativeMethods.ocvu_mat_copy_to_buffer_ptr(0UL, default, 0L, 0L);
         NativeMethods.ocvu_orb_detect(0UL, 0, default, 0, out _);
+        NativeMethods.ocvu_find_homography(default, default, 0, 0, 0.0, 0UL);
         NativeMethods.ocvu_imencode(0UL, null, null, 0, out _);
         NativeMethods.ocvu_imdecode(null, 0L, 0, 0UL);
         NativeMethods.ocvu_cvt_color(0UL, 0UL, 0);
@@ -47,6 +48,6 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_debug_throw(0);
         NativeMethods.ocvu_qr_encode(null, 0UL);
         NativeMethods.ocvu_qr_decode(0UL, null, 0, out _);
-        return 24;
+        return 25;
     }
 }
