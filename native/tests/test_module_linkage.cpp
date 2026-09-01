@@ -16,6 +16,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/features.hpp>
 #include <opencv2/geometry.hpp>
+#include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect.hpp>
 
 TEST(ModuleLinkage, ObjdetectSymbolsResolve) {
@@ -53,4 +54,35 @@ TEST(ModuleLinkage, GeometrySymbolsResolve) {
     ASSERT_FALSE(h.empty());
     EXPECT_EQ(h.rows, 3);
     EXPECT_EQ(h.cols, 3);
+}
+
+TEST(ModuleLinkage, UndistortionSymbolsResolveWithoutCalib) {
+    // **この計画の前提を固定する。** カメラの歪み補正に要る関数は
+    // calib module ではなく imgproc と objdetect に在り、どちらも
+    // 既にリンク済みである（2026-09-01 実測）。
+    //
+    // **上流が module を再編したら、この前提は黙って崩れる** ——
+    // OpenCV 5 は 4.x の calib3d を geometry / calib / stereo / ptcloud へ
+    // 実際に割った。次に同じことが起きたとき、ここが最初に赤くなる。
+    //
+    // **注**: このテストは `COMPONENTS` の編集では落ちない。imgproc は
+    // imgcodecs / objdetect / features / geometry から推移的に引かれるため、
+    // cmake/FindOpenCvUnityDeps.cmake から外しても、最終的なリンク行には
+    // 残る（実測で確認済み）。**それでも守っているものがある** ——
+    // 上流が cv::undistort を imgproc から別 module へ移したら、リンク
+    // エラーで初めて気づく。だから「壊して落ちることを見た」検査では無い。
+    const cv::Mat src = cv::Mat::zeros(32, 32, CV_8UC1);
+    const cv::Mat camera = (cv::Mat_<double>(3, 3) << 100, 0, 16, 0, 100, 16, 0, 0, 1);
+    const cv::Mat coeffs = (cv::Mat_<double>(1, 5) << 0.1, -0.05, 0, 0, 0);
+
+    cv::Mat dst;
+    cv::undistort(src, dst, camera, coeffs);
+    EXPECT_EQ(dst.rows, 32);
+    EXPECT_EQ(dst.cols, 32);
+
+    // 真っ黒な画像に格子は写っていないので false が返る。
+    // ここで見たいのはリンクなので、結果ではなく「呼べた」ことを確かめる。
+    std::vector<cv::Point2f> corners;
+    const bool found = cv::findChessboardCorners(src, cv::Size(7, 7), corners);
+    EXPECT_FALSE(found);
 }
