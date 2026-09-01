@@ -47,7 +47,8 @@ typedef int32_t ocvu_status;
     X(OCVU_STATUS_OPENCV_ERROR,        4) \
     X(OCVU_STATUS_UNKNOWN_ERROR,       5) \
     X(OCVU_STATUS_BUFFER_TOO_SMALL,    6) \
-    X(OCVU_STATUS_INVALID_HANDLE,      7)
+    X(OCVU_STATUS_INVALID_HANDLE,      7) \
+    X(OCVU_STATUS_NOT_FOUND,           8)
 
 #define OCVU_STATUS_ENUMERATOR_(name, value) name = value,
 enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
