@@ -23,6 +23,26 @@ namespace CvUnity.Interop
     }
 
     /// <summary>
+    /// 特徴点 1 つ。native の ocvu_keypoint と layout を合わせる。
+    /// </summary>
+    /// <remarks>
+    /// struct の layout は正本を native のヘッダ側に置いてある。
+    /// 大きさが食い違うと marshalling だけが壊れるので、
+    /// L3 の FeaturesTests が Marshal.SizeOf で突き合わせる。
+    /// </remarks>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct OcvuKeyPoint
+    {
+        internal float X;
+        internal float Y;
+        internal float Size;
+        internal float Angle;
+        internal float Response;
+        internal int Octave;
+        internal int ClassId;
+    }
+
+    /// <summary>
     /// P/Invoke 宣言の置き場。
     /// </summary>
     /// <remarks>
@@ -32,7 +52,7 @@ namespace CvUnity.Interop
     /// 次の generate で spec と食い違い、dev.ps1 verify-generated が赤くする。
     ///
     /// このファイルに残すのは、生成物が参照する LibraryName と、
-    /// spec が表現しない型（OcvuMatInfo）だけである。
+    /// spec が表現しない型（OcvuMatInfo、OcvuKeyPoint）だけである。
     /// </remarks>
     internal static partial class NativeMethods
     {
