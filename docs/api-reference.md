@@ -273,9 +273,15 @@ status:
 | `pattern_cols * pattern_rows` が `OCVU_CHESSBOARD_MAX_CORNERS` を超える | `OCVU_STATUS_INVALID_ARGUMENT` |
 | `capacity` が負 | `OCVU_STATUS_INVALID_ARGUMENT` |
 | `capacity` が正なのに `out_corners` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `ocvu_find_chessboard_corners` の `src` が空 | `OCVU_STATUS_INVALID_ARGUMENT`（現在の ABI では `ocvu_mat_create` が空を作れないので実際には到達しない防御） |
 | `capacity` が必要な float 数に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_count` に必要な float 数。**buffer は書かない**）|
 | 格子が写っていない | `OCVU_STATUS_NOT_FOUND`（**失敗ではない**）|
 | OpenCV 由来の失敗 | `OCVU_STATUS_OPENCV_ERROR` |
+
+**`ocvu_undistort` は空の `src` を明示的には見ていない** —— `ocvu_find_chessboard_corners`
+と違い、空の `Mat` は `cv::undistort` に任せているので `OCVU_STATUS_OPENCV_ERROR` になる。
+2 本の扱いは非対称だが、`ocvu_mat_create` が空の `Mat` を作れない現在の ABI では
+どちらの経路も到達しない防御であり、実害は無い。
 
 ### この allowlist に含まれないもの
 
@@ -533,8 +539,19 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 **`distCoeffs` は OpenCV が受ける長さ（4 / 5 / 8 / 12 / 14 要素）でなければならない**
 （`ArgumentException`）。この一覧は OpenCV の都合であって、こちらの判断ではない。
 
-`FindChessboardCorners` が返す点は `patternCols * patternRows` 個で、
+`FindChessboardCorners` が見つかったときに返す点は `patternCols * patternRows` 個で、
 `CvGeometry.FindHomography`（§2.10）にそのまま渡せる形（`CvPoint2[]`）である。
+**写っていなければ空配列**を返す（誤りではない）。
+
+**`patternCols * patternRows` は 10000 以下でなければならない**
+（`ArgumentOutOfRangeException`）。上限は C 側の `OCVU_CHESSBOARD_MAX_CORNERS` の
+**写しとして C# 側にも複製されている**（`CvFeatures.DetectOrb` の `maxFeatures` と
+同じ形） —— C# から C の `#define` を読む経路が無いためで、両側が native に
+同じ値を問うテスト（`CalibrationTests.TheManagedCornerLimitMatchesWhatNativeAccepts`）
+が二重定義の同期を守っている。**この検証は積を `long` で計算してから行う** ——
+`int` のまま `patternCols * patternRows` を計算すると符号付き整数の乗算
+オーバーフローになりうるため（`patternCols` / `patternRows` それぞれの単独の
+下限は 2 以上）。
 
 ## 3. 対象外（この文書に書かないもの）
 

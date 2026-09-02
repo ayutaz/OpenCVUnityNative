@@ -331,9 +331,9 @@ TEST(Calibration, FindChessboardCornersFindsASyntheticBoard) {
     //
     // **盤をあえて非正方形にする。** 8x8 の正方形市松模様（内側格子点 7x7）だと
     // x と y を入れ替えても格子座標の集合が変わらず、並びの取り違えを
-    // 検出できない（レビュー I2 で指摘。実測でも確認済み——下の
-    // FindChessboardCornersFindsASyntheticBoard の並び検証を先に 7x7 の正方形で
-    // 書いたところ、x/y を入れ替えて壊しても検査は緑のままだった）。
+    // 検出できない（レビュー I2 で指摘。実測でも確認済み——この並び検証を
+    // 先に 7x7 の正方形で書いたところ、x/y を入れ替えて壊しても検査は
+    // 緑のままだった）。
     // 横 8 マス・縦 7 マスにして、内側の格子点を 7x6（横 7・縦 6）にする。
     constexpr int kCell = 16;
     constexpr int kCols = 8;   // 横方向のマス数。内側格子点は 7 列。

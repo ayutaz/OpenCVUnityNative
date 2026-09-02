@@ -19,6 +19,13 @@ namespace CvUnity
         private const int CameraMatrixLength = 9;
 
         /// <summary>
+        /// C の OCVU_CHESSBOARD_MAX_CORNERS の写しである。C# から C の #define は読めないので
+        /// 複製しており、CalibrationTests の TheManagedCornerLimitMatchesWhatNativeAccepts が
+        /// 両側を native に問うことで同期を守っている（CvFeatures.MaxFeatures と同じ形）。
+        /// </summary>
+        private const int MaxCorners = 10000;
+
+        /// <summary>
         /// src の歪みを補正して <paramref name="dst"/> に入れる。
         /// </summary>
         /// <remarks>
@@ -70,8 +77,10 @@ namespace CvUnity
         /// <remarks>
         /// **空配列は誤りではない** —— 格子が写っていなかっただけである
         /// （入力の形が誤っている場合は例外になる）。
-        /// 返る点は <c>patternCols * patternRows</c> 個で、
+        /// 見つかったときは、返る点は <c>patternCols * patternRows</c> 個で、
         /// <see cref="CvGeometry.FindHomography"/> にそのまま渡せる形である。
+        /// <paramref name="patternCols"/> * <paramref name="patternRows"/> は
+        /// 10000 以下でなければならない（native の上限の写し）。
         /// </remarks>
         /// <param name="src">探す画像。</param>
         /// <param name="patternCols">内側の格子点の列数。2 以上。</param>
@@ -90,12 +99,27 @@ namespace CvUnity
                     nameof(patternRows), patternRows, "格子の行数は 2 以上でなければなりません。");
             }
 
+            // **int のまま掛けない。** patternCols * patternRows を int で計算すると
+            // 符号付き整数の乗算オーバーフロー（未定義動作）になりうる —— native 側で
+            // 同じ危険を int64_t 化して塞いだのに（レビュー I3）、C# 側は int のまま
+            // 残っていた（レビュー I4）。long で先に見て、native の門に届く前に断る。
+            long pointCount = (long)patternCols * patternRows;
+            if (pointCount > MaxCorners)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(patternRows), patternRows,
+                    $"patternCols * patternRows は {MaxCorners} 以下でなければなりません" +
+                    $"（渡されたのは {patternCols} x {patternRows} = {pointCount}）。");
+            }
+
             // 必要量は事前に分かっているので 1 回で済む。
             // **capacity も out_count も float の個数である**（点の個数ではない）。
             // x と y の 2 つで 1 点なので、点数の 2 倍が float 数になる。
             // この単位は `ocvu_orb_detect` と同じ「capacity == 配列長」であり、
             // **要素数で数える規則がこの ABI 全体で 1 つだけになるようにしてある。**
-            int expectedFloats = patternCols * patternRows * 2;
+            // pointCount は上で MaxCorners（10000）以下と確かめてあるので、
+            // *2 と int への変換はここで安全に行える。
+            int expectedFloats = (int)(pointCount * 2);
             var flat = new float[expectedFloats];
 
             var status = (CvStatus)NativeMethods.ocvu_find_chessboard_corners(

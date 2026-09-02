@@ -59,6 +59,16 @@ public class CalibrationTests
     {
         using var blank = CvMat.Create(64, 64, CvMatType.Gray8);
 
+        // **`CvMat.Create` は画素を初期化しない。** 「真っ黒」を主張するなら
+        // 明示的にゼロ埋めする（L1 の同じ欠陥はレビュー I4 で直っている
+        // ——native/tests/test_calibration.cpp の
+        // FindChessboardCornersReportsNotFoundOnABlankImage を参照）。
+        // ゼロ埋めしないと、アロケータが使い回した前回の画素（雑音）を
+        // 「盤が写っていない画像」として検査することになり、緑になるのが
+        // 「格子が無いから」ではなく「たまたま雑音が格子に見えなかったから」
+        // になってしまう。
+        blank.CopyFrom(new byte[64 * 64], 64);
+
         // **空配列は誤りではない。** 格子が写っていなかっただけである。
         Assert.Empty(CvCalibration.FindChessboardCorners(blank, 7, 7));
     }
@@ -98,6 +108,27 @@ public class CalibrationTests
     }
 
     [Fact]
+    public void FindChessboardCornersRejectsAPatternExceedingTheCornerLimit()
+    {
+        // レビュー I4: 修正前は int のまま計算していたため、(32768, 32768) は
+        // int.MinValue へ折り返して new float[負] が OverflowException になり、
+        // (50000, 50000) は 2 回折り返して 705,032,704 個（約 2.8 GB）を
+        // 確保してから native が断っていた。**native の門に届く前に、
+        // ArgumentOutOfRangeException で断ること**を見る。
+        using var src = CvMat.Create(64, 64, CvMatType.Gray8);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CvCalibration.FindChessboardCorners(src, 32768, 32768));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CvCalibration.FindChessboardCorners(src, 50000, 50000));
+
+        // 上限ちょうど（100 x 100 = 10000）は拒否されないことも見る
+        // —— capacity は足りるので、実際に呼び出しまで進む。
+        var ex = Record.Exception(() => CvCalibration.FindChessboardCorners(src, 100, 100));
+        Assert.Null(ex);
+    }
+
+    [Fact]
     public void TheManagedCoefficientCountsMatchWhatNativeAccepts()
     {
         // IsAcceptedCoefficientCount は C と C# に二重に書かれている。
@@ -121,6 +152,27 @@ public class CalibrationTests
                 coeffs, (long)n * sizeof(double), dst.Handle);
             Assert.Equal(CvStatus.InvalidArgument, status);
         }
+    }
+
+    [Fact]
+    public void TheManagedCornerLimitMatchesWhatNativeAccepts()
+    {
+        // CvCalibration の MaxCorners（10000）は C の OCVU_CHESSBOARD_MAX_CORNERS の
+        // 写しである。**写しなので、放っておくと片方だけ変わる。** 境界の両側を
+        // C# の検証を迂回して native に問う（FeaturesTests と同じ形）。
+        using var img = CvMat.Create(8, 8, CvMatType.Gray8);
+        var raw = new float[1];
+
+        // 100 x 100 = 10000 は受理される（capacity 不足で BufferTooSmall になるが、
+        // 上限の検証は通っている）。
+        var atTheLimit = (CvStatus)CvUnity.Interop.NativeMethods.ocvu_find_chessboard_corners(
+            img.Handle, 100, 100, raw, 1, out _);
+        Assert.Equal(CvStatus.BufferTooSmall, atTheLimit);
+
+        // 100 x 101 = 10100 は上限の検証で弾かれる。
+        var overTheLimit = (CvStatus)CvUnity.Interop.NativeMethods.ocvu_find_chessboard_corners(
+            img.Handle, 100, 101, raw, 1, out _);
+        Assert.Equal(CvStatus.InvalidArgument, overTheLimit);
     }
 
     /// <summary>市松模様を作る。**幅と高さを別々に取る** —— 正方形の盤では

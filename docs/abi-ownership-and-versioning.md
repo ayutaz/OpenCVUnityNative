@@ -438,25 +438,6 @@ Windows の debug ビルドで **10,177,536 → 20,136,960 バイト**（+9,959,
 引かないので、増やしたのは 3 本の関数を書いたことである。M3.5 の `imgcodecs` と
 同じ形で、そのときは 8,831,488 → 10,177,536 だった。
 
-### 3.8 カメラの歪み補正（M5 の module 追加、その 3）
-
-| 関数 | 内容 |
-| --- | --- |
-| `ocvu_undistort` | カメラ行列と歪み係数で画像の歪みを補正する。**1 回呼び** |
-| `ocvu_find_chessboard_corners` | チェスボードの内側の格子点を見つける。**1 回呼び** |
-
-**これで allowlist は 17 本になった。**
-
-**`calib` module は使っていない。** `undistort` は `imgproc`、
-`findChessboardCorners` は `objdetect` にあり、どちらも既にリンク済みだった
-（実測。`native/tests/test_module_linkage.cpp` がその前提を固定している）。
-**構成ハッシュは変わっていない。**
-
-**係数を求める `cv::calibrateCamera` は出していない** —— そちらは `calib` に在り、
-足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる
-（実測: `4785d98e9aad` → `09fcbe260d87`）。加えて**利用例が決まっていない** ——
-較正をアプリの初回に行うのか、開発時に済ませて係数を焼き込むのかで API の形が変わる。
-
 **quiet zone の 40 px は倍率に追従しない。** 拡大は「短辺 < 200 px なら整数倍」と大きさに追従するが、余白は常に 40 px 固定である。1 module が 20 px ある大きな画像では40 px は 2 module 分にしかならず、QR の仕様が求める 4 module に届かない —— **「余白が無い画像でも検出できる」という無条件化の根拠が、まさにその大きい画像で弱い。**テストが覆っているのは encoder の出力（小さい画像）だけである。**測定が無いので今は変えない**（測定なしに形を変えないのが M5 のこの作業での判断である）。
 
 **Release ビルドと他の 4 platform では測っていない。** debug の値なので、
@@ -488,6 +469,30 @@ C の `#define` を読む経路が無いためで、両側が native に同じ�
 `octave` / `class_id`、いずれも `cv::KeyPoint` のフィールドをそのまま写した固定サイズ型）。
 buffer の所有権は `ocvu_mat_copy_from_buffer` などと同じく最初から最後まで呼ぶ側にある。
 
+### 3.8 カメラの歪み補正（M5 の module 追加、その 3）
+
+| 関数 | 内容 |
+| --- | --- |
+| `ocvu_undistort` | カメラ行列と歪み係数で画像の歪みを補正する。**1 回呼び** |
+| `ocvu_find_chessboard_corners` | チェスボードの内側の格子点を見つける。**1 回呼び** |
+
+**これで allowlist は 17 本になった。**
+
+**`calib` module は使っていない。** `undistort` は `imgproc`、
+`findChessboardCorners` は `objdetect` にあり、どちらも既にリンク済みだった
+（実測。`native/tests/test_module_linkage.cpp` がその前提を固定している）。
+**構成ハッシュは変わっていない。**
+
+**係数を求める `cv::calibrateCamera` は出していない** —— そちらは `calib` に在り、
+足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる
+（実測: `4785d98e9aad` → `09fcbe260d87`）。加えて**利用例が決まっていない** ——
+較正をアプリの初回に行うのか、開発時に済ませて係数を焼き込むのかで API の形が変わる。
+
+**`ocvu_find_chessboard_corners` の上限も二重に定義されている。** `pattern_cols * pattern_rows`
+の上限（`OCVU_CHESSBOARD_MAX_CORNERS` = 10000）は C の `#define` と C# の
+`CvCalibration.MaxCorners` に写しがあり、`CvFeatures.MaxFeatures` と同じ形で
+`CalibrationTests.TheManagedCornerLimitMatchesWhatNativeAccepts` が両側を native に問う。
+
 ### まだ作らないもの
 
 `Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、**`imgcodecs` の
@@ -496,7 +501,9 @@ buffer の所有権は `ocvu_mat_copy_from_buffer` などと同じく最初か�
 API を出す判断は別**）。**`geometry` は 2026-09-01 に出した**（§3.7）。
 **`calib` module 自体は足していないが、その用途の一部である歪み補正と
 チェスボードの格子点検出は `imgproc` / `objdetect` の関数として出した**
-（§3.8）—— 残っているのは `cv::calibrateCamera`（係数を求める側）だけである。
+（§3.8）—— この用途で残っているのは、係数を求める `cv::calibrateCamera` だけである。
+`calib` module 自体には `stereoCalibrate` / `calibrateHandEye` など他の関数もあり、
+「残っているのは `calibrateCamera` だけ」は `calib` module 全体についての主張ではない。
 いずれも契約が固まってから足す。
 **メモリ上の byte 列の encode / decode は M3.5 で足した（§3.5）。ファイルパスを
 受けない判断の理由は §1.6 にある。QR の符号化・復号と ORB 検出は M5 で足した（§3.6）。**
