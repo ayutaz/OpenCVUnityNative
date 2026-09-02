@@ -669,6 +669,8 @@ public class SpecSchemaTests
 
     // **buffer の 2 つは一意に決まらないので、どちらも通す。** 同じ C の
     // entry point に対する managed 配列版とアドレス版で、どちらも正しい。
+    // direction は const 性に合わせる（M6 の検査が非 const を in* で拒むため
+    // —— この Theory の関心は csType の対応であって direction ではない）。
     [Theory]
     [InlineData("const uint8_t*", "byte[]")]
     [InlineData("const uint8_t*", "System.IntPtr")]
@@ -676,7 +678,8 @@ public class SpecSchemaTests
     [InlineData("uint8_t*", "System.IntPtr")]
     public void BothSpellingsOfABufferParamAreAccepted(string cType, string csType)
     {
-        Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
+        Assert.Equal(csType, LoadOneParam(cType, csType, DirectionForConstness(cType))
+            .Single().Functions.Single().Params.Single().CsType);
     }
 
     // 配列を渡す cType は 2 つの入口を持つ。managed 配列を marshal する版と、
@@ -686,10 +689,20 @@ public class SpecSchemaTests
     [InlineData("const float*", "System.IntPtr")]
     [InlineData("ocvu_keypoint*", "OcvuKeyPoint[]")]
     [InlineData("ocvu_keypoint*", "System.IntPtr")]
+    [InlineData("const double*", "double[]")]
+    [InlineData("const double*", "System.IntPtr")]
+    [InlineData("float*", "float[]")]
+    [InlineData("float*", "System.IntPtr")]
     public void BothSpellingsOfAnArrayParamAreAccepted(string cType, string csType)
     {
-        Assert.Equal(csType, LoadOneParam(cType, csType).Single().Functions.Single().Params.Single().CsType);
+        Assert.Equal(csType, LoadOneParam(cType, csType, DirectionForConstness(cType))
+            .Single().Functions.Single().Params.Single().CsType);
     }
+
+    // cType の const 性から、この Theory 群が使う妥当な direction を選ぶ。
+    // const は借用（in-buffer）、非 const は書き込み先（out-buffer）。
+    private static string DirectionForConstness(string cType) =>
+        cType.StartsWith("const ", StringComparison.Ordinal) ? "in-buffer" : "out-buffer";
 
     [Fact]
     public void AKeypointParamRejectsAnUnrelatedCsType()
@@ -710,7 +723,22 @@ public class SpecSchemaTests
         Assert.True(ps.Count > 20, "param が 0 件だと素通りする");
     }
 
-    private static IReadOnlyList<ModuleSpec> LoadOneParam(string cType, string csType)
+    // **非 const のポインタは書き込み先である。** direction が in / in-buffer だと
+    // C も C# もビルドは通り、実行時の意図の食い違いだけが残る —— const の
+    // ポインタを out-buffer に書く逆向きは C コンパイラが const 修飾違反として
+    // 落とすので下流に門があるが、こちらの向きには無い（レビュー M6。
+    // 下流に門が無い向きだけを足す、の 2 ケース）。
+    [Theory]
+    [InlineData("float*", "in")]
+    [InlineData("float*", "in-buffer")]
+    public void ANonConstPointerCTypeRejectsAnInboundDirection(string cType, string direction)
+    {
+        var ex = Assert.Throws<SpecFormatException>(
+            () => LoadOneParam(cType, "System.IntPtr", direction));
+        Assert.Contains("direction", ex.Message);
+    }
+
+    private static IReadOnlyList<ModuleSpec> LoadOneParam(string cType, string csType, string direction = "in")
     {
         var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
         Directory.CreateDirectory(tmp);
@@ -728,7 +756,7 @@ public class SpecSchemaTests
                       "csReturns": "void",
                       "wrapInTryBarrier": true,
                       "params": [
-                        { "name": "x", "cType": "{{cType}}", "csType": "{{csType}}", "direction": "in" }
+                        { "name": "x", "cType": "{{cType}}", "csType": "{{csType}}", "direction": "{{direction}}" }
                       ]
                     }
                   ]

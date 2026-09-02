@@ -3,7 +3,7 @@
 <!-- このファイルは生成物である。手で編集しないこと。 -->
 <!-- 正本: bindings/spec/*.json  生成: ./tools/dev.ps1 generate -->
 
-**公開している C ABI は 24 本**である。C# の P/Invoke 宣言は 26 本ある。
+**公開している C ABI は 26 本**である。C# の P/Invoke 宣言は 28 本ある。
 
 **差の 2 本は C ABI を増やさない。** 既にある C の entry point へ
 別の引数の形で入る C# 側の入口で、C 側に対応する宣言が無い。
@@ -34,6 +34,7 @@
 | `imgproc` | `ocvu_cvt_color` | `ocvu_cvt_color` | 呼ぶ | 色空間を変換する。dst の形状と型は結果に応じて上書きされる。src と dst が同じ handle なら OCVU_STATUS_INVALID_ARGUMENT を返す（OpenCV の in-place 対応は関数ごとに異なり、曖昧さを ABI に持ち込まない）。OpenCV 由来の失敗は OCVU_STATUS_OPENCV_ERROR になる。 |
 | `imgproc` | `ocvu_resize` | `ocvu_resize` | 呼ぶ | width x height に拡大縮小する。width / height が 1 未満なら OCVU_STATUS_INVALID_ARGUMENT。src と dst に同じ handle を渡した場合も同様に拒否する。 |
 | `imgproc` | `ocvu_gaussian_blur` | `ocvu_gaussian_blur` | 呼ぶ | Gaussian ぼかしを掛ける。ksize は正の奇数でなければならず、そうでなければ OCVU_STATUS_INVALID_ARGUMENT。sigma に 0 を渡すと OpenCV が ksize から算出する。 |
+| `imgproc` | `ocvu_undistort` | `ocvu_undistort` | 呼ぶ | src の歪みを camera_matrix と dist_coeffs で補正して dst に入れる。dst は結果に応じて丸ごと置き換わり、src と同じ形状・型になる。camera_matrix は行優先の 3x3（double 9 個）、dist_coeffs は OpenCV が受ける長さ（4 / 5 / 8 / 12 / 14 個）でなければならない。camera_matrix_length と dist_coeffs_length はどちらもバイト数で、この ABI の length は全部そうである。呼ぶ側を信用せず、長さが合わなければ何も読まずに OCVU_STATUS_INVALID_ARGUMENT を返す。失敗したときは dst を書き換えない。src と dst に同じ handle を渡してもよい（結果を求めてから入れ替えるので、cvtColor と違い in-place 呼び出しを禁じていない）。 |
 | `infra` | `ocvu_get_abi_version` | `ocvu_get_abi_version` | 呼ぶ | 現在の C ABI バージョンを返す。失敗しない。 |
 | `infra` | `ocvu_get_last_error_status` | `ocvu_get_last_error_status` | 呼ぶ | 直近のエラー status を返す。呼び出しスレッドごとに独立している。 |
 | `infra` | `ocvu_get_last_error_message` | `ocvu_get_last_error_message` | 呼ぶ | 直近のエラーメッセージを UTF-8・NUL 終端で buffer に書く。buffer に NULL を渡して必要サイズだけを聞くのが正規の 1 回目で、そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない。out_required_size が NULL なら OCVU_STATUS_NULL_POINTER。この関数自身は last-error を変更しない。 |
@@ -45,6 +46,7 @@
 | `infra` | `ocvu_debug_crash` | `ocvu_debug_crash` | 呼ばない | conformance test 用に、意図的にプロセスを壊す。kind は 0 が不正アクセスで即死、1 が戻ってこない（無限ループ）。managed 側からネイティブが死んだときに L3 が有限時間で赤くなるかを確かめるためだけに存在し、通常の経路からは決して呼ばれない。 |
 | `objdetect` | `ocvu_qr_encode` | `ocvu_qr_encode` | 呼ぶ | text を QR コードの画像に符号化して dst に入れる。dst の形状と型は結果に応じて上書きされ、8 bit 1 channel の正方形になる。text は NUL 終端の UTF-8 byte 列で、NULL と空文字列は拒否する。符号化できない長さの text は OCVU_STATUS_OPENCV_ERROR になる。失敗したときは dst を書き換えない。 |
 | `objdetect` | `ocvu_qr_decode` | `ocvu_qr_decode` | 呼ぶ | src に写っている QR コードを 1 つ検出して復号し、NUL 終端の UTF-8 byte 列として buffer へ書く。検出の前に白い余白（quiet zone）を必ず足し、短いほうの辺が 200 px 未満の画像はさらに最近傍補間で拡大してから検出する。復号後の長さは呼ぶ側に分からないので 2 回呼ぶ（1 回目は buffer に NULL を渡して out_required_size に NUL を含む必要バイト数を受け取る。そのとき返る OCVU_STATUS_BUFFER_TOO_SMALL は失敗ではない）。buffer の所有権は最初から最後まで呼ぶ側にあり、足りなければ何も書かない。QR が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。 |
+| `objdetect` | `ocvu_find_chessboard_corners` | `ocvu_find_chessboard_corners` | 呼ぶ | src に写っているチェスボードの内側の格子点を見つけて out_corners へ x と y が交互に並ぶ形で書き、書いた float の個数を out_count に返す。capacity は out_corners の float の個数であり、点の個数ではない（x と y の 2 つで 1 点なので、必要な float 数は pattern_cols * pattern_rows * 2 である）。呼ぶ側は必要量を事前に知り得るので 2 回呼ぶ必要は無い（capacity がそれに満たなければ何も書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し out_count に必要な float 数を入れる）。pattern_cols と pattern_rows はどちらも 2 以上でなければならず、その積が OCVU_CHESSBOARD_MAX_CORNERS を超える場合も OCVU_STATUS_INVALID_ARGUMENT を返す（int32 の乗算オーバーフローを避けるための歯止めであり、実用上のチェスボードパターンがこれを超えることは無い）。out_count が NULL なら OCVU_STATUS_NULL_POINTER を返す。capacity が正で out_corners が NULL なら OCVU_STATUS_NULL_POINTER、capacity が負なら OCVU_STATUS_INVALID_ARGUMENT を返す。src が空なら OCVU_STATUS_INVALID_ARGUMENT を返す（現在の ABI では ocvu_mat_create が空の Mat を作れないので実際には到達しない防御である）。これらいずれの失敗経路でも out_count には常に 0 を書く（BUFFER_TOO_SMALL のときだけ必要な float 数を書く）。格子が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。buffer の所有権は最初から最後まで呼ぶ側にある。 |
 
 ## 到達性
 

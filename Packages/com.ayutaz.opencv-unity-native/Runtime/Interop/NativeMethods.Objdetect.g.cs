@@ -16,5 +16,9 @@ namespace CvUnity.Interop
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_qr_decode(ulong src, byte[] buffer, int buffer_size, out int out_required_size);
 
+        /// <summary>src に写っているチェスボードの内側の格子点を見つけて out_corners へ x と y が交互に並ぶ形で書き、書いた float の個数を out_count に返す。capacity は out_corners の float の個数であり、点の個数ではない（x と y の 2 つで 1 点なので、必要な float 数は pattern_cols * pattern_rows * 2 である）。呼ぶ側は必要量を事前に知り得るので 2 回呼ぶ必要は無い（capacity がそれに満たなければ何も書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し out_count に必要な float 数を入れる）。pattern_cols と pattern_rows はどちらも 2 以上でなければならず、その積が OCVU_CHESSBOARD_MAX_CORNERS を超える場合も OCVU_STATUS_INVALID_ARGUMENT を返す（int32 の乗算オーバーフローを避けるための歯止めであり、実用上のチェスボードパターンがこれを超えることは無い）。out_count が NULL なら OCVU_STATUS_NULL_POINTER を返す。capacity が正で out_corners が NULL なら OCVU_STATUS_NULL_POINTER、capacity が負なら OCVU_STATUS_INVALID_ARGUMENT を返す。src が空なら OCVU_STATUS_INVALID_ARGUMENT を返す（現在の ABI では ocvu_mat_create が空の Mat を作れないので実際には到達しない防御である）。これらいずれの失敗経路でも out_count には常に 0 を書く（BUFFER_TOO_SMALL のときだけ必要な float 数を書く）。格子が写っていなければ OCVU_STATUS_NOT_FOUND を返し、これは誤りではない。buffer の所有権は最初から最後まで呼ぶ側にある。</summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_find_chessboard_corners(ulong src, int pattern_cols, int pattern_rows, float[] out_corners, int capacity, out int out_count);
+
     }
 }

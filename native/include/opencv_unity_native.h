@@ -132,6 +132,12 @@ typedef struct ocvu_keypoint {
  * 呼ぶ側が過大な値を渡したときに native 側で確保しないための歯止めである。 */
 #define OCVU_ORB_MAX_FEATURES 10000
 
+/* ocvu_find_chessboard_corners の pattern_cols * pattern_rows（点の個数）の上限。
+ * これを縛らないと、大きな pattern_cols / pattern_rows で int32_t の乗算が
+ * 符号付きオーバーフロー（未定義動作）を起こしうる。実用上のチェスボード
+ * パターン（せいぜい数十 x 数十）はこれを大きく下回る。 */
+#define OCVU_CHESSBOARD_MAX_CORNERS 10000
+
 /* cvtColor の変換コード。cv::COLOR_* の値をそのまま使う（写し間違いを避けるため
  * 実装側で static_assert する）。M2 で必要な 3 つだけを公開する。 */
 #define OCVU_CVT_BGRA2BGR   1
