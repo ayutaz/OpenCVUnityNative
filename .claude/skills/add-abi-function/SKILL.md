@@ -111,6 +111,11 @@ OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `
 - **`THIRD_PARTY_NOTICES.md` の module 列挙**（配布物に同梱される法的通知文書）
 - **`README.md` の「which OpenCV modules this plugin links」**
 - **`tools/tests/OpenCvConfig.Tests.ps1` の module 検査**（spec と両方向に突き合わせる）
+- **`tools/tests/VerifyOpenCvArtifact.Tests.ps1` の合成ツリー** ——
+  検証スクリプトが要求する module を並べた一覧を持つ。**このレーンは
+  `test-tools-slow`（CI 専用）にあり、ローカルの `dev.ps1 test` では走らない**
+  ので、**古くなっても CI に投げるまで分からない**（2026-09-02 に実測。
+  2 platform が落ちた）。
 - **module 一覧を散文で持っている文書** —— `docs/roadmap.md` の M7 節、
   `docs/unity-opencv-integration-research-and-plan.md` の競合比較表、
   `CLAUDE.md` の `opencv-config.psd1` の行。**この 3 つは 2026-09-02 に
