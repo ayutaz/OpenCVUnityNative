@@ -238,7 +238,12 @@ foreach ($specFile in Get-ChildItem -Path (Join-Path $repoRoot 'bindings/spec') 
         # `X_ocvu_debug_crash` も `ocvu_debug_crash` を含んでしまい、**名前を
         # 書き換えても検査が通る**（両方向とも実測で踏んだ）。
         # **前後どちらにも識別子の文字が続かない**ことまで見る。
-        if ($apiRefText -notmatch ('(?<![A-Za-z0-9_])' + [regex]::Escape($fn.name) + '(?![A-Za-z0-9_])')) {
+        #
+        # **`-cnotmatch` であって `-notmatch` ではない。** PowerShell の `-match` は
+        # 既定で大文字小文字を区別しないので、文書側が `OCVU_DEBUG_CRASH` になっても
+        # 緑になる —— **C の識別子は大文字小文字を区別するので、それは別の名前であり、
+        # 「その関数は文書に無い」が正しい**（実測: 小文字が 0 箇所になっても通った）。
+        if ($apiRefText -cnotmatch ('(?<![A-Za-z0-9_])' + [regex]::Escape($fn.name) + '(?![A-Za-z0-9_])')) {
             $undocumented += $fn.name
         }
     }
