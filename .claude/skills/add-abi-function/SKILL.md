@@ -119,7 +119,8 @@ OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `
 
 **テストが module 名を写していると、CI に投げるまで分からないことがある。**
 `tools/tests/VerifyOpenCvArtifact.Tests.ps1` は合成ツリーの中身を
-リテラルで持っており、`calib` を足した瞬間に 2 platform が落ちた
+リテラルで**持っていた**（いまは正本から作る）。`calib` を足した瞬間に
+2 platform が落ちた
 （2026-09-02 に実測）。**このレーンは `test-tools-slow`（CI 専用）にあり、
 ローカルの `dev.ps1 test` では走らない。**
 

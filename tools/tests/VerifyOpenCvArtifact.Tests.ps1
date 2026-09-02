@@ -34,9 +34,7 @@ function New-Tree([string[]]$libs) {
 # 「要求した module がビルド成果物にありません」は正しい判定である。
 # **古かったのは検査の入力のほうだった。**
 #
-# 検証スクリプトが要求する module は `config.Modules` + 受け入れ済みの
-# 推移的依存なので、同じ 2 つから作る。**これで module が増えれば
-# 合成ツリーも一緒に増える。**
+# **`config.Modules` から作る。これで module が増えれば合成ツリーも一緒に増える。**
 Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
 $config = Get-OpenCvConfig
 
@@ -59,20 +57,30 @@ $allowed = @(
 )
 
 # **推移的依存が実際に許可されることを、1 つ名指しで確かめる。**
-# 上の必須判定とは別の経路（$PermittedOpenCvModules）を通るので、
-# ここが唯一その経路を見ている。`flann` は features / objdetect が引き込む
-# もので、検証スクリプトの $AcceptedTransitiveModules に載っている。
-# **載っていなければこのテストが落ちる** —— 一覧を写さずに、
+# `$PermittedOpenCvModules` の経路のうち、**推移的な半分**をここだけが見る
+# （必須の半分は `a clean tree passes` が通る）。`flann` は features /
+# objdetect が引き込むもので、検証スクリプトの $AcceptedTransitiveModules に
+# 載っている。**載っていなければこのテストが落ちる** —— 一覧を写さずに、
 # 「許可される」という結果のほうを見ている。
+#
+# **`flann` が必須側へ移ったら、この assertion は名前どおりのものを
+# 見なくなる**（`config.Modules` に入れば $allowed にも入り、
+# 「推移的だから許された」と区別が付かない）。**だから先にそれを断つ。**
+Assert-That ($config.Modules -notcontains 'flann') `
+    'flann is still a transitive module, not a required one (前提が変わったらこの下の assertion は名前どおりのものを見ない)'
+
 $withTransitive = New-Tree ($allowed + @('opencv_flann500.lib'))
 & pwsh -NoProfile -File $verify -Root $withTransitive | Out-Null
 Assert-That ($LASTEXITCODE -eq 0) 'an accepted transitive module (flann) is permitted'
 
 # **逆向き。** 許可リストに無い OpenCV module は拒まれる。
-# stereo / flann のような「載っているもの」と区別が付く形で落ちること。
+# **終了コードだけを見ない** —— StrictMode の PropertyNotFoundException でも
+# 非ゼロになるので、意図した拒否とクラッシュが区別できない（このファイルの
+# 86-90 行が同じことを書いている）。**拒んだ相手の名前まで見る。**
 $withUnlisted = New-Tree ($allowed + @('opencv_dnn500.lib'))
-& pwsh -NoProfile -File $verify -Root $withUnlisted 2>&1 | Out-Null
+$unlistedOutput = & pwsh -NoProfile -File $verify -Root $withUnlisted 2>&1 | Out-String
 Assert-That ($LASTEXITCODE -ne 0) 'an OpenCV module outside the permitted set is rejected'
+Assert-That ($unlistedOutput -match 'dnn') 'the rejection names the module it refused (生の例外で落ちるのと区別が付く形で落ちること)'
 
 
 # 正常系
