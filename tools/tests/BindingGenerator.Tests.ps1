@@ -220,8 +220,11 @@ Assert-That ($includedModules.Count -eq $specModules.Count) `
 # `prove-a-check-works` の「列挙に基づく門を、出口側の構造に基づく門へ変える」
 # —— **一覧を持たなければ、一覧が古くなることも無い。**
 #
-# 残る例外は `*_ptr` の 2 本だけで、これは**規則で表せる**（同じ C の entry point
-# へポインタで入る C# 側の入口。C# としての契約は CvMat の IntPtr overload にある）。
+# **例外は 1 つも無い。** `*_ptr` の 2 本も、当初は「規則で表せる」として skip して
+# いたが、**そちらも文書に名前で載っていた**（`docs/api-reference.md` の
+# 「この allowlist に含まれないもの」）—— **規則で表せることと、除外する必要が
+# あることは別である。** 除外している間は、その 2 本を文書から消しても検査が
+# 緑だった（レビュアーが実証した）。
 $apiRefText = Get-Content -LiteralPath (Join-Path $repoRoot 'docs/api-reference.md') -Raw
 
 $undocumented = @()
@@ -230,12 +233,12 @@ foreach ($specFile in Get-ChildItem -Path (Join-Path $repoRoot 'bindings/spec') 
     if ($specFile.Name -eq 'schema.json') { continue }
     $model = Get-Content -LiteralPath $specFile.FullName -Raw | ConvertFrom-Json
     foreach ($fn in $model.functions) {
-        if ($fn.name -like '*_ptr') { continue }
         $checkedCount++
-        # **部分一致にしない。** `-like "*name*"` だと `ocvu_debug_crash_GONE` の
-        # ような文字列が `ocvu_debug_crash` を含んでしまい、**名前を書き換えても
-        # 検査が通る**（実測で踏んだ）。後ろに識別子の文字が続かないことまで見る。
-        if ($apiRefText -notmatch ([regex]::Escape($fn.name) + '(?![A-Za-z0-9_])')) {
+        # **部分一致にしない。** `-like "*name*"` だと `ocvu_debug_crash_GONE` も
+        # `X_ocvu_debug_crash` も `ocvu_debug_crash` を含んでしまい、**名前を
+        # 書き換えても検査が通る**（両方向とも実測で踏んだ）。
+        # **前後どちらにも識別子の文字が続かない**ことまで見る。
+        if ($apiRefText -notmatch ('(?<![A-Za-z0-9_])' + [regex]::Escape($fn.name) + '(?![A-Za-z0-9_])')) {
             $undocumented += $fn.name
         }
     }
