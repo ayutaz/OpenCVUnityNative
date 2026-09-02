@@ -319,9 +319,14 @@ status:
 
 `ocvu_get_abi_version` / last-error 取得 / status 表の照会 / `ocvu_get_opencv_version` /
 `ocvu_get_build_information` / `ocvu_debug_throw` / `ocvu_debug_crash` は存在するが、
-M0/M1 由来の診断・conformance test 用 API であり、この allowlist（M2 の 9 本 + M3.5 の
-2 本 + M5 の 7 本 = 18 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを
+M0/M1 由来の診断・conformance test 用 API であり、**この allowlist の対象外**である
+（**本数は `docs/abi-ownership-and-versioning.md` §3 の冒頭が数える**）。C# 側では `CvNative` の一部メンバがこれらを
 包んでいるので、公開 C# API としての契約は §2.4 に記載する。
+
+**`ocvu_mat_copy_from_buffer_ptr` / `ocvu_mat_copy_to_buffer_ptr` も、上の表に
+個別の行を持たない。** これらは managed 配列を渡す版とまったく同じ C の entry point
+へ、**ポインタで入る C# 側の入口**である（`docs/api-map.md` の冒頭にその説明がある）。
+C# としての契約は §2.1 の `CopyFrom(IntPtr, …)` / `CopyTo(IntPtr, …)` にある。
 
 ## 2. C# 公開 API
 

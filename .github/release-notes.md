@@ -77,7 +77,8 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   この package が持っていない**）
 - **Unity の下限は 6000.3 のまま。** 検証しているのは 6000.3.16f1 の 1 版だけである
 
-**公開している C ABI の本数は、パッケージ内の `docs/api-map.md` の冒頭が数える。**
+**公開している C ABI の本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/main/docs/api-map.md) の冒頭が数える**（この表は
+リポジトリにあり、**パッケージには入らない**）。
 `OCVU_ABI_VERSION` は **1 のまま変わっていない**（関数の追加は bump しない変更である）。
 
 **出していないもの**も書いておく: ステレオ校正、魚眼、`solvePnP`（既知の係数から
@@ -111,7 +112,7 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   画像の encode / decode（`CvCodecs`）、QR コード（`CvQrCode`）、ORB の特徴点
   （`CvFeatures`）、射影変換の推定（`CvGeometry`）、単眼カメラの校正 3 段
   （`CvCalibration`）、`Texture2D` と `WebCamTexture` の連携。
-  **本数はパッケージ内の `docs/api-map.md` の冒頭が数える。**
+  **本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/main/docs/api-map.md) の冒頭が数える。**
   **API の広さではなく、所有権・stride・エラー処理・IL2CPP・platform の正しさを
   固めることを優先している**
 - **encode / decode が扱うのはメモリ上の byte 列だけで、ファイルパスは受けない。**

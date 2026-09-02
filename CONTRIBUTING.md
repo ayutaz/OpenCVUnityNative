@@ -46,8 +46,9 @@ hangs off it. See [README](README.md#development) for the full list.
   part of it** — since M5 the C header and the C# P/Invoke are generated from
   `bindings/spec/*.json`, and writing either by hand makes `verify-generated` fail.
   The order is: L1 contract test first, then one entry in the spec followed by
-  `./tools/dev.ps1 generate`, then the implementation, then the L3 test. See
-  `.claude/skills/add-abi-function/`.
+  `./tools/dev.ps1 generate`, then the implementation, then the L3 test — and if
+  the change adds a status code, the managed `CvStatus` enum has to follow by hand.
+  See `.claude/skills/add-abi-function/`.
 - **Do not put milestone-specific rules in hooks.** Conditions that expire become
   stale in exactly the way the documents do.
 

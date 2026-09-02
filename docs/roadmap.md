@@ -982,7 +982,7 @@ M4 の完了条件 9 件のうち 4 件が閉じておらず、2 件が実機で
 利用者が使えるのは v0.2.0（3 platform、M5 前の API）で、OpenUPM が配信しているのもそれである。
 
 **v0.3.0 の下書きは使えない。** 作った時点（2026-08-31T01:40Z）は M5 が main に入る前で、
-asset の中に `.g.cs` も `docs/api-map.md` も入っていない。**tag を打ち直して作り直す。**
+asset の中の `.g.cs` が M5 前のもの（というより、生成物が 1 つも無い）である。**tag を打ち直して作り直す。**
 
 #### 何が変わるか（v0.2.0 → v0.4.0）
 
@@ -1031,13 +1031,14 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    ことを検査する**ので、tag を打つ前に main に入っていなければならない
 5. **tag を打つ**（`v0.4.0`）→ `release.yml` が 5 platform 分と全部入りを作り、`--draft` で止まる
 6. **下書きを実物で検証する** —— 落として `SHA256SUMS.txt` と突き合わせ、全部入りの中に
-   5 platform 分の binary と `.meta` が在ること、`.g.cs` と `docs/api-map.md` が入っていること、
+   5 platform 分の binary と `.meta` が在ること、生成された `.g.cs` が入っていること、
    Linux の GLIBC 要求、Android の page size、iOS の `.a` を見る（**「配布 その 4」の表と同じ項目**）
 7. **公開する**（`gh release edit v0.4.0 --draft=false`）
 8. **OpenUPM が拾うことを確かめる。** 確かめ方:
 
    ```sh
-   curl -s https://package.openupm.com/com.ayutaz.opencv-unity-native |      python -c "import sys,json; d=json.load(sys.stdin); print(d['dist-tags']['latest'])"
+   curl -s https://package.openupm.com/com.ayutaz.opencv-unity-native |
+     python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest'])"
    ```
 
    これが `0.4.0` を返せば配信されている。**OpenUPM はビルドキューを持つので、
@@ -1062,10 +1063,12 @@ v0.3.0 という名前の物が世に出ることはないので、誰も混乱�
 
 - [ ] `v0.4.0` が公開され、28 asset が並んでいる
 - [ ] 全部入りの tarball を落として、**5 platform 分の binary と `.meta`**、
-      **生成物（`.g.cs` / `docs/api-map.md`）** が入っていることを実測する
+      **生成された P/Invoke 宣言（`Runtime/Interop/NativeMethods.*.g.cs`）** が
+      入っていることを実測する。**`docs/api-map.md` は package に入らない** ——
+      あれはリポジトリの文書であって、配布物の一部ではない
 - [ ] リリースノートと `README.md` に**モバイルが実機未検証であること**が明記されている
 - [ ] OpenUPM が `0.4.0` を配信する（**確かめるまでが作業**。「登録済みだから自動で拾うはず」で終わらせない）
-- [ ] 公開後に「最新の公開版」の記述を更新する（`docs/roadmap.md` / `CLAUDE.md` / `docs/README.md`）
+- [ ] 公開後に「最新の公開版」の記述を更新する（**7 ファイル。一覧はやること 9 にある** —— ここに写すと 2 つが食い違う）
 
 #### 非ゴール
 
@@ -1990,11 +1993,11 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               |
                                                               v
                                                         M5 generator
-                        （5 件すべて達成。objdetect / features / geometry / calib）
+                （5 件すべて達成。objdetect / features / geometry / calib）
                                                               |
                                                               v
                                                     配布 その 5 — v0.4.0
-                        （M4 と M5 の成果を初めて利用者に届ける。未着手）
+                （M4 と M5 の成果を初めて利用者に届ける。未着手）
                                                               |
                                                               v
                                                    M6 Web ──> M7 profiles
