@@ -972,7 +972,8 @@ M4 の完了条件 9 件のうち 4 件が閉じておらず、2 件が実機で
 
 **この下書きをそのまま公開してはならない。** 作った時点（2026-08-31T01:40Z）は
 **M5 が main に入る前**で、asset の中の `.g.cs` も `docs/api-map.md` も
-入っていない。**配ると決めたら、tag を打ち直して作り直すこと。**
+入っていない。**配ると決めたら、tag を打ち直して作り直すこと** ——
+**その手順は下の「配布 その 5 — v0.4.0」にある。**
 下書きを消す必要は無い —— 残っていても誰にも見えないし、期限も無い。
 
 ### 配布 その 5 — v0.4.0（**未着手。次にやること**）
@@ -990,7 +991,7 @@ asset の中に `.g.cs` も `docs/api-map.md` も入っていない。**tag を�
 | platform | 3（Windows / macOS / Linux） | **5**（+ Android arm64-v8a / iOS arm64） |
 | 公開 C ABI | 20 本 | **27 本**（本数の正本は [API 対応表](./api-map.md) の冒頭） |
 | 境界の宣言 | 手書き | **`bindings/spec/*.json` から生成**（手書きの `[DllImport]` は 0 個） |
-| OpenCV module | core / imgproc / imgcodecs | **+ objdetect / features / calib**（`geometry` は推移的） |
+| OpenCV module | core / imgproc / imgcodecs | **+ objdetect / features / geometry / calib**（`geometry` は依存として推移的に引かれるが、`COMPONENTS` にも意図として明示してある） |
 | 主な API | Mat / imgproc 3 本 / 画像の encode・decode | **+ QR / ORB / 射影変換 / カメラ校正 3 段** |
 
 #### モバイルの扱い —— **配るが、実機未検証と明記する**（2026-09-03 に決定）
@@ -1024,14 +1025,14 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    **2026-09-03 に済ませた**（M5 の全部を足し、出していないものも明記した）
 2. **`README.md` / `README.ja.md` にモバイルが実機未検証であることを書く** ——
    **2026-09-03 に済ませた**（「ビルドはされているが実機で動かしていない」の節）
-3. **`package.json` の `version` を上げる**
+3. **`Packages/com.ayutaz.opencv-unity-native/package.json` の `version` を上げる**
 4. **その変更を main へ入れる。** main は保護されており直接 push できないので、
    PR を出して CI を通す。**`release.yml` は tag と `package.json` の版が一致する
    ことを検査する**ので、tag を打つ前に main に入っていなければならない
 5. **tag を打つ**（`v0.4.0`）→ `release.yml` が 5 platform 分と全部入りを作り、`--draft` で止まる
 6. **下書きを実物で検証する** —— 落として `SHA256SUMS.txt` と突き合わせ、全部入りの中に
    5 platform 分の binary と `.meta` が在ること、`.g.cs` と `docs/api-map.md` が入っていること、
-   Linux の GLIBC 要求、Android の page size、iOS の `.a` を見る（v0.3.0 のときと同じ表）
+   Linux の GLIBC 要求、Android の page size、iOS の `.a` を見る（**「配布 その 4」の表と同じ項目**）
 7. **公開する**（`gh release edit v0.4.0 --draft=false`）
 8. **OpenUPM が拾うことを確かめる。** 確かめ方:
 
@@ -1048,6 +1049,14 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    「導入」の節）、`docs/api-reference.md`（対象範囲）、
    `.github/release-notes.md`（次の版のために「前の版」を繰り上げる）。
    **7 ファイルある。** 1 つでも古いと、次に読む人が違う版を前提に動く。
+
+#### 既存の v0.3.0 の tag と下書きをどうするか
+
+**触らない。** tag は push 済み、下書きは誰にも見えず、期限も無い。**消す必要が無い。**
+
+**再利用もしない** —— asset は M5 が main に入る前のもので、生成物が 1 つも入っていない。
+v0.4.0 は新しい tag を打って作り直す。**版番号を飛ばすことになるが、それでよい** ——
+v0.3.0 という名前の物が世に出ることはないので、誰も混乱しない。
 
 #### 完了条件
 
@@ -1981,11 +1990,11 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               |
                                                               v
                                                         M5 generator
-                              （**5 件すべて達成**。objdetect / features / geometry / calib）
+                        （5 件すべて達成。objdetect / features / geometry / calib）
                                                               |
                                                               v
                                                     配布 その 5 — v0.4.0
-                                    （**M4 と M5 の成果を初めて利用者に届ける**。未着手）
+                        （M4 と M5 の成果を初めて利用者に届ける。未着手）
                                                               |
                                                               v
                                                    M6 Web ──> M7 profiles

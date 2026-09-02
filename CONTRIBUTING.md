@@ -26,7 +26,8 @@ Requires PowerShell 7+, CMake 3.25+, the .NET 8 SDK, a C++ toolchain, and the
 
 ```powershell
 ./tools/opencv.ps1 restore   # fetch the pinned OpenCV artifact CI published
-./tools/dev.ps1 test         # tools tests + L1 (GoogleTest) + L3 (P/Invoke)
+./tools/dev.ps1 test         # tools tests + generated-bindings check + L1 + L3
+./tools/dev.ps1 generate     # regenerate the bindings after editing bindings/spec
 ```
 
 `./tools/dev.ps1` is the only entry point for local development. Everything else

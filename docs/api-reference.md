@@ -6,7 +6,7 @@
 **両者を同期させる仕組みは無い** —— 境界に関数が増えると対応表は自動で伸びるが、
 この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
 
-**対象範囲: C ABI の 18 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本）と、その上に立つ
+**対象範囲: allowlist に載っている C ABI 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本。**本数は `docs/abi-ownership-and-versioning.md` §3 の冒頭が数える**）と、その上に立つ
 C# の公開 API だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、
 **`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
 ステレオ校正、`solvePnP` など）はここに書かない。**`WebCamTexture` 連携は
@@ -14,7 +14,7 @@ M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB
 推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
 features / geometry / カメラ校正」と §2.8〜§2.11 にある。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
-M5 の追加は §3.6〜§3.8）を、所有権契約そのものは同 §1 を参照。
+M5 の追加は §3.6〜§3.9）を、所有権契約そのものは同 §1 を参照。
 
 対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
 6000.3.16f1 の 1 版だけ**）。**対応 platform は最新の公開版（v0.2.0）の
@@ -27,7 +27,7 @@ mobile と Web の現況（何がビルドされ、何が公開版に入って�
 `Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/` は丸ごと成果物で、binary も
 `.meta` も git は追跡しない。ローカルでは `./tools/dev.ps1 build` が、実行中の platform 分を
 そこへ置く。利用者に届く経路は GitHub Release の **全部入り UPM tarball**
-（`com.ayutaz.opencv-unity-native.tgz`）で、**3 platform 分の binary が 1 つに入る** ——
+（`com.ayutaz.opencv-unity-native.tgz`）で、**全 platform 分の binary が 1 つに入る**（M3.5 の時点では 3 platform、M4 以降は 5 platform） ——
 Unity は同じ package ID を 1 つしか導入できないので、platform ごとに分かれた tarball では
 「エディタは Windows、実機は別の platform」が表現できないためである。**どの binary が
 有効になるかは Plugin Import Settings（`.meta`）が決め**、Unity は自分の platform 向けの
