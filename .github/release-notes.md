@@ -58,9 +58,27 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   3 overload）。**新しい C ABI 関数は増えていない** —— 既存の上に立つ C# である。
   **既定で上下を反転する**（Unity は左下原点、OpenCV は左上原点）ので、
   `TextureConverter.ToTexture` へ往復させるときは `flipVertically: false` を使うこと
+- **境界の宣言を手で書かなくなった。** `bindings/spec/*.json` が正本で、そこから
+  C ABI 宣言・C# の P/Invoke・全 entry point を 1 回ずつ呼ぶ到達性テスト・API 対応表が
+  同時に生成される。**手書きの `[DllImport]` は 0 個である。** 生成物と spec の一致は
+  CI が 3 platform で毎回検査する
+- **QR コードを読み書きできる**（`CvQrCode`）。符号化と復号の 2 本
+- **ORB の特徴点を取れる**（`CvFeatures`）
+- **射影変換を推定できる**（`CvGeometry.FindHomography`）。**解が求まらないのは
+  誤りではない**ので、例外ではなく `false` で返る
+- **単眼カメラの校正 3 段が揃った**（`CvCalibration`）—— 盤の格子点を見つけ
+  （`FindChessboardCorners`）、そこから係数を解き（`CalibrateCamera`）、
+  その係数で歪みを補正する（`Undistort`）。**各画像の姿勢も返る**（回転は
+  Rodrigues の軸角ベクトル、座標系は OpenCV のもの。**Unity 座標系への変換は
+  この package が持っていない**）
 - **Unity の下限は 6000.3 のまま。** 検証しているのは 6000.3.16f1 の 1 版だけである
 
-`OCVU_ABI_VERSION` は 1 のまま変わっていない（関数の追加は bump しない変更である。**この本文は v0.3.0 の下書き時点のもので、その後 objdetect / features の 3 本が増えた** —— 次に tag を打つ人は本文を書き直すこと）。
+**公開している C ABI の本数は、パッケージ内の `docs/api-map.md` の冒頭が数える。**
+`OCVU_ABI_VERSION` は **1 のまま変わっていない**（関数の追加は bump しない変更である）。
+
+**出していないもの**も書いておく: ステレオ校正、魚眼、`solvePnP`（既知の係数から
+1 枚ぶんの姿勢を求める）、`cornerSubPix`（格子点の副画素精度への精緻化）、
+記述子を伴う特徴点マッチング、`aruco`、動画入出力、DNN、GPU backend。
 
 ## この版で確かめていないこと
 
@@ -86,9 +104,12 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   iOS は実機の arm64 のみ（シミュレータは非対応）
 - **公開 API**: `Mat` のライフサイクル（create / release / clone / get_info /
   copy_from_buffer / copy_to_buffer）、`cvtColor` / `resize` / `GaussianBlur`、
-  画像の encode / decode（`CvCodecs`）、`Texture2D` と `WebCamTexture` の連携。
+  画像の encode / decode（`CvCodecs`）、QR コード（`CvQrCode`）、ORB の特徴点
+  （`CvFeatures`）、射影変換の推定（`CvGeometry`）、単眼カメラの校正 3 段
+  （`CvCalibration`）、`Texture2D` と `WebCamTexture` の連携。
+  **本数はパッケージ内の `docs/api-map.md` の冒頭が数える。**
   **API の広さではなく、所有権・stride・エラー処理・IL2CPP・platform の正しさを
-  固めた版である**
+  固めることを優先している**
 - **encode / decode が扱うのはメモリ上の byte 列だけで、ファイルパスは受けない。**
   ファイルを開くのは呼ぶ側の仕事である（Windows の文字コードの扱いを境界に持ち込まない
   ため、そして Android の `StreamingAssets` は APK の中にあってパスでは開けないため）

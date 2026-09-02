@@ -52,8 +52,13 @@ hangs off it. See [README](README.md#development) for the full list.
 Every pull request runs, across Windows / macOS / Linux: the contract tests, the
 P/Invoke tests, the sanitizer lanes (with LeakSanitizer on Linux), artifact linkage
 and portability verification, and — on Linux — Unity EditMode and a real IL2CPP
-player. Workflows, shell scripts and PowerShell are linted; CodeQL analyses the C++
-and C#.
+player. Android and iOS are cross-compiled and their artifacts inspected (16 KB page
+alignment, bundled symbols), **but no device runs them.** The release path is
+dry-run on every pull request as well: it builds and assembles the distributable
+for all five platforms without publishing anything, because three defects had
+accumulated there while it only ran on tags — one of which meant tagging would have
+produced no release at all. Workflows, shell scripts and PowerShell are linted;
+CodeQL analyses the C++ and C#.
 
 **CI is the authority on mergeability.** A green local run is an approximation kept
 for speed.
