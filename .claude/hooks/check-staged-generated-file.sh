@@ -104,6 +104,10 @@ done
 # 生成の元が一緒に来ているなら、これは `dev.ps1 generate` の結果である。
 printf '%s\n' "$staged" | grep -q '^bindings/' && exit 0
 
+# **この heredoc は引用していない**（下の $(for ...) を展開するため）。
+# したがって **バッククォートはコマンド置換になる** —— メッセージの中で
+# 名前を強調したくなっても使わないこと。実際に踏んだ: `--no-verify` と
+# 書いたら、その 3 文字が消えて「** でも抜けられません**」になった。
 cat >&2 <<EOF
 生成物が commit に入っていますが、その元（bindings/）が入っていません:
 $(for f in $generated; do printf '  %s\n' "$f"; done)
@@ -119,6 +123,12 @@ $(for f in $generated; do printf '  %s\n' "$f"; done)
       git add bindings/spec/<変えたもの>.json
 
   - 手で戻した修復なら、./tools/dev.ps1 generate で作り直してからコミットしてください
+    **ただし HEAD 側が壊れている修復には効きません** —— 作り直しても
+    「生成物だけが HEAD と違う」状態になり、この規則にそのまま当たり続けます。
+    **--no-verify でも抜けられません**（git の hook ではなく、Claude の
+    ツール呼び出しを見る hook なので）。**その commit を本当に通すなら、
+    自分の端末で git を打つか、.claude/settings.json でこの hook を
+    一時的に外してください** —— 通す判断をした事実が残る形にしてあります。
 
 **壊す作業とコミットを混ぜないこと。** prove-a-check-works の
 「壊す前にコミットする」には対になる半分があります ——
