@@ -1924,6 +1924,11 @@ foreach ($pkg in ($packagePins.Keys | Sort-Object)) {
 # **`CLAUDE.md` 側は含めない** —— あちらは表の形で内訳まで書いており、
 # 「数を 1 つ抜き出す」形になっていないためである。README 同士がずれたら
 # ここが落ちる。
+#
+# **限界を書いておく: これは 2 つが互いに一致することしか見ない。**
+# **3 つとも同じだけ古ければ緑になる。** 必須チェックを増減したときに
+# `CLAUDE.md` と README を両方直すのは、依然として人の仕事である ——
+# この検査が守るのは「片方だけ直して忘れる」のほうだけである。
 $readmeEn = Get-Content -LiteralPath (Join-Path $repoRoot 'README.md') -Raw
 $readmeJa = Get-Content -LiteralPath (Join-Path $repoRoot 'README.ja.md') -Raw
 

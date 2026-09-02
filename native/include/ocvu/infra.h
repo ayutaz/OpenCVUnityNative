@@ -49,3 +49,4 @@ OCVU_API void ocvu_debug_crash(int32_t kind);
 #endif
 
 #endif  /* OCVU_INFRA_H */
+/* 手で足した行 */

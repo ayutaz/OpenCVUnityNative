@@ -171,7 +171,7 @@ status:
 | --- | --- |
 | `ocvu_qr_encode(const char* text, ocvu_mat_handle dst)` | `text`（UTF-8 の NUL 終端 byte 列）を QR コードの画像に符号化して `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、8 bit 1 channel の正方形になる |
 | `ocvu_qr_decode(ocvu_mat_handle src, char* buffer, int32_t buffer_size, int32_t* out_required_size)` | `src` に写っている QR コードを 1 つ検出して復号し、`buffer` へ UTF-8・NUL 終端で書く。**2 回呼ぶ**（下記） |
-| `ocvu_orb_detect(ocvu_mat_handle src, int32_t max_features, ocvu_keypoint* out_keypoints, int32_t capacity, int32_t* out_count)` | `src` から ORB の特徴点を検出する。**1 回呼び**（下記） |
+| `ocvu_orb_XXXXXX(ocvu_mat_handle src, int32_t max_features, ocvu_keypoint* out_keypoints, int32_t capacity, int32_t* out_count)` | `src` から ORB の特徴点を検出する。**1 回呼び**（下記） |
 | `ocvu_find_homography(const float* src_points, int64_t src_length, const float* dst_points, int64_t dst_length, int32_t point_count, int32_t method, double ransac_threshold, ocvu_mat_handle dst)` | 2 組の点の対応から射影変換（3x3）を求めて `dst` へ入れる。`dst` は結果に応じて丸ごと置き換わり、64 bit 1 channel の 3x3 になる |
 
 **`ocvu_find_homography` は点の配列の長さを個別に受け取る。** `src_length` /
@@ -196,7 +196,7 @@ OpenCV に落とすと「原因不明」になるか、黙って既定の挙動�
 足し、短いほうの辺が 200 px 未満の画像はさらに最近傍補間で拡大してから検出する
 （`src` 自体は変更しない、内部で作る加工済みのコピーに対して行う）。
 
-**`ocvu_orb_detect` は 1 回呼びである。** 出力される特徴点の個数は事前に分からないが、
+**`ocvu_orb_XXXXXX` は 1 回呼びである。** 出力される特徴点の個数は事前に分からないが、
 **上限は呼ぶ側が渡す `max_features` で決まる**ので、その上限ぶんの buffer を
 最初から用意させれば 2 回呼ぶ理由が無い。`capacity` が `max_features` に満たなければ
 何も書かずに `OCVU_STATUS_BUFFER_TOO_SMALL` を返し、`out_count` に `max_features` を
@@ -227,7 +227,7 @@ status:
 | `ocvu_qr_decode` の `buffer_size` が必要量に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（**buffer は書かない**） |
 | QR コードが写っていない | `OCVU_STATUS_NOT_FOUND`（**失敗ではない**） |
 | `max_features` が範囲外（1 未満、または `OCVU_ORB_MAX_FEATURES` 超） | `OCVU_STATUS_INVALID_ARGUMENT` |
-| `ocvu_orb_detect` の `capacity` が `max_features` に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_count` に `max_features`。**buffer は書かない**） |
+| `ocvu_orb_XXXXXX` の `capacity` が `max_features` に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_count` に `max_features`。**buffer は書かない**） |
 | OpenCV 由来の失敗（符号化できない長さの `text` など） | `OCVU_STATUS_OPENCV_ERROR` |
 
 ### カメラ校正（objdetect / calib / imgproc、M5 で追加）
@@ -256,7 +256,7 @@ status:
 
 **`ocvu_find_chessboard_corners` は 1 回呼びである。** 必要な点数は
 `pattern_cols * pattern_rows` で呼ぶ側が事前に知り得るので、2 回呼ぶ理由が無い
-（`ocvu_orb_detect` と同じ考え方）。`capacity` は `out_corners` の**要素（float）の
+（`ocvu_orb_XXXXXX` と同じ考え方）。`capacity` は `out_corners` の**要素（float）の
 個数**であり、点の個数ではない —— x と y の 2 つで 1 点なので、必要な float 数は
 `pattern_cols * pattern_rows * 2` になる。`capacity` がそれに満たなければ
 何も書かずに `OCVU_STATUS_BUFFER_TOO_SMALL` を返し、`out_count` に必要な float 数を
@@ -267,7 +267,7 @@ status:
 **`ocvu_calibrate_camera` は 2 つの単位が同居する。** `object_points_length` /
 `image_points_length` は**バイト数**（in-buffer なので他の `*_length` と同じ）、
 `camera_matrix_capacity` / `dist_coeffs_capacity` / `view_poses_capacity` は
-**要素数**（out-buffer なので `ocvu_orb_detect` の `capacity` と同じ）である。
+**要素数**（out-buffer なので `ocvu_orb_XXXXXX` の `capacity` と同じ）である。
 **この 2 つを取り違えると検査がゆるい側に外れる。**
 
 `object_points` は 1 点 3 float、`image_points` は 1 点 2 float で、

@@ -4,7 +4,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 [English](README.md)
 
-> **現状: 公開済みの最新版は v0.2.0 で、リポジトリはそれより大きく先に進んでいます。** あの版は desktop のみで、M0 から M3.5 までが入っています。その後リポジトリには Android と iOS のクロスビルド（M4）と、生成される binding 層およびカメラ校正（M5）が加わりましたが、**どれもまだ公開されていません。** Windows x64 / macOS arm64 / Linux x64 は CI がビルド・テスト・パッケージ化しており、Unity 自身が Mono（EditMode）と実物の IL2CPP Player の両方でプラグインを動かしています。**Android arm64 と iOS arm64 は CI がクロスビルドしますが、公開版には入っておらず、実機で一度も動かしていません。** Web（M6）は未着手です。**以下に書いてあることは「リポジトリの現状」であって「落とせるもの」ではありません** —— v0.2.0 に入っているのは `Mat` のライフサイクルと buffer 転送、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の画像 encode / decode、そして desktop 3 platform を 1 つにまとめたパッケージまでです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
+> **現状: 公開済みの最新版は v0.2.0 で、リポジトリはそれより大きく先に進んでいます。** あの版は desktop のみで、M0 から M3.5 までが入っています。その後リポジトリには Android と iOS のクロスビルド（M4）と、生成される binding 層およびカメラ校正（M5）が加わりましたが、**どれもまだ公開されていません。** Windows x64 / macOS arm64 / Linux x64 は CI がビルド・テスト・パッケージ化しており、Unity 自身が Mono（EditMode）と実物の IL2CPP Player の両方でプラグインを動かしています。**Android arm64 と iOS arm64 は CI がクロスビルドしますが、公開版には入っておらず、実機で一度も動かしていません。** Web（M6）は未着手です。**以下に書いてあることは「リポジトリの現状」であって「落とせるもの」ではありません** —— v0.2.0 に入っているのは `Mat` のライフサイクルと buffer 転送、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の画像 encode / decode、そして desktop 3 platform を 1 つにまとめたパッケージまでです。**公開している C ABI はどちらにせよ意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP を正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
 
 ## これは何か
 
