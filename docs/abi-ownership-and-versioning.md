@@ -534,6 +534,11 @@ buffer にすると引数が 2 本増えるので、点列を平坦化するの�
 両側を native に問う。**status だけでは区別できない**（上限内でも上限超えでも
 `INVALID_ARGUMENT` になる）ので、last-error のメッセージで分けている。
 
+**`OCVU_ABI_VERSION` は 1 のままである。** §2 の規約では「新しい関数を足す」は
+bump しない変更に当たり、既存関数の signature も struct の layout も status の
+意味も 1 つも変えていない。**`calib` module が増えたことは ABI の版に影響しない**
+—— 呼ぶ側から見えるのは新しい entry point が 1 本増えたことだけである。
+
 **出していないもの**: ステレオ校正（`stereoCalibrate`）、魚眼、
 `solvePnP`（既知の係数から 1 枚ぶんの姿勢を求める）、
 **`cornerSubPix`**（格子点を副画素精度へ精緻化する。`imgproc` に在り、

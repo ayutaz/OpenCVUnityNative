@@ -582,6 +582,12 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 点数も一致していなければならない**（`ArgumentException`）。**native は点数を
 1 つしか受け取らないので、この食い違いは C# の入口でしか見えない。**
 
+view は **2 枚以上**（平面パターンは 1 枚では解けない）、1 view の点は **4 点以上**、
+**点の総数（view 数 × 1 view の点数）は 100000 まで**（`ArgumentException`）。
+`imageWidth` / `imageHeight` はどちらも **1 以上**（`ArgumentOutOfRangeException`）。
+上限は C の `OCVU_CALIB_MAX_POINTS` の写しで、
+`CalibrationTests` が公開 API と native の両側から境界を突く。
+
 **`cameraMatrix` は行優先の 3x3（9 要素）でなければならない**（`ArgumentException`）。
 **`distCoeffs` は OpenCV が受ける長さ（4 / 5 / 8 / 12 / 14 要素）でなければならない**
 （`ArgumentException`）。この一覧は OpenCV の都合であって、こちらの判断ではない。

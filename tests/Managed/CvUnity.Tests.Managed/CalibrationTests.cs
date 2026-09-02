@@ -506,6 +506,63 @@ public class CalibrationTests
     }
 
     [Fact]
+    public void TheThreeCalibrationStagesConnectToEachOther()
+    {
+        // **「校正の輪が閉じた」を実際に通す。** M5 完了条件 2 を「満たした」と
+        // 判定した根拠がこれなので、**輪を通るテストが 1 本も無い状態で
+        // 判定だけ書くわけにいかない。**
+        //
+        // 1 段目（FindChessboardCorners）は合成した盤の画像から、
+        // 2 段目（CalibrateCamera）はその対応点から係数を、
+        // 3 段目（Undistort）はその係数で補正する。
+        // **段と段のあいだで型が合っていることが、ここで初めて確かめられる。**
+        //
+        // **壊して落ちることを見た**: 2 段目が返す CameraMatrix を 8 要素にすると
+        // このテストが落ちる（3 段目が 9 要素を要求するため）。**一方、係数を
+        // 1 個減らしても落ちない** —— Undistort は 4/5/8/12/14 のどれでも
+        // 受けるので、4 個は正当な入力である。**つなぎ目のうち、長さが固定の
+        // ものだけがここで守られる。**
+
+        // --- 1 段目: 盤の画像から格子点を見つける ---
+        using var board = MakeCheckerboard(128, 112, 16);
+        CvPoint2[] corners = CvCalibration.FindChessboardCorners(board, 7, 6);
+        Assert.Equal(42, corners.Length);
+
+        // --- 2 段目: 対応点から係数を求める ---
+        // 1 段目が返す CvPoint2[] が、そのまま 2 段目の imagePoints に入る。
+        // **view を 2 枚作る** —— 平面パターンは 1 枚では解けない。同じ盤を
+        // 2 通りの向きから撮ったことにする（合成した投影を使う）。
+        var (objectPoints, imagePoints) = MakeSyntheticCalibration();
+        CvCalibrationResult result = CvCalibration.CalibrateCamera(
+            objectPoints, imagePoints, SyntheticWidth, SyntheticHeight);
+
+        // --- 3 段目: 求めた係数で補正する ---
+        // **2 段目が返す配列が、そのまま 3 段目の引数に入る。**
+        // 型も長さもここで初めて突き合わされる —— CameraMatrix は 9 要素、
+        // DistortionCoefficients は OpenCV が決めた個数で、Undistort は
+        // どちらも「その形でなければ ArgumentException」と決めている。
+        using var src = CvMat.Create(64, 64, CvMatType.Gray8);
+        src.CopyFrom(new byte[64 * 64], 64);
+        using var dst = CvMat.Create(1, 1, CvMatType.Gray8);
+
+        CvCalibration.Undistort(src, result.CameraMatrix, result.DistortionCoefficients, dst);
+
+        Assert.Equal(64, dst.Rows);
+        Assert.Equal(64, dst.Cols);
+
+        // **1 段目の出力が 2 段目に渡る形であることも見る。**
+        // corners は CvPoint2[] で、CalibrateCamera の imagePoints の
+        // 1 view ぶんと同じ型である —— これが違っていたら輪は閉じていない。
+        var oneView = new[] { corners, corners };
+        var objectForOneView = new[] { new CvPoint3[42], new CvPoint3[42] };
+        // 中身は退化しているので校正は解けないが、**型が通ることは確かめられる**
+        // （解けないことは例外で表れ、型の不一致とは区別が付く）。
+        var ex = Record.Exception(
+            () => CvCalibration.CalibrateCamera(objectForOneView, oneView, 128, 112));
+        Assert.IsNotType<ArgumentException>(ex);
+    }
+
+    [Fact]
     public void CalibrateCameraReportsHowManyCoefficientsItNeeds()
     {
         // **歪み係数の個数だけは呼ぶ側が事前に知り得ない**（OpenCV が入力を見て

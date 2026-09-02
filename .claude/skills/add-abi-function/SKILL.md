@@ -111,6 +111,11 @@ OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `
 - **`THIRD_PARTY_NOTICES.md` の module 列挙**（配布物に同梱される法的通知文書）
 - **`README.md` の「which OpenCV modules this plugin links」**
 - **`tools/tests/OpenCvConfig.Tests.ps1` の module 検査**（spec と両方向に突き合わせる）
+- **module 一覧を散文で持っている文書** —— `docs/roadmap.md` の M7 節、
+  `docs/unity-opencv-integration-research-and-plan.md` の競合比較表、
+  `CLAUDE.md` の `opencv-config.psd1` の行。**この 3 つは 2026-09-02 に
+  実際に取りこぼし、レビューで指摘されて直した** —— 上の 4 つと違って
+  「module 一覧」という語で grep できないので、**目で探すしかない。**
 
 **新しい module が推移的に引かれるかは、足す前に測れる。** `COMPONENTS` に足す前に
 その module の関数を呼ぶ L1 テストを書き、**リンクが落ちるかを見る。**
