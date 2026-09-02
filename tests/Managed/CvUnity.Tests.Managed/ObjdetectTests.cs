@@ -20,6 +20,13 @@ public class ObjdetectTests
     public void DecodeReturnsNullWhenNoCodeIsPresent()
     {
         using var blank = CvMat.Create(64, 64, CvMatType.Gray8);
+
+        // **`CvMat.Create` は画素を初期化しない。** 「QR が写っていない」と
+        // 主張するなら明示的にゼロ埋めする（`CalibrationTests` と同じ理由。
+        // `fab6cf3` が足した 500 回のループが同じ大きさの市松模様でアロケータを
+        // 汚すようになったので、このテストが受け取る画素も以前より変わりやすい）。
+        blank.CopyFrom(new byte[64 * 64], 64);
+
         Assert.Null(CvQrCode.Decode(blank));
     }
 
