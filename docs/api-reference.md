@@ -6,10 +6,10 @@
 **両者を同期させる仕組みは無い** —— 境界に関数が増えると対応表は自動で伸びるが、
 この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
 
-**対象範囲: C ABI の 17 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 6 本）と、その上に立つ
+**対象範囲: C ABI の 18 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本）と、その上に立つ
 C# の公開 API だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、
 **`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
-係数を求める `cv::calibrateCamera` など）はここに書かない。**`WebCamTexture` 連携は
+ステレオ校正、`solvePnP` など）はここに書かない。**`WebCamTexture` 連携は
 M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
 推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
 features / geometry / カメラの歪み補正」と §2.8〜§2.11 にある。**詳しい経緯は
@@ -230,17 +230,21 @@ status:
 | `ocvu_orb_detect` の `capacity` が `max_features` に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_count` に `max_features`。**buffer は書かない**） |
 | OpenCV 由来の失敗（符号化できない長さの `text` など） | `OCVU_STATUS_OPENCV_ERROR` |
 
-### カメラの歪み補正（imgproc / objdetect、M5 で追加）
+### カメラ校正（objdetect / calib / imgproc、M5 で追加）
 
-**`calib` module は使っていない。** `ocvu_undistort` は `imgproc`、
-`ocvu_find_chessboard_corners` は `objdetect` にあり、どちらも既にリンク済みだった
-（`docs/abi-ownership-and-versioning.md` §3.8）。実装は 2 module にまたがるが用途は
-1 つなので、`native/src/ocvu_calibration.cpp` の 1 ファイルにまとめてある。
+**校正は 3 段からなり、3 つの module にまたがる。** 盤の格子点を見つけるのが
+`objdetect`、そこから係数を解くのが `calib`、係数で歪みを補正するのが `imgproc` である。
+用途は 1 つなので、実装は `native/src/ocvu_calibration.cpp` の 1 ファイルにまとめてある
+（`docs/abi-ownership-and-versioning.md` §3.8・§3.9）。
+
+**`calib` module はこの 3 段目のためだけに足した。** 他の 2 つは既にリンク済みだった
+（実測。`native/tests/test_module_linkage.cpp` が両方を固定している）。
 
 | 関数 | 内容 |
 | --- | --- |
-| `ocvu_undistort(ocvu_mat_handle src, const double* camera_matrix, int64_t camera_matrix_length, const double* dist_coeffs, int64_t dist_coeffs_length, ocvu_mat_handle dst)` | `src` の歪みを `camera_matrix`（行優先の 3x3）と `dist_coeffs`（4/5/8/12/14 個）で補正して `dst` へ入れる。**1 回呼び** |
 | `ocvu_find_chessboard_corners(ocvu_mat_handle src, int32_t pattern_cols, int32_t pattern_rows, float* out_corners, int32_t capacity, int32_t* out_count)` | `src` に写っているチェスボードの内側の格子点を見つけ、x と y が交互に並ぶ形で `out_corners` へ書く。**1 回呼び**（下記） |
+| `ocvu_calibrate_camera(const float* object_points, int64_t object_points_length, const float* image_points, int64_t image_points_length, int32_t view_count, int32_t points_per_view, int32_t image_width, int32_t image_height, double* out_camera_matrix, int32_t camera_matrix_capacity, double* out_dist_coeffs, int32_t dist_coeffs_capacity, int32_t* out_dist_coeffs_count, double* out_view_poses, int32_t view_poses_capacity, double* out_rms)` | 複数 view の対応点からカメラ行列・歪み係数・各 view の姿勢・再投影誤差を求める。**1 回呼び**（下記） |
+| `ocvu_undistort(ocvu_mat_handle src, const double* camera_matrix, int64_t camera_matrix_length, const double* dist_coeffs, int64_t dist_coeffs_length, ocvu_mat_handle dst)` | `src` の歪みを `camera_matrix`（行優先の 3x3）と `dist_coeffs`（4/5/8/12/14 個）で補正して `dst` へ入れる。**1 回呼び** |
 
 **どちらも呼ぶ側を信用しない。** `camera_matrix_length` / `dist_coeffs_length` は
 **バイト数**で、`ocvu_find_homography` と同じくこの ABI の `length` はすべてバイト数で
@@ -259,6 +263,23 @@ status:
 入れる。`pattern_cols` / `pattern_rows` はどちらも 2 未満、またはその積が
 `OCVU_CHESSBOARD_MAX_CORNERS` を超えると `OCVU_STATUS_INVALID_ARGUMENT`。
 **格子が写っていなければ `OCVU_STATUS_NOT_FOUND`**（誤りではない）。
+
+**`ocvu_calibrate_camera` は 2 つの単位が同居する。** `object_points_length` /
+`image_points_length` は**バイト数**（in-buffer なので他の `*_length` と同じ）、
+`camera_matrix_capacity` / `dist_coeffs_capacity` / `view_poses_capacity` は
+**要素数**（out-buffer なので `ocvu_orb_detect` の `capacity` と同じ）である。
+**この 2 つを取り違えると検査がゆるい側に外れる。**
+
+`object_points` は 1 点 3 float、`image_points` は 1 点 2 float で、
+**どちらも view-major に並べる**（1 枚目の全点、続いて 2 枚目の全点、…）。
+`view_count` は 2 以上（平面パターンは 1 枚では解けない）、`points_per_view` は 4 以上、
+その積が `OCVU_CALIB_MAX_POINTS`（100000）を超えると `OCVU_STATUS_INVALID_ARGUMENT`。
+
+**`out_view_poses` は 1 view につき 6 個の double で、回転ベクトル 3 個のあとに
+並進ベクトル 3 個が続く。** rvec と tvec を別々の buffer にすると引数が 2 本増えるので、
+点列を平坦化するのと同じ作法で 1 本にまとめてある。容量が足りなければ**何も書かずに**
+`OCVU_STATUS_BUFFER_TOO_SMALL` を返す。**どの失敗経路でも `out_dist_coeffs_count`
+には 0 を書く**（前回の残りを読ませない）。
 
 status:
 
@@ -288,7 +309,7 @@ status:
 `ocvu_get_abi_version` / last-error 取得 / status 表の照会 / `ocvu_get_opencv_version` /
 `ocvu_get_build_information` / `ocvu_debug_throw` / `ocvu_debug_crash` は存在するが、
 M0/M1 由来の診断・conformance test 用 API であり、この allowlist（M2 の 9 本 + M3.5 の
-2 本 + M5 の 6 本 = 17 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを
+2 本 + M5 の 7 本 = 18 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを
 包んでいるので、公開 C# API としての契約は §2.4 に記載する。
 
 ## 2. C# 公開 API
@@ -523,17 +544,32 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 
 ### 2.11 `CvUnity.CvCalibration`
 
-`static class`（`CvUnity.Core` アセンブリ、M5 で追加）。カメラの歪み補正と、
-較正パターンの検出（OpenCV の `imgproc` と `objdetect`）。**`calib` module は
-使っていない** —— 歪みを当てる `undistort` は `imgproc`、較正パターンを見つける
-`findChessboardCorners` は `objdetect` にあり、どちらも既にリンク済みである。
-**係数を求める `calibrateCamera` だけが `calib` にあり、それはまだ出していない**
-（構成ハッシュが変わるため。詳細は `docs/roadmap.md` の M5 節）。
+`static class`（`CvUnity.Core` アセンブリ、M5 で追加）。**単眼カメラの校正 3 段**
+（OpenCV の `objdetect` / `calib` / `imgproc` にまたがる）。
+
+**この 1 クラスが校正の輪を全部持つ。** (1) `FindChessboardCorners` で盤の格子点を
+見つけ、(2) `CalibrateCamera` で係数を求め、(3) `Undistort` でその係数を当てる。
+**3 つの OpenCV module にまたがるが、用途が 1 つなので C# 側では 1 クラスにまとめてある。**
 
 | メンバ | 内容 |
 | --- | --- |
-| `CvCalibration.Undistort(CvMat src, double[] cameraMatrix, double[] distCoeffs, CvMat dst)` | `src` の歪みを補正して `dst` に入れる。`dst` は結果に応じて丸ごと置き換わり、`src` と同じ形状・型になる |
 | `CvCalibration.FindChessboardCorners(CvMat src, int patternCols, int patternRows)` | `src` に写っているチェスボードの内側の格子点を見つける。**写っていなければ空配列**を返す（誤りではない） |
+| `CvCalibration.CalibrateCamera(CvPoint3[][] objectPoints, CvPoint2[][] imagePoints, int imageWidth, int imageHeight)` | 複数 view の対応点からカメラ行列・歪み係数・各 view の姿勢を求める。**view は 2 枚以上、view ごとの点数は揃っていること** |
+| `CvCalibration.Undistort(CvMat src, double[] cameraMatrix, double[] distCoeffs, CvMat dst)` | `src` の歪みを補正して `dst` に入れる。`dst` は結果に応じて丸ごと置き換わり、`src` と同じ形状・型になる |
+
+`CalibrateCamera` が返す `CvCalibrationResult` は 4 つを持つ ——
+`CameraMatrix`（行優先の 3x3、9 要素。`[0]` が fx、`[4]` が fy、`[2]` が cx、`[5]` が cy）、
+`DistortionCoefficients`（**個数は OpenCV が決める**。`Undistort` にそのまま渡せる）、
+`ViewPoses`（渡した view と同じ順・同じ数）、`ReprojectionError`（RMS、画素）。
+
+`CvViewPose` の回転は **Rodrigues の軸角ベクトル**である —— 向きが回転軸、
+長さが回転角（ラジアン）。行列でも四元数でもない。**座標系は OpenCV のもの**
+（右手系、y が下向き、z が奥）で、**Unity で使うには変換が要る。その変換は
+この package が持っていない。**
+
+**`objectPoints` と `imagePoints` は view ごとの配列で、view の数も view ごとの
+点数も一致していなければならない**（`ArgumentException`）。**native は点数を
+1 つしか受け取らないので、この食い違いは C# の入口でしか見えない。**
 
 **`cameraMatrix` は行優先の 3x3（9 要素）でなければならない**（`ArgumentException`）。
 **`distCoeffs` は OpenCV が受ける長さ（4 / 5 / 8 / 12 / 14 要素）でなければならない**
@@ -556,8 +592,9 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 ## 3. 対象外（この文書に書かないもの）
 
 `Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
-経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、**係数を求める
-`cv::calibrateCamera`**、**透視変換の適用**（`warpPerspective`）—
+経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、**ステレオ校正**
+（`stereoCalibrate`）、**魚眼**、**`solvePnP`**（既知の係数から 1 枚ぶんの姿勢を
+求める）、**透視変換の適用**（`warpPerspective`）—
 いずれも `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
 しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
 この文書に追記する形にする。

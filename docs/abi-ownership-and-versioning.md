@@ -329,8 +329,8 @@ status 表の同期は `StatusCodeSyncTests` が見ている。**この 2 つを
 ## 3. API の allowlist（M2 で確定、M3.5・M5 で追加）
 
 M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わないのが M2 の目的である。
-**M3.5 で 2 本、M5 で 6 本足したので、現在の allowlist は §3.5〜§3.8 を含めて
-17 本である。**
+**M3.5 で 2 本、M5 で 7 本足したので、現在の allowlist は §3.5〜§3.9 を含めて
+18 本である。**
 
 **この節は「何を出すと決めたか」の正本であって、「いま何が出ているか」の一覧ではない。**
 後者は `bindings/spec/*.json`（機械可読の正本）と、そこから生成される
@@ -483,27 +483,74 @@ buffer の所有権は `ocvu_mat_copy_from_buffer` などと同じく最初か�
 （実測。`native/tests/test_module_linkage.cpp` がその前提を固定している）。
 **構成ハッシュは変わっていない。**
 
-**係数を求める `cv::calibrateCamera` は出していない** —— そちらは `calib` に在り、
-足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる
-（実測: `4785d98e9aad` → `09fcbe260d87`）。加えて**利用例が決まっていない** ——
-較正をアプリの初回に行うのか、開発時に済ませて係数を焼き込むのかで API の形が変わる。
+**係数を求める `cv::calibrateCamera` は、この時点では出していなかった。**
+**2026-09-02 に出した** —— §3.9 を見ること。そこで `calib` module を足し、
+構成ハッシュは実際に `4785d98e9aad` → `09fcbe260d87` へ変わった。
 
 **`ocvu_find_chessboard_corners` の上限も二重に定義されている。** `pattern_cols * pattern_rows`
 の上限（`OCVU_CHESSBOARD_MAX_CORNERS` = 10000）は C の `#define` と C# の
 `CvCalibration.MaxCorners` に写しがあり、`CvFeatures.MaxFeatures` と同じ形で
 `CalibrationTests.TheManagedCornerLimitMatchesWhatNativeAccepts` が両側を native に問う。
 
+### 3.9 カメラ校正（M5 の module 追加、その 4。**`calib` module を足した**）
+
+| 関数 | 内容 |
+| --- | --- |
+| `ocvu_calibrate_camera` | 複数 view の対応点からカメラ行列・歪み係数・各 view の姿勢を求める。**1 回呼び** |
+
+**これで allowlist は 18 本になった。**
+
+**これが校正の輪を閉じる段である。** §3.8 で出した 2 本は
+「格子点を見つける」と「係数で補正する」で、その間の「係数を求める」が
+欠けていた。**利用者は係数を別の手段でどこかから得なければ、あの 2 本を
+使えなかった。**
+
+**`calib` module を実際に足した。** 構成ハッシュは
+`4785d98e9aad` → `09fcbe260d87` に変わり、**5 platform 分の OpenCV を作り直した**
+（run 33589583504、2026-09-02）。**最初のビルドは 4 platform とも依存 allowlist で
+落ちた** —— `calib` が `stereo` を推移的に引き込み、
+`tools/verify-opencv-artifact.ps1` の `$AcceptedTransitiveModules` に無いとして
+拒否された。**検査が意図どおり働いた例である**（気づかずに通ることはなかった）。
+`stereo` は OpenCV 本体の module で third-party ではなく、新しい bundled 依存も
+持ち込まない。このプラグインは `stereo` のシンボルを 1 つも参照しないので、
+静的リンクの性質上、配布する binary には入らない。
+
+**`geometry` のときと違い、`COMPONENTS` の追加は本物の RED を出した。**
+`cv::calibrateCamera` を参照する L1 テストを先に書くと、未解決の外部シンボルで
+リンクに失敗した（`native/tests/test_module_linkage.cpp` の `CalibIsLinked`）。
+`calib` はどの module からも推移的に引かれない。**この時点では binary は
+1 バイトも増えず**（21,190,144 のまま）、増えたのは関数を実装したときである
+（21,464,576 バイト、+274,432。いずれも Windows の debug plugin で実測）。
+
+**姿勢も返す。** `out_view_poses` は 1 view につき 6 個の double で、
+**回転ベクトル 3 個のあとに並進ベクトル 3 個が続く**。rvec と tvec を別々の
+buffer にすると引数が 2 本増えるので、点列を平坦化するのと同じ作法で
+1 本にまとめた。**この並びは spec の `summary` が呼ぶ側に約束している。**
+
+**上限がまた二重に定義されている。** `view_count * points_per_view` の上限
+（`OCVU_CALIB_MAX_POINTS` = 100000）は C の `#define` と C# の
+`CvCalibration.MaxCalibrationPoints` に写しがあり、
+`CalibrationTests.TheManagedCalibrationPointLimitMatchesWhatNativeAccepts` が
+両側を native に問う。**status だけでは区別できない**（上限内でも上限超えでも
+`INVALID_ARGUMENT` になる）ので、last-error のメッセージで分けている。
+
+**出していないもの**: ステレオ校正（`stereoCalibrate`）、魚眼、
+`solvePnP`（既知の係数から 1 枚ぶんの姿勢を求める）。
+**「カメラ校正に対応した」と読める書き方をしないこと** —— 出したのは
+単眼の校正 1 本である。
+
 ### まだ作らないもの
 
 `Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、**`imgcodecs` の
 ファイルパス経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、
-`calib`（判断の根拠は `docs/roadmap.md` の M5 節。**リンクの可否と
-API を出す判断は別**）。**`geometry` は 2026-09-01 に出した**（§3.7）。
-**`calib` module 自体は足していないが、その用途の一部である歪み補正と
-チェスボードの格子点検出は `imgproc` / `objdetect` の関数として出した**
-（§3.8）—— この用途で残っているのは、係数を求める `cv::calibrateCamera` だけである。
-`calib` module 自体には `stereoCalibrate` / `calibrateHandEye` など他の関数もあり、
-「残っているのは `calibrateCamera` だけ」は `calib` module 全体についての主張ではない。
+**`geometry` は 2026-09-01 に出した**（§3.7）。
+**`calib` は 2026-09-02 に足した**（§3.9）—— 歪み補正とチェスボードの格子点検出
+（§3.8）に続いて `cv::calibrateCamera` を出したので、**単眼カメラ校正の輪は
+閉じている。**
+
+**ただし `calib` module に出していない関数は多い。** `stereoCalibrate`（ステレオ）、
+`calibrateHandEye`、魚眼系、そして `solvePnP`（既知の係数から 1 枚ぶんの姿勢を
+求める）。**「`calib` を出した」は「`calib` の全部を出した」ではない。**
 いずれも契約が固まってから足す。
 **メモリ上の byte 列の encode / decode は M3.5 で足した（§3.5）。ファイルパスを
 受けない判断の理由は §1.6 にある。QR の符号化・復号と ORB 検出は M5 で足した（§3.6）。**
@@ -519,7 +566,7 @@ API を出す判断は別**）。**`geometry` は 2026-09-01 に出した**（§
 
 - `CLAUDE.md` — 「アーキテクチャの中核」の不変条件。この文書はその具体化である
 - `docs/roadmap.md` — M2 の目的・ゴール・完了条件（上記 §1 の食い違いに従って更新済み）
-- `docs/api-reference.md` — この文書が決めた契約の、利用者向けの現れ方（C ABI 17 本と C# 公開 API）。**手書きである**
+- `docs/api-reference.md` — この文書が決めた契約の、利用者向けの現れ方（C ABI 18 本と C# 公開 API）。**手書きである**
 - `docs/api-map.md` — いま境界に在るものの機械的な一覧（M5 の生成物）。**手で編集しない**
 - `bindings/spec/*.json` — 宣言の機械可読な正本（M5）。C ヘッダ・C# の P/Invoke・到達性テスト・上の対応表はここから出る
 - `.claude/skills/add-abi-function/SKILL.md` — 関数を 1 本足すときの TDD 順序
