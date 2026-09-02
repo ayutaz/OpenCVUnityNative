@@ -4,7 +4,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 [English](README.md)
 
-> **現状: 公開済みの最新版は v0.2.0 で、リポジトリはそれより大きく先に進んでいます。** あの版は desktop のみで、M0 から M3.5 までが入っています。その後リポジトリには Android と iOS のクロスビルド（M4）と、生成される binding 層およびカメラ校正（M5）が加わりましたが、**どれもまだ公開されていません。** Windows x64 / macOS arm64 / Linux x64 は CI がビルド・テスト・パッケージ化しており、Unity 自身が Mono（EditMode）と実物の IL2CPP Player の両方でプラグインを動かしています。**Android arm64 と iOS arm64 は CI がクロスビルドしますが、公開版には入っておらず、実機で一度も動かしていません。** Web（M6）は未着手です。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
+> **現状: 公開済みの最新版は v0.2.0 で、リポジトリはそれより大きく先に進んでいます。** あの版は desktop のみで、M0 から M3.5 までが入っています。その後リポジトリには Android と iOS のクロスビルド（M4）と、生成される binding 層およびカメラ校正（M5）が加わりましたが、**どれもまだ公開されていません。** Windows x64 / macOS arm64 / Linux x64 は CI がビルド・テスト・パッケージ化しており、Unity 自身が Mono（EditMode）と実物の IL2CPP Player の両方でプラグインを動かしています。**Android arm64 と iOS arm64 は CI がクロスビルドしますが、公開版には入っておらず、実機で一度も動かしていません。** Web（M6）は未着手です。**以下に書いてあることは「リポジトリの現状」であって「落とせるもの」ではありません** —— v0.2.0 に入っているのは `Mat` のライフサイクルと buffer 転送、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の画像 encode / decode、そして desktop 3 platform を 1 つにまとめたパッケージまでです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
 
 ## これは何か
 
@@ -47,7 +47,12 @@ com.ayutaz.opencv-unity-native.tgz                        # 全 platform 分 —
 com.ayutaz.opencv-unity-native-<version>-windows-x64.tgz  # 1 platform だけが欲しいとき
 com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
+com.ayutaz.opencv-unity-native-<version>-android-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-ios-arm64.tgz
 ```
+
+platform ごとの一覧は platform が増えれば増えます。**どれが実在するかは、
+落とすリリースそのものが正本です。**
 
 全部入りの tarball のファイル名に版番号が入っていないのは意図的です。OpenUPM は安定した名前の接頭辞でリリース asset を選ぶので、名前に版が入っているとリリースのたびにその pattern を書き換えることになります。platform ごとの tarball は版番号を保持します。**このパッケージは OpenUPM に登録済みで**（2026-08-30 に受理）、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が v0.2.0 を配信しています（[docs/openupm-registration.md](docs/openupm-registration.md)）。
 
@@ -181,7 +186,7 @@ Unity のレーンは Linux で走り、Windows の IL2CPP Player はローカ�
 
 表の外では、すべての pull request が `actionlint` / `shellcheck` / `PSScriptAnalyzer` とリポジトリ内リンクの検査を走らせ、CodeQL が C++ と C# を解析します。nightly の workflow は Linux 成果物の glibc の下限を再確認し、Windows と macOS で速いレーンを走らせ、固定した OpenCV の artifact が期限切れでないことを確かめます —— **誰も push していない間に壊れるもの**です。**この nightly はまだ schedule で起動したことがありません**。手で 2 回起動しただけで、1 回目は失敗（API のレート制限）、2 回目は緑でした。
 
-**pull request で走るレーンのほとんどが merge を止めます。** 必須チェックは 21 本です: desktop 3 platform の契約・P/Invoke・sanitizer、Android と iOS のクロスビルド、lint の 4 job、CodeQL の 2 つ、Unity の 2 レーン、そして 5 platform 分の配布物をビルド・組み立てる release の 6 job。5 本は意図的に必須にしていません。うち 4 本は Unity のレーンが消費する platform ごとのプラグインをビルドするもので、**どれかが失敗すると Unity のレーンは走ったうえで材料が無いことで赤くなり**、それが merge を止めます。**skip された必須チェックは合格として通る**ので、その守りなしにそれらへ依存すると、壊れたビルドが通ってしまいます。**レーンは安定して緑になってから必須にします** —— 過去 2 回、早すぎる昇格が「赤いのに merge できる」隙間を作りました。2026-08-29 までは Unity・lint・CodeQL の workflow がすべての pull request で走りながら必須ではなく、**赤いまま merge できました。CI が見ていることと CI が止めることは別で、ゲートなのは後者だけです。** 残る 2 つの workflow（`build-opencv`、`nightly`）は pull request では起動しないので、そもそも必須にできません。`release` は 2026-08-31 までその一覧にありました —— いまは pull request でも走ります。tag でしか走らなかった間に配布の経路に欠陥が 3 件たまり、**うち 1 件は「tag を打つとリリースが 1 件も作られない」というものでした。** その `Publish the release` job だけは必須にしません —— pull request では設計上 skip され、**skip は合格として通る**ので、必須にしても何も止まらないからです。
+**pull request で走るレーンのほとんどが merge を止めます。** 必須チェックは 21 本です: desktop 3 platform の契約・P/Invoke・sanitizer、Android と iOS のクロスビルド、lint の 4 job、CodeQL の 2 つ、Unity の 2 レーン、そして 5 platform 分の配布物をビルド・組み立てる release の 6 job。5 本は意図的に必須にしていません。うち 4 本は Unity のレーンが消費する platform ごとのプラグインをビルドするもので、**どれかが失敗すると Unity のレーンは走ったうえで材料が無いことで赤くなり**、それが merge を止めます。**skip された必須チェックは合格として通る**ので、その守りなしにそれらへ依存すると、壊れたビルドが通ってしまいます。**レーンは安定して緑になってから必須にします** —— 過去 2 回、早すぎる昇格が「赤いのに merge できる」隙間を作りました。2026-08-29 までは Unity・lint・CodeQL の workflow がすべての pull request で走りながら必須ではなく、**赤いまま merge できました。CI が見ていることと CI が止めることは別で、ゲートなのは後者だけです。** 残る 3 つの workflow（`build-opencv`、`nightly`、`unity-probe`）は pull request では起動しないので、そもそも必須にできません。`release` は 2026-08-31 までその一覧にありました —— いまは pull request でも走ります。tag でしか走らなかった間に配布の経路に欠陥が 3 件たまり、**うち 1 件は「tag を打つとリリースが 1 件も作られない」というものでした。** その `Publish the release` job だけは必須にしません —— pull request では設計上 skip され、**skip は合格として通る**ので、必須にしても何も止まらないからです。
 
 ## 貢献とセキュリティ
 
@@ -190,9 +195,9 @@ Unity のレーンは Linux で走り、Windows の IL2CPP Player はローカ�
 
 ## ライセンス
 
-このリポジトリ自身のソースは Apache License 2.0 です。**それだけでは、配布される binary にリンクされる third-party のコードの条件は決まりません** —— 固定した OpenCV のビルドが bundle するもののライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) にあります。同ファイルは成果物が運ぶすべてのライセンスを列挙し、component ごとに **OpenCV 自身のどの静的ライブラリにコンパイルされているか**を述べます。
+このリポジトリ自身のソースは Apache License 2.0 です。**それだけでは、配布される binary にリンクされる third-party のコードの条件は決まりません** —— 固定した OpenCV のビルドが bundle するもののライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) にあります。同ファイルは成果物が運ぶすべてのライセンスを列挙し、component ごとに **OpenCV 自身のどの静的ライブラリにコンパイルされているか**を述べます。SoftFloat・annoylib・MSCR の chi table・Rubik フォントが、zlib・libpng・libjpeg-turbo・libclapack と並んでリンクされています（**ライセンスファイルは入っているがリンクされていないもの**もいくつかあります）。**Rubik フォントは BSD 系ではなく SIL Open Font License なので、この集合は一様ではありません。** 依存は allowlist（`tools/verify-opencv-artifact.ps1`）で縛られ、ビルド profile ごとに文書化されています。
 
-**そのうちどれが、あなたが再配布するプラグインに実際に届くかは、このプラグインがどの OpenCV module をリンクするかで決まり、それは何度か変わってきました。** いまは `core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `geometry` / `calib` をリンクしています（`imgcodecs` の前は `core` と `imgproc` だけでした）。**静的リンクは参照されたものしか引き込まない**ので、その module に入る関数が書かれるまで、その module のコードは配布ライブラリに 1 バイトも届きません。**書くことが引き込みます** —— Windows の debug ライブラリは encode / decode の関数が入ったときに 8,831,488 から 10,177,536 バイトへ（zlib / libpng / libjpeg-turbo が一緒に来ました）、QR と ORB が入ったときに 20,136,960 バイトへ（`annoylib` と MSCR の chi_table が `features` と一緒に来ました）増えました。カメラ校正でさらに 274,432 バイト増えています。**ビルドシステムに module を足すだけでは何も変わりません** —— `calib` をリンクしても、実際にそこへ入る関数が書かれるまで、ライブラリの大きさはちょうど 0 バイトしか動きませんでした。
+**そのうちどれが、あなたが再配布するプラグインに実際に届くかは、このプラグインがどの OpenCV module をリンクするかで決まり、それは何度か変わってきました。** いまは `core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `geometry` / `calib` をリンクしています（`imgcodecs` の前は `core` と `imgproc` だけでした）。**静的リンクは参照されたものしか引き込まない**ので、その module に入る関数が書かれるまで、その module のコードは配布ライブラリに 1 バイトも届きません。**書くことが引き込みます** —— Windows の debug ライブラリは encode / decode の関数が入ったときに 8,831,488 から 10,177,536 バイトへ（zlib / libpng / libjpeg-turbo が一緒に来ました）、QR と ORB が入ったときに 20,136,960 バイトへ（`annoylib` と MSCR の chi_table が `features` と一緒に来ました）増えました。いまは 21,464,576 バイトで、そのうち最後の 274,432 バイトは `calibrateCamera` 1 本ぶんです（QR / ORB を測った時点からの残りの増分は、他の校正・幾何の関数によるものです）。**ビルドシステムに module を足すだけでは何も変わりません** —— `calib` をリンクしても、実際にそこへ入る関数が書かれるまで、ライブラリの大きさはちょうど 0 バイトしか動きませんでした。
 
 **この区別は失われやすく、このリポジトリも一時期それを失っていました。** 固定した OpenCV のビルドは最初から `imgcodecs` を含む構成で、`ocvu_get_build_information()` も「To be built」にそれを並べます —— **それは「OpenCV がその module を含めてビルドされた」であって「このプラグインがそれにリンクしている」ではありません。** リンクしていなかったのですが、決着をつけたのはリンカでした —— `cv::imencode` への最初の呼び出しが未解決の外部シンボルになったのです。
 

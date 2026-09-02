@@ -70,9 +70,9 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | `build-opencv.yml` | 手動 + 構成変更時 | allowlist 構成の OpenCV をビルドし artifact 公開 | M1 |
 | `ci-unity.yml` | push(main) / PR / 手動 | Unity EditMode (L4) + IL2CPP Player (L5)。**起草時は「PR / nightly」と書いていたが、実装は nightly ではない。** ubuntu で走るので、CI の L5 は Linux の IL2CPP Player である（**Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた** —— 下記 M2 節） | M2 |
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
-| `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
+| ~~`ci-mobile.yml`~~ | —— | **作らなかった。** Android / iOS のクロスビルドは `ci-native.yml` の job として足し、実機 smoke test は CI では原理的に閉じないので `docs/m4-device-verification.md` の手順書に落とした | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | **全部入りの UPM tarball（配る正）** と platform ごとの tarball 3 本、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。staging は **17 件**（3 platform × 5 + 全部入り tarball 1 + その `checksums.txt` 1）を数え、全部入りが名前で並んでいることも見る。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した。** それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— job を `assemble`（条件なし）と `publish`（job 単位で tag に限る）に割って直した。**実績は 2 つ**: run 33286928144 は条件を最後の step に降ろしただけの形（レビューで取り消した）、run 33289128197 が**いまの 2 job 構成**である。どちらも Release は作られていない。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
+| `release.yml` | tag / **pull request**（空撃ち） / `workflow_dispatch` | **全部入りの UPM tarball（配る正）** と platform ごとの tarball、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**staging した数を数え**、全部入りが名前で並んでいることも見る（**件数は platform が増えれば増えるので、実数は `CLAUDE.md` の workflow 表が持つ**）。**pull request でも走るようにしたのは M4 の後**で、tag でしか走らなかった間に欠陥が 3 件たまったためである（うち 1 件は「tag を打つと Release が 1 件も作られない」）。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した。** それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— job を `assemble`（条件なし）と `publish`（job 単位で tag に限る）に割って直した。**実績は 2 つ**: run 33286928144 は条件を最後の step に降ろしただけの形（レビューで取り消した）、run 33289128197 が**いまの 2 job 構成**である。どちらも Release は作られていない。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
 | `ci-lint.yml` | push(main) / PR / 手動 | actionlint / shellcheck / PSScriptAnalyzer / 文書の相対リンク検査の 4 job。**静的に読めば分かる誤りを、CI を 1 周（10〜20 分）回して確かめていた**のを埋める | M3 後 |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C# の静的解析。sanitizer が「実際に踏んだ経路」を見るのに対し、CodeQL は経路を実行せずに探すので**重なっていない** | M3 後 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**schedule での実行実績はまだ無い**（下記） | M3 後 |
@@ -1020,19 +1020,34 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
 
 #### やること
 
-1. **`docs/roadmap.md` と `CLAUDE.md` の「最新の公開版」の記述を更新する準備**
-   （公開してから直す。先に書くと嘘になる）
-2. **`.github/release-notes.md` を v0.4.0 の内容にする** —— 上の表と、モバイルの注記
-3. **`README.md` の platform 表にモバイルの注記を足す**
-4. **`package.json` の `version` を上げる**
+1. **`.github/release-notes.md` を v0.4.0 の内容にする** ——
+   **2026-09-03 に済ませた**（M5 の全部を足し、出していないものも明記した）
+2. **`README.md` / `README.ja.md` にモバイルが実機未検証であることを書く** ——
+   **2026-09-03 に済ませた**（「ビルドはされているが実機で動かしていない」の節）
+3. **`package.json` の `version` を上げる**
+4. **その変更を main へ入れる。** main は保護されており直接 push できないので、
+   PR を出して CI を通す。**`release.yml` は tag と `package.json` の版が一致する
+   ことを検査する**ので、tag を打つ前に main に入っていなければならない
 5. **tag を打つ**（`v0.4.0`）→ `release.yml` が 5 platform 分と全部入りを作り、`--draft` で止まる
 6. **下書きを実物で検証する** —— 落として `SHA256SUMS.txt` と突き合わせ、全部入りの中に
    5 platform 分の binary と `.meta` が在ること、`.g.cs` と `docs/api-map.md` が入っていること、
    Linux の GLIBC 要求、Android の page size、iOS の `.a` を見る（v0.3.0 のときと同じ表）
 7. **公開する**（`gh release edit v0.4.0 --draft=false`）
-8. **OpenUPM が拾うことを確かめる** —— `https://package.openupm.com/com.ayutaz.opencv-unity-native`
-   が `0.4.0` を返すか。**拾うまでに時間がかかるので、その日のうちに確かめられるとは限らない**
-9. **公開後に文書を更新する**（「最新の公開版」の記述、`docs/README.md`）
+8. **OpenUPM が拾うことを確かめる。** 確かめ方:
+
+   ```sh
+   curl -s https://package.openupm.com/com.ayutaz.opencv-unity-native |      python -c "import sys,json; d=json.load(sys.stdin); print(d['dist-tags']['latest'])"
+   ```
+
+   これが `0.4.0` を返せば配信されている。**OpenUPM はビルドキューを持つので、
+   公開した直後には反映されない** —— v0.2.0 のときも数時間かかった。
+   **「登録済みだから自動で拾うはず」で終わらせない。**
+9. **公開後に文書を更新する。** 「最新の公開版」を書いている場所は次のとおり:
+   `docs/roadmap.md`（この節と「配布」の各節）、`CLAUDE.md`（現在地の段）、
+   `docs/README.md`（Status）、`README.md` と `README.ja.md`（冒頭の Status と
+   「導入」の節）、`docs/api-reference.md`（対象範囲）、
+   `.github/release-notes.md`（次の版のために「前の版」を繰り上げる）。
+   **7 ファイルある。** 1 つでも古いと、次に読む人が違う版を前提に動く。
 
 #### 完了条件
 

@@ -41,8 +41,11 @@ hangs off it. See [README](README.md#development) for the full list.
   verification script or a CI gate, **break the thing it guards and watch it fail.**
   A check that has only ever been observed passing has not been shown to work. This
   is written up in `.claude/skills/prove-a-check-works/`.
-- **Adding an ABI function** has a specific order — header, implementation, L1
-  contract test, P/Invoke declaration, L3 test, status table sync. See
+- **Adding an ABI function** has a specific order, and **the declarations are not
+  part of it** — since M5 the C header and the C# P/Invoke are generated from
+  `bindings/spec/*.json`, and writing either by hand makes `verify-generated` fail.
+  The order is: L1 contract test first, then one entry in the spec followed by
+  `./tools/dev.ps1 generate`, then the implementation, then the L3 test. See
   `.claude/skills/add-abi-function/`.
 - **Do not put milestone-specific rules in hooks.** Conditions that expire become
   stale in exactly the way the documents do.

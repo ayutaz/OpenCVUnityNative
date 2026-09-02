@@ -4,7 +4,7 @@ OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible 
 
 [日本語](README.ja.md)
 
-> **Status: v0.2.0 is the newest published release, and the repository is well ahead of it.** That release is desktop-only and carries M0 through M3.5. Since then the repository gained Android and iOS cross-builds (M4) and a generated binding layer with camera calibration (M5), **none of which has been published yet.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. Everything described below — including the in-memory image encode/decode functions and the single package that carries all three platforms — is in v0.2.0. The public C ABI is deliberately narrow — `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, and encoding/decoding images to and from byte arrays in memory — because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web (M6) is not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+> **Status: v0.2.0 is the newest published release, and the repository is well ahead of it.** That release is desktop-only and carries M0 through M3.5. Since then the repository gained Android and iOS cross-builds (M4) and a generated binding layer with camera calibration (M5), **none of which has been published yet.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. **Read what follows as describing the repository, not the download**: v0.2.0 carries the `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, in-memory image encode/decode, and one package holding all three desktop platforms. Everything else below is in the repository and not yet in any release. The public C ABI is deliberately narrow either way, because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web (M6) is not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -74,7 +74,12 @@ com.ayutaz.opencv-unity-native.tgz                        # every platform — t
 com.ayutaz.opencv-unity-native-<version>-windows-x64.tgz  # one platform only, if that is what you want
 com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
+com.ayutaz.opencv-unity-native-<version>-android-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-ios-arm64.tgz
 ```
+
+The per-platform list grows with the platform set; the release you download is the
+authority on which ones exist.
 
 The all-platform tarball carries no version number in its filename on purpose:
 OpenUPM selects a release asset by a stable name prefix, so a version in the name
@@ -303,8 +308,8 @@ check could not stop a merge. Until 2026-08-29 the
 Unity, lint and CodeQL workflows ran on every pull request without being required,
 so they could be red and the change still merged; CI watching something and CI
 stopping something are different things, and only the second one is a gate. The
-remaining two workflows (`build-opencv`, `nightly`) are not triggered by pull
-requests at all, so they cannot be required. `release` was in that list until
+remaining three workflows (`build-opencv`, `nightly`, `unity-probe`) are not
+triggered by pull requests at all, so they cannot be required. `release` was in that list until
 2026-08-31; it now runs on pull requests too, because three defects had accumulated in the
 distribution path while it only ran on tags — one of which meant that tagging a release
 would have produced no release at all. Its `Publish the release` job stays out of the
@@ -330,8 +335,10 @@ call into a module are written, none of that module's code reaches the shipped l
 Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
 10,177,536 bytes when the encode/decode functions landed (zlib, libpng and libjpeg-turbo
 came with them), and to 20,136,960 bytes when the QR and ORB functions landed
-(`annoylib` and the MSCR chi_table come with `features`). Camera calibration added
-another 274,432 bytes on top. Adding a module to the build system alone changes
+(`annoylib` and the MSCR chi_table come with `features`). It stands at 21,464,576
+bytes now; the last 274,432 of that arrived with `calibrateCamera` alone, and the
+rest of the growth since the QR/ORB measurement came from the other calibration and
+geometry functions. Adding a module to the build system alone changes
 nothing: linking `calib` moved the library by exactly zero bytes until a function
 actually called into it.
 

@@ -11,6 +11,10 @@ Settings がそう決めている）。
 tarball では「エディタは Windows、実機は Android」が表現できない**。これが全部入りを
 正にした理由である。
 
+> **Android と iOS は実機で一度も動かしていない。** CI はクロスビルドし、16 KB page
+> size と束ねたシンボルを機械的に検査しているが、**どの端末もこの binary を読み込んだ
+> ことがない。** 詳しくは下の「この版で確かめていないこと」を読むこと。
+
 ```jsonc
 // Packages/manifest.json
 {
