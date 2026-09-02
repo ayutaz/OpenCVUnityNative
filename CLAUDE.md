@@ -63,7 +63,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 3 本（OpenCV 構成・ハッシュ無効化・**生成物と spec の一致**） | 約 18 秒（**2 本だった頃の値**） |
 | `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証・restore の実 download・linkage 検証・配布物生成 | 約 4 分 15 秒（2026-08-28 実測。M3 で `VerifyArtifactLinkage.Tests.ps1` と `PackageRelease.Tests.ps1` が加わり、M1 時点の約 70 秒から伸びた） |
 | `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest **98 件** + CTest **4 件**） | 約 10 秒 |
-| `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **66 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **99 件**（M5 で新設）。**件数を書いてあるのはこの行だけである** —— 他所に写すと、テストを 1 件足した瞬間にそちらだけが嘘になる（M5 で実際に 4 箇所が同時に古くなった） | 約 11 秒（**44 件だけだった頃の値**） |
+| `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **68 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **99 件**（M5 で新設）。**件数を書いてあるのはこの行だけである** —— 他所に写すと、テストを 1 件足した瞬間にそちらだけが嘘になる（M5 で実際に 4 箇所が同時に古くなった） | 約 11 秒（**44 件だけだった頃の値**） |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 18 秒（増分。2026-08-28 実測。M1 時点の約 11 秒より伸びているが、原因は未特定——増えたのは L1 側で計測済みの再コンパイル対象と同じファイル群で、M3 固有の変更ではない） |
 | `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
 | `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、**34 件**） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値。** その後 M3.5 で 16 件、M4 で 33 件、M5 で 34 件になったが所要時間は取り直していない） |
