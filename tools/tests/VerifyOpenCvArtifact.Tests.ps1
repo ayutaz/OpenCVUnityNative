@@ -26,11 +26,39 @@ function New-Tree([string[]]$libs) {
     return $root
 }
 
-# 実際にビルドしたツリー（third_party/opencv/<hash>/x64/vc17/staticlib、
-# ITT を無効化した構成）にあった集合そのもの。想像で足さない。
+# **module 名を写さない。正本から読む。**
+# 以前はここに 6 つの `opencv_*500.lib` をリテラルで書いていたが、
+# **`Modules` に `calib` を足した瞬間にこの一覧だけが古くなり、
+# 「a clean tree passes」が CI で落ちた**（2026-09-02 に実測）。
+# 検査そのものは正しく働いた —— 合成したツリーに calib が無いのだから
+# 「要求した module がビルド成果物にありません」は正しい判定である。
+# **古かったのは検査の入力のほうだった。**
+#
+# 検証スクリプトが要求する module は `config.Modules` + 受け入れ済みの
+# 推移的依存なので、同じ 2 つから作る。**これで module が増えれば
+# 合成ツリーも一緒に増える。**
+Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
+$config = Get-OpenCvConfig
+
+# `$AcceptedTransitiveModules` は検証スクリプトの中にある。**写さずに読む** ——
+# 写すと、そちらが増えたときにこの一覧だけが古くなる（いま直したのと同じ形）。
+$verifyText = Get-Content -Path $verify -Raw
+if ($verifyText -notmatch "\`$AcceptedTransitiveModules\s*=\s*@\(([^)]*)\)") {
+    throw 'verify-opencv-artifact.ps1 から $AcceptedTransitiveModules を読めませんでした（形が変わった？）'
+}
+$transitive = @(
+    $Matches[1] -split ',' |
+        ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
+        Where-Object { $_ }
+)
+if ($transitive.Count -eq 0) {
+    throw '$AcceptedTransitiveModules が空に見えます（正規表現が空振りしている）'
+}
+
+$requiredModules = @(@($config.Modules) + $transitive | Sort-Object -Unique)
 $allowed = @(
-    'opencv_core500.lib', 'opencv_imgproc500.lib', 'opencv_imgcodecs500.lib',
-    'opencv_objdetect500.lib', 'opencv_features500.lib', 'opencv_flann500.lib',
+    $requiredModules | ForEach-Object { "opencv_${_}500.lib" }
+) + @(
     'zlib.lib', 'libpng.lib', 'libjpeg-turbo.lib', 'libclapack.lib'
 )
 
