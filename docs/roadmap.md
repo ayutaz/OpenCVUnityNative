@@ -1993,11 +1993,11 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               |
                                                               v
                                                         M5 generator
-                （5 件すべて達成。objdetect / features / geometry / calib）
+                        （5 件すべて達成。objdetect / features / geometry / calib）
                                                               |
                                                               v
                                                     配布 その 5 — v0.4.0
-                （M4 と M5 の成果を初めて利用者に届ける。未着手）
+                        （M4 と M5 の成果を初めて利用者に届ける。未着手）
                                                               |
                                                               v
                                                    M6 Web ──> M7 profiles

@@ -6,8 +6,9 @@
 **両者を同期させる仕組みは無い** —— 境界に関数が増えると対応表は自動で伸びるが、
 この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
 
-**対象範囲: allowlist に載っている C ABI 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本。**本数は `docs/abi-ownership-and-versioning.md` §3 の冒頭が数える**）と、その上に立つ
-C# の公開 API だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、
+**対象範囲: allowlist に載っている C ABI 関数と、その上に立つ C# の公開 API だけ。**
+（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本。**本数は `docs/abi-ownership-and-versioning.md`
+§3 の冒頭が数える**。） まだ無い機能（`Mat` の部分参照、型変換・算術演算、
 **`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
 ステレオ校正、`solvePnP` など）はここに書かない。**`WebCamTexture` 連携は
 M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
@@ -317,7 +318,8 @@ status:
 
 ### この allowlist に含まれないもの
 
-`ocvu_get_abi_version` / last-error 取得 / status 表の照会 / `ocvu_get_opencv_version` /
+`ocvu_get_abi_version` / `ocvu_get_last_error_status` / `ocvu_get_last_error_message` /
+`ocvu_get_status_count` / `ocvu_get_status_value` / `ocvu_get_opencv_version` /
 `ocvu_get_build_information` / `ocvu_debug_throw` / `ocvu_debug_crash` は存在するが、
 M0/M1 由来の診断・conformance test 用 API であり、**この allowlist の対象外**である
 （**本数は `docs/abi-ownership-and-versioning.md` §3 の冒頭が数える**）。C# 側では `CvNative` の一部メンバがこれらを

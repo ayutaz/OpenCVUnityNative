@@ -210,21 +210,19 @@ Assert-That ($includedModules.Count -eq $specModules.Count) `
 #
 # **意図的に載せないものがあるので、除外を明示する。除外はここに書いたものだけで、
 # それ以外が載っていなければ落ちる。**
-#   - last-error と status 表の 4 本 —— 同文書は「last-error 取得 / status 表の照会」と
-#     **総称でだけ**触れており、関数名を書いていない。C# 側の契約は §2.4 にある
-#   - `*_ptr` —— managed 配列版と同じ C の entry point へポインタで入る C# 側の
-#     入口で、C# としての契約は CvMat の IntPtr overload にある
-#
-# **除外は「本当に名前が載っていないもの」だけにする。** 2026-09-03 の最初の版は
-# 診断 API を 9 本まとめて除外していたが、**実測すると 5 本は名前で載っていた** ——
+# **除外リストは持たない。** 最初の版は診断 API を 9 本まとめて除外していたが、
+# **実測すると 5 本は名前で載っており、除外する必要が無かった** ——
 # **不要な除外はそのまま穴になる**（`ocvu_debug_crash` の記述を丸ごと消しても
 # 検査が緑のままだった。レビュアーが実証した）。
+#
+# 残る 4 本（last-error と status 表）は文書が総称でしか触れていなかったので、
+# **除外を狭めるのではなく、文書に名前を書いた。**
+# `prove-a-check-works` の「列挙に基づく門を、出口側の構造に基づく門へ変える」
+# —— **一覧を持たなければ、一覧が古くなることも無い。**
+#
+# 残る例外は `*_ptr` の 2 本だけで、これは**規則で表せる**（同じ C の entry point
+# へポインタで入る C# 側の入口。C# としての契約は CvMat の IntPtr overload にある）。
 $apiRefText = Get-Content -LiteralPath (Join-Path $repoRoot 'docs/api-reference.md') -Raw
-
-$documentedElsewhere = @(
-    'ocvu_get_last_error_status', 'ocvu_get_last_error_message',
-    'ocvu_get_status_count', 'ocvu_get_status_value'
-)
 
 $undocumented = @()
 $checkedCount = 0
@@ -232,10 +230,14 @@ foreach ($specFile in Get-ChildItem -Path (Join-Path $repoRoot 'bindings/spec') 
     if ($specFile.Name -eq 'schema.json') { continue }
     $model = Get-Content -LiteralPath $specFile.FullName -Raw | ConvertFrom-Json
     foreach ($fn in $model.functions) {
-        if ($documentedElsewhere -contains $fn.name) { continue }
         if ($fn.name -like '*_ptr') { continue }
         $checkedCount++
-        if ($apiRefText -notlike "*$($fn.name)*") { $undocumented += $fn.name }
+        # **部分一致にしない。** `-like "*name*"` だと `ocvu_debug_crash_GONE` の
+        # ような文字列が `ocvu_debug_crash` を含んでしまい、**名前を書き換えても
+        # 検査が通る**（実測で踏んだ）。後ろに識別子の文字が続かないことまで見る。
+        if ($apiRefText -notmatch ([regex]::Escape($fn.name) + '(?![A-Za-z0-9_])')) {
+            $undocumented += $fn.name
+        }
     }
 }
 
