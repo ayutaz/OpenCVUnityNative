@@ -57,20 +57,42 @@ public class CalibrationTests
     [Fact]
     public void FindChessboardCornersReturnsEmptyWhenThereIsNoBoard()
     {
+        // **ゼロ埋めが要ることを、外すと実際に赤くなる形で確かめる（レビュー I5 の強化）。**
+        // 同じ大きさの Mat を書いて捨てると、アロケータは直前の画素をそのまま
+        // 次の確保へ引き継ぐことがある（実測: 4096 バイト中 2048 バイトが非ゼロ）。
+        // **xUnit は既定でテストクラスを並列実行するので、他のテストクラスの
+        // 確保・解放が間に挟まると 1 回や数回の書いて捨てるだけでは再現が
+        // 安定しない**（実測: 8 回では毎回 0 バイトだった）。500 回に増やすと
+        // 5 回連続で安定して再現した（実測）ので、この回数にしてある。
+        //
+        // **盤の側の幾何も、探すパターンに合わせる必要がある。** 64x64 の画像に
+        // 7x7（cell=8）の盤を書いても、`patternCols`/`patternRows` を 3x3 で
+        // 探すと見つからない（実測: cell=8 の盤を捨てても corners=0）——
+        // 4x4 マス（cell=16）で書いた盤なら、内側格子点がちょうど 3x3 になり、
+        // 汚れた画素の中から実際に 9 点見つかる。
+        //
+        // 7x7 の格子は 64x64 に検出可能な形で収まらないため、旧版の検査
+        // （7x7 で探す）はゼロ埋めを外しても緑のままだった
+        // ——**「たまたま緑」そのものの形**だったので、盤と探索パターンを
+        // 3x3 に揃える。
+        for (int i = 0; i < 500; i++)
+        {
+            using var board = MakeCheckerboard(64, 64, 16);
+        }
+
         using var blank = CvMat.Create(64, 64, CvMatType.Gray8);
 
         // **`CvMat.Create` は画素を初期化しない。** 「真っ黒」を主張するなら
         // 明示的にゼロ埋めする（L1 の同じ欠陥はレビュー I4 で直っている
         // ——native/tests/test_calibration.cpp の
         // FindChessboardCornersReportsNotFoundOnABlankImage を参照）。
-        // ゼロ埋めしないと、アロケータが使い回した前回の画素（雑音）を
-        // 「盤が写っていない画像」として検査することになり、緑になるのが
-        // 「格子が無いから」ではなく「たまたま雑音が格子に見えなかったから」
-        // になってしまう。
+        // **この行を外すと、直前に捨てた市松模様の画素が残り、3x3 の格子が
+        // 実際に 9 点見つかってしまう**（実測。ゼロ埋めすると 0 点。
+        // dev.ps1 test-managed で、この行を外すと本当に落ちることを確認済み）。
         blank.CopyFrom(new byte[64 * 64], 64);
 
         // **空配列は誤りではない。** 格子が写っていなかっただけである。
-        Assert.Empty(CvCalibration.FindChessboardCorners(blank, 7, 7));
+        Assert.Empty(CvCalibration.FindChessboardCorners(blank, 3, 3));
     }
 
     [Fact]
