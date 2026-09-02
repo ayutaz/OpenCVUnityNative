@@ -75,12 +75,14 @@ Assert-That ($LASTEXITCODE -eq 0) 'an accepted transitive module (flann) is perm
 
 # **逆向き。** 許可リストに無い OpenCV module は拒まれる。
 # **終了コードだけを見ない** —— StrictMode の PropertyNotFoundException でも
-# 非ゼロになるので、意図した拒否とクラッシュが区別できない（このファイルの
-# 86-90 行が同じことを書いている）。**拒んだ相手の名前まで見る。**
+# 非ゼロになるので、意図した拒否とクラッシュが区別できない（同じ理由を
+# `$undocumented` の検査も書いている。**行番号ではなく内容で引く** ——
+# 行番号は書いた瞬間から古くなる）。**拒んだ相手の名前まで見る。**
 $withUnlisted = New-Tree ($allowed + @('opencv_dnn500.lib'))
 $unlistedOutput = & pwsh -NoProfile -File $verify -Root $withUnlisted 2>&1 | Out-String
 Assert-That ($LASTEXITCODE -ne 0) 'an OpenCV module outside the permitted set is rejected'
-Assert-That ($unlistedOutput -match 'dnn') 'the rejection names the module it refused (生の例外で落ちるのと区別が付く形で落ちること)'
+Assert-That ($unlistedOutput -match [regex]::Escape("OpenCV module 'dnn'")) `
+    'the rejection names the module it refused (生の例外で落ちるのと区別が付く形で落ちること)'
 
 
 # 正常系
