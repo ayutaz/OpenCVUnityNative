@@ -210,17 +210,20 @@ Assert-That ($includedModules.Count -eq $specModules.Count) `
 #
 # **意図的に載せないものがあるので、除外を明示する。除外はここに書いたものだけで、
 # それ以外が載っていなければ落ちる。**
-#   - 診断 / conformance 用の API —— 同文書の「この allowlist に含まれないもの」が
-#     まとめて扱う。個別の行は持たない
+#   - last-error と status 表の 4 本 —— 同文書は「last-error 取得 / status 表の照会」と
+#     **総称でだけ**触れており、関数名を書いていない。C# 側の契約は §2.4 にある
 #   - `*_ptr` —— managed 配列版と同じ C の entry point へポインタで入る C# 側の
 #     入口で、C# としての契約は CvMat の IntPtr overload にある
+#
+# **除外は「本当に名前が載っていないもの」だけにする。** 2026-09-03 の最初の版は
+# 診断 API を 9 本まとめて除外していたが、**実測すると 5 本は名前で載っていた** ——
+# **不要な除外はそのまま穴になる**（`ocvu_debug_crash` の記述を丸ごと消しても
+# 検査が緑のままだった。レビュアーが実証した）。
 $apiRefText = Get-Content -LiteralPath (Join-Path $repoRoot 'docs/api-reference.md') -Raw
 
 $documentedElsewhere = @(
-    'ocvu_get_abi_version', 'ocvu_get_last_error_status', 'ocvu_get_last_error_message',
-    'ocvu_get_status_count', 'ocvu_get_status_value',
-    'ocvu_get_opencv_version', 'ocvu_get_build_information',
-    'ocvu_debug_throw', 'ocvu_debug_crash'
+    'ocvu_get_last_error_status', 'ocvu_get_last_error_message',
+    'ocvu_get_status_count', 'ocvu_get_status_value'
 )
 
 $undocumented = @()
