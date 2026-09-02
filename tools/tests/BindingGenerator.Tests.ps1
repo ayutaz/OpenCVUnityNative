@@ -201,6 +201,48 @@ $includedModules = @([regex]::Matches($umbrellaText, '#include\s+"ocvu/([a-z0-9_
 Assert-That ($includedModules.Count -eq $specModules.Count) `
     "opencv_unity_native.h includes exactly the spec modules (included $($includedModules.Count) / spec $($specModules.Count))"
 
+# --------------------------------------------------------------------------
+# **手書きの API リファレンスが、spec の関数を取りこぼしていないこと。**
+#
+# `docs/api-reference.md` は生成物ではない —— 冒頭で「関数を足したらここを手で
+# 直すところまでが作業である」と自分で宣言している文書である。**宣言しただけでは
+# 守られない**（2026-09-03 に手で突き合わせるまで、誰も見ていなかった）。
+#
+# **意図的に載せないものがあるので、除外を明示する。除外はここに書いたものだけで、
+# それ以外が載っていなければ落ちる。**
+#   - 診断 / conformance 用の API —— 同文書の「この allowlist に含まれないもの」が
+#     まとめて扱う。個別の行は持たない
+#   - `*_ptr` —— managed 配列版と同じ C の entry point へポインタで入る C# 側の
+#     入口で、C# としての契約は CvMat の IntPtr overload にある
+$apiRefText = Get-Content -LiteralPath (Join-Path $repoRoot 'docs/api-reference.md') -Raw
+
+$documentedElsewhere = @(
+    'ocvu_get_abi_version', 'ocvu_get_last_error_status', 'ocvu_get_last_error_message',
+    'ocvu_get_status_count', 'ocvu_get_status_value',
+    'ocvu_get_opencv_version', 'ocvu_get_build_information',
+    'ocvu_debug_throw', 'ocvu_debug_crash'
+)
+
+$undocumented = @()
+$checkedCount = 0
+foreach ($specFile in Get-ChildItem -Path (Join-Path $repoRoot 'bindings/spec') -Filter '*.json') {
+    if ($specFile.Name -eq 'schema.json') { continue }
+    $model = Get-Content -LiteralPath $specFile.FullName -Raw | ConvertFrom-Json
+    foreach ($fn in $model.functions) {
+        if ($documentedElsewhere -contains $fn.name) { continue }
+        if ($fn.name -like '*_ptr') { continue }
+        $checkedCount++
+        if ($apiRefText -notlike "*$($fn.name)*") { $undocumented += $fn.name }
+    }
+}
+
+# **0 件を照合して緑にしない。** spec の読み取りが空振りしたら、下の assertion は
+# 何も見ないまま通る。
+Assert-That ($checkedCount -gt 0) `
+    'the API reference check actually had functions to look for (0 件なら spec の読み取りが空振りしている)'
+Assert-That ($undocumented.Count -eq 0) `
+    "docs/api-reference.md documents every spec function (missing: $($undocumented -join ', '))"
+
 if ($script:failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($script:failures.Count) assertion(s) failed")
     exit 1
