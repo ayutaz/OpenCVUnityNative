@@ -6,14 +6,15 @@
 **両者を同期させる仕組みは無い** —— 境界に関数が増えると対応表は自動で伸びるが、
 この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
 
-**対象範囲: C ABI の 14 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 3 本）と、その上に立つ
+**対象範囲: C ABI の 17 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 6 本）と、その上に立つ
 C# の公開 API だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、
 **`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
-`calib` など）はここに書かない。**`WebCamTexture` 連携は M4 で足したので
-§2.6 にある。QR コードの符号化・復号と ORB 特徴点検出は M5 で足したので §1「objdetect /
-features」と §2.8・§2.9 にある。**詳しい経緯は
+係数を求める `cv::calibrateCamera` など）はここに書かない。**`WebCamTexture` 連携は
+M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
+推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
+features / geometry / カメラの歪み補正」と §2.8〜§2.11 にある。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
-M5 の追加は §3.6）を、所有権契約そのものは同 §1 を参照。
+M5 の追加は §3.6〜§3.8）を、所有権契約そのものは同 §1 を参照。
 
 対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
 6000.3.16f1 の 1 版だけ**）。**対応 platform は最新の公開版（v0.2.0）の
@@ -229,12 +230,59 @@ status:
 | `ocvu_orb_detect` の `capacity` が `max_features` に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_count` に `max_features`。**buffer は書かない**） |
 | OpenCV 由来の失敗（符号化できない長さの `text` など） | `OCVU_STATUS_OPENCV_ERROR` |
 
+### カメラの歪み補正（imgproc / objdetect、M5 で追加）
+
+**`calib` module は使っていない。** `ocvu_undistort` は `imgproc`、
+`ocvu_find_chessboard_corners` は `objdetect` にあり、どちらも既にリンク済みだった
+（`docs/abi-ownership-and-versioning.md` §3.8）。実装は 2 module にまたがるが用途は
+1 つなので、`native/src/ocvu_calibration.cpp` の 1 ファイルにまとめてある。
+
+| 関数 | 内容 |
+| --- | --- |
+| `ocvu_undistort(ocvu_mat_handle src, const double* camera_matrix, int64_t camera_matrix_length, const double* dist_coeffs, int64_t dist_coeffs_length, ocvu_mat_handle dst)` | `src` の歪みを `camera_matrix`（行優先の 3x3）と `dist_coeffs`（4/5/8/12/14 個）で補正して `dst` へ入れる。**1 回呼び** |
+| `ocvu_find_chessboard_corners(ocvu_mat_handle src, int32_t pattern_cols, int32_t pattern_rows, float* out_corners, int32_t capacity, int32_t* out_count)` | `src` に写っているチェスボードの内側の格子点を見つけ、x と y が交互に並ぶ形で `out_corners` へ書く。**1 回呼び**（下記） |
+
+**どちらも呼ぶ側を信用しない。** `camera_matrix_length` / `dist_coeffs_length` は
+**バイト数**で、`ocvu_find_homography` と同じくこの ABI の `length` はすべてバイト数で
+統一してある。`camera_matrix_length` が `9 * sizeof(double)` ちょうどでなければ、
+`dist_coeffs_length` が 4/5/8/12/14 個ぶんのバイト数でなければ、**何も読まずに**
+`OCVU_STATUS_INVALID_ARGUMENT` を返す。**失敗したときは `dst` を書き換えない。**
+`ocvu_undistort` は `src` と `dst` に同じ handle を渡してもよい（内部で一時領域に
+補正してから入れ替えるので、`cvtColor` と違い in-place 呼び出しを禁じていない）。
+
+**`ocvu_find_chessboard_corners` は 1 回呼びである。** 必要な点数は
+`pattern_cols * pattern_rows` で呼ぶ側が事前に知り得るので、2 回呼ぶ理由が無い
+（`ocvu_orb_detect` と同じ考え方）。`capacity` は `out_corners` の**要素（float）の
+個数**であり、点の個数ではない —— x と y の 2 つで 1 点なので、必要な float 数は
+`pattern_cols * pattern_rows * 2` になる。`capacity` がそれに満たなければ
+何も書かずに `OCVU_STATUS_BUFFER_TOO_SMALL` を返し、`out_count` に必要な float 数を
+入れる。`pattern_cols` / `pattern_rows` はどちらも 2 未満、またはその積が
+`OCVU_CHESSBOARD_MAX_CORNERS` を超えると `OCVU_STATUS_INVALID_ARGUMENT`。
+**格子が写っていなければ `OCVU_STATUS_NOT_FOUND`**（誤りではない）。
+
+status:
+
+| 条件 | status |
+| --- | --- |
+| `camera_matrix` / `dist_coeffs` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `camera_matrix_length` が `9 * sizeof(double)` と一致しない | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `dist_coeffs_length` が 4/5/8/12/14 個ぶんのバイト数でない | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `src` / `dst` の handle が無効 | `OCVU_STATUS_INVALID_HANDLE` |
+| `out_count` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `pattern_cols` / `pattern_rows` が 2 未満 | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `pattern_cols * pattern_rows` が `OCVU_CHESSBOARD_MAX_CORNERS` を超える | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `capacity` が負 | `OCVU_STATUS_INVALID_ARGUMENT` |
+| `capacity` が正なのに `out_corners` が NULL | `OCVU_STATUS_NULL_POINTER` |
+| `capacity` が必要な float 数に満たない | `OCVU_STATUS_BUFFER_TOO_SMALL`（`out_count` に必要な float 数。**buffer は書かない**）|
+| 格子が写っていない | `OCVU_STATUS_NOT_FOUND`（**失敗ではない**）|
+| OpenCV 由来の失敗 | `OCVU_STATUS_OPENCV_ERROR` |
+
 ### この allowlist に含まれないもの
 
 `ocvu_get_abi_version` / last-error 取得 / status 表の照会 / `ocvu_get_opencv_version` /
 `ocvu_get_build_information` / `ocvu_debug_throw` / `ocvu_debug_crash` は存在するが、
 M0/M1 由来の診断・conformance test 用 API であり、この allowlist（M2 の 9 本 + M3.5 の
-2 本 + M5 の 3 本 = 14 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを
+2 本 + M5 の 6 本 = 17 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを
 包んでいるので、公開 C# API としての契約は §2.4 に記載する。
 
 ## 2. C# 公開 API
@@ -467,17 +515,40 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 求めた変換を画像に当てるには透視変換が要るが、**それはまだ C ABI に出していない**
 （`imgproc` にはあるがラップしていない）。
 
+### 2.11 `CvUnity.CvCalibration`
+
+`static class`（`CvUnity.Core` アセンブリ、M5 で追加）。カメラの歪み補正と、
+較正パターンの検出（OpenCV の `imgproc` と `objdetect`）。**`calib` module は
+使っていない** —— 歪みを当てる `undistort` は `imgproc`、較正パターンを見つける
+`findChessboardCorners` は `objdetect` にあり、どちらも既にリンク済みである。
+**係数を求める `calibrateCamera` だけが `calib` にあり、それはまだ出していない**
+（構成ハッシュが変わるため。詳細は `docs/roadmap.md` の M5 節）。
+
+| メンバ | 内容 |
+| --- | --- |
+| `CvCalibration.Undistort(CvMat src, double[] cameraMatrix, double[] distCoeffs, CvMat dst)` | `src` の歪みを補正して `dst` に入れる。`dst` は結果に応じて丸ごと置き換わり、`src` と同じ形状・型になる |
+| `CvCalibration.FindChessboardCorners(CvMat src, int patternCols, int patternRows)` | `src` に写っているチェスボードの内側の格子点を見つける。**写っていなければ空配列**を返す（誤りではない） |
+
+**`cameraMatrix` は行優先の 3x3（9 要素）でなければならない**（`ArgumentException`）。
+**`distCoeffs` は OpenCV が受ける長さ（4 / 5 / 8 / 12 / 14 要素）でなければならない**
+（`ArgumentException`）。この一覧は OpenCV の都合であって、こちらの判断ではない。
+
+`FindChessboardCorners` が返す点は `patternCols * patternRows` 個で、
+`CvGeometry.FindHomography`（§2.10）にそのまま渡せる形（`CvPoint2[]`）である。
+
 ## 3. 対象外（この文書に書かないもの）
 
 `Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
-経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、`calib`、**透視変換の適用**（`warpPerspective`）—
+経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、**係数を求める
+`cv::calibrateCamera`**、**透視変換の適用**（`warpPerspective`）—
 いずれも `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
 しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
 この文書に追記する形にする。
 **メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と
 §2.3 にある。`WebCamTexture` 連携は M4 で足したので §2.6 にある。QR コードの符号化・
-復号と ORB 特徴点検出、および射影変換の推定は M5 で足したので §1「objdetect / features / geometry」と §2.8・§2.9・§2.10 にある**
-—— いずれもここには残っていない。
+復号と ORB 特徴点検出、射影変換の推定、カメラの歪み補正とチェスボードの格子点検出は
+M5 で足したので §1「objdetect / features / geometry」と「カメラの歪み補正」、
+§2.8・§2.9・§2.10・§2.11 にある** —— いずれもここには残っていない。
 
 ## 参照
 
