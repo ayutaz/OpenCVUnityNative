@@ -40,27 +40,40 @@ function New-Tree([string[]]$libs) {
 Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
 $config = Get-OpenCvConfig
 
-# `$AcceptedTransitiveModules` は検証スクリプトの中にある。**写さずに読む** ——
-# 写すと、そちらが増えたときにこの一覧だけが古くなる（いま直したのと同じ形）。
-$verifyText = Get-Content -Path $verify -Raw
-if ($verifyText -notmatch "\`$AcceptedTransitiveModules\s*=\s*@\(([^)]*)\)") {
-    throw 'verify-opencv-artifact.ps1 から $AcceptedTransitiveModules を読めませんでした（形が変わった？）'
-}
-$transitive = @(
-    $Matches[1] -split ',' |
-        ForEach-Object { $_.Trim().Trim("'").Trim('"') } |
-        Where-Object { $_ }
-)
-if ($transitive.Count -eq 0) {
-    throw '$AcceptedTransitiveModules が空に見えます（正規表現が空振りしている）'
-}
+# **推移的依存は読まない。読む必要が無い。**
+# 検証スクリプトの必須判定は `config.Modules` だけを見る（`$missing` の行）。
+# `$AcceptedTransitiveModules` は「在ってもよい」の側であって、
+# 合成ツリーに入れなくても「a clean tree passes」は通る。
+#
+# **以前はここでその一覧を正規表現で読んでいたが、やめた。**
+# 取り落としても緑のまま通ったからである（実測: `@('flann', 'geometry') + @('stereo')`
+# のように連結で書かれると `stereo` を落とすが、必須ではないのでテストは緑）。
+# **落ちない読み取りは、読んでいないのと同じである。**
+# 許可されることは下で 1 つ名指しして確かめる —— そちらは実際に落ちる。
+$requiredModules = @($config.Modules | Sort-Object -Unique)
 
-$requiredModules = @(@($config.Modules) + $transitive | Sort-Object -Unique)
 $allowed = @(
     $requiredModules | ForEach-Object { "opencv_${_}500.lib" }
 ) + @(
     'zlib.lib', 'libpng.lib', 'libjpeg-turbo.lib', 'libclapack.lib'
 )
+
+# **推移的依存が実際に許可されることを、1 つ名指しで確かめる。**
+# 上の必須判定とは別の経路（$PermittedOpenCvModules）を通るので、
+# ここが唯一その経路を見ている。`flann` は features / objdetect が引き込む
+# もので、検証スクリプトの $AcceptedTransitiveModules に載っている。
+# **載っていなければこのテストが落ちる** —— 一覧を写さずに、
+# 「許可される」という結果のほうを見ている。
+$withTransitive = New-Tree ($allowed + @('opencv_flann500.lib'))
+& pwsh -NoProfile -File $verify -Root $withTransitive | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'an accepted transitive module (flann) is permitted'
+
+# **逆向き。** 許可リストに無い OpenCV module は拒まれる。
+# stereo / flann のような「載っているもの」と区別が付く形で落ちること。
+$withUnlisted = New-Tree ($allowed + @('opencv_dnn500.lib'))
+& pwsh -NoProfile -File $verify -Root $withUnlisted 2>&1 | Out-Null
+Assert-That ($LASTEXITCODE -ne 0) 'an OpenCV module outside the permitted set is rejected'
+
 
 # 正常系
 $ok = New-Tree $allowed

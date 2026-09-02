@@ -111,16 +111,25 @@ OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `
 - **`THIRD_PARTY_NOTICES.md` の module 列挙**（配布物に同梱される法的通知文書）
 - **`README.md` の「which OpenCV modules this plugin links」**
 - **`tools/tests/OpenCvConfig.Tests.ps1` の module 検査**（spec と両方向に突き合わせる）
-- **`tools/tests/VerifyOpenCvArtifact.Tests.ps1` の合成ツリー** ——
-  検証スクリプトが要求する module を並べた一覧を持つ。**このレーンは
-  `test-tools-slow`（CI 専用）にあり、ローカルの `dev.ps1 test` では走らない**
-  ので、**古くなっても CI に投げるまで分からない**（2026-09-02 に実測。
-  2 platform が落ちた）。
 - **module 一覧を散文で持っている文書** —— `docs/roadmap.md` の M7 節、
   `docs/unity-opencv-integration-research-and-plan.md` の競合比較表、
   `CLAUDE.md` の `opencv-config.psd1` の行。**この 3 つは 2026-09-02 に
   実際に取りこぼし、レビューで指摘されて直した** —— 上の 4 つと違って
   「module 一覧」という語で grep できないので、**目で探すしかない。**
+
+**テストが module 名を写していると、CI に投げるまで分からないことがある。**
+`tools/tests/VerifyOpenCvArtifact.Tests.ps1` は合成ツリーの中身を
+リテラルで持っており、`calib` を足した瞬間に 2 platform が落ちた
+（2026-09-02 に実測）。**このレーンは `test-tools-slow`（CI 専用）にあり、
+ローカルの `dev.ps1 test` では走らない。**
+
+**直し方は「正本から読む」ではなく「結果を見る」だった。** 一覧を正規表現で
+読む形にしたが、**取り落としても緑のまま通った** ——
+`@('a', 'b') + @('c')` のように連結で書かれると 1 つ落とすのに、
+その module は必須ではないのでテストは通る。**落ちない読み取りは、
+読んでいないのと同じである。** いまは合成ツリーを `config.Modules` だけで作り、
+推移的依存は「許可されるか」という**結果**を 1 つ名指しで見ている
+（許可リストから外すと実際に落ちる。実測済み）。
 
 **新しい module が推移的に引かれるかは、足す前に測れる。** `COMPONENTS` に足す前に
 その module の関数を呼ぶ L1 テストを書き、**リンクが落ちるかを見る。**
