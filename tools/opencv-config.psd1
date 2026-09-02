@@ -9,7 +9,7 @@
     #   calib3d    -> calib / geometry / stereo / ptcloud
     # BUILD_LIST は依存を自動解決するので、実際にビルドされる集合は
     # これより大きくなり得る。実測値は build-manifest.json に記録する。
-    Modules = @('core', 'imgproc', 'imgcodecs', 'objdetect', 'features')
+    Modules = @('core', 'imgproc', 'imgcodecs', 'objdetect', 'features', 'calib')
 
     # platform ごとの toolchain。実行中の platform に対応する 1 つが選ばれ、
     # 構成ハッシュに混ざる（Get-OpenCvConfigHash は Config 全体を正規化する）。
