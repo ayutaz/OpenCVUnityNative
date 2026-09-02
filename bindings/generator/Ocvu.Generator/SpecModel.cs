@@ -135,6 +135,12 @@ public static class SpecModel
             ["float*"] = new[] { "float[]", "System.IntPtr" },
             // カメラ行列・歪み係数など、小さい固定長を借用で渡す配列。
             ["const double*"] = new[] { "double[]", "System.IntPtr" },
+            // const double* の書き込み版（const float* に対する float* と同じ関係）。
+            // **1 つの cType が 2 つの意味を持つ** —— 配列への書き出し
+            // （カメラ行列・歪み係数・姿勢）と、スカラー 1 個の出力
+            // （再投影誤差）である。C 側の型はどちらも double* で同じなので、
+            // どちらになるかは spec の direction と csType が決める。
+            ["double*"] = new[] { "double[]", "out double", "System.IntPtr" },
             // 特徴点配列。managed 配列版とアドレス版のどちらも正しい（buffer と同じ形）。
             ["ocvu_keypoint*"] = new[] { "OcvuKeyPoint[]", "System.IntPtr" },
             // byte 列を渡す 4 つ。managed 配列版とアドレス版のどちらも正しい。
