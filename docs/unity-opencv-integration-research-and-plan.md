@@ -174,7 +174,7 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 
 | 種別 | OpenCV for Unity | 本案（M3.5 時点。**まだリリースしていない** —— 公開済みの最新は v0.1.1） |
 | --- | --- | --- |
-| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 5（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features`）。**プラグインがリンクしているのはそのうち 3 つ**（`core` / `imgproc` / `imgcodecs`）で、C ABI に出ているのはさらにその一部（`Mat` 6 本 + imgproc 3 本 + encode / decode 2 本） |
+| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 6（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `calib`）。**プラグインがリンクしているのは 7 つ**（この 6 つに、依存として推移的に引かれる `geometry` を足したもの）で、C ABI に出ているのはさらにその一部である（**本数を数える正本は [API 対応表](./api-map.md) の冒頭**） |
 | platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | Windows / macOS / Linux |
 | 配布 | Asset Store から 1 つ入れれば全 platform | **1 つの tarball に Desktop 3 platform 分**（M3.5 で解消。[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目）。**モバイルはまだ入らない**（M4） |
 | カメラ | `WebCamTexture` の補助クラス群、WebGPU 対応の非同期読み出し | 無し（`Texture2D` のみ） |

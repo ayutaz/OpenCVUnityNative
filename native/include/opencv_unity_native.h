@@ -138,6 +138,13 @@ typedef struct ocvu_keypoint {
  * パターン（せいぜい数十 x 数十）はこれを大きく下回る。 */
 #define OCVU_CHESSBOARD_MAX_CORNERS 10000
 
+/* ocvu_calibrate_camera の view_count * points_per_view（点の総数）の上限。
+ * OCVU_CHESSBOARD_MAX_CORNERS と同じ理由で、int32_t の乗算が符号付き
+ * オーバーフロー（未定義動作）を起こさないための歯止めである。校正は
+ * 1 枚ぶんではなく複数 view の総数を扱うので、上限は 1 桁大きく取る
+ * （20 枚 x 大きめの盤でもこれには届かない）。 */
+#define OCVU_CALIB_MAX_POINTS 100000
+
 /* cvtColor の変換コード。cv::COLOR_* の値をそのまま使う（写し間違いを避けるため
  * 実装側で static_assert する）。M2 で必要な 3 つだけを公開する。 */
 #define OCVU_CVT_BGRA2BGR   1
@@ -169,5 +176,6 @@ typedef struct ocvu_keypoint {
 #include "ocvu/objdetect.h"
 #include "ocvu/features.h"
 #include "ocvu/geometry.h"
+#include "ocvu/calib.h"
 
 #endif /* OPENCV_UNITY_NATIVE_H */

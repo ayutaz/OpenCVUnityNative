@@ -298,9 +298,9 @@ passing, so requiring it would stop nothing.
 Apache License 2.0 for this repository's own source. That does not by itself determine the terms of third-party code linked into the distributed binary — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the licenses of what the pinned OpenCV build bundles. That file lists every licence the artifact ships and says, per component, which of **OpenCV's own static libraries** it is compiled into — SoftFloat, annoylib, MSCR's chi table and the Rubik font are linked alongside zlib, libpng, libjpeg-turbo and libclapack; a few others ship a licence file without being linked. The Rubik font is under the SIL Open Font License, not a BSD-family licence, so the set is not uniform. Dependencies are constrained by an allowlist (`tools/verify-opencv-artifact.ps1`) and documented per build profile.
 
 Which of those then reach the plugin **you** redistribute depends on which OpenCV
-modules this plugin links, and that has changed twice. It now links `core`, `imgproc`,
-`imgcodecs`, `objdetect` and `features`; before `imgcodecs` it linked only `core` and
-`imgproc`. Static linking pulls in only what is referenced, so until the functions that
+modules this plugin links, and that has changed several times. It now links `core`,
+`imgproc`, `imgcodecs`, `objdetect`, `features`, `geometry` and `calib`; before
+`imgcodecs` it linked only `core` and `imgproc`. Static linking pulls in only what is referenced, so until the functions that
 call into a module are written, none of that module's code reaches the shipped library.
 Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
 10,177,536 bytes when the encode/decode functions landed (zlib, libpng and libjpeg-turbo

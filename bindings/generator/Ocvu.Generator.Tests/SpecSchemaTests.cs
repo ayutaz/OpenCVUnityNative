@@ -693,9 +693,25 @@ public class SpecSchemaTests
     [InlineData("const double*", "System.IntPtr")]
     [InlineData("float*", "float[]")]
     [InlineData("float*", "System.IntPtr")]
+    // ocvu_calibrate_camera は double* の出力を 3 つ持つ（カメラ行列・歪み係数・姿勢）。
+    // **const double* の書き込み版で、const float* に対する float* と同じ関係にある。**
+    [InlineData("double*", "double[]")]
+    [InlineData("double*", "System.IntPtr")]
     public void BothSpellingsOfAnArrayParamAreAccepted(string cType, string csType)
     {
         Assert.Equal(csType, LoadOneParam(cType, csType, DirectionForConstness(cType))
+            .Single().Functions.Single().Params.Single().CsType);
+    }
+
+    // **`double*` はスカラーの出力にも使う。** ocvu_calibrate_camera は
+    // 再投影誤差を 1 つ返すので、`int32_t*` -> `out int` と同じ形で
+    // `double*` -> `out double` が要る。**buffer 版と同じ cType が
+    // 2 つの意味を持つのは、C 側の型が同じだからである** —— どちらに
+    // なるかは spec の direction と csType が決める。
+    [Fact]
+    public void ADoublePointerAlsoSpellsAScalarOutParam()
+    {
+        Assert.Equal("out double", LoadOneParam("double*", "out double", "out")
             .Single().Functions.Single().Params.Single().CsType);
     }
 

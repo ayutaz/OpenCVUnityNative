@@ -2,6 +2,7 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/calib.hpp>
 #include <opencv2/objdetect.hpp>
 
 #include <algorithm>
@@ -178,6 +179,249 @@ extern "C" ocvu_status ocvu_find_chessboard_corners(ocvu_mat_handle src, int32_t
         out_corners[(i * 2) + 1] = corners[static_cast<size_t>(i)].y;
     }
     *out_count = static_cast<int32_t>(n * 2);
+    return OCVU_STATUS_OK;
+    OCVU_TRY_END
+}
+
+// ---------------------------------------------------------------------------
+// ocvu_calibrate_camera —— 校正の輪を閉じる段。**calib module を要るのはここだけ。**
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// 1 view につき 6 個の double（回転ベクトル 3 個のあと並進ベクトル 3 個）。
+// **この並びは spec の summary が呼ぶ側に約束している。**
+constexpr int32_t kPoseStride = 6;
+
+// カメラ行列は 3x3 を行優先で書く。
+constexpr int32_t kCameraMatrixElements = 9;
+
+}  // namespace
+
+extern "C" ocvu_status ocvu_calibrate_camera(const float* object_points,
+                                             int64_t object_points_length,
+                                             const float* image_points,
+                                             int64_t image_points_length,
+                                             int32_t view_count,
+                                             int32_t points_per_view,
+                                             int32_t image_width,
+                                             int32_t image_height,
+                                             double* out_camera_matrix,
+                                             int32_t camera_matrix_capacity,
+                                             double* out_dist_coeffs,
+                                             int32_t dist_coeffs_capacity,
+                                             int32_t* out_dist_coeffs_count,
+                                             double* out_view_poses,
+                                             int32_t view_poses_capacity,
+                                             double* out_rms) {
+    OCVU_TRY_BEGIN
+    if (out_dist_coeffs_count == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_calibrate_camera: out_dist_coeffs_count is NULL");
+    }
+    // どの経路で返っても、呼ぶ側が読む値が前回の残りにならないようにする。
+    *out_dist_coeffs_count = 0;
+
+    if (object_points == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_calibrate_camera: object_points is NULL");
+    }
+    if (image_points == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_calibrate_camera: image_points is NULL");
+    }
+    if (out_camera_matrix == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_calibrate_camera: out_camera_matrix is NULL");
+    }
+    if (out_dist_coeffs == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_calibrate_camera: out_dist_coeffs is NULL");
+    }
+    if (out_view_poses == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_calibrate_camera: out_view_poses is NULL");
+    }
+    if (out_rms == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_calibrate_camera: out_rms is NULL");
+    }
+
+    // 平面パターンの校正は 1 枚では解けない。**2 枚以上を要求する。**
+    if (view_count < 2) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                      "ocvu_calibrate_camera: view_count must be at least 2");
+    }
+    if (points_per_view < 4) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
+                                      "ocvu_calibrate_camera: points_per_view must be at least 4");
+    }
+    if (image_width < 1 || image_height < 1) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_calibrate_camera: image_width and image_height must be at least 1");
+    }
+
+    // **int32_t のまま掛けない。** 符号付き整数の乗算オーバーフローは未定義動作で、
+    // 折り返した負の値は下の容量の門を素通りする。
+    const int64_t total_points =
+        static_cast<int64_t>(view_count) * static_cast<int64_t>(points_per_view);
+    if (total_points > OCVU_CALIB_MAX_POINTS) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_calibrate_camera: view_count * points_per_view exceeds OCVU_CALIB_MAX_POINTS");
+    }
+
+    // 長さは**バイト数**である（この ABI の length はすべてそう）。
+    const int64_t needed_object_bytes = total_points * 3 * static_cast<int64_t>(sizeof(float));
+    const int64_t needed_image_bytes = total_points * 2 * static_cast<int64_t>(sizeof(float));
+    if (object_points_length < needed_object_bytes) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_calibrate_camera: object_points_length is smaller than "
+            "view_count * points_per_view * 3 * sizeof(float)");
+    }
+    if (image_points_length < needed_image_bytes) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_calibrate_camera: image_points_length is smaller than "
+            "view_count * points_per_view * 2 * sizeof(float)");
+    }
+
+    // 容量は**要素数**である（ocvu_orb_detect と同じ「capacity == 配列長」）。
+    // **検出より先に見る** —— 「何も書かない」契約は、書く前に返ることでしか守れない。
+    const int64_t needed_poses = static_cast<int64_t>(view_count) * kPoseStride;
+    if (camera_matrix_capacity < kCameraMatrixElements) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_BUFFER_TOO_SMALL,
+            "ocvu_calibrate_camera: camera_matrix_capacity is smaller than 9");
+    }
+    if (view_poses_capacity < needed_poses) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_BUFFER_TOO_SMALL,
+            "ocvu_calibrate_camera: view_poses_capacity is smaller than view_count * 6");
+    }
+    // 歪み係数の個数は OpenCV が決めるので、ここでは「最小でも 4 個は要る」
+    // ことだけを見る。実際に返る個数が capacity を超えたら、下で書く前に断る。
+    if (dist_coeffs_capacity < 4) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_BUFFER_TOO_SMALL,
+            "ocvu_calibrate_camera: dist_coeffs_capacity is smaller than 4");
+    }
+
+    // ここまでで検証は終わり。**ここから初めて入力を読む。**
+    const int32_t per_view = points_per_view;
+    std::vector<std::vector<cv::Point3f>> object_views(static_cast<size_t>(view_count));
+    std::vector<std::vector<cv::Point2f>> image_views(static_cast<size_t>(view_count));
+    for (int32_t v = 0; v < view_count; ++v) {
+        std::vector<cv::Point3f>& obj = object_views[static_cast<size_t>(v)];
+        std::vector<cv::Point2f>& img = image_views[static_cast<size_t>(v)];
+        obj.reserve(static_cast<size_t>(per_view));
+        img.reserve(static_cast<size_t>(per_view));
+        for (int32_t i = 0; i < per_view; ++i) {
+            const int64_t obj_base = (static_cast<int64_t>(v) * per_view + i) * 3;
+            const int64_t img_base = (static_cast<int64_t>(v) * per_view + i) * 2;
+            obj.emplace_back(object_points[obj_base + 0], object_points[obj_base + 1],
+                             object_points[obj_base + 2]);
+            img.emplace_back(image_points[img_base + 0], image_points[img_base + 1]);
+        }
+    }
+
+    cv::Mat camera_matrix;
+    cv::Mat dist_coeffs;
+    std::vector<cv::Mat> rvecs;
+    std::vector<cv::Mat> tvecs;
+    double rms = 0.0;
+    try {
+        rms = cv::calibrateCamera(object_views, image_views,
+                                  cv::Size(image_width, image_height),
+                                  camera_matrix, dist_coeffs, rvecs, tvecs);
+    } catch (const cv::Exception& e) {
+        // **cv::Exception を個別に受ける。** OCVU_TRY_END に任せると
+        // std::exception として UNKNOWN_ERROR に落ち、原因が読めなくなる。
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
+    }
+
+    // OpenCV は 64F の 3x3 と 1xN を返すが、**契約は自分でも確かめる。**
+    const cv::Mat camera64 = camera_matrix.type() == CV_64F
+                                 ? camera_matrix
+                                 : [&] { cv::Mat m; camera_matrix.convertTo(m, CV_64F); return m; }();
+    const cv::Mat dist64 = dist_coeffs.type() == CV_64F
+                               ? dist_coeffs
+                               : [&] { cv::Mat m; dist_coeffs.convertTo(m, CV_64F); return m; }();
+
+    if (camera64.total() != static_cast<size_t>(kCameraMatrixElements)) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_UNKNOWN_ERROR,
+            "ocvu_calibrate_camera: OpenCV returned a camera matrix that is not 3x3");
+    }
+    if (rvecs.size() != static_cast<size_t>(view_count) ||
+        tvecs.size() != static_cast<size_t>(view_count)) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_UNKNOWN_ERROR,
+            "ocvu_calibrate_camera: OpenCV returned a pose count that does not match view_count");
+    }
+
+    // **1 view ぶんの姿勢が 3 要素ずつであることも確かめる。**
+    // 下で r[0..2] / t[0..2] を読むので、ここを見ないと OpenCV が別の形を
+    // 返した場合に境界の外を読む（camera_matrix には同じ検査がある —— 片方だけ
+    // 守るのは、守っていないのと同じくらい説明が付かない）。
+    for (int32_t v = 0; v < view_count; ++v) {
+        if (rvecs[static_cast<size_t>(v)].total() != 3 ||
+            tvecs[static_cast<size_t>(v)].total() != 3) {
+            return ::ocvu::set_last_error(
+                OCVU_STATUS_UNKNOWN_ERROR,
+                "ocvu_calibrate_camera: OpenCV returned a pose vector that is not 3 elements");
+        }
+    }
+
+    const int64_t coeff_count = static_cast<int64_t>(dist64.total());
+    if (coeff_count > dist_coeffs_capacity) {
+        // **ここまで来ても、まだ 1 バイトも書いていない。**
+        //
+        // **必要量を返す。** 係数の個数だけは呼ぶ側が事前に知り得ない
+        // （OpenCV が入力を見て 4 / 5 / 8 / 12 / 14 のどれかを選ぶ）ので、
+        // ここで教えないと呼ぶ側は回復できない —— `ocvu_find_chessboard_corners`
+        // や `ocvu_imencode` と同じ 2 回呼びの作法である。
+        *out_dist_coeffs_count = static_cast<int32_t>(coeff_count);
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_BUFFER_TOO_SMALL,
+            "ocvu_calibrate_camera: dist_coeffs_capacity is smaller than the coefficient count "
+            "OpenCV produced");
+    }
+
+    // ここから書き出す。**失敗しうる経路はもう無い。**
+    const double* camera_data = camera64.ptr<double>();
+    for (int32_t i = 0; i < kCameraMatrixElements; ++i) {
+        out_camera_matrix[i] = camera_data[i];
+    }
+
+    const double* dist_data = dist64.ptr<double>();
+    for (int64_t i = 0; i < coeff_count; ++i) {
+        out_dist_coeffs[i] = dist_data[i];
+    }
+
+    for (int32_t v = 0; v < view_count; ++v) {
+        cv::Mat rvec64;
+        cv::Mat tvec64;
+        rvecs[static_cast<size_t>(v)].convertTo(rvec64, CV_64F);
+        tvecs[static_cast<size_t>(v)].convertTo(tvec64, CV_64F);
+
+        const double* r = rvec64.ptr<double>();
+        const double* t = tvec64.ptr<double>();
+        const int64_t base = static_cast<int64_t>(v) * kPoseStride;
+
+        // **回転が先、並進が後。** この順は spec の summary が約束している。
+        out_view_poses[base + 0] = r[0];
+        out_view_poses[base + 1] = r[1];
+        out_view_poses[base + 2] = r[2];
+        out_view_poses[base + 3] = t[0];
+        out_view_poses[base + 4] = t[1];
+        out_view_poses[base + 5] = t[2];
+    }
+
+    *out_dist_coeffs_count = static_cast<int32_t>(coeff_count);
+    *out_rms = rms;
     return OCVU_STATUS_OK;
     OCVU_TRY_END
 }

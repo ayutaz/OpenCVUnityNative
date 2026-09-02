@@ -16,7 +16,42 @@ function Assert-That([bool]$condition, [string]$what) {
 $config = Get-OpenCvConfig
 
 Assert-That ($config.Tag -eq '5.0.0') 'tag is pinned to 5.0.0'
-Assert-That ($config.Modules -join ',' -eq 'core,imgproc,imgcodecs,objdetect,features') 'module allowlist matches the spec'
+# **Modules を写さない。正本から読む。** 以前はここに 5 つの名前をリテラルで
+# 書いていたが、module を 1 つ足すたびにこの 1 行だけが嘘になった（実際 calib で
+# 踏んだ）。いま見るのは「OpenCV 側がビルドする module」と「bindings/spec が
+# 境界に出している module」の関係である。
+#
+# spec の module 名は OpenCV の module 名と一致していなければならない ——
+# ただし例外が 2 つある:
+#   - infra は OpenCV の module ではなく、この ABI 自身（版・エラー・status 表）を指す
+#   - geometry は Modules に書いていないが、features / objdetect の依存として
+#     OpenCV が推移的にビルドする（実測。cmake/FindOpenCvUnityDeps.cmake の
+#     COMPONENTS には意図の宣言として明示してある）
+$specModulesNotBuiltDirectly = @('infra', 'geometry')
+$specModules = @(
+    Get-ChildItem -Path (Join-Path $PSScriptRoot '../../bindings/spec') -Filter '*.json' |
+        Where-Object { $_.Name -ne 'schema.json' } |
+        ForEach-Object { [System.IO.Path]::GetFileNameWithoutExtension($_.Name) }
+)
+Assert-That ($specModules.Count -gt 0) 'the spec directory was actually scanned (0 件なら走査が効いていない)'
+
+$unmatched = @($specModules | Where-Object { $specModulesNotBuiltDirectly -notcontains $_ -and $config.Modules -notcontains $_ })
+Assert-That ($unmatched.Count -eq 0) `
+    "every spec module is built by OpenCV (見つからないもの: $($unmatched -join ', '))"
+
+# **逆向きも見る。** 上だけだと「spec に無い module を Modules へ足す」が通る ——
+# それは**この repo でいちばん高い変更**である（構成ハッシュが変わり 5 platform 分の
+# OpenCV を作り直す）。境界に出さない module をビルドしても成果物が膨らむだけなので、
+# 足すなら spec も同時に増えるはずである。
+#
+# `flann` のように「依存として必要だが自分では呼ばない」module は Modules に
+# 書かない（推移的に引かれる）ので、この向きの例外は今のところ無い。
+$unexpected = @($config.Modules | Where-Object { $specModules -notcontains $_ })
+Assert-That ($unexpected.Count -eq 0) `
+    "every built module is exposed through the spec (spec に無いのに Modules に在る: $($unexpected -join ', '))"
+
+# core は常に要る（Mat がこれに載っている）。
+Assert-That ($config.Modules -contains 'core') 'core is always built'
 
 # 4.x の名前が混ざっていないこと。OpenCV 5 では再編されている。
 Assert-That (-not ($config.Modules -contains 'features2d')) 'features2d is not used (renamed to features in 5.x)'

@@ -23,6 +23,7 @@ public static class AbiReachabilityChecks
     /// </summary>
     public static int CallEveryEntryPoint()
     {
+        NativeMethods.ocvu_calibrate_camera(default, 0L, default, 0L, 0, 0, 0, 0, default, 0, default, 0, out _, default, 0, out _);
         NativeMethods.ocvu_mat_create(0, 0, 0, out _);
         NativeMethods.ocvu_mat_release(0UL);
         NativeMethods.ocvu_mat_clone(0UL, out _);
@@ -50,6 +51,6 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_qr_encode(null, 0UL);
         NativeMethods.ocvu_qr_decode(0UL, null, 0, out _);
         NativeMethods.ocvu_find_chessboard_corners(0UL, 0, 0, default, 0, out _);
-        return 27;
+        return 28;
     }
 }

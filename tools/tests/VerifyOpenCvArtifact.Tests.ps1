@@ -26,13 +26,64 @@ function New-Tree([string[]]$libs) {
     return $root
 }
 
-# 実際にビルドしたツリー（third_party/opencv/<hash>/x64/vc17/staticlib、
-# ITT を無効化した構成）にあった集合そのもの。想像で足さない。
+# **module 名を写さない。正本から読む。**
+# 以前はここに 6 つの `opencv_*500.lib` をリテラルで書いていたが、
+# **`Modules` に `calib` を足した瞬間にこの一覧だけが古くなり、
+# 「a clean tree passes」が CI で落ちた**（2026-09-02 に実測）。
+# 検査そのものは正しく働いた —— 合成したツリーに calib が無いのだから
+# 「要求した module がビルド成果物にありません」は正しい判定である。
+# **古かったのは検査の入力のほうだった。**
+#
+# **`config.Modules` から作る。これで module が増えれば合成ツリーも一緒に増える。**
+Import-Module (Join-Path $repoRoot 'tools/OpenCvConfig.psm1') -Force
+$config = Get-OpenCvConfig
+
+# **推移的依存は読まない。読む必要が無い。**
+# 検証スクリプトの必須判定は `config.Modules` だけを見る（`$missing` の行）。
+# `$AcceptedTransitiveModules` は「在ってもよい」の側であって、
+# 合成ツリーに入れなくても「a clean tree passes」は通る。
+#
+# **以前はここでその一覧を正規表現で読んでいたが、やめた。**
+# 取り落としても緑のまま通ったからである（実測: `@('flann', 'geometry') + @('stereo')`
+# のように連結で書かれると `stereo` を落とすが、必須ではないのでテストは緑）。
+# **落ちない読み取りは、読んでいないのと同じである。**
+# 許可されることは下で 1 つ名指しして確かめる —— そちらは実際に落ちる。
+$requiredModules = @($config.Modules | Sort-Object -Unique)
+
 $allowed = @(
-    'opencv_core500.lib', 'opencv_imgproc500.lib', 'opencv_imgcodecs500.lib',
-    'opencv_objdetect500.lib', 'opencv_features500.lib', 'opencv_flann500.lib',
+    $requiredModules | ForEach-Object { "opencv_${_}500.lib" }
+) + @(
     'zlib.lib', 'libpng.lib', 'libjpeg-turbo.lib', 'libclapack.lib'
 )
+
+# **推移的依存が実際に許可されることを、1 つ名指しで確かめる。**
+# `$PermittedOpenCvModules` の経路のうち、**推移的な半分**をここだけが見る
+# （必須の半分は `a clean tree passes` が通る）。`flann` は features /
+# objdetect が引き込むもので、検証スクリプトの $AcceptedTransitiveModules に
+# 載っている。**載っていなければこのテストが落ちる** —— 一覧を写さずに、
+# 「許可される」という結果のほうを見ている。
+#
+# **`flann` が必須側へ移ったら、この assertion は名前どおりのものを
+# 見なくなる**（`config.Modules` に入れば $allowed にも入り、
+# 「推移的だから許された」と区別が付かない）。**だから先にそれを断つ。**
+Assert-That ($config.Modules -notcontains 'flann') `
+    'flann is still a transitive module, not a required one (前提が変わったらこの下の assertion は名前どおりのものを見ない)'
+
+$withTransitive = New-Tree ($allowed + @('opencv_flann500.lib'))
+& pwsh -NoProfile -File $verify -Root $withTransitive | Out-Null
+Assert-That ($LASTEXITCODE -eq 0) 'an accepted transitive module (flann) is permitted'
+
+# **逆向き。** 許可リストに無い OpenCV module は拒まれる。
+# **終了コードだけを見ない** —— StrictMode の PropertyNotFoundException でも
+# 非ゼロになるので、意図した拒否とクラッシュが区別できない（同じ理由を
+# `$undocumented` の検査も書いている。**行番号ではなく内容で引く** ——
+# 行番号は書いた瞬間から古くなる）。**拒んだ相手の名前まで見る。**
+$withUnlisted = New-Tree ($allowed + @('opencv_dnn500.lib'))
+$unlistedOutput = & pwsh -NoProfile -File $verify -Root $withUnlisted 2>&1 | Out-String
+Assert-That ($LASTEXITCODE -ne 0) 'an OpenCV module outside the permitted set is rejected'
+Assert-That ($unlistedOutput -match [regex]::Escape("OpenCV module 'dnn'")) `
+    'the rejection names the module it refused (生の例外で落ちるのと区別が付く形で落ちること)'
+
 
 # 正常系
 $ok = New-Tree $allowed

@@ -4,19 +4,134 @@ using CvUnity.Interop;
 namespace CvUnity
 {
     /// <summary>
-    /// カメラの歪み補正と、較正パターンの検出（OpenCV の imgproc と objdetect）。
+    /// 1 枚の view に対するカメラの姿勢。回転（軸角ベクトル）と並進を持つ。
     /// </summary>
     /// <remarks>
-    /// **calib module は使っていない。** 歪みを当てる undistort は imgproc、
-    /// 較正パターンを見つける findChessboardCorners は objdetect にあり、
-    /// どちらも既にリンク済みである。**係数を求める calibrateCamera だけが
-    /// calib にあり、それはまだ出していない**（構成ハッシュが変わるため。
-    /// 詳細は docs/roadmap.md の M5 節）。
+    /// 回転は Rodrigues の軸角ベクトルである —— 向きが回転軸、長さが回転角
+    /// （ラジアン）を表す。行列でも四元数でもない。**この形は OpenCV が
+    /// 返すものをそのまま出している。**
+    /// <para>
+    /// 座標系は OpenCV のもの（右手系、y が下向き、z が奥）である。
+    /// Unity で使うには変換が要る —— **その変換はこの package が持っていない。**
+    /// </para>
+    /// </remarks>
+    public readonly struct CvViewPose
+    {
+        /// <summary>回転ベクトルの x 成分。</summary>
+        public double RotationX { get; }
+
+        /// <summary>回転ベクトルの y 成分。</summary>
+        public double RotationY { get; }
+
+        /// <summary>回転ベクトルの z 成分。</summary>
+        public double RotationZ { get; }
+
+        /// <summary>並進の x 成分。単位は object 座標に渡したものと同じである。</summary>
+        public double TranslationX { get; }
+
+        /// <summary>並進の y 成分。</summary>
+        public double TranslationY { get; }
+
+        /// <summary>並進の z 成分。</summary>
+        public double TranslationZ { get; }
+
+        /// <summary>回転と並進から姿勢を作る。</summary>
+        public CvViewPose(
+            double rotationX, double rotationY, double rotationZ,
+            double translationX, double translationY, double translationZ)
+        {
+            RotationX = rotationX;
+            RotationY = rotationY;
+            RotationZ = rotationZ;
+            TranslationX = translationX;
+            TranslationY = translationY;
+            TranslationZ = translationZ;
+        }
+    }
+
+    /// <summary>
+    /// カメラ校正の結果。
+    /// </summary>
+    public sealed class CvCalibrationResult
+    {
+        /// <summary>
+        /// カメラ行列（3x3 を行優先で並べた 9 個）。
+        /// [0] が fx、[4] が fy、[2] が cx、[5] が cy である。
+        /// </summary>
+        public double[] CameraMatrix { get; }
+
+        /// <summary>
+        /// 歪み係数。**個数は OpenCV が決める**（4 / 5 / 8 / 12 / 14 のいずれか）。
+        /// <see cref="CvCalibration.Undistort"/> にそのまま渡せる形である。
+        /// </summary>
+        public double[] DistortionCoefficients { get; }
+
+        /// <summary>各 view のカメラ姿勢。渡した view と同じ順・同じ数で返る。</summary>
+        public CvViewPose[] ViewPoses { get; }
+
+        /// <summary>
+        /// 再投影誤差（RMS、画素）。**小さいほど良い** —— 実用上は 1 画素を
+        /// 大きく超えるなら、盤の検出か撮り方を疑う。
+        /// </summary>
+        public double ReprojectionError { get; }
+
+        /// <summary>結果を作る。</summary>
+        public CvCalibrationResult(
+            double[] cameraMatrix,
+            double[] distortionCoefficients,
+            CvViewPose[] viewPoses,
+            double reprojectionError)
+        {
+            CameraMatrix = cameraMatrix;
+            DistortionCoefficients = distortionCoefficients;
+            ViewPoses = viewPoses;
+            ReprojectionError = reprojectionError;
+        }
+    }
+
+    /// <summary>
+    /// カメラ校正（OpenCV の imgproc / objdetect / calib）。
+    /// </summary>
+    /// <remarks>
+    /// **校正は 3 段からなり、この 1 クラスがその全部を持つ。**
+    /// (1) <see cref="FindChessboardCorners"/> で盤の格子点を見つけ、
+    /// (2) <see cref="CalibrateCamera"/> で係数を求め、
+    /// (3) <see cref="Undistort"/> でその係数を当てる。
+    /// <para>
+    /// 3 つの OpenCV module にまたがる（順に objdetect / calib / imgproc）が、
+    /// **用途が 1 つなので C# 側では 1 クラスにまとめてある。**
+    /// </para>
     /// </remarks>
     public static class CvCalibration
     {
         /// <summary>カメラ行列の要素数。3x3 で固定である。</summary>
         private const int CameraMatrixLength = 9;
+
+        /// <summary>校正に要る view の最小数。平面パターンは 1 枚では解けない。</summary>
+        private const int MinViews = 2;
+
+        /// <summary>1 view に要る点の最小数。</summary>
+        private const int MinPointsPerView = 4;
+
+        /// <summary>
+        /// 1 view ぶんの姿勢が占める double の個数。回転ベクトル 3 個のあとに
+        /// 並進ベクトル 3 個が続く（native の契約がその並びである）。
+        /// </summary>
+        private const int PoseStride = 6;
+
+        /// <summary>
+        /// OpenCV が返しうる歪み係数の最大個数。受け取る buffer をこの大きさで
+        /// 確保しておけば、実際に返る個数がいくつでも足りる。
+        /// </summary>
+        private const int MaxDistortionCoefficients = 14;
+
+        /// <summary>
+        /// C の OCVU_CALIB_MAX_POINTS の写しである。C# から C の #define は読めないので
+        /// 複製しており、CalibrationTests の
+        /// TheManagedCalibrationPointLimitMatchesWhatNativeAccepts が両側を native に
+        /// 問うことで同期を守っている（MaxCorners と同じ形）。
+        /// </summary>
+        private const int MaxCalibrationPoints = 100000;
 
         /// <summary>
         /// C の OCVU_CHESSBOARD_MAX_CORNERS の写しである。C# から C の #define は読めないので
@@ -159,5 +274,179 @@ namespace CvUnity
         {
             return count == 4 || count == 5 || count == 8 || count == 12 || count == 14;
         }
+
+        /// <summary>
+        /// 複数の view から撮った既知のパターンの対応点から、カメラの内部パラメータと
+        /// 歪み係数、および各 view の姿勢を求める。
+        /// </summary>
+        /// <remarks>
+        /// **これが校正の輪を閉じる段である。**
+        /// <see cref="FindChessboardCorners"/> で格子点を見つけ、この関数で係数を求め、
+        /// <see cref="Undistort"/> でその係数を当てる、という 3 段になる。
+        /// <para>
+        /// 平面のパターン（チェスボードなど）を使う場合、**view ごとに盤の向きを
+        /// 変えて撮る必要がある。** 全部同じ向きだと解が定まらない。
+        /// </para>
+        /// <para>
+        /// <paramref name="objectPoints"/> と <paramref name="imagePoints"/> は
+        /// view ごとの配列で、**view の数も、view ごとの点の数も一致していなければ
+        /// ならない。** 揃っていなければ例外になる —— native は点数を 1 つしか
+        /// 受け取らないので、食い違いは C# の入口でしか見えない。
+        /// </para>
+        /// </remarks>
+        /// <param name="objectPoints">view ごとのパターンの 3D 座標。</param>
+        /// <param name="imagePoints">view ごとの、対応する画像上の座標。</param>
+        /// <param name="imageWidth">画像の幅（画素）。1 以上。</param>
+        /// <param name="imageHeight">画像の高さ（画素）。1 以上。</param>
+        public static CvCalibrationResult CalibrateCamera(
+            CvPoint3[][] objectPoints,
+            CvPoint2[][] imagePoints,
+            int imageWidth,
+            int imageHeight)
+        {
+            if (objectPoints == null) { throw new ArgumentNullException(nameof(objectPoints)); }
+            if (imagePoints == null) { throw new ArgumentNullException(nameof(imagePoints)); }
+
+            if (imageWidth < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(imageWidth), imageWidth, "画像の幅は 1 以上でなければなりません。");
+            }
+            if (imageHeight < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(imageHeight), imageHeight, "画像の高さは 1 以上でなければなりません。");
+            }
+
+            if (objectPoints.Length != imagePoints.Length)
+            {
+                throw new ArgumentException(
+                    $"view の数が一致していません（{objectPoints.Length} と {imagePoints.Length}）。",
+                    nameof(imagePoints));
+            }
+
+            int viewCount = objectPoints.Length;
+            if (viewCount < MinViews)
+            {
+                throw new ArgumentException(
+                    $"校正には {MinViews} 枚以上の view が要ります（渡されたのは {viewCount} 枚）。" +
+                    "平面のパターンは 1 枚では解けません。",
+                    nameof(objectPoints));
+            }
+
+            // **view ごとの点数が揃っていることは、ここでしか見られない。**
+            // native は points_per_view を 1 つしか受け取らないので、
+            // ばらばらの配列を渡されても食い違いが見えない。
+            if (objectPoints[0] == null)
+            {
+                throw new ArgumentException("view 0 の 3D 座標が null です。", nameof(objectPoints));
+            }
+            int pointsPerView = objectPoints[0].Length;
+            if (pointsPerView < MinPointsPerView)
+            {
+                throw new ArgumentException(
+                    $"1 view につき {MinPointsPerView} 点以上が要ります（渡されたのは {pointsPerView} 点）。",
+                    nameof(objectPoints));
+            }
+
+            for (int v = 0; v < viewCount; v++)
+            {
+                if (objectPoints[v] == null)
+                {
+                    throw new ArgumentException($"view {v} の 3D 座標が null です。", nameof(objectPoints));
+                }
+                if (imagePoints[v] == null)
+                {
+                    throw new ArgumentException($"view {v} の画像座標が null です。", nameof(imagePoints));
+                }
+                if (objectPoints[v].Length != pointsPerView)
+                {
+                    throw new ArgumentException(
+                        $"view {v} の点数が view 0 と違います（{objectPoints[v].Length} と {pointsPerView}）。",
+                        nameof(objectPoints));
+                }
+                if (imagePoints[v].Length != pointsPerView)
+                {
+                    throw new ArgumentException(
+                        $"view {v} の画像座標の点数が 3D 座標と違います（{imagePoints[v].Length} と {pointsPerView}）。",
+                        nameof(imagePoints));
+                }
+            }
+
+            // **long で先に掛けてから見る。** int のまま掛けると、門に届く前に
+            // 溢れる（native 側も同じ理由で int64_t を使っている）。
+            long totalPoints = (long)viewCount * pointsPerView;
+            if (totalPoints > MaxCalibrationPoints)
+            {
+                throw new ArgumentException(
+                    $"点の総数が上限を超えています（{totalPoints} > {MaxCalibrationPoints}）。",
+                    nameof(objectPoints));
+            }
+
+            var flatObject = new float[totalPoints * 3];
+            var flatImage = new float[totalPoints * 2];
+            for (int v = 0; v < viewCount; v++)
+            {
+                for (int i = 0; i < pointsPerView; i++)
+                {
+                    long index = ((long)v * pointsPerView) + i;
+                    CvPoint3 o = objectPoints[v][i];
+                    flatObject[(index * 3) + 0] = o.X;
+                    flatObject[(index * 3) + 1] = o.Y;
+                    flatObject[(index * 3) + 2] = o.Z;
+
+                    CvPoint2 p = imagePoints[v][i];
+                    flatImage[(index * 2) + 0] = p.X;
+                    flatImage[(index * 2) + 1] = p.Y;
+                }
+            }
+
+            var cameraMatrix = new double[CameraMatrixLength];
+            var distCoeffs = new double[MaxDistortionCoefficients];
+            var viewPoses = new double[(long)viewCount * PoseStride];
+
+            // **長さは byte、capacity は要素数。** この ABI では 2 つの単位が
+            // 引数の役割で決まっている（in-buffer は byte、out-buffer は要素数）。
+            var status = (CvStatus)NativeMethods.ocvu_calibrate_camera(
+                flatObject, (long)flatObject.Length * sizeof(float),
+                flatImage, (long)flatImage.Length * sizeof(float),
+                viewCount, pointsPerView, imageWidth, imageHeight,
+                cameraMatrix, cameraMatrix.Length,
+                distCoeffs, distCoeffs.Length,
+                out int distCount,
+                viewPoses, viewPoses.Length,
+                out double rms);
+
+            CvNative.ThrowIfFailed(status);
+
+            // **BufferTooSmall は「失敗」ではないので ThrowIfFailed は素通しする**
+            // （CvCodecs.cs と同じ理由）。capacity には native が受け付ける最大の
+            // 係数の個数を渡しているので、契約どおりに動く限りここには来ない ——
+            // **それでも見るのは、native が誤った量を報告した場合に、添字例外では
+            // なく原因の読める例外で止めるためである。**
+            if (status == CvStatus.BufferTooSmall || distCount < 0 || distCount > distCoeffs.Length)
+            {
+                throw new CvNativeException(
+                    status,
+                    $"ocvu_calibrate_camera reported {distCount} coefficients " +
+                    $"but the buffer only holds {distCoeffs.Length}");
+            }
+
+            var coefficients = new double[distCount];
+            Array.Copy(distCoeffs, coefficients, distCount);
+
+            var poses = new CvViewPose[viewCount];
+            for (int v = 0; v < viewCount; v++)
+            {
+                int b = v * PoseStride;
+                // **回転が先、並進が後。** native の契約がその並びである。
+                poses[v] = new CvViewPose(
+                    viewPoses[b + 0], viewPoses[b + 1], viewPoses[b + 2],
+                    viewPoses[b + 3], viewPoses[b + 4], viewPoses[b + 5]);
+            }
+
+            return new CvCalibrationResult(cameraMatrix, coefficients, poses, rms);
+        }
+
     }
 }

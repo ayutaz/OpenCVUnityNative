@@ -17,6 +17,7 @@
 #include <opencv2/features.hpp>
 #include <opencv2/geometry.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/calib.hpp>
 #include <opencv2/objdetect.hpp>
 
 TEST(ModuleLinkage, ObjdetectSymbolsResolve) {
@@ -85,4 +86,33 @@ TEST(ModuleLinkage, UndistortionSymbolsResolveWithoutCalib) {
     std::vector<cv::Point2f> corners;
     const bool found = cv::findChessboardCorners(src, cv::Size(7, 7), corners);
     EXPECT_FALSE(found);
+}
+
+TEST(ModuleLinkage, CalibIsLinked) {
+    // **cv::calibrateCamera は calib module にしか無い。**
+    // 実物で確かめた: 宣言は third_party/.../include/opencv2/calib.hpp:701 に在り、
+    // imgproc / objdetect / geometry のどれにも無い。
+    //
+    // **したがってこのテストは COMPONENTS の編集で落ちる** —— 上の
+    // UndistortAndChessboardComeFromLinkedModules と違い、calib はどの
+    // module からも推移的に引かれない（実測: COMPONENTS に足す前は
+    // 未解決の外部シンボルでリンクに失敗した）。
+    std::vector<std::vector<cv::Point3f>> object_points(1);
+    std::vector<std::vector<cv::Point2f>> image_points(1);
+    for (int i = 0; i < 4; ++i) {
+        object_points[0].emplace_back(static_cast<float>(i), 0.0f, 0.0f);
+        image_points[0].emplace_back(static_cast<float>(i), 0.0f);
+    }
+
+    cv::Mat camera_matrix;
+    cv::Mat dist_coeffs;
+    std::vector<cv::Mat> rvecs;
+    std::vector<cv::Mat> tvecs;
+
+    // view が 1 枚で点も一直線なので OpenCV は解けずに例外を投げる。
+    // **それでよい** —— ここが見ているのは「シンボルが解決するか」だけである。
+    EXPECT_THROW(
+        cv::calibrateCamera(object_points, image_points, cv::Size(64, 64),
+                            camera_matrix, dist_coeffs, rvecs, tvecs),
+        cv::Exception);
 }

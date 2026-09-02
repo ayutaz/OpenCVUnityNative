@@ -709,10 +709,11 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
 本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
-`imgcodecs` / `objdetect` / `features` / `geometry` の 17 本に留まる（M3.5 で `imgcodecs` の
+`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` の 18 本に留まる（M3.5 で `imgcodecs` の
 2 本、M5 の module 拡張で `objdetect` / `features` / `geometry` の 4 本、続けて
-カメラの歪み補正で `imgproc` / `objdetect` の 2 本が加わった。公開 ABI 全体は
-18 → 26 本。**本数を数える正本は [API 対応表](./api-map.md) の冒頭である**）
+カメラの歪み補正で `imgproc` / `objdetect` の 2 本、さらに `calib` の
+`ocvu_calibrate_camera` 1 本が加わった。公開 ABI 全体は
+18 → 27 本。**本数を数える正本は [API 対応表](./api-map.md) の冒頭である**）
 —— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
 商用（OpenCV for Unity 3.0.3 / OpenCV 4.13.0）も OSS（neon-izm 版 / OpenCV 4.11）も
 4.x 系のままである。
@@ -1246,12 +1247,18 @@ module ごとのヘッダになりうる。** どちらが先に着手される�
 **非ゴール**
 OpenCV 全 API の網羅。
 
-### M5 の判定（2026-09-01 時点）
+### M5 の判定（2026-09-02 更新。**5 件すべてを満たした**）
 
-**5 件中 4 件を満たし、1 件は部分的に満たした。** 実装は
-`docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8）と、
-`objdetect` / `features` を足した続きの計画
-（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`、Task 1〜8）。
+**5 件すべてを満たした。** 2026-09-01 時点では 4 件で、条件 2 が
+「部分的に満たした」だった —— **`calib` module と `cv::calibrateCamera` を
+2026-09-02 に出して閉じた**（条件 2 の欄の末尾）。
+
+実装は 4 つの計画にまたがる:
+`docs/superpowers/plans/2026-08-31-m5-binding-generator.md`（Task 1〜8。生成の仕組み）、
+`objdetect` / `features` / `geometry` を足した続きの計画
+（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`、Task 1〜8）、
+`docs/superpowers/plans/2026-09-01-m5-calib-undistort.md`（歪み補正とチェスボード検出）、
+`docs/superpowers/plans/2026-09-02-m5-calib-camera.md`（**`calib` を足して校正の輪を閉じた**）。
 
 実測はすべてこのマシン（Windows、2026-08-31〜09-01）。`pwsh tools/dev.ps1 test` は
 **exit 0**で、内訳は tools 3 本（`OpenCvConfig` / `ConfigInvalidation` /
@@ -1270,8 +1277,8 @@ Unity の 2 レーンも実行し、`objdetect` / `features` を足した後も
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 14 ファイルを出す。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
-| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **部分的に満たした（2026-09-02 更新）。** 当初の実装計画は冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**続く計画（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`）で `objdetect`（QR コードの符号化・復号）と `features`（ORB 特徴点検出）の 2 module を実際に出した** —— C ABI は 20 → 23 本、うち allowlist は 11 → 14 本になった（内訳は `docs/abi-ownership-and-versioning.md` §3.6）。**さらに続く作業で `geometry` も出した**（`ocvu_find_homography`。C ABI は 24 本、allowlist は 15 本）。**そこで推測が実測になり、予想と違った** —— `geometry` は「リンクが安い」どころか**リンクの手間がゼロだった。** `flann` と `geometry` は `features` / `objdetect` の依存として **CMake が推移的に引いており**、`COMPONENTS` に足す前からリンク行に入っていた（実測: 足す前も後もライブラリは同じ 7 つで、`cv::findHomography` を参照する L1 テストは `COMPONENTS` を変えずに最初から通った —— **RED にならなかった**）。**それでも `COMPONENTS` には明示した**（意図の宣言であり、上流が依存を変えたときに黙って壊れないため。no-op であることは実測で確かめた）。**残るは `calib` だけである。****対して `calib` だけが高い** —— `tools/opencv-config.psd1` の `Modules` に無いため、足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる（実測: `4785d98e9aad` → `09fcbe260d87`。**この値は 2026-09-01 に測り直した** —— それまで書いてあった `a197bbcbdaf5` は `geometry` を足したときの値で、`calib` のものではなかった）。**「`geometry` はビルドされていない」と読める記述は、この文書のどこにも見当たらなかった**（確認のため roadmap 全体を検索した）ので、訂正すべき誤りは無い。**条件の「利用例に基づいて」について、正直に書いておく。** QR の読み取り（チケット・名刺・機器の識別）と ORB の特徴点（追跡・位置合わせ）は Unity で十分ありふれた用途だが、**この 2 つを選んだ実際の動機は 「新しい module を spec から生成できることを実証する」ほうが大きい** —— `objdetect` / `features` は OpenCV 側が既にビルドしており、リンクが安かった。**利用者の要望から選んだのではない。** `geometry` / `calib` を出さなかった理由（利用例が無い）は変わっていないので、**まだ「満たした」ではなく「部分的に満たした」に留める** **その後（2026-09-02）、カメラの歪み補正を出した**（`ocvu_undistort` / `ocvu_find_chessboard_corners`。計画は `docs/superpowers/plans/2026-09-01-m5-calib-undistort.md`。C ABI は 26 本、allowlist は 17 本になった。内訳は `docs/abi-ownership-and-versioning.md` §3.8）。**判定は変えない** —— 依然として「部分的に満たした」のままである。**理由は 2 つ。** (1) 条件が名指しする 4 module のうち **3 つ**（`objdetect` / `features` / `geometry`）を出し、`calib` は出していない。**`calib` module は使っていない** —— `ocvu_undistort` は `imgproc`、`ocvu_find_chessboard_corners` は `objdetect` にあり、どちらも既にリンク済みだった（実測。`native/tests/test_module_linkage.cpp` がその前提を固定している）。**構成ハッシュは変わっていない。** (2) **より重要なのは、欠けている場所である。** カメラ校正は 3 段ある —— 盤の格子点を見つける、そこから係数を解く、係数で歪みを補正する。**この作業は 1 段目と 3 段目を出し、2 段目を出していない。そして 2 段目こそが `calib` を要求する段である**（`cv::calibrateCamera`。足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる。実測: `4785d98e9aad` → `09fcbe260d87`）。帰結として、**利用者は係数を別の手段でどこかから得なければ、この 2 本を使えない。**「歪み補正という用途は出した」は正しいが、**校正の輪は閉じていない。** **費用が安かったことと届いた機能は別の軸である。** `undistort` と `findChessboardCorners` がどちらも既存のリンクで済んだのは構成ハッシュを変えずに済んだという**費用**の話であって、利用者に何が**届いたか**の話ではない。両者を混ぜると判定が実際より甘くなる。**この 2 つを選んだ実際の動機も、`geometry` のときと同じ問題を持つ。** 歪み補正とチェスボード検出は Unity での用途（AR 較正、レンズ補正）として成立するが、**選んだ理由の実際の比重は「`calib` の再ビルドを避けられるから」のほうが大きい**。同じ正直さで記録しておく —— `objdetect` / `features` のときに書いた「利用者の要望から選んだのではない」と同じ構造がここにもある。 |
+| 1 | spec を正本として生成物が作られ、golden test で一致が検証される | **満たす（実証済み）**。`bindings/spec/*.json` → `dev.ps1 generate` が 18 ファイルを出す（**M5 完了時点は 14 ファイル**。その後 `geometry` と `calib` の module を足した分だけ増えた）。`verify-generated` は `dev.ps1 test` に入っており、**3 platform の `ci-native` が走らせる**（**PR #55 で実際に通った** —— 穴 6 参照）。壊して落ちることを見た: 生成された `.h` と `docs/api-map.md` を手で書き換えると `verify-generated` が非 0 で返り、戻すと通る（`BindingGenerator.Tests.ps1` がその往復をレーンの中で毎回やる） |
+| 2 | `geometry` / `calib` / `features` / `objdetect` を利用例に基づいて追加 | **満たした（2026-09-02 更新）。4 module すべてを出した。** 判定を変えた根拠はこのセルの末尾にある —— **経緯は残してあるので、下へ読み進めること。** **ただし条件の後半「利用例に基づいて」は、厳密には 4 module のうち `calib` の 1 つでしか満たしていない。** 残る 3 つは「利用例を持つものの中から、リンクが安いものを選んだ」が正確である（各 module の欄に同じ正直さで書いてある）。**それでも「満たした」と判定するのは、条件の主眼が「module を足す仕組みが働き、実際に使える API が増えること」だと読むためである** —— 出した 7 本はどれも Unity での用途を持ち、飾りで足したものは 1 本も無い。**この読みが甘いと考えるなら、判定は「部分的に満たした」に戻る。** 当初の実装計画は冒頭で明示的に対象外にした —— 新しい OpenCV module は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS`・`tools/opencv-config.psd1` の `Modules`・`THIRD_PARTY_NOTICES.md`・成果物の大きさ・依存 allowlist が同時に動く**別の subsystem**で（M3.5 の `imgcodecs` で実際に全部動いた）、生成の仕組みと同時にやると「生成が壊れたのか module が壊れたのか」を切り分けられない。**続く計画（`.superpowers/sdd/2026-09-01-m5-modules-objdetect-features/`）で `objdetect`（QR コードの符号化・復号）と `features`（ORB 特徴点検出）の 2 module を実際に出した** —— C ABI は 20 → 23 本、うち allowlist は 11 → 14 本になった（内訳は `docs/abi-ownership-and-versioning.md` §3.6）。**さらに続く作業で `geometry` も出した**（`ocvu_find_homography`。C ABI は 24 本、allowlist は 15 本）。**そこで推測が実測になり、予想と違った** —— `geometry` は「リンクが安い」どころか**リンクの手間がゼロだった。** `flann` と `geometry` は `features` / `objdetect` の依存として **CMake が推移的に引いており**、`COMPONENTS` に足す前からリンク行に入っていた（実測: 足す前も後もライブラリは同じ 7 つで、`cv::findHomography` を参照する L1 テストは `COMPONENTS` を変えずに最初から通った —— **RED にならなかった**）。**それでも `COMPONENTS` には明示した**（意図の宣言であり、上流が依存を変えたときに黙って壊れないため。no-op であることは実測で確かめた）。**残るは `calib` だけである。****対して `calib` だけが高い** —— `tools/opencv-config.psd1` の `Modules` に無いため、足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる（実測: `4785d98e9aad` → `09fcbe260d87`。**この値は 2026-09-01 に測り直した** —— それまで書いてあった `a197bbcbdaf5` は `geometry` を足したときの値で、`calib` のものではなかった）。**「`geometry` はビルドされていない」と読める記述は、この文書のどこにも見当たらなかった**（確認のため roadmap 全体を検索した）ので、訂正すべき誤りは無い。**条件の「利用例に基づいて」について、正直に書いておく。** QR の読み取り（チケット・名刺・機器の識別）と ORB の特徴点（追跡・位置合わせ）は Unity で十分ありふれた用途だが、**この 2 つを選んだ実際の動機は 「新しい module を spec から生成できることを実証する」ほうが大きい** —— `objdetect` / `features` は OpenCV 側が既にビルドしており、リンクが安かった。**利用者の要望から選んだのではない。** `geometry` / `calib` を出さなかった理由（利用例が無い）は変わっていないので、**まだ「満たした」ではなく「部分的に満たした」に留める** **その後（2026-09-02）、カメラの歪み補正を出した**（`ocvu_undistort` / `ocvu_find_chessboard_corners`。計画は `docs/superpowers/plans/2026-09-01-m5-calib-undistort.md`。C ABI は 26 本、allowlist は 17 本になった。内訳は `docs/abi-ownership-and-versioning.md` §3.8）。**判定は変えない** —— 依然として「部分的に満たした」のままである。**理由は 2 つ。** (1) 条件が名指しする 4 module のうち **3 つ**（`objdetect` / `features` / `geometry`）を出し、`calib` は出していない。**`calib` module は使っていない** —— `ocvu_undistort` は `imgproc`、`ocvu_find_chessboard_corners` は `objdetect` にあり、どちらも既にリンク済みだった（実測。`native/tests/test_module_linkage.cpp` がその前提を固定している）。**構成ハッシュは変わっていない。** (2) **より重要なのは、欠けている場所である。** カメラ校正は 3 段ある —— 盤の格子点を見つける、そこから係数を解く、係数で歪みを補正する。**この作業は 1 段目と 3 段目を出し、2 段目を出していない。そして 2 段目こそが `calib` を要求する段である**（`cv::calibrateCamera`。足すと構成ハッシュが変わって 5 platform 分の OpenCV を作り直すことになる。実測: `4785d98e9aad` → `09fcbe260d87`）。帰結として、**利用者は係数を別の手段でどこかから得なければ、この 2 本を使えない。**「歪み補正という用途は出した」は正しいが、**校正の輪は閉じていない。** **費用が安かったことと届いた機能は別の軸である。** `undistort` と `findChessboardCorners` がどちらも既存のリンクで済んだのは構成ハッシュを変えずに済んだという**費用**の話であって、利用者に何が**届いたか**の話ではない。両者を混ぜると判定が実際より甘くなる。**この 2 つを選んだ実際の動機も、`geometry` のときと同じ問題を持つ。** 歪み補正とチェスボード検出は Unity での用途（AR 較正、レンズ補正）として成立するが、**選んだ理由の実際の比重は「`calib` の再ビルドを避けられるから」のほうが大きい**。同じ正直さで記録しておく —— `objdetect` / `features` のときに書いた「利用者の要望から選んだのではない」と同じ構造がここにもある。 **そして 2026-09-02、`calib` module を足して `cv::calibrateCamera` を出した**（計画は `docs/superpowers/plans/2026-09-02-m5-calib-camera.md`。C ABI は 27 本、allowlist は 18 本。内訳は `docs/abi-ownership-and-versioning.md` §3.9）。**ここで判定を「満たした」に変える。** 条件が名指しする 4 module がすべて出た。**校正の輪も閉じた** —— 上に書いた 3 段（格子点を見つける / 係数を解く / 係数で補正する）の 2 段目がこれで、**利用者は係数を別の手段で得る必要が無くなった。** **費用は前もって書いたとおりだった** —— 構成ハッシュが `4785d98e9aad` → `09fcbe260d87` に変わり、5 platform 分の OpenCV を作り直した（run 33589583504）。**予想していなかったことが 1 つある**: 最初のビルドは 4 platform とも**依存 allowlist で落ちた**。`calib` が `stereo` を推移的に引き込み、`tools/verify-opencv-artifact.ps1` の許可リストに無いとして拒否された。**検査が意図どおり働いた例である** —— 気づかずに通ることはなかった。`stereo` は OpenCV 本体の module で third-party ではなく、新しい bundled 依存も持ち込まない（同じビルドの install ログに `stereo` 由来の `etc/licenses` は 1 件も現れない）。このプラグインは `stereo` のシンボルを 1 つも参照しないので、静的リンクの性質上、配布する binary には入らない。**`geometry` のときと違い、`COMPONENTS` の追加は本物の RED を出した** —— `cv::calibrateCamera` を参照する L1 テストを先に書くと未解決の外部シンボルでリンクに失敗し、`COMPONENTS` に足すと通った。**この時点では binary は 1 バイトも増えず**（21,190,144 のまま）、増えたのは関数を実装したときである（21,464,576 バイト、+274,432）。**「満たした」と書くにあたって、出していないものを明記する。** `calib` module には `stereoCalibrate`（ステレオ校正）・`calibrateHandEye`・魚眼系があり、`geometry` 側の `solvePnP`（既知の係数から 1 枚ぶんの姿勢を求める）も出していない。**出したのは単眼カメラの校正 1 本である。**「`calib` を出した」は「`calib` の全部を出した」ではない。**選んだ動機についても、上に書いたのと同じ正直さを保つ。** ただし `calib` だけは他の 3 module と性質が違う —— これは「安くて実証に向くから」ではなく、**歪み補正を出したのに係数を求められないという、実際に閉じていない輪を閉じるために足した。** 費用が高いと分かったうえで足した唯一の module である。 |
 
 **条件 2 に着手するとき、どこを読むか**（M5 完了時に書いた。**skill にはしていない** ——
 実際に module を足すまで「壊して落ちることを見る」ができないので、手順を先に
@@ -1543,7 +1550,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 
    **つまり「確認」ではなく、config に軸を 1 本増やす設計作業である。**
 4. **`dnn` を allowlist に足すのは、上の 1〜3 が済んでから。** 現在の `Modules` は
-   `core / imgproc / imgcodecs / objdetect / features` で **dnn は入っていない**。足すと OpenCV 側の
+   `core / imgproc / imgcodecs / objdetect / features / calib` で **dnn は入っていない**。足すと OpenCV 側の
    ビルド時間と成果物サイズが変わる。**あわせて `THIRD_PARTY_NOTICES.md` の作業が要る** ——
    同文書が明文で指示している: *"If a future `Modules` list adds `dnn` or `gapi`, re-run these
    searches — they will very likely start matching, and these two need to move up into the

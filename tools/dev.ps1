@@ -137,7 +137,7 @@ function Reset-Results {
 #
 #   Fast（local + CI）  : 各 3 秒。ハッシュ導出と構成の読み取りだけで、
 #                         OpenCV の実体も subprocess の大量生成も要らない。
-#   Slow（CI のみ）      : VerifyOpenCvArtifact は 22 のケースごとに
+#   Slow（CI のみ）      : VerifyOpenCvArtifact はケースごとに
 #                         pwsh -NoProfile を起動する設計で、この環境では
 #                         起動が 1 回 1〜1.5 秒かかるため単体で 69 秒（実測）。
 #                         OpenCvRestore は実際に artifact を download する。
