@@ -1914,6 +1914,50 @@ foreach ($pkg in ($packagePins.Keys | Sort-Object)) {
 }
 
 
+# --------------------------------------------------------------------------
+# 必須チェックの本数は、README.md と README.ja.md の両方に書いてある。
+#
+# `CLAUDE.md` は「リポジトリ内で二重に書かれているのはこの箇所だけ」と宣言して
+# おり、日本語版を足したことで**二重が三重になった**。3 つを人が揃え続けるのは
+# 無理なので、**少なくとも 2 つの README が同じ数を言っていること**を機械が見る。
+#
+# **`CLAUDE.md` 側は含めない** —— あちらは表の形で内訳まで書いており、
+# 「数を 1 つ抜き出す」形になっていないためである。README 同士がずれたら
+# ここが落ちる。
+#
+# **限界を書いておく: これは 2 つが互いに一致することしか見ない。**
+# **3 つとも同じだけ古ければ緑になる。** 必須チェックを増減したときに
+# `CLAUDE.md` と README を両方直すのは、依然として人の仕事である ——
+# この検査が守るのは「片方だけ直して忘れる」のほうだけである。
+$readmeEn = Get-Content -LiteralPath (Join-Path $repoRoot 'README.md') -Raw
+$readmeJa = Get-Content -LiteralPath (Join-Path $repoRoot 'README.ja.md') -Raw
+
+$enMatch = [regex]::Match($readmeEn, '(?<n>[A-Za-z]+(?:-[a-z]+)?) checks are\s+required')
+$jaMatch = [regex]::Match($readmeJa, '必須チェックは (?<n>\d+) 本')
+
+Assert-That ($enMatch.Success) 'README.md states how many checks are required (書き方が変わったら空振りせず落ちる)'
+Assert-That ($jaMatch.Success) 'README.ja.md states how many checks are required (書き方が変わったら空振りせず落ちる)'
+
+if ($enMatch.Success -and $jaMatch.Success) {
+    # 英語版は綴りで書く（"Twenty-one"）ので、数字へ直してから比べる。
+    $spelled = @{
+        'Thirteen' = 13; 'Fourteen' = 14; 'Fifteen' = 15; 'Sixteen' = 16
+        'Seventeen' = 17; 'Eighteen' = 18; 'Nineteen' = 19; 'Twenty' = 20
+        'Twenty-one' = 21; 'Twenty-two' = 22; 'Twenty-three' = 23
+        'Twenty-four' = 24; 'Twenty-five' = 25
+    }
+    $enWord = $enMatch.Groups['n'].Value
+    $enCount = if ($spelled.ContainsKey($enWord)) { $spelled[$enWord] } else { $null }
+
+    Assert-That ($null -ne $enCount) `
+        "README.md の必須チェック数を数値にできる (saw '$enWord' —— 綴りの表が古いなら足すこと)"
+
+    if ($null -ne $enCount) {
+        Assert-That ($enCount -eq [int]$jaMatch.Groups['n'].Value) `
+            "both READMEs state the same required-check count (EN $enCount / JA $($jaMatch.Groups['n'].Value))"
+    }
+}
+
 if ($failures.Count -gt 0) {
     Write-Host "`n$($failures.Count) assertion(s) failed" -ForegroundColor Red
     exit 1

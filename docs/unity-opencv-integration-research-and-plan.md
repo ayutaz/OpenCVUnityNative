@@ -172,7 +172,7 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 2026-08-29 時点の対応範囲。**機能の総数で競わない**方針（§7）は変えないが、
 **何が無いかを数えずに「競わない」と言うのは、単に知らないのと区別がつかない。**
 
-| 種別 | OpenCV for Unity | 本案（M3.5 時点。**まだリリースしていない** —— 公開済みの最新は v0.1.1） |
+| 種別 | OpenCV for Unity | 本案（**この表は M3.5 時点の記録である**。その後 v0.2.0 を公開し、M4 と M5 の成果は未公開のまま。**最新の公開版は `docs/roadmap.md` の「配布」の節が正本**） |
 | --- | --- | --- |
 | モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 6（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `calib`）。**プラグインがリンクしているのは 7 つ**（この 6 つに、依存として推移的に引かれる `geometry` を足したもの）で、C ABI に出ているのはさらにその一部である（**本数を数える正本は [API 対応表](./api-map.md) の冒頭**） |
 | platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | Windows / macOS / Linux |

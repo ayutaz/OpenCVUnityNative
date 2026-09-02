@@ -10,6 +10,12 @@
             "command": "sh .claude/hooks/block-bulk-git-add.sh",
             "timeout": 15,
             "statusMessage": "git add を検査中"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/check-staged-generated-file.sh",
+            "timeout": 15,
+            "statusMessage": "stage された生成物を検査中"
           }
         ]
       }

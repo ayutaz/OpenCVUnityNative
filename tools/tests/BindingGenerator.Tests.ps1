@@ -201,6 +201,61 @@ $includedModules = @([regex]::Matches($umbrellaText, '#include\s+"ocvu/([a-z0-9_
 Assert-That ($includedModules.Count -eq $specModules.Count) `
     "opencv_unity_native.h includes exactly the spec modules (included $($includedModules.Count) / spec $($specModules.Count))"
 
+# --------------------------------------------------------------------------
+# **手書きの API リファレンスが、spec の関数を取りこぼしていないこと。**
+#
+# `docs/api-reference.md` は生成物ではない —— 冒頭で「関数を足したらここを手で
+# 直すところまでが作業である」と自分で宣言している文書である。**宣言しただけでは
+# 守られない**（2026-09-03 に手で突き合わせるまで、誰も見ていなかった）。
+#
+# **意図的に載せないものがあるので、除外を明示する。除外はここに書いたものだけで、
+# それ以外が載っていなければ落ちる。**
+# **除外リストは持たない。** 最初の版は診断 API を 9 本まとめて除外していたが、
+# **実測すると 5 本は名前で載っており、除外する必要が無かった** ——
+# **不要な除外はそのまま穴になる**（`ocvu_debug_crash` の記述を丸ごと消しても
+# 検査が緑のままだった。レビュアーが実証した）。
+#
+# 残る 4 本（last-error と status 表）は文書が総称でしか触れていなかったので、
+# **除外を狭めるのではなく、文書に名前を書いた。**
+# `prove-a-check-works` の「列挙に基づく門を、出口側の構造に基づく門へ変える」
+# —— **一覧を持たなければ、一覧が古くなることも無い。**
+#
+# **例外は 1 つも無い。** `*_ptr` の 2 本も、当初は「規則で表せる」として skip して
+# いたが、**そちらも文書に名前で載っていた**（`docs/api-reference.md` の
+# 「この allowlist に含まれないもの」）—— **規則で表せることと、除外する必要が
+# あることは別である。** 除外している間は、その 2 本を文書から消しても検査が
+# 緑だった（レビュアーが実証した）。
+$apiRefText = Get-Content -LiteralPath (Join-Path $repoRoot 'docs/api-reference.md') -Raw
+
+$undocumented = @()
+$checkedCount = 0
+foreach ($specFile in Get-ChildItem -Path (Join-Path $repoRoot 'bindings/spec') -Filter '*.json') {
+    if ($specFile.Name -eq 'schema.json') { continue }
+    $model = Get-Content -LiteralPath $specFile.FullName -Raw | ConvertFrom-Json
+    foreach ($fn in $model.functions) {
+        $checkedCount++
+        # **部分一致にしない。** `-like "*name*"` だと `ocvu_debug_crash_GONE` も
+        # `X_ocvu_debug_crash` も `ocvu_debug_crash` を含んでしまい、**名前を
+        # 書き換えても検査が通る**（両方向とも実測で踏んだ）。
+        # **前後どちらにも識別子の文字が続かない**ことまで見る。
+        #
+        # **`-cnotmatch` であって `-notmatch` ではない。** PowerShell の `-match` は
+        # 既定で大文字小文字を区別しないので、文書側が `OCVU_DEBUG_CRASH` になっても
+        # 緑になる —— **C の識別子は大文字小文字を区別するので、それは別の名前であり、
+        # 「その関数は文書に無い」が正しい**（実測: 小文字が 0 箇所になっても通った）。
+        if ($apiRefText -cnotmatch ('(?<![A-Za-z0-9_])' + [regex]::Escape($fn.name) + '(?![A-Za-z0-9_])')) {
+            $undocumented += $fn.name
+        }
+    }
+}
+
+# **0 件を照合して緑にしない。** spec の読み取りが空振りしたら、下の assertion は
+# 何も見ないまま通る。
+Assert-That ($checkedCount -gt 0) `
+    'the API reference check actually had functions to look for (0 件なら spec の読み取りが空振りしている)'
+Assert-That ($undocumented.Count -eq 0) `
+    "docs/api-reference.md documents every spec function (missing: $($undocumented -join ', '))"
+
 if ($script:failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($script:failures.Count) assertion(s) failed")
     exit 1

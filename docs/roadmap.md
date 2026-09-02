@@ -70,9 +70,9 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | `build-opencv.yml` | 手動 + 構成変更時 | allowlist 構成の OpenCV をビルドし artifact 公開 | M1 |
 | `ci-unity.yml` | push(main) / PR / 手動 | Unity EditMode (L4) + IL2CPP Player (L5)。**起草時は「PR / nightly」と書いていたが、実装は nightly ではない。** ubuntu で走るので、CI の L5 は Linux の IL2CPP Player である（**Windows で走らせない理由として記録していたものは 2026-08-29 に崩れた** —— 下記 M2 節） | M2 |
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
-| `ci-mobile.yml` | nightly | Android / iOS ビルドと実機 smoke test | M4 |
+| ~~`ci-mobile.yml`~~ | —— | **作らなかった。** Android / iOS のクロスビルドは `ci-native.yml` の job として足し、実機 smoke test は CI では原理的に閉じないので `docs/m4-device-verification.md` の手順書に落とした | M4 |
 | `ci-web.yml` | nightly | Unity 同梱 Emscripten での Wasm ビルドと browser E2E | M6 |
-| `release.yml` | tag（+ 確認用に `workflow_dispatch`） | **全部入りの UPM tarball（配る正）** と platform ごとの tarball 3 本、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。staging は **17 件**（3 platform × 5 + 全部入り tarball 1 + その `checksums.txt` 1）を数え、全部入りが名前で並んでいることも見る。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した。** それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— job を `assemble`（条件なし）と `publish`（job 単位で tag に限る）に割って直した。**実績は 2 つ**: run 33286928144 は条件を最後の step に降ろしただけの形（レビューで取り消した）、run 33289128197 が**いまの 2 job 構成**である。どちらも Release は作られていない。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
+| `release.yml` | tag / **pull request**（空撃ち） / `workflow_dispatch` | **全部入りの UPM tarball（配る正）** と platform ごとの tarball、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**staging した数を数え**、全部入りが名前で並んでいることも見る（**件数は platform が増えれば増えるので、実数は `CLAUDE.md` の workflow 表が持つ**）。**pull request でも走るようにしたのは M4 の後**で、tag でしか走らなかった間に欠陥が 3 件たまったためである（うち 1 件は「tag を打つと Release が 1 件も作られない」）。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した。** それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— job を `assemble`（条件なし）と `publish`（job 単位で tag に限る）に割って直した。**実績は 2 つ**: run 33286928144 は条件を最後の step に降ろしただけの形（レビューで取り消した）、run 33289128197 が**いまの 2 job 構成**である。どちらも Release は作られていない。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
 | `ci-lint.yml` | push(main) / PR / 手動 | actionlint / shellcheck / PSScriptAnalyzer / 文書の相対リンク検査の 4 job。**静的に読めば分かる誤りを、CI を 1 周（10〜20 分）回して確かめていた**のを埋める | M3 後 |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C# の静的解析。sanitizer が「実際に踏んだ経路」を見るのに対し、CodeQL は経路を実行せずに探すので**重なっていない** | M3 後 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**schedule での実行実績はまだ無い**（下記） | M3 後 |
@@ -655,7 +655,7 @@ trigger 条件のような変わらない事実に置くこと。
 打っただけでは外から見えない。中身が違っていたときに、誰かの手に渡る前に
 捨てられる状態を保つためである。
 
-### 配布 その 2 — v0.1.1（2026-08-29、最新）
+### 配布 その 2 — v0.1.1（2026-08-29）
 
 **この段取りをすり抜けたものが 1 つあった。** v0.1.0 の Linux tarball は
 Ubuntu 22.04 で読み込めない。空撃ち・下書き・公開の 3 段階はどれも
@@ -972,8 +972,109 @@ M4 の完了条件 9 件のうち 4 件が閉じておらず、2 件が実機で
 
 **この下書きをそのまま公開してはならない。** 作った時点（2026-08-31T01:40Z）は
 **M5 が main に入る前**で、asset の中の `.g.cs` も `docs/api-map.md` も
-入っていない。**配ると決めたら、tag を打ち直して作り直すこと。**
+入っていない。**配ると決めたら、tag を打ち直して作り直すこと** ——
+**その手順は下の「配布 その 5 — v0.4.0」にある。**
 下書きを消す必要は無い —— 残っていても誰にも見えないし、期限も無い。
+
+### 配布 その 5 — v0.4.0（**未着手。次にやること**）
+
+**M4（5 platform）と M5（生成器と校正 API）の成果は、まだ誰にも届いていない。**
+利用者が使えるのは v0.2.0（3 platform、M5 前の API）で、OpenUPM が配信しているのもそれである。
+
+**v0.3.0 の下書きは使えない。** 作った時点（2026-08-31T01:40Z）は M5 が main に入る前で、
+asset の中の `.g.cs` が M5 前のもの（というより、生成物が 1 つも無い）である。**tag を打ち直して作り直す。**
+
+#### 何が変わるか（v0.2.0 → v0.4.0）
+
+| 対象 | v0.2.0 | v0.4.0 |
+| --- | --- | --- |
+| platform | 3（Windows / macOS / Linux） | **5**（+ Android arm64-v8a / iOS arm64） |
+| 公開 C ABI | 20 本 | **27 本**（本数の正本は [API 対応表](./api-map.md) の冒頭） |
+| 境界の宣言 | 手書き | **`bindings/spec/*.json` から生成**（手書きの `[DllImport]` は 0 個） |
+| OpenCV module | core / imgproc / imgcodecs | **+ objdetect / features / geometry / calib**（`geometry` は依存として推移的に引かれるが、`COMPONENTS` にも意図として明示してある） |
+| 主な API | Mat / imgproc 3 本 / 画像の encode・decode | **+ QR / ORB / 射影変換 / カメラ校正 3 段** |
+
+#### モバイルの扱い —— **配るが、実機未検証と明記する**（2026-09-03 に決定）
+
+**Android / iOS は CI がビルドするが、実機で一度も動かしていない。** M4 の完了条件
+9 件のうち 4 件が閉じておらず、うち 2 件は実機が要る（`docs/m4-device-verification.md`）。
+
+**それでも配る。** ただし**黙って配るのではなく、知らせて配る**:
+
+- **リリースノート**に「Android / iOS は CI がクロスビルドし、16 KB page size と
+  静的リンクを機械的に検証しているが、**実機で動作確認していない**」と明記する
+- **`README.md`** の platform 表にも同じ注記を付ける
+- **`package.json` の説明**は変えない（そこに書くと OpenUPM の一覧で切れる）
+
+**この判断は v0.1.0 の教訓と衝突する。** あのときは 3 platform ともビルドが成功し
+linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い環境で読み込めなかった ——
+**Unity を実際に動かすまで誰も知らなかった。** いま出そうとしているのは同じ形である。
+
+**衝突を承知で配る理由**: (a) 実機検証は 2026-09-01 に「スキップする」と決めており、
+**待っても自然には閉じない**（誰かが端末を用意するまで動かない）。(b) desktop 3 platform
+だけを配る形に戻すのは、全部入りの仕組みも gating の検査も 5 platform を前提にしている
+ので**大きな後退**になる。(c) **明記すれば利用者が判断できる** —— v0.1.0 との違いは
+そこである。あのときは「動く」と暗黙に主張していた。
+
+**実機で動かないと分かったら v0.4.1 を出す。** このリポジトリは一度配ったものを
+黙って差し替えない（v0.1.1 がそうだった）。
+
+#### やること
+
+1. **`.github/release-notes.md` を v0.4.0 の内容にする** ——
+   **2026-09-03 に済ませた**（M5 の全部を足し、出していないものも明記した）
+2. **`README.md` / `README.ja.md` にモバイルが実機未検証であることを書く** ——
+   **2026-09-03 に済ませた**（「ビルドはされているが実機で動かしていない」の節）
+3. **`Packages/com.ayutaz.opencv-unity-native/package.json` の `version` を上げる**
+4. **その変更を main へ入れる。** main は保護されており直接 push できないので、
+   PR を出して CI を通す。**`release.yml` は tag と `package.json` の版が一致する
+   ことを検査する**ので、tag を打つ前に main に入っていなければならない
+5. **tag を打つ**（`v0.4.0`）→ `release.yml` が 5 platform 分と全部入りを作り、`--draft` で止まる
+6. **下書きを実物で検証する** —— 落として `SHA256SUMS.txt` と突き合わせ、全部入りの中に
+   5 platform 分の binary と `.meta` が在ること、生成された `.g.cs` が入っていること、
+   Linux の GLIBC 要求、Android の page size、iOS の `.a` を見る（**「配布 その 4」の表と同じ項目**）
+7. **公開する**（`gh release edit v0.4.0 --draft=false`）
+8. **OpenUPM が拾うことを確かめる。** 確かめ方:
+
+   ```sh
+   curl -s https://package.openupm.com/com.ayutaz.opencv-unity-native |
+     python -c "import sys, json; print(json.load(sys.stdin)['dist-tags']['latest'])"
+   ```
+
+   これが `0.4.0` を返せば配信されている。**OpenUPM はビルドキューを持つので、
+   公開した直後には反映されない** —— v0.2.0 のときも数時間かかった。
+   **「登録済みだから自動で拾うはず」で終わらせない。**
+9. **公開後に文書を更新する。** 「最新の公開版」を書いている場所は次のとおり:
+   `docs/roadmap.md`（この節と「配布」の各節）、`CLAUDE.md`（現在地の段）、
+   `docs/README.md`（Status）、`README.md` と `README.ja.md`（冒頭の Status と
+   「導入」の節）、`docs/api-reference.md`（対象範囲）、
+   `.github/release-notes.md`（次の版のために「前の版」を繰り上げる）。
+   **7 ファイルある。** 1 つでも古いと、次に読む人が違う版を前提に動く。
+
+#### 既存の v0.3.0 の tag と下書きをどうするか
+
+**触らない。** tag は push 済み、下書きは誰にも見えず、期限も無い。**消す必要が無い。**
+
+**再利用もしない** —— asset は M5 が main に入る前のもので、生成物が 1 つも入っていない。
+v0.4.0 は新しい tag を打って作り直す。**版番号を飛ばすことになるが、それでよい** ——
+v0.3.0 という名前の物が世に出ることはないので、誰も混乱しない。
+
+#### 完了条件
+
+- [ ] `v0.4.0` が公開され、28 asset が並んでいる
+- [ ] 全部入りの tarball を落として、**5 platform 分の binary と `.meta`**、
+      **生成された P/Invoke 宣言（`Runtime/Interop/NativeMethods.*.g.cs`）** が
+      入っていることを実測する。**`docs/api-map.md` は package に入らない** ——
+      あれはリポジトリの文書であって、配布物の一部ではない
+- [ ] リリースノートと `README.md` / `README.ja.md` に**モバイルが実機未検証であること**が明記されている
+- [ ] OpenUPM が `0.4.0` を配信する（**確かめるまでが作業**。「登録済みだから自動で拾うはず」で終わらせない）
+- [ ] 公開後に「最新の公開版」の記述を更新する（**7 ファイル。一覧はやること 9 にある** —— ここに写すと 2 つが食い違う）
+
+#### 非ゴール
+
+- **実機検証**（2026-09-01 に「やらない」と決めた。この配布で覆さない）
+- **M4 の残り 4 件を閉じること**（実機 2 件は端末が要り、CI の 2 件は「CI では閉じない」と結論済み）
+- **v0.3.0 の下書きを再利用すること**（M5 前のものなので作り直す）
 
 ### OpenUPM への登録（条件 4 (c)）
 
@@ -1396,6 +1497,25 @@ Unity Web Player 上で P/Invoke と代表処理が動く。
 
 **非ゴール**
 threads profile（別 profile として後続）。
+
+### M4 / M5 の後に着手するとき、何が変わっているか（2026-09-03 に追記）
+
+**この節は M0 の頃に書いた。着手する前に、その後で足場が変わったことを知っておくこと。**
+
+- **platform を足す作業は 17 箇所に触る。** 一覧を持つ場所は語彙が違うので grep 1 回では
+  揃わない。`add-a-platform` skill に、M4 で**クロスビルドが緑になってから CI で 8 回落ちた**
+  罠が踏んだ順に並べてある。**Web は 6 つ目の platform になる。**
+- **境界の宣言はもう手で書かない。** `bindings/spec/*.json` が正本で、C ヘッダ・C# の
+  P/Invoke・到達性テスト・API 対応表が同時に生成される（M5）。**Web でも同じ経路を通る** ——
+  `DllImport` の形が platform で変わるなら、生成器の側で扱うことになる。
+- **依存 allowlist が新しい依存を捕まえる。** `calib` を足したとき、推移的に引かれた
+  `stereo` で 4 platform とも最初のビルドが落ちた（2026-09-02）。**Emscripten でも
+  同じ検査が働く** —— 落ちたら、引き込まれたものを確かめてから明示的に足す。
+- **`OCVU_ABI_VERSION` は 1 のままである。** M5 は移設であって追加ではなく、
+  module を足しても版は動いていない。
+
+**そして、着手する前に配ること。** M4 と M5 の成果はまだ利用者に届いていない
+（「配布 その 5」）。**Web を足しても、届かなければ差別化にならない。**
 
 ---
 
@@ -1872,9 +1992,22 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                             （9 件中 5 件 / 未公開 v0.3.0 の下書き）
                                                               |
                                                               v
-                                                        M5 generator ──> M6 Web ──> M7 profiles
-                                        （4 件 + 条件 2 は部分的。objdetect / features を出した）
+                                                        M5 generator
+                        （5 件すべて達成。objdetect / features / geometry / calib）
+                                                              |
+                                                              v
+                                                    配布 その 5 — v0.4.0
+                        （M4 と M5 の成果を初めて利用者に届ける。未着手）
+                                                              |
+                                                              v
+                                                   M6 Web ──> M7 profiles
 ```
+
+**配布はマイルストーンではないが、マイルストーンの間に必ず挟まる。** M3 が v0.1.0 /
+v0.1.1、M3.5 が v0.2.0 を出した。**M4 と M5 の成果はまだ配っていない** ——
+v0.3.0 の下書きは M5 が main に入る前のもので、**そのままでは公開できない**
+（「配布 その 4」を参照）。**この段が計画のどこにも書かれていなかったので、
+上の図と「配布 その 5」の節に足した。**
 
 ## 再評価のトリガー
 

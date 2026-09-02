@@ -6,15 +6,16 @@
 **両者を同期させる仕組みは無い** —— 境界に関数が増えると対応表は自動で伸びるが、
 この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
 
-**対象範囲: C ABI の 18 関数（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本）と、その上に立つ
-C# の公開 API だけ。** まだ無い機能（`Mat` の部分参照、型変換・算術演算、
+**対象範囲: allowlist に載っている C ABI 関数と、その上に立つ C# の公開 API だけ。**
+（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本。**本数は `docs/abi-ownership-and-versioning.md`
+§3 の冒頭が数える**。） まだ無い機能（`Mat` の部分参照、型変換・算術演算、
 **`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
 ステレオ校正、`solvePnP` など）はここに書かない。**`WebCamTexture` 連携は
 M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
 推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
 features / geometry / カメラ校正」と §2.8〜§2.11 にある。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
-M5 の追加は §3.6〜§3.8）を、所有権契約そのものは同 §1 を参照。
+M5 の追加は §3.6〜§3.9）を、所有権契約そのものは同 §1 を参照。
 
 対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
 6000.3.16f1 の 1 版だけ**）。**対応 platform は最新の公開版（v0.2.0）の
@@ -27,7 +28,7 @@ mobile と Web の現況（何がビルドされ、何が公開版に入って�
 `Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/` は丸ごと成果物で、binary も
 `.meta` も git は追跡しない。ローカルでは `./tools/dev.ps1 build` が、実行中の platform 分を
 そこへ置く。利用者に届く経路は GitHub Release の **全部入り UPM tarball**
-（`com.ayutaz.opencv-unity-native.tgz`）で、**3 platform 分の binary が 1 つに入る** ——
+（`com.ayutaz.opencv-unity-native.tgz`）で、**全 platform 分の binary が 1 つに入る**（M3.5 の時点では 3 platform、M4 以降は 5 platform） ——
 Unity は同じ package ID を 1 つしか導入できないので、platform ごとに分かれた tarball では
 「エディタは Windows、実機は別の platform」が表現できないためである。**どの binary が
 有効になるかは Plugin Import Settings（`.meta`）が決め**、Unity は自分の platform 向けの
@@ -317,11 +318,17 @@ status:
 
 ### この allowlist に含まれないもの
 
-`ocvu_get_abi_version` / last-error 取得 / status 表の照会 / `ocvu_get_opencv_version` /
+`ocvu_get_abi_version` / `ocvu_get_last_error_status` / `ocvu_get_last_error_message` /
+`ocvu_get_status_count` / `ocvu_get_status_value` / `ocvu_get_opencv_version` /
 `ocvu_get_build_information` / `ocvu_debug_throw` / `ocvu_debug_crash` は存在するが、
-M0/M1 由来の診断・conformance test 用 API であり、この allowlist（M2 の 9 本 + M3.5 の
-2 本 + M5 の 7 本 = 18 本）の対象外。C# 側では `CvNative` の一部メンバがこれらを
+M0/M1 由来の診断・conformance test 用 API であり、**この allowlist の対象外**である
+（**本数は `docs/abi-ownership-and-versioning.md` §3 の冒頭が数える**）。C# 側では `CvNative` の一部メンバがこれらを
 包んでいるので、公開 C# API としての契約は §2.4 に記載する。
+
+**`ocvu_mat_copy_from_buffer_ptr` / `ocvu_mat_copy_to_buffer_ptr` も、上の表に
+個別の行を持たない。** これらは managed 配列を渡す版とまったく同じ C の entry point
+へ、**ポインタで入る C# 側の入口**である（`docs/api-map.md` の冒頭にその説明がある）。
+C# としての契約は §2.1 の `CopyFrom(IntPtr, …)` / `CopyTo(IntPtr, …)` にある。
 
 ## 2. C# 公開 API
 

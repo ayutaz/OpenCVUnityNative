@@ -26,7 +26,8 @@ Requires PowerShell 7+, CMake 3.25+, the .NET 8 SDK, a C++ toolchain, and the
 
 ```powershell
 ./tools/opencv.ps1 restore   # fetch the pinned OpenCV artifact CI published
-./tools/dev.ps1 test         # tools tests + L1 (GoogleTest) + L3 (P/Invoke)
+./tools/dev.ps1 test         # tools tests + generated-bindings check + L1 + L3
+./tools/dev.ps1 generate     # regenerate the bindings after editing bindings/spec
 ```
 
 `./tools/dev.ps1` is the only entry point for local development. Everything else
@@ -41,9 +42,13 @@ hangs off it. See [README](README.md#development) for the full list.
   verification script or a CI gate, **break the thing it guards and watch it fail.**
   A check that has only ever been observed passing has not been shown to work. This
   is written up in `.claude/skills/prove-a-check-works/`.
-- **Adding an ABI function** has a specific order — header, implementation, L1
-  contract test, P/Invoke declaration, L3 test, status table sync. See
-  `.claude/skills/add-abi-function/`.
+- **Adding an ABI function** has a specific order, and **the declarations are not
+  part of it** — since M5 the C header and the C# P/Invoke are generated from
+  `bindings/spec/*.json`, and writing either by hand makes `verify-generated` fail.
+  The order is: L1 contract test first, then one entry in the spec followed by
+  `./tools/dev.ps1 generate`, then the implementation, then the L3 test — and if
+  the change adds a status code, the managed `CvStatus` enum has to follow by hand.
+  See `.claude/skills/add-abi-function/`.
 - **Do not put milestone-specific rules in hooks.** Conditions that expire become
   stale in exactly the way the documents do.
 
@@ -52,8 +57,13 @@ hangs off it. See [README](README.md#development) for the full list.
 Every pull request runs, across Windows / macOS / Linux: the contract tests, the
 P/Invoke tests, the sanitizer lanes (with LeakSanitizer on Linux), artifact linkage
 and portability verification, and — on Linux — Unity EditMode and a real IL2CPP
-player. Workflows, shell scripts and PowerShell are linted; CodeQL analyses the C++
-and C#.
+player. Android and iOS are cross-compiled and their artifacts inspected (16 KB page
+alignment, bundled symbols), **but no device runs them.** The release path is
+dry-run on every pull request as well: it builds and assembles the distributable
+for all five platforms without publishing anything, because three defects had
+accumulated there while it only ran on tags — one of which meant tagging would have
+produced no release at all. Workflows, shell scripts and PowerShell are linted;
+CodeQL analyses the C++ and C#.
 
 **CI is the authority on mergeability.** A green local run is an approximation kept
 for speed.

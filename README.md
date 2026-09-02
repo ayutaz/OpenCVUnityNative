@@ -2,7 +2,9 @@
 
 OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible native UPM package.
 
-> **Status: v0.2.0 is the newest published release, and the repository is ahead of it. Desktop only — M0 through M3.5 are in that release.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. Everything described below — including the in-memory image encode/decode functions and the single package that carries all three platforms — is in v0.2.0. The public C ABI is deliberately narrow — `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, and encoding/decoding images to and from byte arrays in memory — because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web (M6) is not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+[日本語](README.ja.md)
+
+> **Status: v0.2.0 is the newest published release, and the repository is well ahead of it.** That release is desktop-only and carries M0 through M3.5. Since then the repository gained Android and iOS cross-builds (M4) and a generated binding layer with camera calibration (M5), **none of which has been published yet.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. **Read what follows as describing the repository, not the download**: v0.2.0 carries the `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, in-memory image encode/decode, and one package holding all three desktop platforms. Everything else below is in the repository and not yet in any release. The public C ABI is deliberately narrow either way, because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web (M6) is not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -25,46 +27,65 @@ packaged by CI, and the Linux and Windows plugins are exercised by Unity itself
 (EditMode on Mono and a real IL2CPP player).
 
 The macOS plugin is packaged, and Unity itself now reads its Plugin Import Settings —
-an EditMode test asks Unity's own `PluginImporter` how it interpreted all three
-`.meta` files, with all three binaries present. But the macOS library has never been
+an EditMode test asks Unity's own `PluginImporter` how it interpreted every `.meta`
+file, with every binary present. But the macOS library has never been
 loaded, and Unity has never been run on macOS at all. Treat that platform as built and
 gated rather than exercised.
 
-**Planned:** Android and iOS, then Web/Wasm. Unity 6000.3 or newer throughout.
+**Built but never run on a device:** Android arm64-v8a and iOS arm64. CI cross-compiles
+both, checks the Android `.so` for 16 KB page alignment against the real ELF program
+headers, and confirms the iOS `.a` actually bundles the OpenCV symbols this plugin
+references. **None of that is the same as running on a phone.** No Android or iOS device
+has ever loaded these binaries. They are in the repository and will be in the next
+release; treat them as unverified until someone runs
+[the device checklist](docs/m4-device-verification.md).
+
+**Planned:** Web/Wasm. Unity 6000.3 or newer throughout.
 
 ## Installing
 
 Releases live at
 [github.com/ayutaz/OpenCVUnityNative/releases](https://github.com/ayutaz/OpenCVUnityNative/releases).
-Desktop only, and deliberately small: `Mat` lifecycle, `cvtColor` / `resize` /
-`GaussianBlur`, and encoding/decoding PNG and JPEG to and from byte arrays in memory.
-The ABI takes no file paths at all — only byte buffers. That is on purpose: a
-`StreamingAssets` file inside an Android APK has no path that can be opened, and a
-path crossing this boundary would drag Windows text encoding along with it. Mobile
-and Web are not supported yet.
+**The published release (v0.2.0) is desktop-only and deliberately small**: `Mat`
+lifecycle, `cvtColor` / `resize` / `GaussianBlur`, and encoding/decoding PNG and JPEG
+to and from byte arrays in memory. The ABI takes no file paths at all — only byte
+buffers. That is on purpose: a `StreamingAssets` file inside an Android APK has no
+path that can be opened, and a path crossing this boundary would drag Windows text
+encoding along with it.
+
+**The repository has more than that release does**, and the next one will carry it:
+Android and iOS binaries, QR encode/decode, ORB keypoints, homography estimation, and
+the three stages of monocular camera calibration (find the board corners, solve for the
+coefficients, undistort with them). The full surface, with what is deliberately absent,
+is in the [API reference](docs/api-reference.md); the count itself lives at the top of
+the [API map](docs/api-map.md). Web is not supported.
 
 **On Linux, use v0.1.1 or later.** The Linux plugin in v0.1.0 was built against
 glibc 2.38 and fails to load on anything older — Ubuntu 22.04 included — with
 `DllNotFoundException`. Since v0.1.1 the Linux artifacts are built in an Ubuntu
 22.04 container and require only glibc 2.34.
 
-Each release carries one tarball holding **all three** platforms — that is the one to
+Each release carries one tarball holding **every** platform — that is the one to
 take — plus one tarball per platform for anyone who wants a single platform's binary
 and nothing else:
 
 ```
-com.ayutaz.opencv-unity-native.tgz                        # all three platforms — take this one
+com.ayutaz.opencv-unity-native.tgz                        # every platform — take this one
 com.ayutaz.opencv-unity-native-<version>-windows-x64.tgz  # one platform only, if that is what you want
 com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
+com.ayutaz.opencv-unity-native-<version>-android-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-ios-arm64.tgz
 ```
+
+The per-platform list grows with the platform set; the release you download is the
+authority on which ones exist.
 
 The all-platform tarball carries no version number in its filename on purpose:
 OpenUPM selects a release asset by a stable name prefix, so a version in the name
 would mean rewriting that pattern every release. The per-platform tarballs keep
-theirs. Registration on OpenUPM itself is prepared but **not submitted** — it needs
-one published release carrying the new asset name first, and whether OpenUPM accepts
-it is not something this repository controls
+theirs. **The package is registered on OpenUPM** (accepted 2026-08-30) and
+`https://package.openupm.com/com.ayutaz.opencv-unity-native` serves v0.2.0
 ([docs/openupm-registration.md](docs/openupm-registration.md)).
 
 Download `com.ayutaz.opencv-unity-native.tgz`, put it somewhere inside or beside your
@@ -100,7 +121,7 @@ Files you did not download are reported as missing; that is expected. The line f
 each file you did take must say `OK`.
 
 A release also carries checksum files that are not about the downloads at all:
-`checksums.txt` for the all-platform package (three lines, one per binary) and
+`checksums.txt` for the all-platform package (one line per binary) and
 `<platform>-checksums.txt` for each single-platform package. Those cover the files
 **inside** those packages, so they are only useful after extracting.
 `SHA256SUMS.txt` is the one that covers the downloadable assets themselves.
@@ -108,15 +129,16 @@ A release also carries checksum files that are not about the downloads at all:
 ### Why not a Git URL
 
 **A Git URL will not work, and this is deliberate.** The native plugin binaries
-(`.dll` / `.dylib` / `.so`) are not tracked in git — keeping three platforms'
+(`.dll` / `.dylib` / `.so` / `.a`) are not tracked in git — keeping every platform's
 binaries in history would grow it without bound. A Git URL reference therefore
 delivers the C# code and the Plugin Import Settings but no actual libraries, and
 every `DllImport` fails at runtime. Use the release tarball —
 `com.ayutaz.opencv-unity-native.tgz`.
 
-### One package, all three platforms
+### One package, every platform
 
-The package you install carries the Windows, macOS and Linux binaries together. Unity
+The package you install carries every platform's binary together (Windows, macOS and
+Linux in v0.2.0; Android and iOS join them in the next release). Unity
 allows one package per package ID, so a project whose editor and build target are
 different platforms needs them in one package. Earlier releases shipped one tarball
 per platform and could not express that; the per-platform tarballs still ship, but
@@ -124,24 +146,27 @@ only as a convenience for a project that wants a single platform's binary.
 
 Each binary's Plugin Import Settings enable it on its own platform only, and that is
 now measured rather than asserted: an EditMode test asks Unity's own `PluginImporter`
-how it read the `.meta` files, with all three binaries present. Two things that
+how it read the `.meta` files, with every binary present. Two things that
 measurement established are worth knowing if you go inspecting the settings yourself.
-First, `GetCompatibleWithEditor()` returns **true** for all three plugins — the editor
+First, `GetCompatibleWithEditor()` returns **true** for every plugin — the editor
 is gated by the `OS` sub-setting underneath that flag, not by the flag, so a check
 reading only the flag passes always and proves nothing. Second, the check has teeth:
 deliberately breaking a `.meta` so the macOS library claims Windows leaves the older
 ten-test suite at 10 of 10 — `DllImport` resolution already branches on the differing
-file names, so nothing there ever noticed — and fails 3 of the current 16.
+file names, so nothing there ever noticed — and fails 3 of the gating tests.
 
 Installing the all-platform tarball into a throwaway project and running EditMode
-there passed 16 of 16, measured on one Windows machine on 2026-08-30. CI runs the same EditMode suite on Linux and it passes 16 of 16 there too, but with only the Linux binary present, so the three-platform case those checks exist for is not what CI exercises. The all-platform tarball is
-9.6 MB, measured on the CI run that assembled it. See the [roadmap](docs/roadmap.md).
+there passes, measured on one Windows machine. **CI runs the same EditMode suite with
+every platform's binary present**, so the multi-platform case those checks exist for is
+exactly what CI exercises — an EditMode test refuses to go green unless it sees them
+all. Current counts and sizes are in the [roadmap](docs/roadmap.md); they move with
+every release, so they are not repeated here.
 
 ### How releases are made
 
-Tagging `v*` builds all three platforms, verifies the linkage of what was built,
+Tagging `v*` builds every platform, verifies the linkage of what was built,
 checks that the Linux library does not require a newer glibc or libstdc++ than the
-oldest environment we support, overlays the three platforms' plugin trees into one
+oldest environment we support, overlays every platform's plugin tree into one
 package, packages everything, and creates a **draft** release. The glibc check reads
 the version records inside the built `.so`; it does not load the library, so it is a
 statement about what the binary asks of its host, not proof that it runs there.
@@ -153,10 +178,10 @@ applied to a binary anyone actually downloaded. Building Linux inside a pinned c
 the problem structurally, but "the structure prevents it, so the check is redundant"
 is precisely the reasoning v0.1.0 disproved.
 
-The workflow then counts what it staged — 17 assets, and the all-platform tarball
+The workflow then counts what it staged — and looks for the all-platform tarball
 among them by name — before uploading, because a name collision would otherwise
 overwrite a file silently and still look successful. (`SHA256SUMS.txt` is written
-afterwards, so a published release holds 18 files.) A human looks at what was produced
+afterwards, so a published release holds one more file than was staged.) A human looks at what was produced
 and publishes it. A tag alone does not make a release visible — that is deliberate, so
 a release that is wrong can be discarded before anyone has it.
 
@@ -228,13 +253,16 @@ A local green run is an approximation kept for speed; CI decides mergeability.
 
 ### What CI covers
 
-| | Windows x64 | macOS arm64 | Linux x64 |
-| --- | --- | --- | --- |
-| L1 contract tests + L3 P/Invoke | yes | yes | yes |
-| L2 sanitizers | ASan | — | ASan + **LeakSanitizer** |
-| Artifact linkage and enabled languages | yes | yes | yes |
-| Unity EditMode (L4) | local only | local only | **yes** |
-| Unity IL2CPP player (L5) | local only | — | **yes** |
+| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 |
+| --- | --- | --- | --- | --- | --- |
+| L1 contract tests + L3 P/Invoke | yes | yes | yes | cross-build only | cross-build only |
+| L2 sanitizers | ASan | — | ASan + **LeakSanitizer** | — | — |
+| Artifact linkage and enabled languages | yes | yes | yes | 16 KB page size | bundled symbols |
+| Unity EditMode (L4) | local only | local only | **yes** | — | — |
+| Unity IL2CPP player (L5) | local only | — | **yes** | — | — |
+
+The mobile columns say "cross-build only" because that is all CI can do: it compiles
+and inspects the artifacts, and **no device has ever loaded them.**
 
 The lane that installs the UPM tarball into a throwaway project
 (`test-unity-tarball`) is absent from that table because it runs in no workflow at
@@ -242,14 +270,16 @@ all — it is local only, and the "installs and passes" result above was measure
 hand.
 
 The Unity lanes run on Linux, and the Windows IL2CPP player is covered only by the
-local lane. The reason recorded here previously — that GameCI's Windows images fail on
-the `windows-2022` runners GitHub offers — did not survive checking: the two upstream
-issues it cited were closed in 2023, and neither describes this setup — one belongs to a
-GameCI action this repository does not use, the other to the Windows lineage of the
-GameCI images, while this workflow pins an `ubuntu-` one. GameCI's docs for the action it does use say Windows runners are unsupported
-for *package* testing, which is not what this workflow does, and their Windows images
-cannot ship the Visual Studio Build Tools an IL2CPP build needs. We have never tried it,
-so treat Windows here as untested rather than impossible. The roadmap tracks it.
+local lane. **That is now a measured conclusion rather than an assumption.** An earlier
+note here blamed upstream issues that turned out to describe a different action and a
+different image lineage; the workflow was actually tried on `windows-2022` in
+2026-08-31. EditMode ran there and passed 33 tests. The Standalone player did not:
+IL2CPP emits C++ and the GameCI Windows container has no MSVC to compile it, so the
+build fails with `ToolchainNotFoundException`. Windows-specific IL2CPP defects
+therefore stay invisible to CI by design, not by oversight. macOS was tried four times
+in the same window and fails earlier still — GameCI does not support darwin, and
+installing the editor directly gets as far as a licence that reports zero
+entitlements. The roadmap records both attempts.
 
 **Linux artifacts are built inside an Ubuntu 22.04 container**, not on the runner
 image. A shared library only loads on a system at least as new as the one that built
@@ -278,8 +308,8 @@ check could not stop a merge. Until 2026-08-29 the
 Unity, lint and CodeQL workflows ran on every pull request without being required,
 so they could be red and the change still merged; CI watching something and CI
 stopping something are different things, and only the second one is a gate. The
-remaining two workflows (`build-opencv`, `nightly`) are not triggered by pull
-requests at all, so they cannot be required. `release` was in that list until
+remaining three workflows (`build-opencv`, `nightly`, `unity-probe`) are not
+triggered by pull requests at all, so they cannot be required. `release` was in that list until
 2026-08-31; it now runs on pull requests too, because three defects had accumulated in the
 distribution path while it only ran on tags — one of which meant that tagging a release
 would have produced no release at all. Its `Publish the release` job stays out of the
@@ -305,8 +335,12 @@ call into a module are written, none of that module's code reaches the shipped l
 Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
 10,177,536 bytes when the encode/decode functions landed (zlib, libpng and libjpeg-turbo
 came with them), and to 20,136,960 bytes when the QR and ORB functions landed
-(`annoylib` and the MSCR chi_table come with `features`). Adding a module to the build
-system alone changes nothing.
+(`annoylib` and the MSCR chi_table come with `features`). It stands at 21,464,576
+bytes now; the last 274,432 of that arrived with `calibrateCamera` alone, and the
+rest of the growth since the QR/ORB measurement came from the other calibration and
+geometry functions. Adding a module to the build system alone changes
+nothing: linking `calib` moved the library by exactly zero bytes until a function
+actually called into it.
 
 That distinction is easy to lose, and this repository lost it for a while. The pinned
 OpenCV build has always been configured with `imgcodecs`, and
@@ -318,7 +352,7 @@ unresolved externals.
 The notices, SBOM and build manifest are published **per platform**, as separate
 release assets. The all-platform tarball carries only its checksum list: both of the
 other two are derived from one platform's restored OpenCV artifact, and the job that
-bundles the three platforms has no such source, so a merged version would have to be
+bundles every platform has no such source, so a merged version would have to be
 invented rather than derived. Take the `<platform>-THIRD_PARTY_NOTICES.md` asset for
 each platform you ship.
 
@@ -336,7 +370,11 @@ Design and research documents (in Japanese) live under `docs/`:
 - [M2 implementation plan](docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)
 - [M3 implementation plan](docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)
 - [M3.5 implementation plan](docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md)
+- [M4 implementation plan](docs/superpowers/plans/2026-08-30-m4-mobile.md)
+- [M5 implementation plan](docs/superpowers/plans/2026-08-31-m5-binding-generator.md)
+- [Device verification checklist](docs/m4-device-verification.md) — what CI cannot close
 - [API reference](docs/api-reference.md)
+- [API map](docs/api-map.md) — generated from the binding spec
 - [OpenUPM registration](docs/openupm-registration.md)
 - [C ABI ownership and versioning](docs/abi-ownership-and-versioning.md)
 - [Unity/OpenCV integration research and plan](docs/unity-opencv-integration-research-and-plan.md)
