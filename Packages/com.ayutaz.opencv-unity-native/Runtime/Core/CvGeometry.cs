@@ -29,6 +29,34 @@ namespace CvUnity
     }
 
     /// <summary>
+    /// 空間中の点。x と y と z を持つ読み取り専用の値。
+    /// </summary>
+    /// <remarks>
+    /// UnityEngine の Vector3 を使わないのは、<c>Runtime/Core</c> が
+    /// UnityEngine を参照してはならないためである（<see cref="CvPoint2"/> と同じ理由）。
+    /// 校正パターンの 3D 座標を渡すのに使う。
+    /// </remarks>
+    public readonly struct CvPoint3
+    {
+        /// <summary>横方向の位置。</summary>
+        public float X { get; }
+
+        /// <summary>縦方向の位置。</summary>
+        public float Y { get; }
+
+        /// <summary>奥行き方向の位置。</summary>
+        public float Z { get; }
+
+        /// <summary>x と y と z から点を作る。</summary>
+        public CvPoint3(float x, float y, float z)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+        }
+    }
+
+    /// <summary>
     /// 射影変換の求め方。
     /// </summary>
     /// <remarks>
