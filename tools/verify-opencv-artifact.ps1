@@ -94,7 +94,18 @@ if (-not (Test-Path -LiteralPath $Root)) {
 # を引き込むことは実際のビルドで確認済みで、レビュー済みの追加として
 # ここに明示する。増えたら（=依存関係が変わったら）このリストを更新する
 # という「気づいて意図的に直す」動作が allowlist の目的そのものである。
-$AcceptedTransitiveModules = @('flann', 'geometry')
+#
+# stereo は calib が引き込む（2026-09-02 に実測。calib を Modules へ足した
+# 最初のビルドが、まさにこの検査で落ちて分かった —— run 33589061515 の
+# 4 platform が `opencv_stereo500.lib — OpenCV module 'stereo' は許可リストに
+# 無い` で停止した）。**この検査が意図どおり働いた例である。**
+#
+# stereo は OpenCV 本体の module（ステレオ対応点探索）であって third-party
+# ではない。ライセンスは OpenCV 本体と同じで、新しい bundled 依存も持ち込まない
+# （同じビルドの install ログに、stereo 由来の etc/licenses は 1 件も現れない）。
+# **このプラグインは stereo のシンボルを 1 つも参照しない** —— 静的リンクは
+# 参照された object しか引かないので、配布する binary には入らない。
+$AcceptedTransitiveModules = @('flann', 'geometry', 'stereo')
 $PermittedOpenCvModules = @(@($config.Modules) + $AcceptedTransitiveModules | Sort-Object -Unique)
 
 # third-party dependency の許可リスト。実際にビルドしたツリー
