@@ -462,4 +462,105 @@ public class CalibrationTests
         Assert.Contains("OCVU_CALIB_MAX_POINTS", CvNative.GetLastErrorMessage());
     }
 
+    [Fact]
+    public void TheManagedLimitIsActuallyEnforcedAtTheManagedEntrance()
+    {
+        // **上のテストは native 側の上限しか見ていない。**
+        // `CvCalibration.MaxCalibrationPoints` は private const なのでテストから
+        // 直接は読めず、**写しが片方だけずれても上のテストは緑のままである。**
+        // だから公開 API 経由で境界の両側を試し、**C# の門が実際に効いている**
+        // ことを見る。
+        //
+        // 上限ちょうど（2 x 50000）は C# の門を通り、native まで届く ——
+        // そこで別の理由（点が退化している）で例外になるので、
+        // **ArgumentException ではないこと**が「C# は通した」証拠になる。
+        // 上限を 1 点でも超えたら C# が ArgumentException で断つ。
+        const int views = 2;
+        const int atLimitPerView = 50000;
+
+        var objAtLimit = new CvPoint3[views][];
+        var imgAtLimit = new CvPoint2[views][];
+        for (int v = 0; v < views; v++)
+        {
+            objAtLimit[v] = new CvPoint3[atLimitPerView];
+            imgAtLimit[v] = new CvPoint2[atLimitPerView];
+        }
+
+        var atLimit = Record.Exception(
+            () => CvCalibration.CalibrateCamera(objAtLimit, imgAtLimit, 640, 480));
+        Assert.IsNotType<ArgumentException>(atLimit);
+        Assert.IsNotType<ArgumentOutOfRangeException>(atLimit);
+
+        // **1 点だけ増やす。** これで積が上限を 2 点超える。
+        var objOver = new CvPoint3[views][];
+        var imgOver = new CvPoint2[views][];
+        for (int v = 0; v < views; v++)
+        {
+            objOver[v] = new CvPoint3[atLimitPerView + 1];
+            imgOver[v] = new CvPoint2[atLimitPerView + 1];
+        }
+
+        var over = Assert.Throws<ArgumentException>(
+            () => CvCalibration.CalibrateCamera(objOver, imgOver, 640, 480));
+        Assert.Contains("上限", over.Message);
+    }
+
+    [Fact]
+    public void CalibrateCameraReportsHowManyCoefficientsItNeeds()
+    {
+        // **歪み係数の個数だけは呼ぶ側が事前に知り得ない**（OpenCV が入力を見て
+        // 4 / 5 / 8 / 12 / 14 のどれかを選ぶ）。だから容量が足りなかったときは
+        // **必要な個数を返す** —— 返さないと呼ぶ側は回復できない。
+        //
+        // **この経路は公開 API 経由では踏めない**（C# は常に最大の 14 を渡す）。
+        // 直接 native に問う。
+        var (objectPoints, imagePoints) = MakeSyntheticCalibration();
+
+        var flatObject = new float[ViewCount * PointsPerView * 3];
+        var flatImage = new float[ViewCount * PointsPerView * 2];
+        for (int v = 0; v < ViewCount; v++)
+        {
+            for (int i = 0; i < PointsPerView; i++)
+            {
+                int index = (v * PointsPerView) + i;
+                flatObject[(index * 3) + 0] = objectPoints[v][i].X;
+                flatObject[(index * 3) + 1] = objectPoints[v][i].Y;
+                flatObject[(index * 3) + 2] = objectPoints[v][i].Z;
+                flatImage[(index * 2) + 0] = imagePoints[v][i].X;
+                flatImage[(index * 2) + 1] = imagePoints[v][i].Y;
+            }
+        }
+
+        var camera = new double[9];
+        // **4 個は「最小でも要る」検査を通る大きさ**なので、実際に OpenCV が
+        // 返す個数（5 個）と比べる遅い経路まで到達する。
+        var dist = new double[4];
+        var poses = new double[ViewCount * 6];
+
+        var status = (CvStatus)CvUnity.Interop.NativeMethods.ocvu_calibrate_camera(
+            flatObject, (long)flatObject.Length * sizeof(float),
+            flatImage, (long)flatImage.Length * sizeof(float),
+            ViewCount, PointsPerView, SyntheticWidth, SyntheticHeight,
+            camera, camera.Length, dist, dist.Length,
+            out int needed, poses, poses.Length, out _);
+
+        Assert.Equal(CvStatus.BufferTooSmall, status);
+
+        // **必要量が返っていること。** 0 のままだと呼ぶ側は何個確保すれば
+        // よいか分からない。
+        Assert.True(needed > dist.Length, $"必要量が返っていない（needed={needed}）");
+
+        // 返った量を確保して呼び直すと通る —— これが 2 回呼びの作法である。
+        var dist2 = new double[needed];
+        var status2 = (CvStatus)CvUnity.Interop.NativeMethods.ocvu_calibrate_camera(
+            flatObject, (long)flatObject.Length * sizeof(float),
+            flatImage, (long)flatImage.Length * sizeof(float),
+            ViewCount, PointsPerView, SyntheticWidth, SyntheticHeight,
+            camera, camera.Length, dist2, dist2.Length,
+            out int wrote, poses, poses.Length, out _);
+
+        Assert.Equal(CvStatus.Ok, status2);
+        Assert.Equal(needed, wrote);
+    }
+
 }

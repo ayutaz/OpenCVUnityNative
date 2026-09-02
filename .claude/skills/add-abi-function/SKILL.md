@@ -95,10 +95,27 @@ emitter を足して新しい生成物を出すときは、**その出力の先�
 `native/tests/test_module_linkage.cpp` がその形で、`COMPONENTS` から外すと
 `LNK2019` が出て戻すと通ることを確かめてある。
 
-**`tools/opencv-config.psd1` の `Modules` は触らない。** あれは OpenCV 側が何を
-ビルドするかで、変えると構成ハッシュが変わり 5 platform 分の OpenCV を作り直す
-（実測: `4785d98e9aad` → `a197bbcbdaf5`）。**`COMPONENTS` を変えてもハッシュは
-変わらない** —— ハッシュを算出する `Get-OpenCvConfigHash` が読むのは `psd1` だけである。
+**`tools/opencv-config.psd1` の `Modules` を触るのは、それ自体が 1 つの作業である。**
+あれは OpenCV 側が何をビルドするかで、変えると構成ハッシュが変わり 5 platform 分の
+OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `09fcbe260d87`）。
+**`COMPONENTS` を変えてもハッシュは変わらない** —— ハッシュを算出する
+`Get-OpenCvConfigHash` が読むのは `psd1` だけである。
+
+**`Modules` を足したら、同じ commit で次も動く**（2026-09-02 に `calib` で実測）:
+
+- **`tools/verify-opencv-artifact.ps1` の `$AcceptedTransitiveModules`** ——
+  新しい module が別の module を推移的に引き込むと、依存 allowlist が拒否する。
+  `calib` は `stereo` を引き、**4 platform とも最初のビルドがここで落ちた。**
+  **これは検査が働いた例であって、回避すべき障害ではない** —— 引き込まれたものを
+  確かめてから明示的に足す。
+- **`THIRD_PARTY_NOTICES.md` の module 列挙**（配布物に同梱される法的通知文書）
+- **`README.md` の「which OpenCV modules this plugin links」**
+- **`tools/tests/OpenCvConfig.Tests.ps1` の module 検査**（spec と両方向に突き合わせる）
+
+**新しい module が推移的に引かれるかは、足す前に測れる。** `COMPONENTS` に足す前に
+その module の関数を呼ぶ L1 テストを書き、**リンクが落ちるかを見る。**
+`geometry` は落ちなかった（`features` / `objdetect` の依存として既に引かれていた）が、
+`calib` は `LNK2019` で落ちた —— **どちらかは推測できないので、実際に走らせる。**
 
 **関数を書いた後の binary の大きさを測って記録する。** roadmap は module を足すとき
 同時に動く 5 つの 1 つに成果物の大きさを挙げており、`docs/abi-ownership-and-versioning.md`

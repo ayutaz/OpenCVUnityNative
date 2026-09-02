@@ -23,9 +23,9 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
   | macOS / Linux / iOS | `lib/*.a` | `share/licenses/opencv5/` |
   | Android | `sdk/native/staticlibs/arm64-v8a/*.a` | `sdk/etc/licenses/` |
 - Modules built for this configuration (`tools/opencv-config.psd1`):
-  `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, plus `flann` and
-  `geometry`, pulled in transitively (`tools/verify-opencv-artifact.ps1`
-  `$AcceptedTransitiveModules`).
+  `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, `calib`, plus `flann`,
+  `geometry` and `stereo`, pulled in transitively
+  (`tools/verify-opencv-artifact.ps1` `$AcceptedTransitiveModules`).
 - **Universe considered**: every file under
   `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）` in the restored artifact
   (`./tools/opencv.ps1 restore`) — **13 files** on the desktop and iOS configurations, **15 on Android**

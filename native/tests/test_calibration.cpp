@@ -520,6 +520,12 @@ ocvu_status CallCalibrate(const std::vector<float>& object_points,
 TEST(Calibration, CalibrateCameraRecoversTheKnownIntrinsics) {
     // **status が OK であることだけを見ない。** それでは「何も計算せず OK を
     // 返す」退化実装が通る。合成に使った焦点距離と主点が戻ることを見る。
+    //
+    // **object 点の x と y を入れ替えても、このテストは緑のままである**（実測）。
+    // **それは検査の穴ではない** —— 盤の座標系が回っただけで、同じカメラを
+    // 別の向きから見たことになる。校正はカメラの内部パラメータを解くので、
+    // 盤をどちら向きに置いたかには依存しない。**image 点の x と y を入れ替えれば
+    // 落ちる**（そちらは投影の結果なので、入れ替えると対応が崩れる）。
     const std::vector<float> object_points = MakeObjectPoints();
     const std::vector<float> image_points = MakeImagePoints();
     CalibOutputs out;
@@ -596,14 +602,20 @@ TEST(Calibration, CalibrateCameraRejectsBuffersThatAreTooSmallWithoutWriting) {
     };
     const Case cases[] = {
         { "camera matrix", 8, 14, kViewCount * kPoseStride },
-        { "dist coeffs",   9,  0, kViewCount * kPoseStride },
+        // capacity 0 は使わない —— vector の data() が nullptr を返しうるので、
+        // 容量ではなく NULL の検査に当たってしまう。3 は「最小でも 4 は要る」に掛かる。
+        { "dist coeffs",   9,  3, kViewCount * kPoseStride },
         { "view poses",    9, 14, kViewCount * kPoseStride - 1 },
     };
 
     for (const Case& c : cases) {
-        std::vector<double> camera(9, 7.0);
-        std::vector<double> dist(14, 7.0);
-        std::vector<double> poses(static_cast<size_t>(kViewCount) * kPoseStride, 7.0);
+        // **buffer を宣言した capacity ちょうどの大きさで確保する。**
+        // 余分に取ると、実装が capacity を無視して書いても ASan が捕まえられない
+        // —— 「何も書いていない」を値で見るだけでなく、**境界の外に書いたら
+        // sanitizer が落とす**形にしておく。
+        std::vector<double> camera(static_cast<size_t>(c.camera_capacity), 7.0);
+        std::vector<double> dist(static_cast<size_t>(c.dist_capacity), 7.0);
+        std::vector<double> poses(static_cast<size_t>(c.pose_capacity), 7.0);
         int32_t dist_count = 99;
         double rms = 99.0;
 

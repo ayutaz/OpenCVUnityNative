@@ -39,6 +39,17 @@ $unmatched = @($specModules | Where-Object { $specModulesNotBuiltDirectly -notco
 Assert-That ($unmatched.Count -eq 0) `
     "every spec module is built by OpenCV (見つからないもの: $($unmatched -join ', '))"
 
+# **逆向きも見る。** 上だけだと「spec に無い module を Modules へ足す」が通る ——
+# それは**この repo でいちばん高い変更**である（構成ハッシュが変わり 5 platform 分の
+# OpenCV を作り直す）。境界に出さない module をビルドしても成果物が膨らむだけなので、
+# 足すなら spec も同時に増えるはずである。
+#
+# `flann` のように「依存として必要だが自分では呼ばない」module は Modules に
+# 書かない（推移的に引かれる）ので、この向きの例外は今のところ無い。
+$unexpected = @($config.Modules | Where-Object { $specModules -notcontains $_ })
+Assert-That ($unexpected.Count -eq 0) `
+    "every built module is exposed through the spec (spec に無いのに Modules に在る: $($unexpected -join ', '))"
+
 # core は常に要る（Mat がこれに載っている）。
 Assert-That ($config.Modules -contains 'core') 'core is always built'
 

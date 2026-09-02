@@ -362,9 +362,28 @@ extern "C" ocvu_status ocvu_calibrate_camera(const float* object_points,
             "ocvu_calibrate_camera: OpenCV returned a pose count that does not match view_count");
     }
 
+    // **1 view ぶんの姿勢が 3 要素ずつであることも確かめる。**
+    // 下で r[0..2] / t[0..2] を読むので、ここを見ないと OpenCV が別の形を
+    // 返した場合に境界の外を読む（camera_matrix には同じ検査がある —— 片方だけ
+    // 守るのは、守っていないのと同じくらい説明が付かない）。
+    for (int32_t v = 0; v < view_count; ++v) {
+        if (rvecs[static_cast<size_t>(v)].total() != 3 ||
+            tvecs[static_cast<size_t>(v)].total() != 3) {
+            return ::ocvu::set_last_error(
+                OCVU_STATUS_UNKNOWN_ERROR,
+                "ocvu_calibrate_camera: OpenCV returned a pose vector that is not 3 elements");
+        }
+    }
+
     const int64_t coeff_count = static_cast<int64_t>(dist64.total());
     if (coeff_count > dist_coeffs_capacity) {
         // **ここまで来ても、まだ 1 バイトも書いていない。**
+        //
+        // **必要量を返す。** 係数の個数だけは呼ぶ側が事前に知り得ない
+        // （OpenCV が入力を見て 4 / 5 / 8 / 12 / 14 のどれかを選ぶ）ので、
+        // ここで教えないと呼ぶ側は回復できない —— `ocvu_find_chessboard_corners`
+        // や `ocvu_imencode` と同じ 2 回呼びの作法である。
+        *out_dist_coeffs_count = static_cast<int32_t>(coeff_count);
         return ::ocvu::set_last_error(
             OCVU_STATUS_BUFFER_TOO_SMALL,
             "ocvu_calibrate_camera: dist_coeffs_capacity is smaller than the coefficient count "
