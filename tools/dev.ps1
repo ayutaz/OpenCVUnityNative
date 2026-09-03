@@ -973,8 +973,12 @@ function Test-UnityWeb {
     Sync-AllPlatformsMarker -ProjectPath $project
 
     $env:OCVU_WEB_BUILD_DIR = $outDir
+    # **-buildTarget を起動引数でも渡す。** 起動後に
+    # SwitchActiveBuildTarget を呼ぶだけでは足りないことがある
+    # （domain reload を挟むため）。**両方やる。**
     $unityArgs = @(
         '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+        '-buildTarget', 'WebGL',
         '-executeMethod', 'BuildPlayer.BuildWebGL', '-logFile', $log
     )
     $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow

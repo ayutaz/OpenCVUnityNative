@@ -1,4 +1,5 @@
 using UnityEditor;
+using UnityEngine;
 using UnityEditor.Build;
 
 /// <summary>
@@ -75,6 +76,24 @@ public static class BuildPlayer
     /// </summary>
     public static void BuildWebGL()
     {
+        // **active build target を先に切り替える。**
+        //
+        // 切り替えないと BuildPipeline.BuildPlayer は
+        // `BuildResult.Unknown` / 0 バytes を返し、**理由を言わない**
+        // （2026-09-03 に実測。ログに error は 1 行も出なかった）。
+        if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL)
+        {
+            UnityEngine.Debug.Log("switching active build target to WebGL...");
+            if (!EditorUserBuildSettings.SwitchActiveBuildTarget(
+                    BuildTargetGroup.WebGL, BuildTarget.WebGL))
+            {
+                UnityEngine.Debug.LogError(
+                    "WebGL への切り替えに失敗しました。WebGL Build Support が入っていない可能性があります。");
+                EditorApplication.Exit(1);
+                return;
+            }
+        }
+
         var target = NamedBuildTarget.WebGL;
         PlayerSettings.SetManagedStrippingLevel(target, ManagedStrippingLevel.Medium);
         // threads を使わない（非ゴール）。既定でもそうだが、明示しておく。
@@ -97,12 +116,32 @@ public static class BuildPlayer
             scenes = scenes,
             locationPathName = outDir,
             target = BuildTarget.WebGL,
+            targetGroup = BuildTargetGroup.WebGL,
             options = BuildOptions.None,
         };
 
         var report = BuildPipeline.BuildPlayer(options);
         var summary = report.summary;
-        UnityEngine.Debug.Log($"WebGL build: {summary.result}, {summary.totalSize} bytes, out={outDir}");
+        UnityEngine.Debug.Log(
+            $"WebGL build: {summary.result}, {summary.totalSize} bytes, " +
+            $"errors={summary.totalErrors}, warnings={summary.totalWarnings}, out={outDir}");
+
+        // **理由を吐かせる。** BuildResult.Unknown は「理由を言わずに終わった」
+        // という意味で、**ログに error が 1 行も出ないことがある**
+        // （2026-09-03 に実測）。report の中の message を全部並べる ——
+        // **「失敗した」だけ分かっても次の手が決まらない。**
+        foreach (var step in report.steps)
+        {
+            foreach (var msg in step.messages)
+            {
+                if (msg.type == LogType.Error || msg.type == LogType.Exception ||
+                    msg.type == LogType.Assert || msg.type == LogType.Warning)
+                {
+                    UnityEngine.Debug.Log($"[build step] {step.name}: {msg.type}: {msg.content}");
+                }
+            }
+        }
+
         if (summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
         {
             UnityEngine.Debug.LogError($"WebGL build failed: {summary.result}");
