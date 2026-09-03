@@ -56,7 +56,21 @@ namespace CvUnity.Interop
     /// </remarks>
     internal static partial class NativeMethods
     {
-#if UNITY_IOS && !UNITY_EDITOR
+        // **静的リンクする platform は "__Internal" である。**
+        //
+        // 共有ライブラリを読み込めない（iOS）か、そもそも共有ライブラリという
+        // 仕組みが無い（Web / Wasm）platform では、plugin は Player の binary へ
+        // 静的にリンクされる。**その場合 DllImport の名前は "__Internal" になる。**
+        //
+        // **UNITY_WEBGL が抜けていた**（2026-09-03 に実測）—— Web Player の中で
+        // 最初の P/Invoke が
+        //
+        //     Uncaught exception from main loop: undefined / Halting program.
+        //
+        // になった。**ビルドもリンクも通り、Player も起動する** ——
+        // 壊れるのは実際に呼んだ瞬間だけで、**ブラウザで動かすまで
+        // 誰も気づかない。**
+#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
         internal const string LibraryName = "__Internal";
 #else
         internal const string LibraryName = "opencv_unity_native";

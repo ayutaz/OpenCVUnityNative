@@ -1,7 +1,6 @@
 using System;
 using CvUnity;
 using CvUnity.Unity;
-using NUnit.Framework;
 using UnityEngine;
 
 /// <summary>
@@ -54,9 +53,9 @@ public static class AbiSurfaceChecks
 
         CvOps.CvtColor(src, dst, CvOps.Bgra2Bgr);
 
-        Assert.AreEqual(3, dst.Cols);
-        Assert.AreEqual(2, dst.Rows);
-        Assert.AreEqual(3, dst.Channels, "Bgra2Bgr は 4 ch を 3 ch にする");
+        Check.AreEqual(3, dst.Cols);
+        Check.AreEqual(2, dst.Rows);
+        Check.AreEqual(3, dst.Channels, "Bgra2Bgr は 4 ch を 3 ch にする");
     }
 
     public static void Resize_ProducesTheRequestedSize()
@@ -67,9 +66,9 @@ public static class AbiSurfaceChecks
 
         CvOps.Resize(src, dst, 8, 2, CvOps.InterNearest);
 
-        Assert.AreEqual(8, dst.Cols);
-        Assert.AreEqual(2, dst.Rows);
-        Assert.AreEqual(4, dst.Channels);
+        Check.AreEqual(8, dst.Cols);
+        Check.AreEqual(2, dst.Rows);
+        Check.AreEqual(4, dst.Channels);
     }
 
     public static void Clone_CopiesThePixelsIntoAnIndependentMat()
@@ -82,19 +81,19 @@ public static class AbiSurfaceChecks
         src.CopyFrom(pixels, 2);
 
         using var clone = src.Clone();
-        Assert.AreEqual(2, clone.Rows);
-        Assert.AreEqual(2, clone.Cols);
+        Check.AreEqual(2, clone.Rows);
+        Check.AreEqual(2, clone.Cols);
 
         var copied = new byte[4];
         clone.CopyTo(copied, 2);
-        CollectionAssert.AreEqual(pixels, copied);
+        Check.SequenceEqual(pixels, copied);
 
         // **独立していること。** clone が同じメモリを指していたら、
         // 片方を書き換えたときにもう片方も変わる。
         src.CopyFrom(new byte[] { 1, 2, 3, 4 }, 2);
         var afterSrcChanged = new byte[4];
         clone.CopyTo(afterSrcChanged, 2);
-        CollectionAssert.AreEqual(pixels, afterSrcChanged,
+        Check.SequenceEqual(pixels, afterSrcChanged,
             "clone は src と別のメモリを持つ");
     }
 
@@ -108,18 +107,18 @@ public static class AbiSurfaceChecks
 
         // **ファイルパスは通らない。** byte 列だけを扱う（M3.5 の決定）。
         var png = CvCodecs.Encode(src, ".png");
-        Assert.Greater(png.Length, 8, "PNG の byte 列が返ること");
-        Assert.AreEqual(0x89, png[0], "PNG の署名で始まること");
+        Check.Greater(png.Length, 8, "PNG の byte 列が返ること");
+        Check.AreEqual(0x89, png[0], "PNG の署名で始まること");
 
         using var decoded = CvCodecs.Decode(png, CvCodecs.ImreadGrayscale);
-        Assert.AreEqual(3, decoded.Rows);
-        Assert.AreEqual(4, decoded.Cols);
-        Assert.AreEqual(1, decoded.Channels);
+        Check.AreEqual(3, decoded.Rows);
+        Check.AreEqual(4, decoded.Cols);
+        Check.AreEqual(1, decoded.Channels);
 
         // PNG は可逆なので画素まで一致する。
         var roundTripped = new byte[pixels.Length];
         decoded.CopyTo(roundTripped, 4);
-        CollectionAssert.AreEqual(pixels, roundTripped);
+        Check.SequenceEqual(pixels, roundTripped);
     }
 
     public static void Encode_RejectsAnExtensionOpenCvCannotWrite()
@@ -130,8 +129,8 @@ public static class AbiSurfaceChecks
         // **型だけで満足しない。** CvCodecs.Encode は 2 か所から
         // CvNativeException を投げるので、型を見るだけでは
         // 「拡張子を断られた」経路を通ったことにならない。
-        var ex = Assert.Throws<CvNativeException>(() => CvCodecs.Encode(src, ".notanimage"));
-        Assert.AreEqual(CvStatus.OpenCvError, ex.Status,
+        var ex = Check.Throws<CvNativeException>(() => CvCodecs.Encode(src, ".notanimage"));
+        Check.AreEqual(CvStatus.OpenCvError, ex.Status,
             "扱えない拡張子は OpenCV 側のエラーとして返る");
     }
 
@@ -142,20 +141,21 @@ public static class AbiSurfaceChecks
         // **IsNotNull は書かない。** CvNative.ReadString は失敗時に
         // string.Empty を返すので、null 判定は構造的に常に真になる。
         // 2 回呼びが壊れると空文字か切り詰めた文字列が返るので、そこを見る。
-        Assert.AreNotEqual(string.Empty, info, "2 回呼びが失敗すると空文字が返る");
-        Assert.Greater(info.Length, 64, "build information は長い文字列である");
-        StringAssert.Contains("OpenCV", info);
+        Check.AreNotEqual(string.Empty, info, "2 回呼びが失敗すると空文字が返る");
+        Check.Greater(info.Length, 64, "build information は長い文字列である");
+        // StringAssert.Contains(expected, actual) と引数の順が逆である。
+        Check.Contains(info, "OpenCV", "build information に OpenCV の名が入る");
     }
 
     public static void NativeExceptionsAreTurnedIntoStatusCodes()
     {
         // **例外を ABI の外へ出さない**という不変条件を、Player でも確かめる。
         // 境界を越える unwind は未定義動作なので、Mono で通っても足りない。
-        Assert.AreEqual(CvStatus.UnknownError, CvNative.DebugThrow(0));
-        Assert.AreEqual(CvStatus.OutOfMemory, CvNative.DebugThrow(1));
-        Assert.AreEqual(CvStatus.UnknownError, CvNative.DebugThrow(2));
-        Assert.AreEqual(CvStatus.Ok, CvNative.DebugThrow(3));
-        Assert.AreEqual(CvStatus.InvalidArgument, CvNative.DebugThrow(99));
+        Check.AreEqual(CvStatus.UnknownError, CvNative.DebugThrow(0));
+        Check.AreEqual(CvStatus.OutOfMemory, CvNative.DebugThrow(1));
+        Check.AreEqual(CvStatus.UnknownError, CvNative.DebugThrow(2));
+        Check.AreEqual(CvStatus.Ok, CvNative.DebugThrow(3));
+        Check.AreEqual(CvStatus.InvalidArgument, CvNative.DebugThrow(99));
     }
 
     /// <summary>
@@ -176,14 +176,14 @@ public static class AbiSurfaceChecks
 
         using var mat = WebCamTextureConverter.ToMat(pixels, width: 2, height: 2);
 
-        Assert.AreEqual(2, mat.Rows);
-        Assert.AreEqual(2, mat.Cols);
-        Assert.AreEqual(4, mat.Channels);
+        Check.AreEqual(2, mat.Rows);
+        Check.AreEqual(2, mat.Cols);
+        Check.AreEqual(4, mat.Channels);
 
         var got = new byte[2 * 2 * 4];
         mat.CopyTo(got, mat.Cols * 4);
 
-        Assert.AreEqual(20, got[0], "Mat の先頭行は Unity の最終行（画像の上端）であること");
-        Assert.AreEqual(10, got[8], "Mat の 2 行目は Unity の 0 行目（画像の下端）であること");
+        Check.AreEqual(20, got[0], "Mat の先頭行は Unity の最終行（画像の上端）であること");
+        Check.AreEqual(10, got[8], "Mat の 2 行目は Unity の 0 行目（画像の下端）であること");
     }
 }

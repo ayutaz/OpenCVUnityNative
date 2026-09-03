@@ -110,7 +110,38 @@ public static class BuildPlayer
         }
         System.IO.Directory.CreateDirectory(outDir);
 
-        var scenes = new string[0];
+        // **scene が 1 つも要らない、ということにはならない。**
+        //
+        // 空の配列を渡すと Unity は「いま開いている名前の無い scene」を
+        // 建てようとして落ちる:
+        //
+        //     [build step] Build player: Error: Cannot build untitled scene.
+        //
+        // **この理由は report.steps[].messages にしか出ない**
+        // （summary は Unknown、ログには error 1 行も無し。2026-09-03 に実測）。
+        //
+        // このプロジェクトはテストの土台で scene を持たないので、
+        // **ビルドのたびに空の scene を作り、終わったら消す。**
+        // 置きっぱなしにしないのは、生成物をリポジトリに commit しないためである。
+        var scenePath = "Assets/__WebGLBuild.unity";
+        var scene = UnityEditor.SceneManagement.EditorSceneManager.NewScene(
+            UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
+            UnityEditor.SceneManagement.NewSceneMode.Single);
+        // **検証本体を載せる。** 空の scene のままだと、Player は起動するが
+        // こちらのコードが 1 行も走らない ——「ビルドできた」を「動く」と
+        // 取り違える最短経路である。
+        var go = new UnityEngine.GameObject("OcvuWebSmoke");
+        go.AddComponent<WebSmokeRunner>();
+        UnityEditor.SceneManagement.EditorSceneManager.MoveGameObjectToScene(go, scene);
+
+        if (!UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene, scenePath))
+        {
+            UnityEngine.Debug.LogError($"空の scene を保存できませんでした: {scenePath}");
+            EditorApplication.Exit(1);
+            return;
+        }
+
+        var scenes = new[] { scenePath };
         var options = new BuildPlayerOptions
         {
             scenes = scenes,
@@ -122,6 +153,9 @@ public static class BuildPlayer
 
         var report = BuildPipeline.BuildPlayer(options);
         var summary = report.summary;
+
+        // **後始末は結果に関わらず行う。** 失敗したときこそ残りやすい。
+        AssetDatabase.DeleteAsset(scenePath);
         UnityEngine.Debug.Log(
             $"WebGL build: {summary.result}, {summary.totalSize} bytes, " +
             $"errors={summary.totalErrors}, warnings={summary.totalWarnings}, out={outDir}");

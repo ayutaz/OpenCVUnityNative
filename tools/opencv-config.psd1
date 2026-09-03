@@ -259,6 +259,27 @@
             #>
             '-DCPU_BASELINE='
             '-DCPU_DISPATCH='
+
+            <#
+                **Web では PNG を外す。これは機能の縮小であり、記録する。**
+
+                Unity の WebGL 支援は**自前の libpng を同梱している。**
+                こちらが OpenCV の libpng を束ねると **Player のリンク段で
+                シンボルが衝突する**（実測 2026-09-03: 9 シンボル 27 件。
+                `wasm-ld: error: duplicate symbol: png_get_eXIf`）。
+
+                **束ねないほうも成立しない** —— Unity 同梱は古い部分集合で、
+                OpenCV の PNG コードが要求する 60 シンボルが未解決になる
+                （`undefined symbol: png_destroy_read_struct` 等）。
+
+                **どちらの極端も通らないので、Web では PNG を持たない。**
+                `imgcodecs` は JPEG のみになる。**これは Web だけの制限で、
+                他の 5 platform は PNG / JPEG の両方を持つ。**
+
+                **利用者に見える制限なので、roadmap と README に書く。**
+                zlib は他が使うので残す（衝突していない）。
+            #>
+            '-DWITH_PNG=OFF'
         )
     }
 

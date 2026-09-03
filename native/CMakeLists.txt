@@ -163,7 +163,6 @@ if(OCVU_WITH_OPENCV)
              "${OCVU_OPENCV_ROOT}/lib/opencv*/3rdparty/*.a"
              "${OCVU_OPENCV_ROOT}/lib/3rdparty/*.a"
              "${OCVU_OPENCV_ROOT}/share/OpenCV/3rdparty/lib/*.a")
-        list(APPEND OCVU_BUNDLE_INPUTS ${OCVU_OPENCV_3RDPARTY})
 
         # **1 つも集まらなかったら止める。** 空のまま束ねると
         # 「emar は成功したのに中身は自分の object だけ」になり、
@@ -175,6 +174,29 @@ if(OCVU_WITH_OPENCV)
                 "(OCVU_OPENCV_ROOT=${OCVU_OPENCV_ROOT})。"
                 "束ねる相手が無いまま .a を配ると、Unity のリンク段で未解決になります。")
         endif()
+
+        # **Unity が自分で持っている third-party は束ねない。**
+        #
+        # Unity の WebGL 支援は libpng を同梱しており、こちらが OpenCV の
+        # 3rdparty をそのまま束ねると **リンク段でシンボルが衝突する**
+        # （2026-09-03 に実測。27 件、9 シンボル）:
+        #
+        #     wasm-ld: error: duplicate symbol: png_get_eXIf
+        #     >>> defined in .../GameAssembly...
+        #     >>> defined in .../WebGLSupport/BuildTools/lib/modules/libpng.a
+        #
+        # **ビルドもここまでは全部通る** —— Player をリンクする段で初めて出る。
+        #
+        # **一覧で持つ。** 「Unity が何を同梱しているか」はこちらが決められない
+        # ので、増えたら足すことになる。**名前を書くのではなく、衝突したら
+        # ここへ足すこと**を明示しておく。
+        set(OCVU_UNITY_PROVIDED_3RDPARTY libpng)
+        foreach(_provided IN LISTS OCVU_UNITY_PROVIDED_3RDPARTY)
+            list(FILTER OCVU_OPENCV_3RDPARTY EXCLUDE REGEX "lib${_provided}\.a$")
+        endforeach()
+
+        list(APPEND OCVU_BUNDLE_INPUTS ${OCVU_OPENCV_3RDPARTY})
+        message(STATUS "web-wasm: bundling 3rdparty: ${OCVU_OPENCV_3RDPARTY}")
 
         # MRI script を生成して emar に食わせる。**generator expression を
         # 含むので file(GENERATE) を使う** —— configure 時の file(WRITE) では

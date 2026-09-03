@@ -1006,33 +1006,26 @@ function Test-UnityWeb {
         Write-Host ("==> {0} ({1:N0} bytes)" -f $w.Name, $w.Length)
     }
 
-    <#
-        **出来た wasm が SIMD を有効にして作られていることまで見る。**
-        plugin 側だけ SIMD でも、Player 側が違えば配る物として一貫しない。
-
-        **圧縮されているなら解いてから読む。** 検査は wasm の section を
-        直接読むので、圧縮のままでは magic number の時点で落ちる ——
-        **「落ちた」で終わらせると、圧縮を検査の失敗と取り違える。**
-    #>
-    $target = $wasm[0].FullName
-    if ($target -like '*.gz') {
-        $plain = Join-Path $ResultsDir 'web-player.wasm'
-        $in  = [IO.File]::OpenRead($target)
-        $gz  = [IO.Compression.GZipStream]::new($in, [IO.Compression.CompressionMode]::Decompress)
-        $out = [IO.File]::Create($plain)
-        try { $gz.CopyTo($out) } finally { $out.Dispose(); $gz.Dispose(); $in.Dispose() }
-        Write-Host ("==> gunzip -> {0} ({1:N0} bytes)" -f (Split-Path -Leaf $plain), (Get-Item $plain).Length)
-        $target = $plain
-    } elseif ($target -like '*.br') {
-        Write-DevFailure "Brotli 圧縮の wasm はまだ扱えません: $target（PlayerSettings の圧縮を gzip か無効にしてください）"
-    }
-
-    Invoke-Checked {
-        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'verify-wasm-features.ps1') `
-            -Path $target
-    } 'verify the Web player wasm features'
+    # **Player の wasm に SIMD を要求しない。**
+    #
+    # `target_features` は object 段の custom section で、**リンク時に
+    # 消費される**ので最終モジュールには残らない（2026-09-03 に実測:
+    # Player の wasm は features を 1 つも持たず、binaryen の
+    # `wasm-opt --print-features` も mutable-globals と sign-ext しか言わない）。
+    #
+    # **そもそも Player の wasm の flag は Unity が決めるもの**であって、
+    # こちらが主張することではない。**SIMD の主張はこちらの plugin に対して
+    # 行う**（tools/verify-wasm-features.ps1 を .a に当てる。ci-native と
+    # release がそうしている）。
 
     Write-Host "==> [web] player built: $outDir" -ForegroundColor Green
+
+    # **ここまでは「ビルドできる」しか言えない。**
+    # 実際にブラウザで動かすところまでやって初めて「動く」と言える
+    # （add-a-platform skill の完了の判定）。
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-web-e2e.ps1') -PlayerDir $outDir
+    } 'run the Web player in a browser'
 }
 
 function Test-UnityPlayer {
