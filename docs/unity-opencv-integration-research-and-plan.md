@@ -12,7 +12,7 @@
 
 - OpenCV 5.x を基盤にする
 - Unity と IL2CPP を主要ターゲットとして設計する
-- Desktop、Android、iOS、将来の Web を一貫した UPM パッケージで扱う
+- Desktop、Android、iOS、将来の Web を一貫した UPM パッケージで扱う（**2026-09-03 追記: Web は M6 で実装した。「将来の」ではなくなっている**）
 - OpenCvSharp の再梱包ではなく、Unity 用に制御した C ABI を持つ
 - ソース、ネイティブバイナリの生成手順、依存関係を公開する
 - プロジェクト本体を Apache-2.0 で公開する
@@ -79,7 +79,7 @@ OpenCV 5 の Unity 統合に影響する主な変更は次のとおりである�
 | OpenCvSharp4 | 4.13 | 工夫すれば利用可能 | Apache-2.0、NuGet | .NET Standard 2.0/2.1 と既存資産 | OpenCV 5 ではなく、Unity 用パッケージングと各プラットフォーム検証が別途必要 |
 | Emgu CV | 4.13.0 | 4.10 から Unity 公式サポート終了 | GPLv3 または商用ライセンス | 成熟した .NET wrapper | Unity の新規採用先としてはライセンスと公式サポートが不利 |
 
-この比較は「絶対的に競合が存在しない」という市場主張ではない。少なくとも本調査で比較した主要候補には、OpenCV 5、Unity 専用設計、Apache-2.0、UPM、モバイル、将来の Web 対応を一度に満たす選択肢がない、という判断である。
+この比較は「絶対的に競合が存在しない」という市場主張ではない。少なくとも本調査で比較した主要候補には、OpenCV 5、Unity 専用設計、Apache-2.0、UPM、モバイル、将来の Web 対応を一度に満たす選択肢がない、という判断である。（**2026-09-03 追記: 本案側の「将来の Web」は M6 で実装済みになった。ただし競合の状況はこの調査基準日のままで、取り直していない。**）
 
 ### 4.2 OpenCV for Unity / Enox Software
 
@@ -175,8 +175,8 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 | 種別 | OpenCV for Unity | 本案（**この表は M3.5 時点の記録である**。その後 v0.2.0 を公開し、M4 と M5 の成果は未公開のまま。**最新の公開版は `docs/roadmap.md` の「配布」の節が正本**） |
 | --- | --- | --- |
 | モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 6（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `calib`）。**プラグインがリンクしているのは 7 つ**（この 6 つに、依存として推移的に引かれる `geometry` を足したもの）で、C ABI に出ているのはさらにその一部である（**本数を数える正本は [API 対応表](./api-map.md) の冒頭**） |
-| platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | Windows / macOS / Linux |
-| 配布 | Asset Store から 1 つ入れれば全 platform | **1 つの tarball に Desktop 3 platform 分**（M3.5 で解消。[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目）。**モバイルはまだ入らない**（M4） |
+| platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | **この行は M3.5 時点の記録**（Windows / macOS / Linux）。**その後 M4 で Android / iOS、M6 で Web が加わった** —— 現況は [ロードマップ](./roadmap.md) が持つ |
+| 配布 | Asset Store から 1 つ入れれば全 platform | **1 つの tarball に Desktop 3 platform 分**（M3.5 で解消。[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目）。~~**モバイルはまだ入らない**（M4）~~ **2026-08-30 に入った** |
 | カメラ | `WebCamTexture` の補助クラス群、WebGPU 対応の非同期読み出し | 無し（`Texture2D` のみ） |
 | 推論 | OpenCV DNN と Unity Sentis を切り替える `MultiBackendDnn` | 無し |
 | サンプル | 多数 | 1 つ（`Samples~/BasicUsage`） |
@@ -205,7 +205,7 @@ GitHub Release に付いた `.tgz` をそのまま公開する**経路が用意�
 platform ごとの tarball のうち 1 つを選んで公開すれば、`openupm add` で入るのは
 その platform 分の binary だけになる。**この前提は M3.5（2026-08-30）で消えた** ——
 全部入りの tarball を正にしたので、`githubReleaseAssetName` が選ぶ 1 つに
-Desktop 3 platform 分が入る。
+全 platform 分が入る（**この記述は M3.5 時点では Desktop 3 platform だった。M4 で 5、M6 で 6 になった** —— 現況は[ロードマップ](./roadmap.md)が持つ）。
 
 実装時に効く細かい制約が 2 つあった。**どちらも M3.5（2026-08-30）で満たした。**
 
@@ -378,7 +378,7 @@ Unity は Web native plug-in について、Unity に同梱された Emscripten 
 7. **Texture2D / NativeArray 等との低コピー連携**
 8. **サポート API、platform、build feature、第三者ライセンスの機械可読 manifest**
 9. **小さな標準 build と、contrib / DNN / 動画 codec 等の opt-in build profile**（画像の codec = `imgcodecs` は M3.5 で標準 build に入った。ここで言う codec は動画のそれである）
-10. **将来の Web / Wasm 対応**
+10. ~~**将来の Web / Wasm 対応**~~（**2026-09-03: M6 で実装した。「将来の」ではない**）
 
 OpenCV for Unity には、完成度、対応機種、サンプル、商用サポートでは当面及ばない。比較軸を「機能の総数」ではなく「OpenCV 5、OSS、C++ に近いモジュール、ABI の透明性、再現可能なビルド」に置く。
 

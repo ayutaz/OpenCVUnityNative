@@ -242,6 +242,10 @@ All local development after that goes through `tools/dev.ps1`:
 ./tools/dev.ps1 test-unity-editmode
 ./tools/dev.ps1 test-unity-player
 
+# Build the WebGL player and drive it in a headless browser (Playwright + Chromium).
+# Also asserts that Unity's bundled Emscripten matches tools/emscripten-versions.psd1.
+./tools/dev.ps1 test-unity-web
+
 # Install the UPM tarball into a throwaway Unity project and run its tests there.
 # Without -PluginSource this packs only this machine's own platform, and says so
 # rather than pretending to be the all-platform package. Pass the other platforms'
@@ -280,10 +284,12 @@ different: CI builds a real WebGL player and **runs it in a headless Chromium**,
 same checks EditMode and the IL2CPP player run also run in a browser. There is no
 sanitizer lane for Web (a cross-compiled sanitizer cannot run on the host).
 
-The lane that installs the UPM tarball into a throwaway project
-(`test-unity-tarball`) is absent from that table because it runs in no workflow at
-all — it is local only, and the "installs and passes" result above was measured by
-hand.
+Two lanes are absent from that table because they run in no workflow at all.
+`test-unity-tarball` installs the UPM tarball into a throwaway project; it is local
+only, and the "installs and passes" result above was measured by hand.
+`test-unity-web` builds the WebGL player and drives it in a browser; CI covers the
+same ground in its own `Web browser E2E` job, which builds the player itself and
+calls the same two scripts directly rather than going through `dev.ps1`.
 
 The Unity lanes run on Linux, and the Windows IL2CPP player is covered only by the
 local lane. **That is now a measured conclusion rather than an assumption.** An earlier
@@ -390,6 +396,10 @@ Design and research documents (in Japanese) live under `docs/`:
 - [M3.5 implementation plan](docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md)
 - [M4 implementation plan](docs/superpowers/plans/2026-08-30-m4-mobile.md)
 - [M5 implementation plan](docs/superpowers/plans/2026-08-31-m5-binding-generator.md)
+- [M6 implementation plan](docs/superpowers/plans/2026-09-03-m6-web-wasm.md)
+
+The plans that closed M5's remaining criterion live beside them; the
+[documentation index](docs/README.md) lists all of them.
 - [Device verification checklist](docs/m4-device-verification.md) — what CI cannot close
 - [API reference](docs/api-reference.md)
 - [API map](docs/api-map.md) — generated from the binding spec

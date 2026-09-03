@@ -54,7 +54,8 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 （詳細後述）。C# から直接この層を呼ぶことは想定していない —
 `CvUnity.Interop.NativeMethods`（`internal`）が P/Invoke 宣言を持ち、`CvUnity.CvMat` /
 `CvUnity.CvOps` / `CvUnity.CvCodecs` / `CvUnity.CvNative` / `CvUnity.CvQrCode` /
-`CvUnity.CvFeatures` がそれを包んで公開する。
+`CvUnity.CvFeatures` / `CvUnity.CvGeometry` / `CvUnity.CvCalibration` が
+それを包んで公開する。
 
 ### Mat のライフサイクル
 
@@ -378,6 +379,15 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の `StreamingAssets`
 から得たもの）。`CvOps` と別クラスにしてあるのは、`CvOps` が imgproc に範囲を
 限っているためである。
+
+> **Web では PNG が使えない。JPEG だけである。**
+> **encode も decode も**通らない —— `Encode` に `".png"` を渡す場合だけでなく、
+> **`Decode` に PNG の byte 列を渡す場合も失敗する**（`CvNativeException`）。
+> 他の 5 platform は両方を扱える。
+>
+> **これは platform の対応状況ではなく、この API の挙動の差**なので、
+> 例外的にここに書いてある。**理由は[ロードマップ](./roadmap.md)の M6 節にある**
+> （**ここには写さない**）。下の表の `".png"` はそのまま Web には当てはまらない。
 
 | メンバ | 内容 |
 | --- | --- |

@@ -20,7 +20,7 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
   | | ライブラリ | ライセンス |
   | --- | --- | --- |
   | Windows | `x64/vc17/staticlib/*.lib` | `etc/licenses/` |
-  | macOS / Linux / iOS | `lib/*.a` | `share/licenses/opencv5/` |
+  | macOS / Linux / iOS / Web | `lib/*.a` | `share/licenses/opencv5/` |
   | Android | `sdk/native/staticlibs/arm64-v8a/*.a` | `sdk/etc/licenses/` |
 - Modules built for this configuration (`tools/opencv-config.psd1`):
   `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, `calib`, plus `flann`,
@@ -29,8 +29,11 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
 - **Universe considered**: every file under
   `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）` in the restored artifact
   (`./tools/opencv.ps1 restore`) — **13 files** on the desktop and iOS configurations, **15 on Android**
-  (`cpufeatures-LICENSE` and `cpufeatures-README.md`, both from the NDK) as of
-  this hash. This is the
+  (`cpufeatures-LICENSE` and `cpufeatures-README.md`, both from the NDK), and
+  **11 on Web** as of this hash. **Web has two fewer, not more**: it is built with
+  `WITH_PNG=OFF`, so `libpng-LICENSE` and `libpng-README` are absent — Unity's own
+  WebGL support ships libpng, and bundling OpenCV's copy makes the player fail to
+  link on duplicate symbols. Measured 2026-09-03 by listing both trees. This is the
   set OpenCV's own install step attributes as third-party, and it is now the
   allowlist `tools/verify-opencv-artifact.ps1`'s `$InertLicenseFiles`
   enforces: a new file appearing there that isn't in that list fails the

@@ -31,7 +31,7 @@ Requires PowerShell 7+, CMake 3.25+, the .NET 8 SDK, a C++ toolchain, and the
 ```
 
 `./tools/dev.ps1` is the only entry point for local development. Everything else
-(`test-asan`, `test-unity-editmode`, `test-unity-player`, `test-unity-tarball`)
+(`test-asan`, `test-unity-editmode`, `test-unity-player`, `test-unity-web`, `test-unity-tarball`)
 hangs off it. See [README](README.md#development) for the full list.
 
 ## What a change needs
@@ -58,9 +58,12 @@ Every pull request runs, across Windows / macOS / Linux: the contract tests, the
 P/Invoke tests, the sanitizer lanes (with LeakSanitizer on Linux), artifact linkage
 and portability verification, and — on Linux — Unity EditMode and a real IL2CPP
 player. Android and iOS are cross-compiled and their artifacts inspected (16 KB page
-alignment, bundled symbols), **but no device runs them.** The release path is
+alignment, bundled symbols), **but no device runs them.** Web/Wasm is cross-compiled
+too, its static archive checked for bundled OpenCV symbols and SIMD, and a headless
+Chromium actually loads a WebGL player and runs the same checks the Editor and the
+IL2CPP player run — **though only that one browser.** The release path is
 dry-run on every pull request as well: it builds and assembles the distributable
-for all six platforms without publishing anything, because three defects had
+for all six platforms (Web included) without publishing anything, because three defects had
 accumulated there while it only ran on tags — one of which meant tagging would have
 produced no release at all. Workflows, shell scripts and PowerShell are linted;
 CodeQL analyses the C++ and C#.

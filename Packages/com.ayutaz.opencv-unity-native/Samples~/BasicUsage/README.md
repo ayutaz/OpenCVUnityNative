@@ -47,11 +47,16 @@ Unity Editor の **Window > Package Manager** で `OpenCV Unity Native` を選�
 **インポートされて初めて動く**ことが書かれており、パッケージに UPM として入れただけの
 状態ではこのサンプルの動作を保証しない。
 
-## 現時点で動く環境
+## 動く環境
 
-このリポジトリが今コミットしている native plugin は **Windows x64 のみ**
-（`Runtime/Plugins/x86_64/opencv_unity_native.dll`）。macOS / Linux 向けの
-ビルド設定と CI（M3 Task 1〜4）は入っているが、それぞれの plugin binary は
-CI が artifact を公開してから `tools/dev.ps1 build` で配置する運用であり、
-このコミットの時点では同梱されていない。Windows 以外でこのサンプルを動かすには、
-該当 platform で native plugin を配置してからになる。
+**リリースの tarball から導入したなら、全 platform 分の native plugin が
+入っているので、そのまま動く。** Unity が自分の platform 向けだけを読み込む。
+
+**リポジトリを直接使っている場合は、binary が入っていない。**
+`Runtime/Plugins/` は丸ごと成果物で、**git は binary も `.meta` も追跡しない**
+（全 platform 分を履歴に持つと際限なく肥大するため）。ローカルでは
+`./tools/dev.ps1 build` が、**実行中の platform 分だけ**をそこへ置く。
+他の platform 分が要るなら、公開済みリリースから取ってくるか CI の artifact を使う。
+
+**対応 platform の一覧をここには書かない** —— 増減するたびにこの行だけが
+古くなる。正本はリポジトリの README である。
