@@ -113,6 +113,7 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 - .NET 8 SDK 以降
 - PowerShell 7 以降
 - [GitHub CLI](https://cli.github.com/)（`gh`、認証済み）—— `tools/opencv.ps1 restore` がビルド済み OpenCV の artifact を落とすのに使います
+- **Web（Wasm）のビルドにだけ要るもの:** [Ninja](https://ninja-build.org/) と Unity の WebGL Build Support。Emscripten は Visual Studio generator では駆動できないので、**Windows で Ninja が要るのはこの platform だけ**です。`PATH` の外に置いているなら `OCVU_NINJA` で渡せます。他の platform には要りません。
 
 ## 開発
 

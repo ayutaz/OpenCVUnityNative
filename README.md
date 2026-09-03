@@ -192,6 +192,7 @@ a release that is wrong can be discarded before anyone has it.
 - .NET 8 SDK or newer
 - PowerShell 7+
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated — `tools/opencv.ps1 restore` uses it to download the prebuilt OpenCV artifact
+- **Only for the Web (Wasm) build:** [Ninja](https://ninja-build.org/) and Unity's WebGL Build Support module. Emscripten cannot be driven by the Visual Studio generator, so this is the one platform that needs Ninja on Windows. Set `OCVU_NINJA` if you keep it outside `PATH`. Every other platform builds without it.
 
 ## Development
 
