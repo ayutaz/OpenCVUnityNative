@@ -28,7 +28,11 @@ set(OCVU_SOURCES
 # IL2CPP のバイナリへ静的リンクし、P/Invoke は DllImport("__Internal") で
 # 解決する。**SHARED のままでもビルドは成功する**ので、Unity に入れて
 # 初めて壊れる —— v0.1.0 の「ビルドできた ≠ 動く」と同じ形である。
-if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+#
+# **Web / Wasm も同じ理由で静的にする。** wasm に共有ライブラリという
+# 仕組みは無く、Unity は .a を受け取って Emscripten のリンク段で取り込む。
+# P/Invoke は iOS と同じく DllImport("__Internal") で解決する。
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR EMSCRIPTEN)
   set(OCVU_LIBRARY_KIND STATIC)
 else()
   set(OCVU_LIBRARY_KIND SHARED)
@@ -117,5 +121,80 @@ if(OCVU_WITH_OPENCV)
             COMMENT "iOS: bundling OpenCV into libopencv_unity_native.a"
             VERBATIM
         )
+
+    # **Web / Wasm も同じ理由で束ねる。** CMake が STATIC に依存を取り込まない
+    # のは platform に依らないので、iOS で踏んだ欠陥がそのまま再来する。
+    #
+    # **道具が違う。** macOS の libtool は無いので emar（llvm-ar の wrapper）の
+    # MRI script を使う。`llvm-ar -M` が `create` / `addlib` / `save` を受ける
+    # （同梱の llvm-ar --help で確認）。addlib はアーカイブの中身を展開して
+    # 取り込むので、libtool -static と同じ結果になる。
+    if(EMSCRIPTEN)
+        set(OCVU_BUNDLE_INPUTS "")
+        foreach(_lib IN LISTS OpenCV_LIBS)
+            list(APPEND OCVU_BUNDLE_INPUTS "$<TARGET_FILE:${_lib}>")
+        endforeach()
+
+        # third-party は OpenCV_LIBS の target に現れないのでインストール木から拾う。
+        # **配置は platform で違いうるので glob で拾う**（iOS で実測した 3 通りを踏襲）。
+        file(GLOB OCVU_OPENCV_3RDPARTY
+             "${OCVU_OPENCV_ROOT}/lib/opencv*/3rdparty/*.a"
+             "${OCVU_OPENCV_ROOT}/lib/3rdparty/*.a"
+             "${OCVU_OPENCV_ROOT}/share/OpenCV/3rdparty/lib/*.a")
+        list(APPEND OCVU_BUNDLE_INPUTS ${OCVU_OPENCV_3RDPARTY})
+
+        # **1 つも集まらなかったら止める。** 空のまま束ねると
+        # 「emar は成功したのに中身は自分の object だけ」になり、
+        # **この手当てが在ることが逆に安心材料になってしまう。**
+        list(LENGTH OCVU_OPENCV_3RDPARTY _ocvu_3p_count)
+        if(_ocvu_3p_count EQUAL 0)
+            message(FATAL_ERROR
+                "web-wasm: OpenCV の 3rdparty アーカイブが 1 つも見つかりません "
+                "(OCVU_OPENCV_ROOT=${OCVU_OPENCV_ROOT})。"
+                "束ねる相手が無いまま .a を配ると、Unity のリンク段で未解決になります。")
+        endif()
+
+        # MRI script を生成して emar に食わせる。**generator expression を
+        # 含むので file(GENERATE) を使う** —— configure 時の file(WRITE) では
+        # $<TARGET_FILE:...> が展開されない。
+        set(OCVU_MRI "${CMAKE_CURRENT_BINARY_DIR}/bundle-wasm.mri")
+        set(OCVU_BUNDLED "${CMAKE_CURRENT_BINARY_DIR}/bundled/libopencv_unity_native.a")
+        set(_ocvu_mri_body "create ${OCVU_BUNDLED}
+addlib $<TARGET_FILE:opencv_unity_native>
+")
+        foreach(_in IN LISTS OCVU_BUNDLE_INPUTS)
+            string(APPEND _ocvu_mri_body "addlib ${_in}
+")
+        endforeach()
+        string(APPEND _ocvu_mri_body "save
+end
+")
+        file(GENERATE OUTPUT "${OCVU_MRI}" CONTENT "${_ocvu_mri_body}")
+
+        # **emar.py を python 経由で呼ぶ。** .bat は config の受け渡しで
+        # 分かりにくく壊れる（emcc.bat で実測: 版すら出せなかった）。
+        find_file(OCVU_EMAR_PY emar.py
+                  PATHS "${OCVU_EMSCRIPTEN_ROOT}/emscripten" NO_DEFAULT_PATH REQUIRED)
+        find_program(OCVU_EM_PYTHON NAMES python python3 python.exe
+                     HINTS "${OCVU_EMSCRIPTEN_ROOT}/python" REQUIRED)
+
+        add_custom_command(
+            TARGET opencv_unity_native POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bundled"
+            # **shell を通さないのでリダイレクトは書けない。** driver 経由で
+            # stdin を渡す（cmake/run_expect_failure.cmake と同じ理由）。
+            COMMAND ${CMAKE_COMMAND}
+                    -DOCVU_PYTHON=${OCVU_EM_PYTHON}
+                    -DOCVU_EMAR=${OCVU_EMAR_PY}
+                    -DOCVU_MRI=${OCVU_MRI}
+                    -DOCVU_OUTPUT=${OCVU_BUNDLED}
+                    -P "${CMAKE_SOURCE_DIR}/cmake/bundle_wasm_archive.cmake"
+            # 束ねた物で置き換える。**別名で残すと、配る側がどちらを拾うかを
+            # 決めなければならない** —— 決め損なうと未解決シンボルのほうが配られる。
+            COMMAND ${CMAKE_COMMAND} -E copy "${OCVU_BUNDLED}" "$<TARGET_FILE:opencv_unity_native>"
+            COMMENT "web-wasm: bundling OpenCV into libopencv_unity_native.a"
+            VERBATIM
+        )
+    endif()
     endif()
 endif()
