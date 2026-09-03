@@ -200,6 +200,34 @@
             '-DBUILD_opencv_apps=OFF'
             '-DBUILD_PERF_TESTS=OFF'
             '-DBUILD_TESTS=OFF'
+
+            <#
+                **SIMD を有効にする。これは選択ではなく、必要である。**
+
+                OpenCV は wasm 向けに intrin_wasm.hpp（SIMD 実装）を使う。
+                コンパイラ側で simd128 が有効でないと、そこが always_inline
+                の要件を満たせず**ビルドが止まる**（2026-09-03 に実測）:
+
+                    error: always_inline function 'wasm_f32x4_add' requires
+                    target feature 'simd128', but would be inlined into
+                    function ... that is compiled without support for 'simd128'
+                    error: '__builtin_wasm_shuffle_i8x16' needs target feature simd128
+
+                **つまり「SIMD 無しの wasm ビルド」は、この構成では成立しない**
+                —— 成立させるなら CV_ENABLE_INTRINSICS=OFF にして別の構成を
+                作ることになる。roadmap の完了条件 3 は
+                「single-thread / SIMD を先に成立させる」なので、
+                **SIMD 有りが出荷する構成である。**
+
+                **この flag が効いていることの負の対照は強い** —— 外すと
+                ビルドが通らない（上のエラー）。加えて出来た wasm に SIMD の
+                命令が入っていることを tools/verify-wasm-features.ps1 が見る
+                （計画の Task 5）。
+
+                threads は非ゴールなので -mthreads は入れない。
+            #>
+            '-DCMAKE_C_FLAGS=-msimd128'
+            '-DCMAKE_CXX_FLAGS=-msimd128'
         )
     }
 
