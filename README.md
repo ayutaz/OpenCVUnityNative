@@ -41,7 +41,9 @@ release; treat them as unverified until someone runs
 [the device checklist](docs/m4-device-verification.md).
 
 **Web/Wasm is in the tree and actually runs in a browser** — a headless Chromium loads a
-real WebGL player and drives the same checks EditMode and the IL2CPP player run. It has
+real WebGL player and drives the same checks EditMode and the IL2CPP player run — the same
+functions, not a copy. One of them takes a different path on Web: the encode/decode check
+uses JPEG instead of PNG and therefore cannot assert pixel-for-pixel equality. It has
 **one limitation the other platforms do not have: `imgcodecs` decodes and encodes JPEG
 only, not PNG.** Unity's WebGL support ships its own libpng; bundling OpenCV's copy makes
 the player fail to link on duplicate symbols, and leaving it out makes OpenCV's PNG code

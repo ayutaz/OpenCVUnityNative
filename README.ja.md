@@ -30,7 +30,9 @@ macOS のプラグインはパッケージに入っており、Unity 自身が P
 
 **Web / Wasm はリポジトリに入っており、実際にブラウザで動きます** —— headless の
 Chromium が本物の WebGL Player を読み込み、EditMode と IL2CPP Player が走らせるのと
-同じ検証本体を走らせます。ただし **他の platform には無い制限が 1 つあります:
+同じ検証本体を走らせます（**写しではなく同じ関数**です）。**そのうち 1 件だけ Web で経路が変わります** ——
+encode / decode の検査が PNG ではなく JPEG を使うので、**画素の一致までは主張できません**。
+ただし **他の platform には無い制限が 1 つあります:
 `imgcodecs` が扱えるのは JPEG だけで、PNG は扱えません。** Unity の WebGL 支援は
 自前の libpng を同梱しているため、OpenCV の libpng を束ねると Player のリンクが
 シンボルの重複で失敗し、束ねないと OpenCV の PNG コードが未解決で失敗します。

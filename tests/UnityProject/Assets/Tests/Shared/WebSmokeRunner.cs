@@ -42,8 +42,16 @@ public sealed class WebSmokeRunner : MonoBehaviour
         int failed = 0;
 
         // AbiSurfaceChecks の public static void メソッドを全部呼ぶ。
-        // **名前を並べない** —— 検査が 1 つ増えたときに、ここだけが
-        // 静かに古くなるのを避ける（EditMode 側も同じ考え方で書いてある）。
+        //
+        // **名前を並べない。** ただし **EditMode / PlayMode 側は名前を並べている**
+        // （`AbiSurfaceTests.cs` が `[Test] public void X() => AbiSurfaceChecks.X();`
+        // を 1 行ずつ持つ）—— NUnit にテストとして見せるにはそれが要る。
+        //
+        // **したがって、検査を 1 つ足したときに追随するのは Web だけである。**
+        // EditMode / PlayMode は名指しなので、足し忘れるとそちらだけ走らない。
+        // **その差は tools/run-web-e2e.ps1 が埋める** —— 共有本体の
+        // `public static void` を数え、**Web で走った件数と完全一致**することを
+        // 要求するので、**片方だけ古くなれば Web のレーンが赤くなる。**
         var methods = typeof(AbiSurfaceChecks).GetMethods(
             BindingFlags.Public | BindingFlags.Static);
         foreach (var m in methods)

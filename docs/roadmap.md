@@ -1541,7 +1541,9 @@ Unity Web Player 上で、**他の platform と同じ検証本体が通る。**
 
 - `tests/UnityProject/Assets/Tests/Shared/` の検証本体が Web Player で通る
   —— **EditMode / IL2CPP Player と同じものを使う。写して 3 つ目を作らない**
-  （写すと「Editor と Player と Web で同じ結果」を確かめられなくなる）
+  （写すと「Editor と Player と Web で同じ結果」を確かめられなくなる）。
+  **1 件だけ Web で経路が変わる** —— encode / decode の検査は PNG ではなく
+  JPEG を使うので、**画素の一致までは主張しない**（下の「Web にだけ在る制限」）
 - **`AbiReachabilityChecks.g.cs`** が spec の載せる宣言を Web でも 1 本残らず
   呼べる —— **stripping が消せるのは呼ばれない宣言なので、これを確かめられるのは
   Player だけである**
