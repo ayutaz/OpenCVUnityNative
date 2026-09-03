@@ -105,20 +105,43 @@ public static class AbiSurfaceChecks
         using var src = CvMat.Create(3, 4, CvMatType.Gray8);
         src.CopyFrom(pixels, 4);
 
-        // **ファイルパスは通らない。** byte 列だけを扱う（M3.5 の決定）。
-        var png = CvCodecs.Encode(src, ".png");
-        Check.Greater(png.Length, 8, "PNG の byte 列が返ること");
-        Check.AreEqual(0x89, png[0], "PNG の署名で始まること");
+        // **platform が持つ形式で試す。**
+        //
+        // **Web には PNG が無い**（Unity の WebGL 支援が自前の libpng を
+        // 同梱しており、束ねると Player のリンクでシンボルが衝突し、
+        // 束ねないと OpenCV の PNG コードが未解決になる。M6 で実測）。
+        // **他の 5 platform は PNG / JPEG の両方を持つ。**
+        //
+        // **形式を platform で変えても、確かめることは同じ**である ——
+        // 「encode した byte 列が decode で同じ形に戻る」。
+        // **可逆性の主張だけは、可逆な形式のときにしかできない。**
+#if UNITY_WEBGL && !UNITY_EDITOR
+        const string extension = ".jpg";
+        const bool lossless = false;
+        const byte firstByte = 0xFF;   // JPEG は FF D8 で始まる
+#else
+        const string extension = ".png";
+        const bool lossless = true;
+        const byte firstByte = 0x89;   // PNG の署名
+#endif
 
-        using var decoded = CvCodecs.Decode(png, CvCodecs.ImreadGrayscale);
+        // **ファイルパスは通らない。** byte 列だけを扱う（M3.5 の決定）。
+        var encoded = CvCodecs.Encode(src, extension);
+        Check.Greater(encoded.Length, 8, $"{extension} の byte 列が返ること");
+        Check.AreEqual(firstByte, encoded[0], $"{extension} の署名で始まること");
+
+        using var decoded = CvCodecs.Decode(encoded, CvCodecs.ImreadGrayscale);
         Check.AreEqual(3, decoded.Rows);
         Check.AreEqual(4, decoded.Cols);
         Check.AreEqual(1, decoded.Channels);
 
-        // PNG は可逆なので画素まで一致する。
-        var roundTripped = new byte[pixels.Length];
-        decoded.CopyTo(roundTripped, 4);
-        Check.SequenceEqual(pixels, roundTripped);
+        if (lossless)
+        {
+            // 可逆な形式なので画素まで一致する。
+            var roundTripped = new byte[pixels.Length];
+            decoded.CopyTo(roundTripped, 4);
+            Check.SequenceEqual(pixels, roundTripped);
+        }
     }
 
     public static void Encode_RejectsAnExtensionOpenCvCannotWrite()
