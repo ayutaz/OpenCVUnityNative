@@ -143,6 +143,22 @@ Could not find a package configuration file provided by "OpenCV"
 **package の探索だけ** `BOTH` に緩める（library / include まで緩めると
 host の `.a` やヘッダを拾う経路が開く）。
 
+**`find_package` だけではない。** `find_file` / `find_program` にも同じことが
+起きる。M6 で踏んだ形（2026-09-03）—— toolchain が置いた変数から
+`emar.py` を探そうとして:
+
+```
+CMake Error at native/CMakeLists.txt (find_file):
+  Could not find OCVU_EMAR_PY using the following files: emar.py
+```
+
+**cache には正しい値が入っていた。** つまり値ではなく探し方の問題で、
+`PATHS ... NO_DEFAULT_PATH` でも sysroot の外は見てもらえない。
+
+**在り処が分かっているなら探さない。** 組み立てて `EXISTS` で確かめ、
+無ければその場で `FATAL_ERROR` にする。`NO_CMAKE_FIND_ROOT_PATH` を足す手も
+あるが、**探索の設定に依存しないほうが読んで分かる。**
+
 ### 3.5 toolchain file は try_compile の中でもう一度実行される
 
 **`-D` で toolchain に渡した変数は、既定では入れ子の try_compile に届かない。**

@@ -132,10 +132,30 @@ if(OCVU_WITH_OPENCV)
     # （同梱の llvm-ar --help で確認）。addlib はアーカイブの中身を展開して
     # 取り込むので、libtool -static と同じ結果になる。
     if(EMSCRIPTEN)
+        # **OpenCV_LIBS だけでは足りない。**
+        #
+        # COMPONENTS に書いた module の target しか入らないので、
+        # **推移的に引かれる module が漏れる。** 実測（2026-09-03）:
+        # 束ねた .a に cv::flann の未定義が 29 件残った
+        # （flann は features / objdetect の依存として引かれるが、
+        # COMPONENTS には書いていない）。
+        #
+        # **ビルドもリンクも成功する。** 壊れるのは Unity が
+        # Emscripten でリンクする段で、これも「ビルドできた ≠ 動く」である。
+        #
+        # **だから install 木に在る .a を全部束ねる。** 使わない module の
+        # object が入るが、最終リンクで捨てられるだけで害は無い ——
+        # **「何を参照しているか」を CMake の変数から推測するより、
+        # 「木に在る物を全部入れる」ほうが漏れようがない。**
         set(OCVU_BUNDLE_INPUTS "")
-        foreach(_lib IN LISTS OpenCV_LIBS)
-            list(APPEND OCVU_BUNDLE_INPUTS "$<TARGET_FILE:${_lib}>")
-        endforeach()
+        file(GLOB OCVU_OPENCV_MODULES "${OCVU_OPENCV_ROOT}/lib/libopencv_*.a")
+        list(LENGTH OCVU_OPENCV_MODULES _ocvu_mod_count)
+        if(_ocvu_mod_count EQUAL 0)
+            message(FATAL_ERROR
+                "web-wasm: OpenCV の module アーカイブが 1 つも見つかりません "
+                "(OCVU_OPENCV_ROOT=${OCVU_OPENCV_ROOT}/lib)。")
+        endif()
+        list(APPEND OCVU_BUNDLE_INPUTS ${OCVU_OPENCV_MODULES})
 
         # third-party は OpenCV_LIBS の target に現れないのでインストール木から拾う。
         # **配置は platform で違いうるので glob で拾う**（iOS で実測した 3 通りを踏襲）。
@@ -173,12 +193,40 @@ end
 ")
         file(GENERATE OUTPUT "${OCVU_MRI}" CONTENT "${_ocvu_mri_body}")
 
-        # **emar.py を python 経由で呼ぶ。** .bat は config の受け渡しで
-        # 分かりにくく壊れる（emcc.bat で実測: 版すら出せなかった）。
-        find_file(OCVU_EMAR_PY emar.py
-                  PATHS "${OCVU_EMSCRIPTEN_ROOT}/emscripten" NO_DEFAULT_PATH REQUIRED)
-        find_program(OCVU_EM_PYTHON NAMES python python3 python.exe
-                     HINTS "${OCVU_EMSCRIPTEN_ROOT}/python" REQUIRED)
+            # **find_file / find_program を使わない。**
+#
+            # Emscripten の toolchain は CMAKE_FIND_ROOT_PATH_MODE_* を ONLY に
+            # するので、**探索が sysroot の中に閉じ込められる。**
+            # `OCVU_EMSCRIPTEN_ROOT` は sysroot の外なので、PATHS で明示しても
+            # 見つからない（2026-09-03 に実測:
+            # `Could not find OCVU_EMAR_PY using the following files: emar.py`。
+            # **cache には正しい値が入っていた**ので、値ではなく探し方の問題である）。
+#
+            # `add-a-platform` skill の罠 3 は `find_package` の話だが、
+            # **`find_file` / `find_program` にも同じことが起きる。**
+#
+            # **在り処は分かっているので探さない。** 組み立てて、無ければ
+            # その場で止める（`NO_CMAKE_FIND_ROOT_PATH` を足す手もあるが、
+            # **探索の設定に依存しないほうが読んで分かる**）。
+        set(OCVU_EMAR_PY "${OCVU_EMSCRIPTEN_ROOT}/emscripten/emar.py")
+        if(NOT EXISTS "${OCVU_EMAR_PY}")
+            message(FATAL_ERROR "emar.py が見つかりません: ${OCVU_EMAR_PY}")
+        endif()
+
+        # python は同梱に在ればそれを、無ければ PATH のものを使う。
+        # **同梱を先に見る** —— emcc 自身がそれで動いている組み合わせだからである。
+        set(OCVU_EM_PYTHON "")
+        foreach(_py "${OCVU_EMSCRIPTEN_ROOT}/python/python.exe"
+                    "${OCVU_EMSCRIPTEN_ROOT}/python/python3"
+                    "${OCVU_EMSCRIPTEN_ROOT}/python/bin/python3")
+            if(EXISTS "${_py}")
+                set(OCVU_EM_PYTHON "${_py}")
+                break()
+            endif()
+        endforeach()
+        if(NOT OCVU_EM_PYTHON)
+            find_program(OCVU_EM_PYTHON NAMES python3 python NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+        endif()
 
         add_custom_command(
             TARGET opencv_unity_native POST_BUILD
