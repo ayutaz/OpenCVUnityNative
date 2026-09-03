@@ -121,6 +121,27 @@ function Invoke-Build {
         }
         $toolchainArgs = @("-DCMAKE_TOOLCHAIN_FILE=$tc")
         Write-Host "==> cross-compiling for $($Config.Platform) via $tc" -ForegroundColor Cyan
+
+        <#
+            Web / Wasm は toolchain だけでは足りない —— Emscripten の在り処と
+            生成した config を渡す必要がある。
+
+            **在り処を探す規則はここに書かない。** tools/Emscripten.psm1 が
+            1 箇所で持ち、Unity 同梱と emsdk のどちらを使うかもそこが決める。
+            **CMake 側にも同じ探索を書くと、片方だけ直したときに気づけない。**
+
+            EM_CONFIG を環境変数で渡すのは emcc の作法である（同梱の状態では
+            config が無く、LLVM_ROOT が未設定で動かない —— 2026-09-03 に実測）。
+        #>
+        if ($Config.Platform -eq 'web-wasm') {
+            Import-Module (Join-Path $PSScriptRoot 'Emscripten.psm1') -Force
+            $em = Get-EmscriptenToolchain
+            Write-Host "==> Emscripten $($em.Version) ($($em.Source)) at $($em.Root)" -ForegroundColor Cyan
+            $env:EM_CONFIG = $em.ConfigFile
+            # .NET の Replace は文字どおり置換する。-replace は正規表現なので、
+            # 区切り文字そのものを置きたいこの用途では使えない（実測: 不正なパターンで落ちた）。
+            $toolchainArgs += "-DOCVU_EMSCRIPTEN_ROOT=$($em.Root.Replace([char]92, '/'))"
+        }
     }
 
     $cmakeArgs = @(
