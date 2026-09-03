@@ -240,6 +240,28 @@ function Build-Native {
         $extraArgs += "-DCMAKE_MAKE_PROGRAM=$($ninja.Replace([char]92, '/'))"
     }
 
+    # **Windows の Emscripten は cache を壊す。**
+    #
+    # 同梱の emcc.bat が `@echo off` を持たないため、CMake が compiler の
+    # 出力を取り込む段で **バッチの echo（`set MYDIR=...` / `goto FOUND_MYDIR`）**
+    # が CMakeCache.txt に混ざる。次に configure すると
+    # `CMake Error: Parse error in cache file ... on line NN` で落ちる。
+    #
+    # **1 回目は通り、2 回目から落ちる**ので、毎回 build/ を消して試して
+    # いる間は見えなかった（2026-09-03 に実測）。
+    #
+    # **CI（Linux）では起きない** —— .bat を通らないためである。
+    # ここで消すのは「壊れていると分かっている cache」だけで、
+    # **健全な cache は残す**（消すと configure がやり直しになる）。
+    $cacheFile = Join-Path $RepoRoot "build/$Preset/CMakeCache.txt"
+    if (Test-Path -LiteralPath $cacheFile) {
+        $cacheText = Get-Content -LiteralPath $cacheFile -Raw -ErrorAction SilentlyContinue
+        if ($cacheText -and $cacheText -match 'goto FOUND_MYDIR') {
+            Write-Host "==> 壊れた CMakeCache.txt を捨てる（emcc.bat の echo が混ざっている）" -ForegroundColor Yellow
+            Remove-Item -LiteralPath $cacheFile -Force
+        }
+    }
+
     Invoke-Checked {
         cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot" @extraArgs
     } 'configure native'
@@ -963,6 +985,18 @@ function Stop-UnityTestPlayers {
     確かめられなくなる。
 #>
 function Test-UnityWeb {
+    # **このレーンが要るのは Web の plugin である。**
+    #
+    # Build-Native は既定で「実行中の platform」を作る。そのまま呼ぶと
+    # **Windows の .dll を作り直して、WebGL の .a は古いまま**になる
+    # （2026-09-03 に実測: OpenCV から PNG を外したのに、古い .a が
+    # 残っていて `undefined symbol: png_create_read_struct` が消えなかった）。
+    #
+    # **ビルドは成功し、レーンも進む** —— 壊れるのは Player のリンク段で、
+    # しかも「直したはずの物が直っていない」という最も紛らわしい形になる。
+    $script:Platform = 'web-wasm'
+    $script:Preset = 'web-wasm-debug'
+    $script:NativeLibraryName = 'libopencv_unity_native.a'
     Build-Native
     $unity   = Get-UnityEditorPath
     $project = Join-Path $RepoRoot 'tests/UnityProject'

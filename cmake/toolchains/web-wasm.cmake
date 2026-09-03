@@ -75,3 +75,29 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 # 前に書くと黙って消える。
 string(APPEND CMAKE_C_FLAGS " -msimd128")
 string(APPEND CMAKE_CXX_FLAGS " -msimd128")
+
+# **例外を有効にする。これはこの ABI の中核である。**
+#
+# Emscripten は**既定で C++ 例外を無効にする。** その状態でビルドすると、
+# `throw` は残るが **`catch` が 1 つも組み込まれない** ——
+# つまり `OCVU_TRY_BEGIN` / `OCVU_TRY_END` の例外バリアが**存在しない。**
+#
+# 実測（2026-09-03、束ねた .a を llvm-nm で見た）:
+#
+#     __cxa_throw            244 件
+#     __cxa_begin_catch        0 件
+#     __gxx_personality_v0     0 件
+#
+# 表に出たのは Player の
+# `Uncaught exception from main loop: 17622920 / Halting program.`
+# で、**例外オブジェクトのポインタが数字で出るだけ**だった。
+#
+# **CLAUDE.md の不変条件「例外を ABI の外へ伝播させない」は、この flag が
+# 無いと Web でだけ黙って成立しない。** ビルドもリンクも通り、
+# **実際に OpenCV が投げるまで誰も気づかない。**
+#
+# `-fexceptions`（JavaScript 側で扱う形）にする。Unity の Player 側も
+# Exception Support を有効にしたときこの形なので、揃えておく。
+string(APPEND CMAKE_C_FLAGS " -fexceptions")
+string(APPEND CMAKE_CXX_FLAGS " -fexceptions")
+string(APPEND CMAKE_EXE_LINKER_FLAGS " -fexceptions")

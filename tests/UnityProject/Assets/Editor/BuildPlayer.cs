@@ -98,8 +98,18 @@ public static class BuildPlayer
         PlayerSettings.SetManagedStrippingLevel(target, ManagedStrippingLevel.Medium);
         // threads を使わない（非ゴール）。既定でもそうだが、明示しておく。
         PlayerSettings.WebGL.threadsSupport = false;
-        // 開発ビルドにしない —— 配る形に近いほうを見る。
-        PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.None;
+        // **例外の情報を残す。**
+        //
+        // 当初は `None`（配る形に近いほう）にしていたが、**Player が落ちても
+        // `Uncaught exception from main loop: undefined` としか出ず、
+        // 原因が一切分からなかった**（2026-09-03 に実測）。
+        //
+        // **このレーンの目的は「動くことを確かめる」ことであって、
+        // 「配る形をそのまま測る」ことではない。** 落ちたときに理由が
+        // 分からない構成でそれをやると、**赤くはなるが直せない。**
+        //
+        // 配る形との差はここ 1 つで、**差があること自体を記録しておく。**
+        PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.FullWithStacktrace;
         AssetDatabase.SaveAssets();
 
         var outDir = System.Environment.GetEnvironmentVariable("OCVU_WEB_BUILD_DIR");

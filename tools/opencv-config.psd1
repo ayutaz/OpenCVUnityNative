@@ -226,8 +226,14 @@
 
                 threads は非ゴールなので -mthreads は入れない。
             #>
-            '-DCMAKE_C_FLAGS=-msimd128'
-            '-DCMAKE_CXX_FLAGS=-msimd128'
+            # **-fexceptions も要る。** Emscripten は既定で C++ 例外を無効に
+            # するので、OpenCV が投げた例外を **こちらの OCVU_TRY_END が
+            # 捕まえられない**（実測: 束ねた .a に __cxa_throw が 244 件、
+            # __cxa_begin_catch が 0 件）。**両側に要る** —— 投げる側
+            # （OpenCV）と捕まえる側（この plugin）のどちらが欠けても
+            # バリアは成立しない。
+            '-DCMAKE_C_FLAGS=-msimd128 -fexceptions'
+            '-DCMAKE_CXX_FLAGS=-msimd128 -fexceptions'
 
             <#
                 **x86 の baseline / dispatch を空にする。これも必要である。**
