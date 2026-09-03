@@ -1524,7 +1524,9 @@ if (Test-Path -LiteralPath $codeqlConfigPath) {
 # （Get-OpenCvPlatform が $IsWindows 等から判定する）。**モバイルはクロス
 # コンパイルなので host と対象が一致しない。** Get-OpenCvPlatform（host 判定）は
 # 変えず、Get-OpenCvConfig -Platform に対象を明示的に渡す形にする。
-$MobilePlatforms = @('android-arm64', 'ios-arm64')
+# **クロスビルドする platform。** モバイル 2 つに加えて Web も同じ性質を持つ
+# （host で実行できない／ASan の preset を作らない／toolchain file を指す）。
+$MobilePlatforms = @('android-arm64', 'ios-arm64', 'web-wasm')
 $AllTargetPlatforms = @('windows-x64', 'macos-arm64', 'linux-x64') + $MobilePlatforms
 
 foreach ($mobile in $MobilePlatforms) {
@@ -1678,20 +1680,20 @@ $presets = Get-Content -LiteralPath (Join-Path $repoRoot 'CMakePresets.json') -R
 $configureNames = @($presets.configurePresets | ForEach-Object { $_.name })
 $buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
 
-foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug', 'web-wasm-debug')) {
     Assert-That ($configureNames -contains $p) "CMakePresets.json has a configure preset named $p"
     Assert-That ($buildNames -contains $p) "CMakePresets.json has a build preset named $p"
 }
 
 # **モバイルに ASan の preset を作らない。** クロス環境では走らせないので、
 # 「あるのに誰も走らせていない」状態を作らない。
-foreach ($p in @('android-arm64-asan', 'ios-arm64-asan')) {
+foreach ($p in @('android-arm64-asan', 'ios-arm64-asan', 'web-wasm-asan')) {
     Assert-That (-not ($configureNames -contains $p)) "there is no $p preset (クロス環境で ASan は走らせない)"
 }
 
 # **モバイルの preset は toolchain file を指す。** 指さないと host 向けに
 # ビルドされ、**成功したように見えて中身が別物になる。**
-foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug', 'web-wasm-debug')) {
     $preset = $presets.configurePresets | Where-Object { $_.name -eq $p }
     Assert-That ($preset.PSObject.Properties.Name -contains 'toolchainFile') `
         "$p sets a toolchainFile (指さないと host 向けにビルドされる)"

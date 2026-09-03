@@ -301,8 +301,8 @@ jobs:
         shell: pwsh
         run: |
           # **6 platform すべてを重ねる。** PluginGatingTests が Slots の数
-          # （5）を要求するので、3 つだけ重ねると落ちる —— そして落ちるのが
-          # 正しい。配る package には 5 つ入るからである。
+          # （6）を要求するので、足りないまま重ねると落ちる —— そして落ちるのが
+          # 正しい。配る package には 6 つ入るからである。
           $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
                      ForEach-Object { "other-plugins/unity-plugin-$_" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
@@ -420,6 +420,7 @@ jobs:
               'Linux/x86_64/libopencv_unity_native.so'
               'Android/arm64-v8a/libopencv_unity_native.so'
               'iOS/libopencv_unity_native.a'
+              'WebGL/libopencv_unity_native.a'
           )
           foreach ($rel in $expected) {
               foreach ($f in @("$root/$rel", "$root/$rel.meta")) {
@@ -553,14 +554,21 @@ jobs:
       - name: Download every plugin
         uses: actions/download-artifact@v8
         with:
-          pattern: plugin-*
-          path: bundles
+          # **名前は unity-plugin-<platform> である**（上の plugin job が
+          # そう upload している）。`plugin-*` では 1 つも当たらない ——
+          # minimatch は前方一致しない（M6 の再レビューが実測）。
+          pattern: unity-plugin-*
+          path: other-plugins
 
       - name: Assemble the plugins
         shell: pwsh
         run: |
+          # **artifact の中身は直下である**（upload の path が
+          # `.../Runtime/Plugins` なので、その中身が展開される）。
+          # `/Runtime/Plugins` を足すと 1 つも見つからない ——
+          # **上の unity job が suffix 無しで渡しているのが証拠である。**
           $sources = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm') |
-                     ForEach-Object { "bundles/plugin-$_/Runtime/Plugins" }
+                     ForEach-Object { "other-plugins/unity-plugin-$_" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
       # **WebGL の Player を建てる。** webgl のイメージが要る
@@ -578,6 +586,19 @@ jobs:
           buildMethod: BuildPlayer.BuildWebGL
           customImage: unityci/editor:ubuntu-${{ steps.unity.outputs.version }}-webgl-3
           allowDirtyBuild: true
+
+      # **対応表を Unity の実物と突き合わせる。**
+      #
+      # `dev.ps1 test-unity-web` にも配線してあるが、**そのレーンはどの
+      # workflow からも走らない**（M6 の再レビューの指摘）。
+      # **完了条件 1 は「CI で不一致を検出する」**なので、ここで走らせる。
+      #
+      # **この job には WebGL 支援が入った Unity が必ず在る**（無ければ
+      # 上の Player ビルドが先に落ちる）ので、「道具が無いから飛ばす」
+      # 経路が構造的に生まれない。
+      - name: Assert the Emscripten version matches the table
+        shell: pwsh
+        run: ./tools/assert-emscripten-version.ps1 -UnityRoot /opt/unity/Editor
 
       # **ローカルと同じ script を通す。** 起動の仕方は分かれてよいが、
       # 判定は分けない（CLAUDE.md の不変条件）。

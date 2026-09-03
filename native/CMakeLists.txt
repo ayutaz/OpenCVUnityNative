@@ -192,9 +192,14 @@ if(OCVU_WITH_OPENCV)
         # ここへ足すこと**を明示しておく。
         set(OCVU_UNITY_PROVIDED_3RDPARTY libpng)
         foreach(_provided IN LISTS OCVU_UNITY_PROVIDED_3RDPARTY)
-            # **`\.` と 2 段書く。** CMake の引用符つき引数では `\.` が `.` に畳まれ、
-            # 正規表現が `libpng.a$`（`.` は任意 1 文字）になる。
-            list(FILTER OCVU_OPENCV_3RDPARTY EXCLUDE REGEX "lib${_provided}\.a$")
+            # **バックスラッシュを 2 つ書く。**
+            #
+            # CMake の引用符つき引数では \. が . に畳まれるので、
+            # 正規表現が libpng.a$（. は任意 1 文字）になる。
+            #
+            # **前回はコメントだけ直してコードを直していなかった**（再レビューの指摘）。
+            # **直っていないことより、検討済みに見えることのほうが悪い。**
+            list(FILTER OCVU_OPENCV_3RDPARTY EXCLUDE REGEX "lib${_provided}\\.a$")
         endforeach()
 
         list(APPEND OCVU_BUNDLE_INPUTS ${OCVU_OPENCV_3RDPARTY})

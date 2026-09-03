@@ -874,7 +874,11 @@ function Test-UnityTarball {
         )
         $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
         if ($allPlatforms) {
-            $assertArgs += @('-RequireOutput', 'native plugins present: 6 [')
+            # **数を写さない。** 正本は同じファイルの $AllPlatformBinaries で、
+            # **`.Count` で足りる**（M6 の再レビューの指摘）。
+            # リテラルを置くと、platform を足したときにここだけが古くなる。
+            $assertArgs += @('-RequireOutput',
+                "native plugins present: $($script:AllPlatformBinaries.Count) [")
         }
         Invoke-Checked {
             & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs

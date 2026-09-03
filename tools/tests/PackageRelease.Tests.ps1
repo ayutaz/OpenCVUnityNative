@@ -529,6 +529,9 @@ try {
         'Linux/x86_64/libopencv_unity_native.so'
         'Android/arm64-v8a/libopencv_unity_native.so'
         'iOS/libopencv_unity_native.a'
+        # **Web も静的ライブラリで、iOS と同じファイル名である。**
+        # 見分けるのはディレクトリだけなので、ファイル名で引く形を作らない。
+        'WebGL/libopencv_unity_native.a'
     )
     Assert-That ($allBinaries.Count -eq $canonicalPlatforms.Count) `
         "the synthesized tree covers every shipped platform ($($allBinaries.Count) vs $($canonicalPlatforms.Count))"

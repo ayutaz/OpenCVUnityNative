@@ -86,6 +86,7 @@ $Allowed = @(
     'iOS/libopencv_unity_native.a.meta'
     'WebGL/libopencv_unity_native.a'
     'WebGL/libopencv_unity_native.a.meta'
+    'WebGL.meta'
     'iOS.meta'
 )
 
