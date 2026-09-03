@@ -402,9 +402,16 @@ try {
             1 であることを要求する。**知らない platform に配られない**
             ことまで見る。
         #>
-        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:
-?
-(.*?)(?=^  [a-zA-Z])')
+        # **正規表現に生の改行を書かない。**
+        #
+        # ここは 3 行に跨る単一引用符の文字列で、**このファイル自身の改行が
+        # パターンに埋め込まれていた。** ファイルを LF で書き直したあと、
+        # CRLF で checkout する Windows runner で **6 件全部が落ちた**
+        # （ローカルは通る。2026-09-03 に CI で実測）。
+        #
+        # **改行は \r?\n と明示する** —— 対象の .meta も、この .ps1 自身も、
+        # checkout の仕方で改行が変わりうる。
+        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:\r?\n(.*?)(?=^  [a-zA-Z])')
         Assert-That $pdBlock.Success `
             "$($entry.Platform): the platformData block is readable"
         if ($pdBlock.Success) {

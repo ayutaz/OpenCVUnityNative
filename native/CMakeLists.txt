@@ -252,9 +252,23 @@ end
         #
         # **emar 自体はどちらの木にも在る** —— Linux / macOS は拡張子なし、
         # Windows は .bat である。**在るほうを採る。**
+        # **順序ではなく host の OS で選ぶ。**
+        #
+        # emsdk は `emar` と `emar.bat` を**両方置く**ので、
+        # 「在るほうを採る」と Linux でも `.bat` を掴む。実測（CI）:
+        #
+        #     bundling with: .../emscripten/emar.bat;-M
+        #     emar -M が失敗しました (exit permission denied)
+        #
+        # **「在るほうを採る」が効くのは、片方しか無いときだけである。**
+        if(CMAKE_HOST_WIN32)
+            set(_ar_names "emar.bat" "emar")
+        else()
+            set(_ar_names "emar" "emar.bat")
+        endif()
         set(OCVU_EMAR_CMD "")
-        foreach(_ar "${OCVU_EMSCRIPTEN_ROOT}/emscripten/emar.bat"
-                    "${OCVU_EMSCRIPTEN_ROOT}/emscripten/emar")
+        foreach(_n IN LISTS _ar_names)
+            set(_ar "${OCVU_EMSCRIPTEN_ROOT}/emscripten/${_n}")
             if(EXISTS "${_ar}")
                 set(OCVU_EMAR_CMD "${_ar}")
                 break()
