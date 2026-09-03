@@ -1060,9 +1060,11 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
 4. **その変更を main へ入れる。** main は保護されており直接 push できないので、
    PR を出して CI を通す。**`release.yml` は tag と `package.json` の版が一致する
    ことを検査する**ので、tag を打つ前に main に入っていなければならない
-5. **tag を打つ**（`v0.4.0`）→ `release.yml` が 5 platform 分と全部入りを作り、`--draft` で止まる
+5. **tag を打つ**（`v0.4.0`）→ `release.yml` が**全 platform 分**と全部入りを作り、`--draft` で止まる
 6. **下書きを実物で検証する** —— 落として `SHA256SUMS.txt` と突き合わせ、全部入りの中に
-   5 platform 分の binary と `.meta` が在ること、生成された `.g.cs` が入っていること、
+   **全 platform 分**の binary と `.meta` が在ること（**数で確かめない。正本は
+   `tools/dev.ps1` の `$AllPlatformBinaries`** —— 「5 つ揃っていれば合格」と読むと
+   WebGL の欠落を見逃す）、生成された `.g.cs` が入っていること、
    Linux の GLIBC 要求、Android の page size、iOS の `.a` を見る（**「配布 その 4」の表と同じ項目**）
 7. **公開する**（`gh release edit v0.4.0 --draft=false`）
 8. **OpenUPM が拾うことを確かめる。** 確かめ方:
@@ -1621,7 +1623,7 @@ run 33735249747（`ci-unity`）から取っている** —— どの実行かを
 | 1 | Unity / Emscripten の対応表と、CI での不一致検出。**表の自己整合と、Unity の実物との突き合わせを対にする** | **満たした** | 対は成立している。自己整合は `tools/tests/EmscriptenVersion.Tests.ps1`（速いレーン）、実物との突き合わせは `Web browser E2E` job が `assert-emscripten-version.ps1` で行う: `OK: Unity 6000.3.16f1 が同梱する Emscripten は 3.1.39-git で、対応表 ('6000.3' = 3.1.39) と一致します。` **SKIP の経路を作っていない** —— WebGL の Player を建てられる時点で Unity と WebGL 支援は必ず在るので、「道具が無いから飛ばす」が構造的に生まれない |
 | 2 | Wasm object を生成し `.a` にまとめる。**まとめたことを実証する** | **満たした** | `Web wasm32 (cross-build)`: `_ZN2cv を含む定義済み: 5547` / `同・未定義（member ごと）: 3967` / **`archive 内に定義が無い未定義: 0`** / `ocvu_ を含む定義済み: 27`。**iOS が踏んだ空振りを繰り返さない形にしてある** —— `nm` は archive の member ごとに未定義を報告するので「未定義が無い」は誤り。**定義の差集合**を見る。`ocvu_` の側も数えるのは、**docstring が主張する保護が実際には無かった**とレビューが実測したためで、実際にこの検査が「`.a` を 8 バイトのダミーで上書きした」事故を捕まえた |
 | 3 | single-thread / SIMD。**flag を外すと落ちる**まで | **満たした** | 配る `.a`: `wasm module 数 461` / `target_features: mutable-globals, shared-mem, sign-ext, simd128` / `OK: 要求 [simd128] は在り、禁止 [atomics] は無い。` **和集合では弱い**ので、こちらの object だけの archive に**全 module 要求**でも当てる: `wasm module 数 14` / `Require を持たない module: 0 / 14`。**外部の道具に頼らず wasm の section を直接読む。****ただし条件の後半（「flag を外すと落ちる」）は、形そのものが変わった** —— `-msimd128` は選択ではなく**必要**だった（OpenCV の `intrin_wasm.hpp` が `always_inline function 'wasm_f32x4_add' requires target feature 'simd128'` で止まる）。したがって負の対照は「flag を外すと wasm から SIMD 命令が消える」ではなく「**flag を外すとコンパイルが通らない**」である。**SIMD 無しの wasm ビルドはこの構成では成立しない。** M4 の 16 KB page size（外すと検査が赤くなる）と同じ形にはならなかった —— **より強い形に落ちたが、同じ形ではないことは記録しておく** |
-| 4 | 全部入りに WebGL が入り、gating が Web の物だけを有効にする | **満たした** | `Unity EditMode (Linux)`: `native plugins present: 6 [libopencv_unity_native.a, ...]` と `PluginGatingTests` 4 件が個別に passed。**`.meta` を自分で読むのではなく Unity に問う** —— M4 で `iPhone:` と書いて YAML としては正しいまま無効になった経験から、この形にしてある。`Unity Standalone (Linux)` も `Runtime/Plugins/WebGL/libopencv_unity_native.a` とその `.meta` の存在を出す |
+| 4 | 全部入りに WebGL が入り、gating が Web の物だけを有効にする | **満たした** | `Unity EditMode (Linux)`: `native plugins present: 6 [libopencv_unity_native.a, ...]` と `PluginGatingTests` 4 件が個別に passed。**`.meta` を自分で読むのではなく Unity に問う** —— M4 で `iPhone:` と書いて YAML としては正しいまま無効になった経験から、この形にしてある。**負の対照も取った** —— `WebGL:` を `iPhone:` に壊すと exit 2 で落ちる（row 3 と違い、こちらは M4 の 16 KB と同じ形になった）。`Unity Standalone (Linux)` も `Runtime/Plugins/WebGL/libopencv_unity_native.a` とその `.meta` の存在を出す |
 | 5 | Web Player の browser E2E。**0 件で緑にしない** | **満たした** | `Web browser E2E`: `OCVU_WEB_RESULT: passed=8 failed=0 reachable=28` / `==> [web] 共有本体の検査 8 件がすべて走った` / `==> [web] OK`。**下限だけを見ない** —— `passed` が**共有本体から数えた件数と完全一致**することを要求するので、8 件中 7 件が消えても緑にならない（レビューの指摘で下限から一致に変えた） |
 
 **このマイルストーンの価値は、Web が動いたことよりも、Web でしか出ない欠陥を
@@ -2188,7 +2190,7 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
 ```
 
 **配布はマイルストーンではないが、マイルストーンの間に必ず挟まる。** M3 が v0.1.0 /
-v0.1.1、M3.5 が v0.2.0 を出した。**M4 と M5 の成果はまだ配っていない** ——
+v0.1.1、M3.5 が v0.2.0 を出した。**M4 / M5 / M6 の成果はまだ配っていない** ——
 v0.3.0 の下書きは M5 が main に入る前のもので、**そのままでは公開できない**
 （「配布 その 4」を参照）。**この段が計画のどこにも書かれていなかったので、
 上の図と「配布 その 5」の節に足した。**

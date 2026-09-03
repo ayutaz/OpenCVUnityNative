@@ -85,9 +85,10 @@ Web でしか出ない欠陥を 7 件捕まえたことにあります** —— 
 残るのに `catch` が 1 つも組み込まれません）。**Web にだけ在る制限が 1 つ
 あります: 画像の encode / decode は JPEG のみで、PNG を持ちません**（Unity の
 WebGL 支援が自前の libpng を同梱しているためです。他の 5 platform は両方
-持ちます）。CI は Linux の headless Chromium で実物の Player を起動して
-`passed=8 failed=0 reachable=28` を出しますが、**動かしているブラウザは
-それ 1 つだけ**です。
+持ちます）。CI は Linux の headless Chromium で実物の Player を起動し、**共有の検証本体が
+1 件残らず走ったこと**と、**spec が載せる宣言に全部到達できたこと**を確かめます
+（**数はここに写しません** —— ABI が 1 本増えるたびに動くので、roadmap の
+M6 節が持ちます）。**ただし動かしているブラウザはそれ 1 つだけ**です。
 
 **利用者に届いているのは v0.2.0（3 platform、M5 前の API）です。** OpenUPM が配信して
 いるのもそれで、**M4（5 platform）・M5（生成器と校正 API）・M6（Web）の成果は
