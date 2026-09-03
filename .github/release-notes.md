@@ -1,8 +1,8 @@
 <!--
   **このファイルは実際に配られる Release の本文である**（release.yml が読む）。
-  中の絶対 URL は `v0.4.0` を指しているが、**その tag はまだ存在しない。**
-  配る版を決め直したら（roadmap の「配布 その 5」）、URL の版も一緒に直すこと ——
+  中の絶対 URL は tag に貼り付くので、**版を決め直したら URL も一緒に直すこと** ——
   直さないと、公開した瞬間から 404 になる。
+  2026-09-03 に **v0.3.0** で出すと決め、URL もそれに合わせてある。
 -->
 
 OpenCV 5.0.0 を Unity 6000.3 以降向けに、独自の C ABI と C# API で提供する native UPM パッケージ。
@@ -42,6 +42,14 @@ Git URL で参照しても `.meta` しか届かず、`DllImport` が実行時に
 この tarball を使うこと。
 
 ## 検証
+
+**この形の全部入りパッケージを、使い捨ての Unity プロジェクトへ導入して
+確かめてある** —— 同じ配線（`assemble-plugins.ps1` → `pack-upm-tarball.ps1`。
+このパッケージを作ったのと同じ script）が作った tarball を展開し、
+6 platform 分を材料に固め直して導入した。6 つ入った状態で Unity が読み込み、
+**自分の platform 向けだけを有効にする**ところまで見ている
+（`native plugins present: 6` / EditMode 34 件 pass）。
+**「中に 6 つ入っている」とは別の主張である。**
 
 全 asset の SHA-256 は `SHA256SUMS.txt` にある。
 
@@ -87,7 +95,7 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   この package が持っていない**）
 - **Unity の下限は 6000.3 のまま。** 検証しているのは 6000.3.16f1 の 1 版だけである
 
-**公開している C ABI の本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.4.0/docs/api-map.md) の冒頭が数える**（この表は
+**公開している C ABI の本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.3.0/docs/api-map.md) の冒頭が数える**（この表は
 リポジトリにあり、**パッケージには入らない**）。
 `OCVU_ABI_VERSION` は **1 のまま変わっていない**（関数の追加は bump しない変更である）。
 
@@ -113,7 +121,6 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
 - **macOS 上で Unity を起動していない。** macOS の binary と `.meta` は
   全部入りに入って全利用者に届くが、Unity に読ませているのは Windows と Linux 上だけ
   である（`.meta` の解釈自体は `PluginImporter` に問うて確認済み）
-
 - **Web は 1 つのブラウザでしか動かしていない。** CI は Linux の headless
   Chromium で実際に Player を起動し、P/Invoke とメモリ転送と代表処理を通して
   いる（**「ビルドできた」で止めていない**）。**しかし他のブラウザ・実機・
@@ -138,7 +145,7 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
   画像の encode / decode（`CvCodecs`）、QR コード（`CvQrCode`）、ORB の特徴点
   （`CvFeatures`）、射影変換の推定（`CvGeometry`）、単眼カメラの校正 3 段
   （`CvCalibration`）、`Texture2D` と `WebCamTexture` の連携。
-  **本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.4.0/docs/api-map.md) の冒頭が数える。**
+  **本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.3.0/docs/api-map.md) の冒頭が数える。**
   **API の広さではなく、所有権・stride・エラー処理・IL2CPP・platform の正しさを
   固めることを優先している**
 - **encode / decode が扱うのはメモリ上の byte 列だけで、ファイルパスは受けない。**
@@ -167,7 +174,9 @@ asset は全部で 33 件（6 platform × 5 + 全部入りの 2 + `SHA256SUMS.tx
 ビルドしたモジュール、依存バージョン、CMake flags が実測で入っている。
 
 **Android は third-party が 2 件多い**（`cpufeatures` の LICENSE と README。Android NDK
-由来、BSD-3-Clause）。`THIRD_PARTY_NOTICES` に全文がある。
+由来、BSD-3-Clause）。**Web は逆に 2 件少ない**（`libpng` の LICENSE と README。
+上の PNG の制限と同じ理由で、**そもそも入っていない**）。
+`THIRD_PARTY_NOTICES` に全文がある。
 
 ## OpenUPM
 
