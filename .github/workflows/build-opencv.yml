@@ -58,6 +58,13 @@ jobs:
             runner: ubuntu-24.04
           - platform: ios-arm64
             runner: macos-14
+          # Web / Wasm も**クロスコンパイル**。host は何でもよいが、
+          # Emscripten を emsdk で入れるので Linux にする（一番速い）。
+          # **Unity は使わない** —— 版が Unity の同梱とずれないことは
+          # tools/emscripten-versions.psd1 と、ci-unity の
+          # assert-emscripten-version.ps1（dev.ps1 test-unity-web が走らせる）が対で見る。
+          - platform: web-wasm
+            runner: ubuntu-24.04
 
     steps:
       # **git だけを checkout より前に入れる。**
@@ -95,6 +102,38 @@ jobs:
           else
             sudo apt-get update && sudo apt-get install -y ninja-build
           fi
+
+      # **Emscripten は emsdk から入れる。CI に Unity は無い。**
+      #
+      # 版を直書きしない —— tools/emscripten-versions.psd1 が正本で、
+      # tools/tests/EmscriptenVersion.Tests.ps1 が「workflow の pin が表と
+      # 一致すること」を見ている。**直書きすると、表と workflow が別々に
+      # 古くなり、どちらが正しいか分からなくなる。**
+      - name: Resolve the Emscripten version from the table
+        if: matrix.platform == 'web-wasm'
+        id: emver
+        shell: pwsh
+        run: |
+          $table = Import-PowerShellDataFile ./tools/emscripten-versions.psd1
+          $pv = Get-Content ./tests/UnityProject/ProjectSettings/ProjectVersion.txt -Raw
+          $unity = ([regex]::Match($pv, 'm_EditorVersion:\s*(?<v>\S+)')).Groups['v'].Value
+          $minor = ($unity -split '\.')[0..1] -join '.'
+          if (-not $table.ContainsKey($minor)) { throw "Unity $minor の項が対応表にありません。" }
+          "version=$($table[$minor].Emscripten)" >> $env:GITHUB_OUTPUT
+          Write-Host "Unity $unity -> Emscripten $($table[$minor].Emscripten)"
+
+      - name: Set up Emscripten
+        if: matrix.platform == 'web-wasm'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ steps.emver.outputs.version }}
+
+      - name: Point the build at the emsdk toolchain
+        if: matrix.platform == 'web-wasm'
+        shell: bash
+        # setup-emsdk は EMSDK を環境に置く。upstream/ の下に emscripten /
+        # llvm / binaryen が並ぶ形で、tools/Emscripten.psm1 が受ける形と同じ。
+        run: echo "OCVU_EMSCRIPTEN_ROOT=$EMSDK/upstream" >> "$GITHUB_ENV"
 
       - name: Resolve the configuration
         id: config

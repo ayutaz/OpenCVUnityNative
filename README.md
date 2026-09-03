@@ -4,7 +4,7 @@ OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible 
 
 [日本語](README.ja.md)
 
-> **Status: v0.2.0 is the newest published release, and the repository is well ahead of it.** That release is desktop-only and carries M0 through M3.5. Since then the repository gained Android and iOS cross-builds (M4) and a generated binding layer with camera calibration (M5), **none of which has been published yet.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. **Read what follows as describing the repository, not the download**: v0.2.0 carries the `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, in-memory image encode/decode, and one package holding all three desktop platforms. Everything else below is in the repository and not yet in any release. The public C ABI is deliberately narrow either way, because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web (M6) is not started. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+> **Status: v0.2.0 is the newest published release, and the repository is well ahead of it.** That release is desktop-only and carries M0 through M3.5. Since then the repository gained Android and iOS cross-builds (M4) and a generated binding layer with camera calibration (M5), **none of which has been published yet.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. **Read what follows as describing the repository, not the download**: v0.2.0 carries the `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, in-memory image encode/decode, and one package holding all three desktop platforms. Everything else below is in the repository and not yet in any release. The public C ABI is deliberately narrow either way, because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web/Wasm (M6) is in the tree and CI runs it in a headless browser, with one limitation the other platforms do not have (no PNG; see below). **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -40,7 +40,17 @@ has ever loaded these binaries. They are in the repository and will be in the ne
 release; treat them as unverified until someone runs
 [the device checklist](docs/m4-device-verification.md).
 
-**Planned:** Web/Wasm. Unity 6000.3 or newer throughout.
+**Web/Wasm is in the tree and actually runs in a browser** — a headless Chromium loads a
+real WebGL player and drives the same checks EditMode and the IL2CPP player run — the same
+functions, not a copy. One of them takes a different path on Web: the encode/decode check
+uses JPEG instead of PNG and therefore cannot assert pixel-for-pixel equality. It has
+**one limitation the other platforms do not have: `imgcodecs` decodes and encodes JPEG
+only, not PNG.** Unity's WebGL support ships its own libpng; bundling OpenCV's copy makes
+the player fail to link on duplicate symbols, and leaving it out makes OpenCV's PNG code
+fail to link on undefined ones. Neither extreme works, so the Web build has PNG turned
+off. Every other platform has both.
+
+Unity 6000.3 or newer throughout.
 
 ## Installing
 
@@ -76,6 +86,7 @@ com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
 com.ayutaz.opencv-unity-native-<version>-android-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-ios-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-web-wasm.tgz
 ```
 
 The per-platform list grows with the platform set; the release you download is the
@@ -192,6 +203,7 @@ a release that is wrong can be discarded before anyone has it.
 - .NET 8 SDK or newer
 - PowerShell 7+
 - [GitHub CLI](https://cli.github.com/) (`gh`), authenticated — `tools/opencv.ps1 restore` uses it to download the prebuilt OpenCV artifact
+- **Only for the Web (Wasm) build:** [Ninja](https://ninja-build.org/) and Unity's WebGL Build Support module. Emscripten cannot be driven by the Visual Studio generator, so this is the one platform that needs Ninja on Windows. Set `OCVU_NINJA` if you keep it outside `PATH`. Every other platform builds without it.
 
 ## Development
 
@@ -253,16 +265,20 @@ A local green run is an approximation kept for speed; CI decides mergeability.
 
 ### What CI covers
 
-| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 |
-| --- | --- | --- | --- | --- | --- |
-| L1 contract tests + L3 P/Invoke | yes | yes | yes | cross-build only | cross-build only |
-| L2 sanitizers | ASan | — | ASan + **LeakSanitizer** | — | — |
-| Artifact linkage and enabled languages | yes | yes | yes | 16 KB page size | bundled symbols |
-| Unity EditMode (L4) | local only | local only | **yes** | — | — |
-| Unity IL2CPP player (L5) | local only | — | **yes** | — | — |
+| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 | Web wasm32 |
+| --- | --- | --- | --- | --- | --- | --- |
+| L1 contract tests + L3 P/Invoke | yes | yes | yes | cross-build only | cross-build only | cross-build only |
+| L2 sanitizers | ASan | — | ASan + **LeakSanitizer** | — | — | — |
+| Artifact linkage and enabled languages | yes | yes | yes | 16 KB page size | bundled symbols | bundled symbols + SIMD |
+| Unity EditMode (L4) | local only | local only | **yes** | — | — | — |
+| Unity IL2CPP player (L5) | local only | — | **yes** | — | — | — |
+| **Browser end-to-end** | — | — | — | — | — | **yes** |
 
 The mobile columns say "cross-build only" because that is all CI can do: it compiles
-and inspects the artifacts, and **no device has ever loaded them.**
+and inspects the artifacts, and **no device has ever loaded them.** The Web column is
+different: CI builds a real WebGL player and **runs it in a headless Chromium**, so the
+same checks EditMode and the IL2CPP player run also run in a browser. There is no
+sanitizer lane for Web (a cross-compiled sanitizer cannot run on the host).
 
 The lane that installs the UPM tarball into a throwaway project
 (`test-unity-tarball`) is absent from that table because it runs in no workflow at

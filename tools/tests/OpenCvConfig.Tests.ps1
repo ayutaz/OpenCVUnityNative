@@ -969,8 +969,22 @@ if ($markerName) {
     })
     Assert-That ($declaredOutputs.Count -eq 1) `
         "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
-    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 5 \[' }).Count -eq 1) `
-        "ci-unity.yml requires the tests to report every platform (saw: $($declaredOutputs -join ', '))"
+    # **数を写さない。正本から導く。**
+    #
+    # ここに `5` と書いていたので、**platform を 6 つにしたときに
+    # 「1 箇所だけ直すと別レーンが赤くなる」形**になっていた（M6 のレビューで
+    # 発覚）。**この検査自身が古い数を強制していた**のが最も悪い ——
+    # 直す側から見ると「どちらが正しいのか」が分からなくなる。
+    #
+    # 正本は tools/dev.ps1 の $script:AllPlatformBinaries である。
+    $devPs1 = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
+    $binBlock = [regex]::Match($devPs1, '\$script:AllPlatformBinaries\s*=\s*@\((?<body>[\s\S]*?)\)')
+    Assert-That ($binBlock.Success) 'dev.ps1 から $AllPlatformBinaries を読み取れる'
+    $platformCount = @([regex]::Matches($binBlock.Groups['body'].Value, "'[^']+'")).Count
+    Assert-That ($platformCount -ge 3) "正本から platform 数を数えられた (got $platformCount)"
+
+    Assert-That (@($declaredOutputs | Where-Object { $_ -match "native plugins present: $platformCount \[" }).Count -eq 1) `
+        "ci-unity.yml requires the tests to report every platform ($platformCount; saw: $($declaredOutputs -join ', '))"
 }
 
 
@@ -1510,7 +1524,9 @@ if (Test-Path -LiteralPath $codeqlConfigPath) {
 # （Get-OpenCvPlatform が $IsWindows 等から判定する）。**モバイルはクロス
 # コンパイルなので host と対象が一致しない。** Get-OpenCvPlatform（host 判定）は
 # 変えず、Get-OpenCvConfig -Platform に対象を明示的に渡す形にする。
-$MobilePlatforms = @('android-arm64', 'ios-arm64')
+# **クロスビルドする platform。** モバイル 2 つに加えて Web も同じ性質を持つ
+# （host で実行できない／ASan の preset を作らない／toolchain file を指す）。
+$MobilePlatforms = @('android-arm64', 'ios-arm64', 'web-wasm')
 $AllTargetPlatforms = @('windows-x64', 'macos-arm64', 'linux-x64') + $MobilePlatforms
 
 foreach ($mobile in $MobilePlatforms) {
@@ -1664,20 +1680,20 @@ $presets = Get-Content -LiteralPath (Join-Path $repoRoot 'CMakePresets.json') -R
 $configureNames = @($presets.configurePresets | ForEach-Object { $_.name })
 $buildNames = @($presets.buildPresets | ForEach-Object { $_.name })
 
-foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug', 'web-wasm-debug')) {
     Assert-That ($configureNames -contains $p) "CMakePresets.json has a configure preset named $p"
     Assert-That ($buildNames -contains $p) "CMakePresets.json has a build preset named $p"
 }
 
 # **モバイルに ASan の preset を作らない。** クロス環境では走らせないので、
 # 「あるのに誰も走らせていない」状態を作らない。
-foreach ($p in @('android-arm64-asan', 'ios-arm64-asan')) {
+foreach ($p in @('android-arm64-asan', 'ios-arm64-asan', 'web-wasm-asan')) {
     Assert-That (-not ($configureNames -contains $p)) "there is no $p preset (クロス環境で ASan は走らせない)"
 }
 
 # **モバイルの preset は toolchain file を指す。** 指さないと host 向けに
 # ビルドされ、**成功したように見えて中身が別物になる。**
-foreach ($p in @('android-arm64-debug', 'ios-arm64-debug')) {
+foreach ($p in @('android-arm64-debug', 'ios-arm64-debug', 'web-wasm-debug')) {
     $preset = $presets.configurePresets | Where-Object { $_.name -eq $p }
     Assert-That ($preset.PSObject.Properties.Name -contains 'toolchainFile') `
         "$p sets a toolchainFile (指さないと host 向けにビルドされる)"
@@ -1724,7 +1740,14 @@ Assert-That (@($nativeCMakeLines | Where-Object {
 #
 # **matrix から静かに漏れると、restore が「artifact が無い」で落ちる。**
 # しかもそれは、モバイルをビルドしようとした人の手元で初めて起きる。
-$AllTargetPlatformsForWorkflows = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')
+# **写さず正本から読む。** ここは長らく platform 名を直書きしていたが、
+# `add-a-platform` skill が言うとおり「写している場所は直す場所を 1 つ増やす」。
+# 読めなければ空振りではなく落とす。
+$AllTargetPlatformsForWorkflows = @(
+    (Import-PowerShellDataFile -LiteralPath (Join-Path $repoRoot 'tools/opencv-config.psd1')).Toolchains.Keys |
+        Sort-Object)
+Assert-That ($AllTargetPlatformsForWorkflows.Count -ge 3) `
+    "opencv-config.psd1 から platform 一覧を読めた ($($AllTargetPlatformsForWorkflows.Count) 件)"
 
 foreach ($wf in @('build-opencv.yml', 'release.yml')) {
     $text = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/$wf") -Raw
@@ -1738,7 +1761,7 @@ foreach ($wf in @('build-opencv.yml', 'release.yml')) {
 # 壊れたことが分かるのが tag を打った後になる —— M3.5 で踏んだ
 # 「配る直前に初めて走る配線」と同じ形である。
 $ciNativeText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-native.yml') -Raw
-foreach ($p in @('android-arm64', 'ios-arm64')) {
+foreach ($p in @('android-arm64', 'ios-arm64', 'web-wasm')) {
     Assert-That ($ciNativeText -match "(?m)^\s*- platform:\s*$([regex]::Escape($p))\s*$") `
         "ci-native.yml cross-builds $p (release でしか作らないと、壊れたと分かるのが tag の後になる)"
 }
@@ -1751,6 +1774,46 @@ $releaseLines = @(Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflo
 Assert-That (@($releaseLines | Where-Object {
     $_ -match '^\s*(run:\s*)?(&\s+)?\./tools/verify-android-page-size\.ps1(\s|$)'
 }).Count -eq 1) 'release.yml runs verify-android-page-size.ps1 in exactly one step (配る binary に掛からないと意味が無い)'
+
+# --- platform を振り分ける step は、どれも全 platform を名指しすること ---
+#
+# **同じファイルの中に振り分けが 2 つ在り、片方だけが置いていかれる。**
+# release.yml は「未知の platform は失敗させる」形（`unknown platform '...'`）を
+# 2 箇所に持つ —— linkage の検査と、移植性の検査である。**M6 で、後者にだけ
+# web-wasm を足して前者に足し忘れた。** ローカルの全レーンは緑のまま、
+# CI の `Package web-wasm` だけが落ち、`Assemble` がそれに連鎖した。
+#
+# **これは M4 から数えて 3 度目の「同一ファイルの 2 つ目の一覧」である**
+# （`pack-upm-tarball.ps1` の switch、`PackageRelease.Tests.ps1` の 3 つ目の一覧）。
+# 人が読んで気づく形ではないので、機械に見させる。
+#
+# **一覧を持たない。** 正本（opencv-config.psd1）から読んだ全 platform が、
+# **すべての振り分けに現れること**だけを見るので、platform が増えれば
+# 要求も自動で増える。
+$releaseRaw = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/release.yml') -Raw
+$platformGuards = [regex]::Matches($releaseRaw, "unknown platform '")
+
+# **0 件を緑にしない。** 振り分けごと消えたら、この検査は何も見ていない。
+Assert-That ($platformGuards.Count -ge 2) `
+    "release.yml has at least 2 platform dispatches guarded by `"unknown platform`" ($($platformGuards.Count) found)"
+
+foreach ($guard in $platformGuards) {
+    $head = $releaseRaw.Substring(0, $guard.Index)
+    # 直前の `- name:` から guard までが、その step の振り分け本体である。
+    $stepStart = $head.LastIndexOf('- name:')
+    if ($stepStart -lt 0) {
+        Assert-That $false 'unknown platform guard is inside a named step'
+        continue
+    }
+    $window = $releaseRaw.Substring($stepStart, $guard.Index - $stepStart)
+    $stepName = ($window -split "`r?`n")[0].Trim() -replace '^- name:\s*', ''
+
+    $missing = @($AllTargetPlatformsForWorkflows | Where-Object {
+        $window -notmatch [regex]::Escape("'$_'")
+    })
+    Assert-That ($missing.Count -eq 0) `
+        "release.yml step `"$stepName`" names every platform ($(if ($missing.Count) { "missing: $($missing -join ', ')" } else { 'all present' }))"
+}
 
 
 

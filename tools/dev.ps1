@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
+    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'test', 'clean')]
     [string]$Command = 'test',
 
     <#
@@ -40,7 +40,7 @@ param(
         `build` だけが受ける。テストのレーンは host で実行するものなので、
         クロスの対象を渡す意味が無い（渡されたら止める）。
     #>
-    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')]
     [string]$Platform
 )
 
@@ -81,6 +81,11 @@ $NativeLibraryName = switch ($Platform) {
     'android-arm64' { 'libopencv_unity_native.so' }
     # iOS は静的ライブラリ。アプリの外から共有ライブラリを読み込めない。
     'ios-arm64'     { 'libopencv_unity_native.a' }
+    # Web も静的ライブラリ。wasm に共有ライブラリという仕組みが無い。
+    # **iOS と同じファイル名になる** —— 見分けるのはディレクトリだけなので、
+    # ファイル名で plugin を引く検査を書かないこと（M4 で Android と Linux が
+    # 同じ .so になって踏んだのと同じ形）。
+    'web-wasm'      { 'libopencv_unity_native.a' }
     default { throw "unknown platform '$Platform': ライブラリのファイル名が決まっていない。" }
 }
 $Preset        = "$Platform-debug"
@@ -160,6 +165,7 @@ $ToolsTestScriptsFast = @(
     'OpenCvConfig.Tests.ps1'
     'ConfigInvalidation.Tests.ps1'
     'BindingGenerator.Tests.ps1'
+    'EmscriptenVersion.Tests.ps1'
 )
 
 $ToolsTestScriptsSlow = @(
@@ -202,8 +208,62 @@ function Build-Native {
         ) -join "`n")
     }
 
+    <#
+        **Web / Wasm は追加の道具が要る。**
+
+        opencv.ps1 側にだけ書いていて、こちらに書き忘れていた
+        （2026-09-03 に実測: `CMAKE_MAKE_PROGRAM is not set` で落ちた）。
+        **同じことを 2 箇所に書くのではなく、探す規則は
+        tools/Emscripten.psm1 の 1 箇所に置いてある** —— ここはそれを呼ぶ。
+    #>
+    $extraArgs = @()
+    if ($Platform -eq 'web-wasm') {
+        Import-Module (Join-Path $PSScriptRoot 'Emscripten.psm1') -Force
+        $em = Get-EmscriptenToolchain
+        Write-Host "==> Emscripten $($em.Version) ($($em.Source)) at $($em.Root)" -ForegroundColor Cyan
+        $env:EM_CONFIG = $em.ConfigFile
+        $env:OCVU_EMSCRIPTEN_ROOT = $em.Root
+        $extraArgs += "-DOCVU_EMSCRIPTEN_ROOT=$($em.Root.Replace([char]92, '/'))"
+
+        # Emscripten は Visual Studio generator で駆動できないので、
+        # **Windows でも Ninja が要る platform はこれだけ**である。
+        $ninja = if ($env:OCVU_NINJA) { $env:OCVU_NINJA }
+                 else { (Get-Command 'ninja' -ErrorAction SilentlyContinue)?.Source }
+        if (-not $ninja -or -not (Test-Path -LiteralPath $ninja)) {
+            Write-DevFailure (@(
+                'web-wasm のビルドには Ninja が要ります（Emscripten は Visual Studio generator では使えません）。'
+                '  - Ninja を導入して PATH に置く（winget install Ninja-build.Ninja）'
+                '  - 環境変数 OCVU_NINJA に ninja の実行ファイルを渡す'
+                'CI（Linux / macOS runner）には元から在ります。'
+            ) -join "`n")
+        }
+        $extraArgs += "-DCMAKE_MAKE_PROGRAM=$($ninja.Replace([char]92, '/'))"
+    }
+
+    # **Windows の Emscripten は cache を壊す。**
+    #
+    # 同梱の emcc.bat が `@echo off` を持たないため、CMake が compiler の
+    # 出力を取り込む段で **バッチの echo（`set MYDIR=...` / `goto FOUND_MYDIR`）**
+    # が CMakeCache.txt に混ざる。次に configure すると
+    # `CMake Error: Parse error in cache file ... on line NN` で落ちる。
+    #
+    # **1 回目は通り、2 回目から落ちる**ので、毎回 build/ を消して試して
+    # いる間は見えなかった（2026-09-03 に実測）。
+    #
+    # **CI（Linux）では起きない** —— .bat を通らないためである。
+    # ここで消すのは「壊れていると分かっている cache」だけで、
+    # **健全な cache は残す**（消すと configure がやり直しになる）。
+    $cacheFile = Join-Path $RepoRoot "build/$Preset/CMakeCache.txt"
+    if (Test-Path -LiteralPath $cacheFile) {
+        $cacheText = Get-Content -LiteralPath $cacheFile -Raw -ErrorAction SilentlyContinue
+        if ($cacheText -and $cacheText -match 'goto FOUND_MYDIR') {
+            Write-Host "==> 壊れた CMakeCache.txt を捨てる（emcc.bat の echo が混ざっている）" -ForegroundColor Yellow
+            Remove-Item -LiteralPath $cacheFile -Force
+        }
+    }
+
     Invoke-Checked {
-        cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot"
+        cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot" @extraArgs
     } 'configure native'
     Invoke-Checked { cmake --build --preset $Preset } 'build native'
 
@@ -225,13 +285,29 @@ function Copy-NativePluginForUnity {
     # 出力ファイル名と配置は platform ごとに違う。Visual Studio generator は
     # 構成名のサブディレクトリ（Debug/）を作るが、Ninja は作らない。
     $buildDir = Join-Path $RepoRoot "build/$Preset/native"
-    $source = if ($IsWindows) {
-        Join-Path $buildDir "Debug/$NativeLibraryName"
-    } elseif ($IsMacOS) {
-        Join-Path $buildDir $NativeLibraryName
-    } else {
-        Join-Path $buildDir $NativeLibraryName
-    }
+
+    <#
+        **判定するのは host の OS ではなく generator である。**
+
+        Debug/ のサブディレクトリを作るのは Visual Studio generator であって
+        Windows ではない。**Windows でも Ninja を使う platform がある**
+        （web-wasm。Emscripten は Visual Studio generator で駆動できない）。
+
+        host で分岐していたので、Windows 上の web-wasm ビルドが
+        `build/web-wasm-debug/native/Debug/...` を探して
+        **「native plugin が見つかりません」で落ちた**（2026-09-03 に実測）。
+        **ビルド自体は成功していたので、原因が 1 段隠れていた。**
+
+        **在るほうを採る** —— generator の名前を持ち回るより、
+        出来た物を見るほうが「次に generator が増えたとき」に強い。
+    #>
+    $candidates = @(
+        (Join-Path $buildDir $NativeLibraryName)
+        (Join-Path $buildDir "Debug/$NativeLibraryName")
+        (Join-Path $buildDir "Release/$NativeLibraryName")
+    )
+    $source = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $source) { $source = $candidates[0] }
 
     if (-not (Test-Path -LiteralPath $source)) {
         Write-DevFailure (@(
@@ -247,6 +323,7 @@ function Copy-NativePluginForUnity {
         'linux-x64'     { 'Linux/x86_64' }
         'android-arm64' { 'Android/arm64-v8a' }
         'ios-arm64'     { 'iOS' }
+        'web-wasm'      { 'WebGL' }
         default { throw "unknown platform '$Platform': plugin の置き場所が決まっていない。" }
     }
     $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
@@ -441,6 +518,7 @@ $script:AllPlatformBinaries = @(
     'Linux/x86_64/libopencv_unity_native.so'
     'Android/arm64-v8a/libopencv_unity_native.so'
     'iOS/libopencv_unity_native.a'
+    'WebGL/libopencv_unity_native.a'
 )
 
 
@@ -662,6 +740,7 @@ function Test-UnityTarball {
             'linux-x64'     { 'Linux/x86_64/libopencv_unity_native.so' }
             'android-arm64' { 'Android/arm64-v8a/libopencv_unity_native.so' }
             'ios-arm64'     { 'iOS/libopencv_unity_native.a' }
+            'web-wasm'      { 'WebGL/libopencv_unity_native.a' }
             default { throw "unknown platform '$Platform': tarball の中で何を探すか決まっていない。" }
         }
         # **正本と食い違っていないこと。** 上の対応表は 2 つ目の一覧なので、
@@ -776,7 +855,7 @@ function Test-UnityTarball {
             「合否の判定は assert-unity-results.ps1 をローカルと CI の両方が
             通る」とも食い違う。
 
-            全部入りのときは、**結果として `native plugins present: 5` が
+            全部入りのときは、**結果として `native plugins present: 6` が
             出ていること**まで要求する。合図が届かなければ gating は
             「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた場合と
             1 バイトも違わない —— 入力を検査しても届いたことの証明にはならない。
@@ -795,7 +874,11 @@ function Test-UnityTarball {
         )
         $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
         if ($allPlatforms) {
-            $assertArgs += @('-RequireOutput', 'native plugins present: 5 [')
+            # **数を写さない。** 正本は同じファイルの $AllPlatformBinaries で、
+            # **`.Count` で足りる**（M6 の再レビューの指摘）。
+            # リテラルを置くと、platform を足したときにここだけが古くなる。
+            $assertArgs += @('-RequireOutput',
+                "native plugins present: $($script:AllPlatformBinaries.Count) [")
         }
         Invoke-Checked {
             & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs
@@ -893,6 +976,113 @@ function Stop-UnityTestPlayers {
     }
     return $killed
 }
+<#
+    Web / Wasm の Player をビルドする（M6 Task 6 の前半）。
+
+    **ここではまだ「動く」を主張しない。** このレーンが確かめるのは
+    「WebGL の Player がビルドできる」ことだけである。**ブラウザで実際に
+    動かすのは別の段**で、そちらが通って初めて「動く」と言える
+    （`add-a-platform` skill の「ビルドできる / 配れる / 動く」）。
+
+    **stripping は有効のまま**にする（BuildPlayer.BuildWebGL）。
+    無効にすると `AbiReachabilityChecks.g.cs` が確かめたいことが
+    確かめられなくなる。
+#>
+function Test-UnityWeb {
+    <#
+        **対応表を実物と突き合わせる。**
+
+        `tools/emscripten-versions.psd1` は写しなので、
+        **速いレーンの検査（表の自己整合）だけでは、表が現実と合っているかを
+        誰も見ない。** Unity が実際に同梱している版と突き合わせるのが
+        `assert-emscripten-version.ps1` だが、**このレーンに配線するまで
+        どこからも呼ばれていなかった**（M6 のレビューで発覚）。
+
+        **ここに置くのが正しい** —— WebGL の Player を建てられる時点で
+        Unity と WebGL 支援は必ず在るので、**「道具が無いから飛ばす」経路が
+        構造的に生まれない。**
+    #>
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-emscripten-version.ps1')
+    } 'assert the Emscripten version matches the table'
+
+    # **このレーンが要るのは Web の plugin である。**
+    #
+    # Build-Native は既定で「実行中の platform」を作る。そのまま呼ぶと
+    # **Windows の .dll を作り直して、WebGL の .a は古いまま**になる
+    # （2026-09-03 に実測: OpenCV から PNG を外したのに、古い .a が
+    # 残っていて `undefined symbol: png_create_read_struct` が消えなかった）。
+    #
+    # **ビルドは成功し、レーンも進む** —— 壊れるのは Player のリンク段で、
+    # しかも「直したはずの物が直っていない」という最も紛らわしい形になる。
+    $script:Platform = 'web-wasm'
+    $script:Preset = 'web-wasm-debug'
+    $script:NativeLibraryName = 'libopencv_unity_native.a'
+    Build-Native
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $log    = Join-Path $ResultsDir 'unity-web.log'
+    $outDir = Join-Path $RepoRoot 'build/web-player'
+
+    Sync-AllPlatformsMarker -ProjectPath $project
+
+    $env:OCVU_WEB_BUILD_DIR = $outDir
+    # **-buildTarget を起動引数でも渡す。** 起動後に
+    # SwitchActiveBuildTarget を呼ぶだけでは足りないことがある
+    # （domain reload を挟むため）。**両方やる。**
+    $unityArgs = @(
+        '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+        '-buildTarget', 'WebGL',
+        '-executeMethod', 'BuildPlayer.BuildWebGL', '-logFile', $log
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0) {
+        Write-DevFailure "WebGL Player のビルドが exit $($proc.ExitCode) で終了しました。`nログ: $log"
+    }
+
+    <#
+        **「ビルドが通った」を成果物の証拠にしない。** 出来た物を数える。
+
+        **Unity は wasm を圧縮して出す。** 既定は gzip で、
+        `Build/<name>.wasm.gz` になる（2026-09-03 に実測。非圧縮の
+        `.wasm` は 1 つも無い）。**拡張子で `*.wasm` を探すと 0 件になり、
+        「ビルドできていない」と読み違える。**
+
+        圧縮の種類は PlayerSettings で変えられるので、**どれか 1 つを
+        決め打ちしない** —— .wasm / .wasm.gz / .wasm.br を拾う。
+    #>
+    $wasm = @(Get-ChildItem -Path $outDir -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '\.wasm(\.gz|\.br)?$' })
+    if ($wasm.Count -eq 0) {
+        Write-DevFailure "WebGL Player に wasm がありません（出力先: $outDir）。`nログ: $log"
+    }
+    foreach ($w in $wasm) {
+        Write-Host ("==> {0} ({1:N0} bytes)" -f $w.Name, $w.Length)
+    }
+
+    # **Player の wasm に SIMD を要求しない。**
+    #
+    # `target_features` は object 段の custom section で、**リンク時に
+    # 消費される**ので最終モジュールには残らない（2026-09-03 に実測:
+    # Player の wasm は features を 1 つも持たず、binaryen の
+    # `wasm-opt --print-features` も mutable-globals と sign-ext しか言わない）。
+    #
+    # **そもそも Player の wasm の flag は Unity が決めるもの**であって、
+    # こちらが主張することではない。**SIMD の主張はこちらの plugin に対して
+    # 行う**（tools/verify-wasm-features.ps1 を .a に当てる。ci-native と
+    # release がそうしている）。
+
+    Write-Host "==> [web] player built: $outDir" -ForegroundColor Green
+
+    # **ここまでは「ビルドできる」しか言えない。**
+    # 実際にブラウザで動かすところまでやって初めて「動く」と言える
+    # （add-a-platform skill の完了の判定）。
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-web-e2e.ps1') -PlayerDir $outDir
+    } 'run the Web player in a browser'
+}
+
 function Test-UnityPlayer {
     Build-Native
 
@@ -1001,6 +1191,7 @@ switch ($Command) {
     'test-tools-slow' { Test-ToolsSlow }
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
+    'test-unity-web' { Reset-Results; Test-UnityWeb }
     'test-unity-tarball' { Reset-Results; Test-UnityTarball }
     'test'         { Reset-Results; Test-Tools; Test-Generated; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }

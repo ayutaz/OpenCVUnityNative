@@ -162,7 +162,12 @@ try {
     $iosSums = if (Test-Path -LiteralPath (Join-Path $tmp 'checksums.txt')) {
         @(Get-Content -LiteralPath (Join-Path $tmp 'checksums.txt'))
     } else { @() }
-    Assert-That (@($iosSums | Where-Object { $_ -like '*libopencv_unity_native.a' }).Count -eq 1) `
+    # **ファイル名で引かない。** `libopencv_unity_native.a` は **iOS と Web の
+    # 両方**が持つ（どちらも静的ライブラリ）。名前で引くと 2 件当たって
+    # `-eq 1` を満たさない —— **M6 の CI が実際にこれで落ちた。**
+    # `add-a-platform` skill の罠 2（ファイル名は platform 間で衝突する）そのもので、
+    # **見分けるのはパスの断片である。**
+    Assert-That (@($iosSums | Where-Object { $_ -like '*iOS/libopencv_unity_native.a' }).Count -eq 1) `
         'checksums.txt lists the iOS static library'
     Remove-Item -Recurse -Force $iosRoot, $tmp -ErrorAction SilentlyContinue
 
@@ -294,8 +299,12 @@ $pluginMetas = @(
        Meta = "$metaBase/android-arm64/Android/arm64-v8a/libopencv_unity_native.so.meta" }
     @{ Platform = 'ios-arm64';     Key = 'iOS';          EditorOS = ''
        Meta = "$metaBase/ios-arm64/iOS/libopencv_unity_native.a.meta" }
+    # Web も静的ライブラリ。**iOS と同じファイル名なので、見分けるのは
+    # ディレクトリ（/WebGL/ と /iOS/）だけである。**
+    @{ Platform = 'web-wasm';      Key = 'WebGL';        EditorOS = ''
+       Meta = "$metaBase/web-wasm/WebGL/libopencv_unity_native.a.meta" }
 )
-$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win', 'Android', 'iOS')
+$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win', 'Android', 'iOS', 'WebGL')
 
 <#
     **この一覧が、いま配っている platform を全部並べていること。**
@@ -393,8 +402,16 @@ try {
             1 であることを要求する。**知らない platform に配られない**
             ことまで見る。
         #>
-        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:?
-(.*?)(?=^  [a-zA-Z])')
+        # **正規表現に生の改行を書かない。**
+        #
+        # ここは 3 行に跨る単一引用符の文字列で、**このファイル自身の改行が
+        # パターンに埋め込まれていた。** ファイルを LF で書き直したあと、
+        # CRLF で checkout する Windows runner で **6 件全部が落ちた**
+        # （ローカルは通る。2026-09-03 に CI で実測）。
+        #
+        # **改行は \r?\n と明示する** —— 対象の .meta も、この .ps1 自身も、
+        # checkout の仕方で改行が変わりうる。
+        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:\r?\n(.*?)(?=^  [a-zA-Z])')
         Assert-That $pdBlock.Success `
             "$($entry.Platform): the platformData block is readable"
         if ($pdBlock.Success) {
@@ -524,6 +541,9 @@ try {
         'Linux/x86_64/libopencv_unity_native.so'
         'Android/arm64-v8a/libopencv_unity_native.so'
         'iOS/libopencv_unity_native.a'
+        # **Web も静的ライブラリで、iOS と同じファイル名である。**
+        # 見分けるのはディレクトリだけなので、ファイル名で引く形を作らない。
+        'WebGL/libopencv_unity_native.a'
     )
     Assert-That ($allBinaries.Count -eq $canonicalPlatforms.Count) `
         "the synthesized tree covers every shipped platform ($($allBinaries.Count) vs $($canonicalPlatforms.Count))"
@@ -828,6 +848,11 @@ $expectedRelative = @(
     'Linux/x86_64/libopencv_unity_native.so'
     'Android/arm64-v8a/libopencv_unity_native.so'
     'iOS/libopencv_unity_native.a'
+    # **このファイル 3 つ目の一覧である。** M6 では 1 つ目（$pluginMetas）と
+    # 2 つ目（$allBinaries）を直したあと、これが残って CI で落ちた ——
+    # `add-a-platform` skill の「同一ファイル内の 2 つ目以降の一覧は
+    # hook から見えない」がそのまま起きた形である。
+    'WebGL/libopencv_unity_native.a'
 )
 # **手で書いた一覧を、正本の件数と突き合わせる。** 中身は独立に書く
 # （3 ファイルの一致を見るのがこの検査の役目なので、どれかから導出すると

@@ -94,16 +94,45 @@ jobs:
             runner: windows-2022
           - platform: macos-arm64
             runner: macos-14
-          # **モバイルも重ねる。** 配る package には 5 platform 分が入るので、
+          # **モバイルも重ねる。** 配る package には 6 platform 分が入るので、
           # 3 つだけで gating を検査すると「配る物とは違う形」を見ることになる。
           - platform: android-arm64
             runner: ubuntu-24.04
           - platform: ios-arm64
             runner: macos-14
+          # **Web も重ねる。** 配る package には 6 platform 分が入るので、
+          # 欠けたまま gating を検査すると「配る物とは違う形」を見ることになる。
+          - platform: web-wasm
+            runner: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # **Emscripten は emsdk から入れる。版は対応表から読む。**
+      # workflow に数字を直書きしない（EmscriptenVersion.Tests.ps1 が見ている）。
+      - name: Resolve the Emscripten version from the table
+        if: matrix.platform == 'web-wasm'
+        id: emver
+        shell: pwsh
+        run: |
+          $table = Import-PowerShellDataFile ./tools/emscripten-versions.psd1
+          $pv = Get-Content ./tests/UnityProject/ProjectSettings/ProjectVersion.txt -Raw
+          $unity = ([regex]::Match($pv, 'm_EditorVersion:\s*(?<v>\S+)')).Groups['v'].Value
+          $minor = ($unity -split '\.')[0..1] -join '.'
+          if (-not $table.ContainsKey($minor)) { throw "Unity $minor の項が対応表にありません。" }
+          "version=$($table[$minor].Emscripten)" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Emscripten
+        if: matrix.platform == 'web-wasm'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ steps.emver.outputs.version }}
+
+      - name: Point the build at the emsdk toolchain
+        if: matrix.platform == 'web-wasm'
+        shell: bash
+        run: echo "OCVU_EMSCRIPTEN_ROOT=$EMSDK/upstream" >> "$GITHUB_ENV"
 
       # macOS / Linux の preset は Ninja を使う。runner に入っていないので入れる。
       - name: Install Ninja
@@ -229,11 +258,11 @@ jobs:
             # **入力ではなく結果を見る。** 合図が届かなければ gating は
             # 「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた
             # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
-            # 合図の経路が壊れた時点で赤くなる。**このレーンは 5 platform を
-            # 重ねてから走るので、無条件に 5 を要求してよい。**
+            # 合図の経路が壊れた時点で赤くなる。**このレーンは 6 platform を
+            # 重ねてから走るので、無条件に全部を要求してよい。**
             # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
             # 'present: 50' にも当たる。
-            requireOutput: 'native plugins present: 5 ['
+            requireOutput: 'native plugins present: 6 ['
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
@@ -271,10 +300,10 @@ jobs:
       - name: Assemble every platform into one package
         shell: pwsh
         run: |
-          # **5 platform すべてを重ねる。** PluginGatingTests が Slots の数
-          # （5）を要求するので、3 つだけ重ねると落ちる —— そして落ちるのが
-          # 正しい。配る package には 5 つ入るからである。
-          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64') |
+          # **6 platform すべてを重ねる。** PluginGatingTests が Slots の数
+          # （6）を要求するので、足りないまま重ねると落ちる —— そして落ちるのが
+          # 正しい。配る package には 6 つ入るからである。
+          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
                      ForEach-Object { "other-plugins/unity-plugin-$_" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
@@ -391,6 +420,7 @@ jobs:
               'Linux/x86_64/libopencv_unity_native.so'
               'Android/arm64-v8a/libopencv_unity_native.so'
               'iOS/libopencv_unity_native.a'
+              'WebGL/libopencv_unity_native.a'
           )
           foreach ($rel in $expected) {
               foreach ($f in @("$root/$rel", "$root/$rel.meta")) {
@@ -484,4 +514,173 @@ jobs:
         with:
           name: test-results-unity-${{ matrix.lane }}
           path: artifacts/unity-${{ matrix.lane }}
+          if-no-files-found: warn
+
+  # **ブラウザで実際に動かす。** これが「動く」を主張できる唯一のレーンである
+  # （`add-a-platform` skill の「ビルドできる / 配れる / 動く」）。
+  #
+  # **上の unity job とは別の job にしてある** —— あちらは
+  # `game-ci/unity-test-runner` が Test Framework を回す形だが、
+  # **Unity Test Framework は WebGL の Player を batchmode から走らせられない**
+  # （実行にはブラウザが要る）。だから Player を建てる job と、
+  # それをブラウザで駆動する step を自分で組む。
+  web-e2e:
+    name: Web browser E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs: plugin
+    # **needs を持つ job は `!cancelled()` で守る。** ゆるい条件だと
+    # 必須チェックが常時 skip になりうる（CLAUDE.md の該当節）。
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: read
+      actions: read
+    env:
+      # **Player の出来る場所を 1 箇所に持つ。**
+      #
+      # `BuildPlayer.BuildWebGL` は `OCVU_WEB_BUILD_DIR` が無ければ
+      # **CWD 直下の `build/web-player`** に落とす。**この job の CWD は
+      # Unity プロジェクト**（`tests/UnityProject`）なので、出来るのは
+      # repo root ではなくその下である。**2026-09-03 に CI で実測した**:
+      #
+      #     out=/github/workspace/tests/UnityProject/build/web-player
+      #
+      # **`buildsPath` / `buildName` では動かせない。** game-ci が
+      # `-customBuildPath` を渡すのは自前の build method に対してだけで、
+      # **`buildMethod` を指定すると渡らない**（同じ run のログに
+      # `-customBuildPath` は 1 度も出ない）。
+      #
+      # **環境変数でも動かせない** —— game-ci がコンテナへ渡す環境変数は
+      # 固定一覧で、任意の名前は届かない（このリポジトリは
+      # `ocvu-expect-all-platforms` をファイルにした時点で実測している）。
+      #
+      # **だから動かさず、出来た場所を読む。** 3 つの step が同じ値を
+      # 見るので、ここ 1 箇所に持つ。
+      OCVU_WEB_PLAYER_DIR: tests/UnityProject/build/web-player
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the Unity version
+        id: unity
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+          $m = Select-String -LiteralPath $file -Pattern '^m_EditorVersion:\s*(\S+)' |
+               Select-Object -First 1
+          if (-not $m) { Write-Error "could not read m_EditorVersion from $file"; exit 1 }
+          "version=$($m.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+
+      # 全 platform 分の plugin を重ねる。**Web だけでは gating の形が
+      # 配る物と違う**ので、上の unity job と同じ材料を使う。
+      - name: Download every plugin
+        uses: actions/download-artifact@v8
+        with:
+          # **名前は unity-plugin-<platform> である**（上の plugin job が
+          # そう upload している）。`plugin-*` では 1 つも当たらない ——
+          # minimatch は前方一致しない（M6 の再レビューが実測）。
+          pattern: unity-plugin-*
+          path: other-plugins
+
+      - name: Assemble the plugins
+        shell: pwsh
+        run: |
+          # **artifact の中身は直下である**（upload の path が
+          # `.../Runtime/Plugins` なので、その中身が展開される）。
+          #
+          # **linux-x64 は入れない。** `plugin` job の matrix は
+          # windows / macos / android / ios / web の **5 つ**で、
+          # **Linux は `unity` job がコンテナの中で自前にビルドする。**
+          # 足すと `other-plugins/unity-plugin-linux-x64` が無くて
+          # assemble が落ちる（M6 の 3 回目のレビューが実測）。
+          # **`unity` job の一覧と同じにするのが正しい。**
+          #
+          # **この job は PluginGatingTests を走らせない**ので、他 platform を
+          # 重ねる必要は本来無い。**それでも重ねるのは、Player に入る
+          # plugin の集合を配る物と同じにするため**である。
+          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
+                     ForEach-Object { "other-plugins/unity-plugin-$_" }
+          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
+
+      # **WebGL の Player を建てる。** webgl のイメージが要る
+      # （base では WebGL のビルドができない）。
+      - name: Build the WebGL player
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: tests/UnityProject
+          unityVersion: ${{ steps.unity.outputs.version }}
+          targetPlatform: WebGL
+          buildMethod: BuildPlayer.BuildWebGL
+          customImage: unityci/editor:ubuntu-${{ steps.unity.outputs.version }}-webgl-3
+          allowDirtyBuild: true
+          # **`buildsPath` / `buildName` は渡さない。**
+          #
+          # 以前は渡していたが、**`buildMethod` を指定した場合はどこにも
+          # 効かない**（game-ci が `-customBuildPath` を渡すのは自前の
+          # build method に対してだけである）。**渡っているように読める
+          # 入力を置いておくほうが、無いより悪い** —— 出力先はここで
+          # 決まっていると読めてしまう。
+          #
+          # 実際の出力先は job の `OCVU_WEB_PLAYER_DIR` にある。
+
+      # **コンテナは root で書く。以降の step は runner の UID で動く。**
+      #
+      # そのままだと `build/` の下に 1 バイトも書けない。2026-09-03 に実測:
+      #
+      #     New-Item: Access to the path '.../build/web-e2e' is denied.
+      #
+      # **読むのは通るので、気づくのは書こうとした瞬間である** ——
+      # 版ファイルの照合（読むだけ）は緑のまま通り、その次で落ちた。
+      #
+      # 同じ形の対応がこのファイルの `unity` job にもある（あちらは
+      # OpenCV をコンテナでビルドした後）。
+      - name: Take ownership of what the container wrote
+        run: |
+          set -euo pipefail
+          for d in build tests/UnityProject/build; do
+            # **無い物を chown して落とさない。** ただし `|| true` で
+            # 全部を握り潰しはしない —— 在るのに失敗したなら、それは
+            # 次の step が読めない理由そのものである。
+            if [ -d "$d" ]; then sudo chown -R "$(id -u):$(id -g)" "$d"; fi
+          done
+
+      # **chromium を毎回落とさない。** 150 MB を毎 run で取ると遅いうえ、
+      # 上流の帯域にも当たる（M6 の 3 回目のレビューの指摘）。
+      - name: Cache the Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.49.1-${{ runner.os }}
+
+      # **対応表を Unity の実物と突き合わせる。**
+      #
+      # `dev.ps1 test-unity-web` にも配線してあるが、**そのレーンはどの
+      # workflow からも走らない**（M6 の再レビューの指摘）。
+      # **完了条件 1 は「CI で不一致を検出する」**なので、ここで走らせる。
+      #
+      # **この job には WebGL 支援が入った Unity が必ず在る**（無ければ
+      # 上の Player ビルドが先に落ちる）ので、「道具が無いから飛ばす」
+      # 経路が構造的に生まれない。
+      - name: Assert the Emscripten version matches the table
+        shell: pwsh
+        run: ./tools/assert-emscripten-version.ps1 -RecordedVersionPath "$env:OCVU_WEB_PLAYER_DIR/emscripten-version.txt"
+
+      # **ローカルと同じ script を通す。** 起動の仕方は分かれてよいが、
+      # 判定は分けない（CLAUDE.md の不変条件）。
+      - name: Drive the player in a browser
+        shell: pwsh
+        run: ./tools/run-web-e2e.ps1 -PlayerDir "$env:OCVU_WEB_PLAYER_DIR"
+
+      - name: Upload the player and the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-web-e2e
+          path: |
+            ${{ env.OCVU_WEB_PLAYER_DIR }}
+            build/web-e2e
           if-no-files-found: warn

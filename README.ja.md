@@ -4,7 +4,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 [English](README.md)
 
-> **現状: 公開済みの最新版は v0.2.0 で、リポジトリはそれより大きく先に進んでいます。** あの版は desktop のみで、M0 から M3.5 までが入っています。その後リポジトリには Android と iOS のクロスビルド（M4）と、生成される binding 層およびカメラ校正（M5）が加わりましたが、**どれもまだ公開されていません。** Windows x64 / macOS arm64 / Linux x64 は CI がビルド・テスト・パッケージ化しており、Unity 自身が Mono（EditMode）と実物の IL2CPP Player の両方でプラグインを動かしています。**Android arm64 と iOS arm64 は CI がクロスビルドしますが、公開版には入っておらず、実機で一度も動かしていません。** Web（M6）は未着手です。**以下に書いてあることは「リポジトリの現状」であって「落とせるもの」ではありません** —— v0.2.0 に入っているのは `Mat` のライフサイクルと buffer 転送、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の画像 encode / decode、そして desktop 3 platform を 1 つにまとめたパッケージまでです。**公開している C ABI はどちらにせよ意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP を正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
+> **現状: 公開済みの最新版は v0.2.0 で、リポジトリはそれより大きく先に進んでいます。** あの版は desktop のみで、M0 から M3.5 までが入っています。その後リポジトリには Android と iOS のクロスビルド（M4）と、生成される binding 層およびカメラ校正（M5）が加わりましたが、**どれもまだ公開されていません。** Windows x64 / macOS arm64 / Linux x64 は CI がビルド・テスト・パッケージ化しており、Unity 自身が Mono（EditMode）と実物の IL2CPP Player の両方でプラグインを動かしています。**Android arm64 と iOS arm64 は CI がクロスビルドしますが、公開版には入っておらず、実機で一度も動かしていません。** Web / Wasm（M6）はリポジトリに入っており、CI が headless のブラウザで実際に走らせます（**他の platform には無い制限が 1 つあります** —— PNG が使えません。下記）。**以下に書いてあることは「リポジトリの現状」であって「落とせるもの」ではありません** —— v0.2.0 に入っているのは `Mat` のライフサイクルと buffer 転送、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の画像 encode / decode、そして desktop 3 platform を 1 つにまとめたパッケージまでです。**公開している C ABI はどちらにせよ意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP を正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
 
 ## これは何か
 
@@ -28,7 +28,18 @@ macOS のプラグインはパッケージに入っており、Unity 自身が P
 
 **ビルドはされているが、実機で一度も動かしていないもの**: Android arm64-v8a と iOS arm64。CI は両方をクロスコンパイルし、Android の `.so` については**実物の ELF program header を読んで** 16 KB page 整列を確かめ、iOS の `.a` については**このプラグインが参照する OpenCV のシンボルを実際に束ねているか**を確かめます。**しかしそれは、電話機の上で動かすこととは別です。** Android / iOS のどの端末も、これらの binary を読み込んだことがありません。リポジトリには入っており次の版に含まれますが、[実機検証の手順](docs/m4-device-verification.md)を誰かが実施するまでは未検証として扱ってください。
 
-**予定**: Web / Wasm。全体を通して Unity 6000.3 以降が必要です。
+**Web / Wasm はリポジトリに入っており、実際にブラウザで動きます** —— headless の
+Chromium が本物の WebGL Player を読み込み、EditMode と IL2CPP Player が走らせるのと
+同じ検証本体を走らせます（**写しではなく同じ関数**です）。**そのうち 1 件だけ Web で経路が変わります** ——
+encode / decode の検査が PNG ではなく JPEG を使うので、**画素の一致までは主張できません**。
+ただし **他の platform には無い制限が 1 つあります:
+`imgcodecs` が扱えるのは JPEG だけで、PNG は扱えません。** Unity の WebGL 支援は
+自前の libpng を同梱しているため、OpenCV の libpng を束ねると Player のリンクが
+シンボルの重複で失敗し、束ねないと OpenCV の PNG コードが未解決で失敗します。
+どちらの極端も通らないので、Web のビルドでは PNG を外してあります。
+**他の 5 platform は PNG / JPEG の両方を扱えます。**
+
+全体を通して Unity 6000.3 以降が必要です。
 
 ## 導入
 
@@ -36,7 +47,7 @@ macOS のプラグインはパッケージに入っており、Unity 自身が P
 
 **公開済みの版（v0.2.0）は desktop のみで、意図的に小さく作ってあります**: `Mat` のライフサイクル、`cvtColor` / `resize` / `GaussianBlur`、そしてメモリ上の byte 配列との間で PNG と JPEG を encode / decode する機能です。**この ABI はファイルパスを一切受け取りません** —— byte buffer だけです。これは意図したもので、Android の APK に入った `StreamingAssets` のファイルには開けるパスが存在せず、境界を越えるパスは Windows の文字コードの問題を引きずり込むためです。
 
-**リポジトリにはその版より多くのものが入っており**、次の版がそれを運びます: Android と iOS の binary、QR コードの符号化・復号、ORB の特徴点、射影変換の推定、そして単眼カメラ校正の 3 段（盤の格子点を見つける / 係数を解く / その係数で歪みを補正する）。全体像と**意図的に出していないもの**は [API リファレンス](docs/api-reference.md)に、本数そのものは [API 対応表](docs/api-map.md)の冒頭にあります。Web は未対応です。
+**リポジトリにはその版より多くのものが入っており**、次の版がそれを運びます: Android と iOS の binary、QR コードの符号化・復号、ORB の特徴点、射影変換の推定、そして単眼カメラ校正の 3 段（盤の格子点を見つける / 係数を解く / その係数で歪みを補正する）。全体像と**意図的に出していないもの**は [API リファレンス](docs/api-reference.md)に、本数そのものは [API 対応表](docs/api-map.md)の冒頭にあります。Web は動きますが PNG が使えません（下記）。
 
 **Linux では v0.1.1 以降を使ってください。** v0.1.0 の Linux プラグインは glibc 2.38 に対してビルドされており、それより古い環境（Ubuntu 22.04 を含む）では `DllNotFoundException` で読み込めません。v0.1.1 以降、Linux の成果物は Ubuntu 22.04 のコンテナでビルドしており、要求するのは glibc 2.34 だけです。
 
@@ -49,6 +60,7 @@ com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
 com.ayutaz.opencv-unity-native-<version>-android-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-ios-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-web-wasm.tgz
 ```
 
 platform ごとの一覧は platform が増えれば増えます。**どれが実在するかは、
@@ -113,6 +125,7 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 - .NET 8 SDK 以降
 - PowerShell 7 以降
 - [GitHub CLI](https://cli.github.com/)（`gh`、認証済み）—— `tools/opencv.ps1 restore` がビルド済み OpenCV の artifact を落とすのに使います
+- **Web（Wasm）のビルドにだけ要るもの:** [Ninja](https://ninja-build.org/) と Unity の WebGL Build Support。Emscripten は Visual Studio generator では駆動できないので、**Windows で Ninja が要るのはこの platform だけ**です。`PATH` の外に置いているなら `OCVU_NINJA` で渡せます。他の platform には要りません。
 
 ## 開発
 
@@ -168,13 +181,19 @@ CI は Unity のレーン以外、すべて同じ `tools/dev.ps1` を呼びま�
 
 ### CI が見ているもの
 
-| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 |
-| --- | --- | --- | --- | --- | --- |
-| L1 契約テスト + L3 P/Invoke | あり | あり | あり | クロスビルドのみ | クロスビルドのみ |
-| L2 sanitizer | ASan | — | ASan + **LeakSanitizer** | — | — |
-| 成果物の linkage と有効言語 | あり | あり | あり | 16 KB page size | 束ねたシンボル |
-| Unity EditMode（L4） | ローカルのみ | ローカルのみ | **あり** | — | — |
-| Unity IL2CPP Player（L5） | ローカルのみ | — | **あり** | — | — |
+| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 | Web wasm32 |
+| --- | --- | --- | --- | --- | --- | --- |
+| L1 契約テスト + L3 P/Invoke | あり | あり | あり | クロスビルドのみ | クロスビルドのみ | クロスビルドのみ |
+| L2 sanitizer | ASan | — | ASan + **LeakSanitizer** | — | — | — |
+| 成果物の linkage と有効言語 | あり | あり | あり | 16 KB page size | 束ねたシンボル | 束ねたシンボル + SIMD |
+| Unity EditMode（L4） | ローカルのみ | ローカルのみ | **あり** | — | — | — |
+| Unity IL2CPP Player（L5） | ローカルのみ | — | **あり** | — | — | — |
+| **ブラウザでの端から端まで** | — | — | — | — | — | **あり** |
+
+**Web の列だけ性質が違います** —— CI が本物の WebGL Player を建てて
+**headless の Chromium で実際に走らせる**ので、EditMode と IL2CPP Player が
+走らせるのと同じ検証本体がブラウザでも走ります。
+**sanitizer のレーンはありません**（クロスした sanitizer は host で走らせられません）。
 
 モバイルの列が「クロスビルドのみ」なのは、それが CI にできることの全部だからです —— コンパイルして成果物を検査しますが、**どの実機もそれらを読み込んだことがありません。**
 

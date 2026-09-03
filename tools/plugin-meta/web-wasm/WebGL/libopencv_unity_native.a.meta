@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 93432e65bb334e6995a319bd60bd64c6
+guid: 76907745a55b491da43cd7326ca09002
 PluginImporter:
   externalObjects: {}
   serializedVersion: 3
@@ -19,15 +19,13 @@ PluginImporter:
       settings:
         CPU: None
     Editor:
-      enabled: 1
+      enabled: 0
       settings:
-        CPU: X86_64
         DefaultValueInitialized: true
-        OS: Linux
     Linux64:
-      enabled: 1
+      enabled: 0
       settings:
-        CPU: x86_64
+        CPU: None
     OSXUniversal:
       enabled: 0
       settings:
@@ -41,13 +39,14 @@ PluginImporter:
       settings:
         CPU: None
     WebGL:
-      enabled: 0
+      enabled: 1
       settings: {}
     iOS:
       enabled: 0
       settings:
         AddToEmbeddedBinaries: false
-        CPU: None
+        CompileFlags: 
+        FrameworkDependencies: 
   userData: 
   assetBundleName: 
   assetBundleVariant: 

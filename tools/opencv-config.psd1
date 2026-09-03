@@ -91,6 +91,29 @@
             Architecture = 'arm64'
             BuildType    = 'Release'
         }
+
+        <#
+            Web / Wasm。**クロスコンパイルであり、かつ静的ライブラリである**
+            —— iOS と同じ 2 つの性質を同時に持つ。
+
+            toolchain は cmake/toolchains/web-wasm.cmake（Unity 同梱または
+            emsdk の Emscripten.cmake を include する）。
+
+            **Architecture は wasm32 と書く。** CMake の -A には渡さない
+            （Ninja generator は -A を取らない）が、**構成ハッシュに混ざる**
+            ので、将来 wasm64 を足したときに別ハッシュになる。
+
+            **ここに新しいキーを足しても、既存 platform のハッシュは動かない**
+            —— Get-OpenCvConfig が組み立てるのは Toolchains[$Platform] だけで
+            ある（2026-09-03 に実測。windows-x64 / linux-x64 / android-arm64 の
+            ハッシュが web-wasm 追加の前後で同一だった）。**対して Modules を
+            触ると全 platform が動く**ので、Web のために module を足さないこと。
+        #>
+        'web-wasm' = @{
+            Generator    = 'Ninja'
+            Architecture = 'wasm32'
+            BuildType    = 'Release'
+        }
     }
 
     # platform 固有の CMake flag。共通の CMakeArgs に足される。
@@ -155,6 +178,114 @@
             # bitcode は Xcode 14 で廃止された。明示的に切らないと古い CMake が
             # 有効化しようとする。
             '-DCMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE=NO'
+        )
+
+        <#
+            Web / Wasm。**この一覧は着手時の仮説であり、configure summary を
+            読んでから確定させる**（計画の Task 2 Step 4）。想定外の依存が
+            有効なら、名前を allowlist に足す前に一次情報でライセンスを確認し、
+            THIRD_PARTY_NOTICES.md に全文を足すこと（M4 の cpufeatures と同じ形）。
+        #>
+        'web-wasm' = @(
+            # wasm に共有ライブラリは無い。
+            '-DBUILD_SHARED_LIBS=OFF'
+            # **single-thread を先に成立させる**（roadmap の完了条件 3）。
+            # threads profile は非ゴールで、別 profile として後続する。
+            '-DWITH_PTHREADS_PF=OFF'
+            # ブラウザから開けるカメラ・動画は videoio ではなく Unity 側の
+            # 担当なので、ここでは要らない（既定でも切ってあるが明示する）。
+            '-DWITH_FFMPEG=OFF'
+            '-DWITH_GSTREAMER=OFF'
+            # host 向けの実行ファイルを作らせない。クロスでは動かせない。
+            '-DBUILD_opencv_apps=OFF'
+            '-DBUILD_PERF_TESTS=OFF'
+            '-DBUILD_TESTS=OFF'
+
+            <#
+                **SIMD を有効にする。これは選択ではなく、必要である。**
+
+                OpenCV は wasm 向けに intrin_wasm.hpp（SIMD 実装）を使う。
+                コンパイラ側で simd128 が有効でないと、そこが always_inline
+                の要件を満たせず**ビルドが止まる**（2026-09-03 に実測）:
+
+                    error: always_inline function 'wasm_f32x4_add' requires
+                    target feature 'simd128', but would be inlined into
+                    function ... that is compiled without support for 'simd128'
+                    error: '__builtin_wasm_shuffle_i8x16' needs target feature simd128
+
+                **つまり「SIMD 無しの wasm ビルド」は、この構成では成立しない**
+                —— 成立させるなら CV_ENABLE_INTRINSICS=OFF にして別の構成を
+                作ることになる。roadmap の完了条件 3 は
+                「single-thread / SIMD を先に成立させる」なので、
+                **SIMD 有りが出荷する構成である。**
+
+                **この flag が効いていることの負の対照は強い** —— 外すと
+                ビルドが通らない（上のエラー）。加えて出来た wasm に SIMD の
+                命令が入っていることを tools/verify-wasm-features.ps1 が見る
+                （計画の Task 5）。
+
+                threads は非ゴールなので -mthreads は入れない。
+            #>
+            # **-fexceptions も要る。** Emscripten は既定で C++ 例外を無効に
+            # するので、OpenCV が投げた例外を **こちらの OCVU_TRY_END が
+            # 捕まえられない**（実測: 束ねた .a に __cxa_throw が 244 件、
+            # __cxa_begin_catch が 0 件）。**両側に要る** —— 投げる側
+            # （OpenCV）と捕まえる側（この plugin）のどちらが欠けても
+            # バリアは成立しない。
+            '-DCMAKE_C_FLAGS=-msimd128 -fexceptions'
+            '-DCMAKE_CXX_FLAGS=-msimd128 -fexceptions'
+
+            <#
+                **x86 の baseline / dispatch を空にする。これも必要である。**
+
+                `-msimd128` を付けると Emscripten の SSE 互換ヘッダ
+                （compat/emmintrin.h 等）が使えるようになり、**OpenCV の CPU
+                検査が「SSE が在る」と判断して x86 の経路を選ぶ。**
+                ところが互換ヘッダは完全ではないので、そこで落ちる
+                （2026-09-03 に実測）:
+
+                    error: use of undeclared identifier '_mm_setr_epi64'
+                    error: cannot initialize a parameter of type 'long long'
+                    with an rvalue of type '__m128i' (aka 'v128_t')
+
+                **欲しいのは wasm の SIMD（intrin_wasm.hpp）であって、
+                SSE の翻訳ではない。** 空にすると OpenCV は x86 の経路を
+                作らなくなり、wasm の実装が使われる。
+
+                **測った組み合わせは 2 つだけである**（正直に書く）:
+
+                  - `-msimd128` 無し・baseline 既定 → **落ちる**
+                    （always_inline が simd128 を要求する）
+                  - `-msimd128` 有り・baseline 既定 → **落ちる**
+                    （SSE 互換ヘッダの経路に入る。上のエラー）
+
+                **`-msimd128` 無し・baseline 空**は測っていない。
+                intrin_wasm.hpp が simd128 を要求する以上そちらも落ちるはず
+                だが、**「はず」であって実測ではない。**
+            #>
+            '-DCPU_BASELINE='
+            '-DCPU_DISPATCH='
+
+            <#
+                **Web では PNG を外す。これは機能の縮小であり、記録する。**
+
+                Unity の WebGL 支援は**自前の libpng を同梱している。**
+                こちらが OpenCV の libpng を束ねると **Player のリンク段で
+                シンボルが衝突する**（実測 2026-09-03: 9 シンボル 27 件。
+                `wasm-ld: error: duplicate symbol: png_get_eXIf`）。
+
+                **束ねないほうも成立しない** —— Unity 同梱は古い部分集合で、
+                OpenCV の PNG コードが要求する 60 シンボルが未解決になる
+                （`undefined symbol: png_destroy_read_struct` 等）。
+
+                **どちらの極端も通らないので、Web では PNG を持たない。**
+                `imgcodecs` は JPEG のみになる。**これは Web だけの制限で、
+                他の 5 platform は PNG / JPEG の両方を持つ。**
+
+                **利用者に見える制限なので、roadmap と README に書く。**
+                zlib は他が使うので残す（衝突していない）。
+            #>
+            '-DWITH_PNG=OFF'
         )
     }
 

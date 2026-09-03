@@ -22,7 +22,7 @@ param(
         「Windows の構成で Android をビルドする」が静かに成立する ——
         **成功したように見えて中身が別物になる。**
     #>
-    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')]
     [string]$Platform
 )
 
@@ -111,6 +111,7 @@ function Invoke-Build {
     $crossToolchains = @{
         'android-arm64' = 'cmake/toolchains/android-arm64.cmake'
         'ios-arm64'     = 'cmake/toolchains/ios-arm64.cmake'
+        'web-wasm'      = 'cmake/toolchains/web-wasm.cmake'
     }
     $toolchainArgs = @()
     if ($crossToolchains.ContainsKey($Config.Platform)) {
@@ -120,6 +121,59 @@ function Invoke-Build {
         }
         $toolchainArgs = @("-DCMAKE_TOOLCHAIN_FILE=$tc")
         Write-Host "==> cross-compiling for $($Config.Platform) via $tc" -ForegroundColor Cyan
+
+        <#
+            Web / Wasm は toolchain だけでは足りない —— Emscripten の在り処と
+            生成した config を渡す必要がある。
+
+            **在り処を探す規則はここに書かない。** tools/Emscripten.psm1 が
+            1 箇所で持ち、Unity 同梱と emsdk のどちらを使うかもそこが決める。
+            **CMake 側にも同じ探索を書くと、片方だけ直したときに気づけない。**
+
+            EM_CONFIG を環境変数で渡すのは emcc の作法である（同梱の状態では
+            config が無く、LLVM_ROOT が未設定で動かない —— 2026-09-03 に実測）。
+        #>
+        if ($Config.Platform -eq 'web-wasm') {
+            Import-Module (Join-Path $PSScriptRoot 'Emscripten.psm1') -Force
+            $em = Get-EmscriptenToolchain
+            Write-Host "==> Emscripten $($em.Version) ($($em.Source)) at $($em.Root)" -ForegroundColor Cyan
+            $env:EM_CONFIG = $em.ConfigFile
+            # **-D と環境変数の両方で渡す。** -D は try_compile の入れ子へは
+            # CMAKE_TRY_COMPILE_PLATFORM_VARIABLES に載せない限り届かない
+            # （toolchain 側で載せてある）。環境変数はその保険である。
+            $env:OCVU_EMSCRIPTEN_ROOT = $em.Root
+            # .NET の Replace は文字どおり置換する。-replace は正規表現なので、
+            # 区切り文字そのものを置きたいこの用途では使えない（実測: 不正なパターンで落ちた）。
+            $toolchainArgs += "-DOCVU_EMSCRIPTEN_ROOT=$($em.Root.Replace([char]92, '/'))"
+
+            <#
+                **Ninja が要る。** Emscripten は Visual Studio generator では
+                使えないので、Windows でもこの platform だけは Ninja になる。
+                android-arm64 / ios-arm64 も Ninja だが、あちらは CI 専用
+                （Linux / macOS の runner には元から在る）なので、**Windows で
+                Ninja が要る platform はこれが初めてである。**
+
+                無いときの CMake の言い分は
+                「CMAKE_MAKE_PROGRAM is not set」で、**何を入れればよいかを
+                言わない。** 手前で捕まえて名指しする。
+
+                OCVU_NINJA は逃げ道である（PATH に置きたくない場合や、
+                別の場所にある物を使う場合）。
+            #>
+            $ninja = if ($env:OCVU_NINJA) { $env:OCVU_NINJA }
+                     else { (Get-Command 'ninja' -ErrorAction SilentlyContinue)?.Source }
+            if (-not $ninja -or -not (Test-Path -LiteralPath $ninja)) {
+                throw (@(
+                    'web-wasm のビルドには Ninja が要ります（Emscripten は Visual Studio generator では使えません）。'
+                    '次のいずれかを行ってください:'
+                    '  - Ninja を導入して PATH に置く（winget install Ninja-build.Ninja）'
+                    '  - 環境変数 OCVU_NINJA に ninja の実行ファイルを渡す'
+                    ''
+                    'CI（Linux / macOS runner）には元から在るので、この経路で止まるのはローカルだけです。'
+                ) -join "`n")
+            }
+            $toolchainArgs += "-DCMAKE_MAKE_PROGRAM=$($ninja.Replace([char]92, '/'))"
+        }
     }
 
     $cmakeArgs = @(
