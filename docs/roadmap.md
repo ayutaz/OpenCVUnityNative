@@ -927,7 +927,7 @@ staging・`SHA256SUMS` の生成が空撃ちでは 1 行も走らなかった。
 このマシンに元からある 3 platform の木で走っていた —— **公開物を検証したことにならない**ので、
 ローカル分を退避してやり直した。
 
-### 配布 その 4 — v0.3.0（2026-08-31。**下書きのまま止めてある**）
+### 配布 その 4 — v0.3.0（2026-08-31 の下書き。**2026-09-03 に破棄して打ち直した**）
 
 `v0.3.0` の tag を打ち、`release.yml` が **28 asset の下書きを作った**（run 33348283112、
 `Publish the release` を含む全 job success）。**公開はしていない。**
@@ -979,7 +979,7 @@ M4 の完了条件 9 件のうち 3 件が閉じておらず、2 件が実機で
 （以前ここには「消す必要は無い」と書いてあったが、**同じ版番号を再利用する
 ことにしたので消す必要が出た** —— 残すと新旧の asset が混ざる）。
 
-### 配布 その 5 — v0.3.0（**先送りの条件が満たされた。これが次にやることである**）
+### 配布 その 5 — v0.3.0（**先送りの条件が満たされ、2026-09-03 に着手した**）
 
 > **更新（2026-09-03、M6 完了後）。この節はもう「いつかの手順書」ではない。**
 > **待っていた条件（M6 が片づくこと）が満たされたので、これが次にやることである。**
@@ -1079,8 +1079,23 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    `tools/dev.ps1` の `$AllPlatformBinaries`** —— 「5 つ揃っていれば合格」と読むと
    WebGL の欠落を見逃す）、生成された `.g.cs` が入っていること、
    Linux の GLIBC 要求、Android の page size、iOS の `.a` を見る（**「配布 その 4」の表と同じ項目**）
-7. **公開する**（`gh release edit v0.3.0 --draft=false`）
-8. **OpenUPM が拾うことを確かめる。** 確かめ方:
+7. **配る tarball を、実際に Unity へ導入して確かめる。** **これは step 6 とは別である**
+   —— step 6 は「中に何が入っているか」を見るが、**入っている物で Unity が
+   導入できるかは見ない。** M3 でこのレーンを足して初めて「**UPM が導入できない
+   tarball**」が見つかっており、v0.1.0 は「ビルドできた ≠ 動く」を踏んでいる。
+
+   ```sh
+   # 下書きから全部入りを落として展開し、その 6 platform 分を材料に固め直して導入する
+   gh run download <run> -n release-assets -D <dir>
+   tar -xzf <dir>/com.ayutaz.opencv-unity-native.tgz -C <out>
+   ./tools/dev.ps1 test-unity-tarball -PluginSource "<out>/package"
+   ```
+
+   **このレーンはどの workflow からも走らない**ので、ここで人がやらなければ
+   誰もやらない。**platform が増えた版では必ず回すこと** —— 新しい形の binary と
+   `.meta` が初めて全部入りに入るのは、その版だからである。
+8. **公開する**（`gh release edit v0.3.0 --draft=false`）
+9. **OpenUPM が拾うことを確かめる。** 確かめ方:
 
    ```sh
    curl -s https://package.openupm.com/com.ayutaz.opencv-unity-native |
@@ -1090,12 +1105,30 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    これが `0.3.0` を返せば配信されている。**OpenUPM はビルドキューを持つので、
    公開した直後には反映されない** —— v0.2.0 のときも数時間かかった。
    **「登録済みだから自動で拾うはず」で終わらせない。**
-9. **公開後に文書を更新する。** 「最新の公開版」を書いている場所は次のとおり:
+
+   **レジストリだけでは足りない。** v0.3.0 には**古いコミットに紐づいた失敗
+   レコード**が既に在るので（上記）、**それが新しい tag を指し直したか**まで見る:
+
+   ```sh
+   curl -s https://api.openupm.com/packages/com.ayutaz.opencv-unity-native |
+     python -c "import sys,json;print([r for r in json.load(sys.stdin)['releases'] if r['version']=='0.3.0'])"
+   ```
+
+   **`state` が 3（失敗）から 2（公開済み）に変わり、`commit` が新しい tag の
+   指すコミットになること**を確かめる。変わらなければ OpenUPM 側で再ビルドを
+   促すことになる。**「レジストリに出たから終わり」にしない** ——
+   古いレコードが残ったままだと、次の版でも同じところで詰まる。
+10. **公開後に文書を更新する。** 「最新の公開版」を書いている場所は次のとおり:
    `docs/roadmap.md`（この節と「配布」の各節）、`CLAUDE.md`（現在地の段）、
    `docs/README.md`（Status）、`README.md` と `README.ja.md`（冒頭の Status と
    「導入」の節）、`docs/api-reference.md`（対象範囲）、
-   `.github/release-notes.md`（次の版のために「前の版」を繰り上げる）。
-   **7 ファイルある。** 1 つでも古いと、次に読む人が違う版を前提に動く。
+   `.github/release-notes.md`（次の版のために「前の版」を繰り上げる）、
+   `docs/openupm-registration.md`（「`0.2.0` を配信している」）、
+   `docs/unity-opencv-integration-research-and-plan.md`（比較表の前書き。
+   **ここは既に古い** —— M6 が抜けている）。
+   **9 ファイルある。** 1 つでも古いと、次に読む人が違う版を前提に動く。
+   **この数も写しである** —— 増えたら一緒に直すこと（実際 2026-09-03 の
+   レビューで 7 から 9 に増えた）。
 
 #### 既存の v0.3.0 の tag と下書きをどうするか
 
@@ -1109,17 +1142,56 @@ v0.4.0 を新しく打つ」と書いてあったが、**再利用する**こと
 | 確かめたこと | 結果 |
 | --- | --- |
 | Release は公開されているか | **下書きのまま。** GitHub の下書きは write 権限を持つ人にしか見えない |
-| OpenUPM が拾っているか | **`0.2.0` だけ。** `dist-tags.latest` も `0.2.0`（`curl` で実測） |
+| OpenUPM の**レジストリ**が配信しているか | **`0.2.0` だけ**（`package.openupm.com`。`dist-tags.latest` も `0.2.0`） |
+| OpenUPM の**ビルド pipeline**は知っているか | **知っている。ただし失敗し続けている**（下記） |
 
 **したがって `v0.3.0` という名前で世に出た物は 1 つも無く、番号を飛ばす理由が無い。**
+
+**ただし「OpenUPM は何も知らない」ではない。** `api.openupm.com` を叩くと、
+**tag を打った 5 分後（2026-08-31T01:45Z）に v0.3.0 を検出し、以来 16 回
+probe して失敗している**ことが分かる（2026-09-03 に実測）:
+
+```json
+{"tag":"v0.3.0","version":"0.3.0","state":3,"reason":904,
+ "commit":"cadd52fcba0b3d1c44442adc991d0b379ad09bed",
+ "githubReleaseAssetMissingProbeCount":16}
+```
+
+`state:3` は失敗、`reason:904` は「Release の asset が取れない」（下書きなので当然）。
+**注意すべきは `commit` が古い tag の指す先に紐づいていること**である ——
+tag を打ち直した後に OpenUPM がそれを拾い直すかは、**確かめるまで分からない**
+（step 8）。**まだ諦めずに probe し続けている**ので、公開すれば拾う見込みは高い。
 
 **やること（この順で）:**
 
 1. **古い下書きを消す**（`gh release delete v0.3.0 --yes`）。**asset 28 件は
    M5 が main に入る前のもので、生成物が 1 つも入っていない** —— 残すと
-   `release.yml` が新しい asset を足したときに、**新旧が混ざった Release になる**
-2. **tag を消して打ち直す**（remote と local の両方）。**片方だけ消すと、
+   `release.yml` が新しい asset を足したときに、**新旧が混ざった Release になる。**
+   **`--cleanup-tag` を付けると remote の tag も一緒に消えるが、local は残る**
+   ので、どちらにせよ次の step は要る
+2. **tag を消して打ち直す**（**remote と local の両方**）。**片方だけ消すと、
    次の push で古いほうが復活する**
+
+   ```sh
+   git push origin :refs/tags/v0.3.0    # remote
+   git tag -d v0.3.0                    # local
+   git checkout main && git pull        # ★ merge 済みの main を取り直す
+   git tag -a v0.3.0 -m "..."           # ★ annotated で打つ
+   git push origin v0.3.0
+   ```
+
+   **`-a` を忘れないこと。** 元の v0.3.0 は annotated tag だったので、
+   `git tag v0.3.0` だけだと種類が変わる（`release.yml` は `github.ref_name`
+   しか見ないので動作は変わらないが、揃えない理由も無い）。
+
+   **どのコミットに打つかを間違えないこと。** step 4 で main へ入れた**後**の
+   main の先端である —— **作業ブランチの先端に打つと、`package.json` は
+   合っていても main に無いコミットを配ることになる。**
+
+   **他所のクローンには古い tag が残る。** `git fetch` は取得済みの tag を
+   更新しないので、別のクローンや fork では `git fetch --tags --force` が要る
+   （CI は `actions/checkout` が毎回新規取得するので影響しない）。
+   **tag protection も ruleset も無いことは確認済み**なので、削除と再作成は通る
 3. tag を push すると `release.yml` が新しい下書きを作る
 
 **これは取り消しにくい操作である。** 実行する前に人の確認を取ること ——
@@ -1137,12 +1209,22 @@ v0.4.0 を新しく打つ」と書いてあったが、**再利用する**こと
       （**5 つ揃っていれば合格、という読み方をすると WebGL の欠落を見逃す**）。
       **`docs/api-map.md` は package に入らない** ——
       あれはリポジトリの文書であって、配布物の一部ではない
+- [x] **配る全部入り tarball が、実際に Unity プロジェクトへ導入できる。**
+      **2026-09-03 に実測した**（このマシン、Windows）—— `release.yml` の空撃ち
+      （run 33753353680）が作った `com.ayutaz.opencv-unity-native.tgz` を展開し、
+      その 6 platform 分を材料に固め直して使い捨てのプロジェクトへ導入した:
+      `==> [tarball] output says: native plugins present: 6 [` /
+      `==> [tarball] 34 passed` / `PluginGatingTests` 4 件が個別に passed / exit 0。
+      **これは「中に 6 つ入っている」とは別の主張である** —— 入っている物で
+      Unity が導入でき、**自分の platform 向けだけを有効にする**ところまで見た。
+      **5 platform までの実績しか無かった**（2026-08-31）ので、Web を含む形は
+      これが初めてである
 - [ ] リリースノートと `README.md` / `README.ja.md` に**モバイルが実機未検証であること**が明記されている
 - [ ] **リリースノートに Web の制限（`imgcodecs` は JPEG のみ）が書いてある。**
       **これは他の platform に無い機能の欠落**なので、利用者が導入前に読める
       場所に無ければならない
 - [ ] OpenUPM が `0.3.0` を配信する（**確かめるまでが作業**。「登録済みだから自動で拾うはず」で終わらせない）
-- [ ] 公開後に「最新の公開版」の記述を更新する（**7 ファイル。一覧はやること 9 にある** —— ここに写すと 2 つが食い違う）
+- [ ] 公開後に「最新の公開版」の記述を更新する（**9 ファイル。一覧はやること 10 にある** —— ここに写すと 2 つが食い違う）
 
 #### 非ゴール
 

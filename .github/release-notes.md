@@ -43,6 +43,12 @@ Git URL で参照しても `.meta` しか届かず、`DllImport` が実行時に
 
 ## 検証
 
+**この全部入りパッケージは、使い捨ての Unity プロジェクトへ実際に導入して
+確かめてある** —— 6 platform 分の binary が入った状態で Unity が読み込み、
+**自分の platform 向けだけを有効にする**ところまで見ている
+（`native plugins present: 6` / EditMode 34 件 pass）。
+**「中に 6 つ入っている」とは別の主張である。**
+
 全 asset の SHA-256 は `SHA256SUMS.txt` にある。
 
 ```sh
@@ -113,7 +119,6 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
 - **macOS 上で Unity を起動していない。** macOS の binary と `.meta` は
   全部入りに入って全利用者に届くが、Unity に読ませているのは Windows と Linux 上だけ
   である（`.meta` の解釈自体は `PluginImporter` に問うて確認済み）
-
 - **Web は 1 つのブラウザでしか動かしていない。** CI は Linux の headless
   Chromium で実際に Player を起動し、P/Invoke とメモリ転送と代表処理を通して
   いる（**「ビルドできた」で止めていない**）。**しかし他のブラウザ・実機・
@@ -167,7 +172,9 @@ asset は全部で 33 件（6 platform × 5 + 全部入りの 2 + `SHA256SUMS.tx
 ビルドしたモジュール、依存バージョン、CMake flags が実測で入っている。
 
 **Android は third-party が 2 件多い**（`cpufeatures` の LICENSE と README。Android NDK
-由来、BSD-3-Clause）。`THIRD_PARTY_NOTICES` に全文がある。
+由来、BSD-3-Clause）。**Web は逆に 2 件少ない**（`libpng` の LICENSE と README。
+上の PNG の制限と同じ理由で、**そもそも入っていない**）。
+`THIRD_PARTY_NOTICES` に全文がある。
 
 ## OpenUPM
 
