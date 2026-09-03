@@ -160,6 +160,7 @@ $ToolsTestScriptsFast = @(
     'OpenCvConfig.Tests.ps1'
     'ConfigInvalidation.Tests.ps1'
     'BindingGenerator.Tests.ps1'
+    'EmscriptenVersion.Tests.ps1'
 )
 
 $ToolsTestScriptsSlow = @(
