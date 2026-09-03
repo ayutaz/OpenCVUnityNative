@@ -43,8 +43,10 @@ Git URL で参照しても `.meta` しか届かず、`DllImport` が実行時に
 
 ## 検証
 
-**この全部入りパッケージは、使い捨ての Unity プロジェクトへ実際に導入して
-確かめてある** —— 6 platform 分の binary が入った状態で Unity が読み込み、
+**この形の全部入りパッケージを、使い捨ての Unity プロジェクトへ導入して
+確かめてある** —— 同じ配線（`assemble-plugins.ps1` → `pack-upm-tarball.ps1`。
+このパッケージを作ったのと同じ script）が作った tarball を展開し、
+6 platform 分を材料に固め直して導入した。6 つ入った状態で Unity が読み込み、
 **自分の platform 向けだけを有効にする**ところまで見ている
 （`native plugins present: 6` / EditMode 34 件 pass）。
 **「中に 6 つ入っている」とは別の主張である。**
