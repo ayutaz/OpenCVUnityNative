@@ -3,9 +3,9 @@ OpenCV 5.0.0 を Unity 6000.3 以降向けに、独自の C ABI と C# API で�
 ## 導入
 
 **全部入りの tarball を 1 つ入れる。** `com.ayutaz.opencv-unity-native.tgz` に
-**Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64** の binary が
-**5 つとも**入っており、**Unity は自分の platform 向けだけを読み込む**（Plugin Import
-Settings がそう決めている）。
+**Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)**
+の binary が **6 つとも**入っており、**Unity は自分の platform 向けだけを読み込む**
+（Plugin Import Settings がそう決めている）。
 
 `manifest.json` に同じ package ID は 1 回しか書けないので、**platform ごとに分かれた
 tarball では「エディタは Windows、実機は Android」が表現できない**。これが全部入りを
@@ -99,12 +99,23 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   全部入りに入って全利用者に届くが、Unity に読ませているのは Windows と Linux 上だけ
   である（`.meta` の解釈自体は `PluginImporter` に問うて確認済み）
 
+- **Web は 1 つのブラウザでしか動かしていない。** CI は Linux の headless
+  Chromium で実際に Player を起動し、P/Invoke とメモリ転送と代表処理を通して
+  いる（**「ビルドできた」で止めていない**）。**しかし他のブラウザ・実機・
+  モバイルのブラウザでは動かしていない**
+
 実機で確かめる手順は `docs/m4-device-verification.md` にある。
 
 ## この版の範囲
 
 - **対応 platform**: Windows x64 / macOS arm64 / Linux x64 / **Android arm64-v8a** /
-  **iOS arm64**。**Web は未対応**
+  **iOS arm64** / **Web (WebGL)**
+- **Web にだけ在る制限: 画像の encode / decode は JPEG のみで、PNG を持たない。**
+  Unity の WebGL 支援が**自前の libpng を同梱している**ため、こちらが OpenCV の
+  libpng を束ねると Player のリンク段でシンボルが衝突する。束ねないほうも成立
+  しない（OpenCV の PNG コードが要求するシンボルが未解決になる）。**どちらの
+  極端も通らないので、Web では PNG を外した。他の 5 platform は両方持つ。**
+  `".png"` を渡すと失敗が返る
 - **CPU アーキテクチャ**: Android は arm64-v8a のみ（x86_64 エミュレータは非対応）、
   iOS は実機の arm64 のみ（シミュレータは非対応）
 - **公開 API**: `Mat` のライフサイクル（create / release / clone / get_info /
@@ -135,7 +146,7 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 いずれも復元済みの OpenCV の成果物（= その job の platform のもの）から作るので、
 束ねる側には元が無い。**統合版をでっち上げず**、中身の説明は platform ごとの 4 点に任せる。
 
-asset は全部で 28 件（5 platform × 5 + 全部入りの 2 + `SHA256SUMS.txt`）。
+asset は全部で 33 件（6 platform × 5 + 全部入りの 2 + `SHA256SUMS.txt`）。
 
 `build-manifest.json` には OpenCV のタグ、構成ハッシュ、generator、compiler、
 ビルドしたモジュール、依存バージョン、CMake flags が実測で入っている。
