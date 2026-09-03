@@ -40,7 +40,15 @@ has ever loaded these binaries. They are in the repository and will be in the ne
 release; treat them as unverified until someone runs
 [the device checklist](docs/m4-device-verification.md).
 
-**Planned:** Web/Wasm. Unity 6000.3 or newer throughout.
+**Web/Wasm is in the tree and actually runs in a browser** — a headless Chromium loads a
+real WebGL player and drives the same checks EditMode and the IL2CPP player run. It has
+**one limitation the other platforms do not have: `imgcodecs` decodes and encodes JPEG
+only, not PNG.** Unity's WebGL support ships its own libpng; bundling OpenCV's copy makes
+the player fail to link on duplicate symbols, and leaving it out makes OpenCV's PNG code
+fail to link on undefined ones. Neither extreme works, so the Web build has PNG turned
+off. Every other platform has both.
+
+Unity 6000.3 or newer throughout.
 
 ## Installing
 

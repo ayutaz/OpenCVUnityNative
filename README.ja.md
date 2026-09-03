@@ -28,7 +28,16 @@ macOS のプラグインはパッケージに入っており、Unity 自身が P
 
 **ビルドはされているが、実機で一度も動かしていないもの**: Android arm64-v8a と iOS arm64。CI は両方をクロスコンパイルし、Android の `.so` については**実物の ELF program header を読んで** 16 KB page 整列を確かめ、iOS の `.a` については**このプラグインが参照する OpenCV のシンボルを実際に束ねているか**を確かめます。**しかしそれは、電話機の上で動かすこととは別です。** Android / iOS のどの端末も、これらの binary を読み込んだことがありません。リポジトリには入っており次の版に含まれますが、[実機検証の手順](docs/m4-device-verification.md)を誰かが実施するまでは未検証として扱ってください。
 
-**予定**: Web / Wasm。全体を通して Unity 6000.3 以降が必要です。
+**Web / Wasm はリポジトリに入っており、実際にブラウザで動きます** —— headless の
+Chromium が本物の WebGL Player を読み込み、EditMode と IL2CPP Player が走らせるのと
+同じ検証本体を走らせます。ただし **他の platform には無い制限が 1 つあります:
+`imgcodecs` が扱えるのは JPEG だけで、PNG は扱えません。** Unity の WebGL 支援は
+自前の libpng を同梱しているため、OpenCV の libpng を束ねると Player のリンクが
+シンボルの重複で失敗し、束ねないと OpenCV の PNG コードが未解決で失敗します。
+どちらの極端も通らないので、Web のビルドでは PNG を外してあります。
+**他の 5 platform は PNG / JPEG の両方を扱えます。**
+
+全体を通して Unity 6000.3 以降が必要です。
 
 ## 導入
 

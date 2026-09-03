@@ -1564,6 +1564,18 @@ Unity Web Player 上で、**他の platform と同じ検証本体が通る。**
 - Web Player の起動、P/Invoke、メモリ転送、代表処理の browser E2E test。
   **「0 件で緑にしない」をここでも守る**
 
+**Web にだけ在る制限**（2026-09-03 に実測して確定）
+
+- **`imgcodecs` は JPEG のみ。PNG は持たない。** Unity の WebGL 支援は
+  **自前の libpng を同梱している**ので、こちらが OpenCV の libpng を束ねると
+  Player のリンク段でシンボルが衝突する（9 シンボル 27 件。
+  `wasm-ld: error: duplicate symbol: png_get_eXIf`）。**束ねないほうも
+  成立しない** —— Unity 同梱は古い部分集合で、OpenCV の PNG コードが要求する
+  60 シンボルが未解決になる。**どちらの極端も通らないので、Web では
+  PNG を外した。他の 5 platform は PNG / JPEG の両方を持つ。**
+- **`DllImport` の名前が違う。** 静的リンクなので `__Internal` である
+  （iOS と同じ）。**これは利用者には見えない**（生成物が扱う）。
+
 **非ゴール**
 
 - **threads profile**（別 profile として後続）
