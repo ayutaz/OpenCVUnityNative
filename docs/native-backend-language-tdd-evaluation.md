@@ -206,9 +206,12 @@ C ABI に対する TDD では、**テストを実装言語の外側に置く**�
 - ~~**Web / Wasm をスコープから外す**~~ — **消えた（2026-09-03、M6）。**
   外すのではなく **C++ で実際にやったので、この検証項目は解決済みである。**
   Unity 同梱 Emscripten（6000.3 系は 3.1.39-git）で `.o` を作り `.a` に束ね、
-  実物のブラウザで Player を動かすところまで通した。**§3.4 が「Rust 案最大の
-  事前検証項目」と書いていた一致条件は、C++ 側では対応表 1 つと突き合わせ検査
-  1 本で済んだ**（`tools/emscripten-versions.psd1` / `tools/assert-emscripten-version.ps1`）。
+  実物のブラウザで Player を動かすところまで通した。**§4.6 が「Rust 案最大の
+  事前検証項目」と書いていた一致条件は、C++ 側では対応表 1 つと、それを守る
+  検査 2 本で済んだ** —— 表の自己整合を見るもの（`tools/tests/EmscriptenVersion.Tests.ps1`）と、
+  **Unity の実物と突き合わせるもの**（`tools/assert-emscripten-version.ps1`）。
+  **対でなければ、写しである表（`tools/emscripten-versions.psd1`）が現実と
+  合っているかを誰も見ない。**
   **Rust に移すなら、この一致条件を Rust の Emscripten target で作り直すことになる。**
 - ~~**iOS をスコープから外す**~~ — **消えた（2026-08-30、M4）。** 外さずに実装した
   （静的ライブラリを libtool で束ねる）。**ただし実機で動かした実績はまだ無い。**

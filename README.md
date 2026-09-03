@@ -396,6 +396,10 @@ Design and research documents (in Japanese) live under `docs/`:
 - [M3.5 implementation plan](docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md)
 - [M4 implementation plan](docs/superpowers/plans/2026-08-30-m4-mobile.md)
 - [M5 implementation plan](docs/superpowers/plans/2026-08-31-m5-binding-generator.md)
+- [M6 implementation plan](docs/superpowers/plans/2026-09-03-m6-web-wasm.md)
+
+The plans that closed M5's remaining criterion live beside them; the
+[documentation index](docs/README.md) lists all of them.
 - [Device verification checklist](docs/m4-device-verification.md) — what CI cannot close
 - [API reference](docs/api-reference.md)
 - [API map](docs/api-map.md) — generated from the binding spec

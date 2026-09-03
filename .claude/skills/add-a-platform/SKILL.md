@@ -9,7 +9,7 @@ description: Use when adding, removing, or changing a target platform for the na
 plugin のクロスビルドが緑になってから **CI で 8 回落ちた。** 落ちたのは
 いずれもビルドではなく、**platform の集合を持っている別の場所**である。
 
-このリポジトリには「対象 platform の一覧」が **17 箇所**ある。名前で持つ所、
+このリポジトリには「対象 platform の一覧」が **少なくとも 17 箇所**ある（**この数も古い** —— M6 で数え直したら足りず、CI が 5 往復して 9 件を出した）。名前で持つ所、
 ファイルのパスで持つ所、Unity の `BuildTarget` で持つ所、YAML の matrix で
 持つ所があり、**語彙が違うので grep 1 回では揃わない。**
 
@@ -70,6 +70,16 @@ if ($platforms.Count -lt 3) { Write-Error '...'; exit 1 }   # 読めなければ
 
 **写している場所は「直す場所」を 1 つ増やし、導出に変えれば 1 つ減る。**
 新しく platform 一覧を書きたくなったら、まず正本から読めないかを考えること。
+
+**M6 で 4 つ目が出た（2026-09-03）。同じファイルの中に振り分けが 2 つある形である。**
+`.github/workflows/release.yml` は「未知の platform は失敗させる」門を **2 箇所**持つ
+（linkage の検査と移植性の検査）。**M6 では後者にだけ web-wasm を足し、前者に
+足し忘れた** —— ローカルの全レーンは緑のまま、CI の `Package web-wasm` だけが落ち、
+`Assemble` がそれに連鎖した。**`pack-upm-tarball.ps1` の switch、
+`PackageRelease.Tests.ps1` の 3 つ目の一覧に続く 3 度目である。**
+`tools/tests/OpenCvConfig.Tests.ps1` に検査を足してあり、**一覧を持たない** ——
+`unknown platform '` を持つ step を全部見つけ、正本から読んだ全 platform が
+それぞれに現れることだけを見る。
 
 **hook が見えない一覧が、まだ 3 つある。** `check-platform-list-drift.sh` は
 **binary の相対パス**で判定するので、次の形は構造的に見えない:

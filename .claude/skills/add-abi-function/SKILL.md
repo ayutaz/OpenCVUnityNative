@@ -96,7 +96,7 @@ emitter を足して新しい生成物を出すときは、**その出力の先�
 `LNK2019` が出て戻すと通ることを確かめてある。
 
 **`tools/opencv-config.psd1` の `Modules` を触るのは、それ自体が 1 つの作業である。**
-あれは OpenCV 側が何をビルドするかで、変えると構成ハッシュが変わり 5 platform 分の
+あれは OpenCV 側が何をビルドするかで、変えると構成ハッシュが変わり**全 platform 分**の
 OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `09fcbe260d87`）。
 **`COMPONENTS` を変えてもハッシュは変わらない** —— ハッシュを算出する
 `Get-OpenCvConfigHash` が読むのは `psd1` だけである。

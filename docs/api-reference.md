@@ -380,15 +380,14 @@ byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の 
 から得たもの）。`CvOps` と別クラスにしてあるのは、`CvOps` が imgproc に範囲を
 限っているためである。
 
-> **Web では PNG が使えない。JPEG だけである。** 他の 5 platform は両方を
-> 扱えるが、**Web で `".png"` を渡すと失敗が返る**（`CvNativeException`）。
-> Unity の WebGL 支援が**自前の libpng を同梱している**ため、こちらが OpenCV の
-> libpng を束ねると Player のリンク段でシンボルが衝突し、束ねなければ OpenCV の
-> PNG コードが未解決になる。**どちらの極端も通らないので、Web のビルドでは
-> PNG を外してある**（M6、2026-09-03 に実測）。
+> **Web では PNG が使えない。JPEG だけである。**
+> **encode も decode も**通らない —— `Encode` に `".png"` を渡す場合だけでなく、
+> **`Decode` に PNG の byte 列を渡す場合も失敗する**（`CvNativeException`）。
+> 他の 5 platform は両方を扱える。
 >
-> **これは platform の対応状況ではなく、この API の挙動の差である。**
-> 下の表の `".png"` はそのまま Web には当てはまらない。
+> **これは platform の対応状況ではなく、この API の挙動の差**なので、
+> 例外的にここに書いてある。**理由は[ロードマップ](./roadmap.md)の M6 節にある**
+> （**ここには写さない**）。下の表の `".png"` はそのまま Web には当てはまらない。
 
 | メンバ | 内容 |
 | --- | --- |

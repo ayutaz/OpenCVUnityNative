@@ -240,6 +240,10 @@ Windows では、実行時ライブラリを埋め込まず共有する形でリ
 - [M3.5 実装計画](docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md)
 - [M4 実装計画](docs/superpowers/plans/2026-08-30-m4-mobile.md)
 - [M5 実装計画](docs/superpowers/plans/2026-08-31-m5-binding-generator.md)
+- [M6 実装計画](docs/superpowers/plans/2026-09-03-m6-web-wasm.md)
+
+M5 の残りの条件を閉じた計画はそれらの隣にあります。全部の一覧は
+[文書一覧](docs/README.md) にあります。
 - [実機検証の手順](docs/m4-device-verification.md) —— CI では閉じないもの
 - [API リファレンス](docs/api-reference.md)
 - [API 対応表](docs/api-map.md) —— binding spec から生成

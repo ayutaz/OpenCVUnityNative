@@ -318,6 +318,33 @@ status の追加が bump にならないのは、**呼ぶ側が未知の status 
 （C# 側の `CvNative.IsFailure` がこの形になっている）。網羅的な分岐を書いて未知の値で壊れる
 呼び出し側は、この契約に従っていない。
 
+### 2.3 platform 間の差は bump に当たらない（M6 で足した）
+
+**上の 2 つの一覧は「版と版の間」を規定していて、「platform と platform の間」を
+規定していなかった。** M6 で実際にその差が出たので、扱いをここに書く。
+
+**同じ版の中で、platform によって観測できる挙動が違うことがある。**
+実例は `imgcodecs` で、**Web だけが PNG を扱えない**（§3.5）—— 同じ
+`ocvu_imencode(mat, ".png", ...)` が、5 platform では `OCVU_STATUS_OK` を、
+Web では `OCVU_STATUS_OPENCV_ERROR` を返す。
+
+**これは bump に当たらない。** `OCVU_ABI_VERSION` が追うのは**宣言の形**
+（関数の signature、struct のレイアウト、status の数値と意味）であって、
+**その版でその platform が何をできるかではない。** 版が同じなら、
+どの platform でも同じ宣言・同じ struct・同じ status 表が使える。
+
+**「bump する変更」の『既存の呼び出しに対する挙動が変わる』と混同しないこと。**
+あちらは**時間方向**の話である —— 同じ platform で、版を上げたら答えが変わる。
+こちらは**空間方向**で、版は動いていない。
+
+**代わりに要求することが 2 つある。**
+
+1. **差は API 文書に明記する**（`docs/api-reference.md` の該当クラス）。
+   利用者が読むのはそちらで、ここではない。
+2. **allowlist からは外さない。** 出すと決めた関数は全 platform に在り、
+   `verify-generated` も到達性テストも全 platform で同じものを見る。
+   **「その platform では失敗する」と「その platform には無い」は別である。**
+
 ### 検査
 
 `OCVU_ABI_VERSION` と C# の期待値が一致することは L3 が既に見ている
@@ -389,15 +416,15 @@ spec に無い関数を実装すると `tools/tests/BindingGenerator.Tests.ps1` 
 byte 列だけで、ファイルパスは受けない**（理由は §1.6）。
 
 **扱える形式は platform で揃っていない**（M6 で確定、2026-09-03）。
-**Web だけは JPEG のみで、PNG を持たない** —— Unity の WebGL 支援が自前の
-libpng を同梱しているので、こちらが OpenCV の libpng を束ねると Player の
-リンクでシンボルが衝突し、束ねなければ OpenCV の PNG コードが未解決になる。
-**どちらの極端も通らないので、Web では PNG を外した。他の 5 platform は両方持つ。**
+**Web だけは JPEG のみで、PNG を持たない**（encode も decode も通らない）。
+**理由は [ロードマップ](./roadmap.md) の M6 節にある** —— **ここには写さない。**
 
 **この差は ABI の形を変えない。** 関数の signature も status code も同じで、
-**Web で `".png"` を渡したときに `OCVU_STATUS_OPENCV_ERROR` が返るだけ**である。
-したがって `OCVU_ABI_VERSION` は動かない（§2 の「bump しない変更」に当たる）。
-**allowlist から外しもしない** —— 出すと決めた関数は 6 platform すべてに在る。
+**Web では PNG の入出力が `OCVU_STATUS_OPENCV_ERROR` になる**だけである
+（**実測ではなく導出である** —— 扱えない拡張子がその status になることは
+L3 と共有の検証本体が確かめているが、`.png` そのものは測っていない）。
+**allowlist から外しもしない** —— 出すと決めた関数は全 platform に在る。
+**`OCVU_ABI_VERSION` の扱いは §2.3 にある。**
 
 **`imgcodecs` は M3.5 で初めてリンクされた。** それ以前の
 `cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` だけで、リポジトリ内の

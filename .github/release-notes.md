@@ -1,3 +1,10 @@
+<!--
+  **このファイルは実際に配られる Release の本文である**（release.yml が読む）。
+  中の絶対 URL は `v0.4.0` を指しているが、**その tag はまだ存在しない。**
+  配る版を決め直したら（roadmap の「配布 その 5」）、URL の版も一緒に直すこと ——
+  直さないと、公開した瞬間から 404 になる。
+-->
+
 OpenCV 5.0.0 を Unity 6000.3 以降向けに、独自の C ABI と C# API で提供する native UPM パッケージ。
 
 ## 導入
@@ -50,6 +57,10 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 ダウンロードする物そのものを対象にしている。
 
 ## 前の版（v0.2.0）から変わったこと
+
+- **Web / WebGL に対応した（6 つ目の platform）。** 静的ライブラリを IL2CPP の
+  wasm に静的リンクし、`DllImport("__Internal")` で解決する（iOS と同じ形）。
+  Unity 同梱の Emscripten と版を合わせてビルドする。**PNG は使えない**（下記）
 
 - **Android と iOS に対応した。** 全部入りの tarball に `Android/arm64-v8a` の `.so` と
   `iOS/libopencv_unity_native.a` が入る。iOS は静的ライブラリで、Unity が IL2CPP の
