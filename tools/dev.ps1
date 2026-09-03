@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-tarball', 'test', 'clean')]
+    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'test', 'clean')]
     [string]$Command = 'test',
 
     <#
@@ -902,6 +902,58 @@ function Stop-UnityTestPlayers {
     }
     return $killed
 }
+<#
+    Web / Wasm の Player をビルドする（M6 Task 6 の前半）。
+
+    **ここではまだ「動く」を主張しない。** このレーンが確かめるのは
+    「WebGL の Player がビルドできる」ことだけである。**ブラウザで実際に
+    動かすのは別の段**で、そちらが通って初めて「動く」と言える
+    （`add-a-platform` skill の「ビルドできる / 配れる / 動く」）。
+
+    **stripping は有効のまま**にする（BuildPlayer.BuildWebGL）。
+    無効にすると `AbiReachabilityChecks.g.cs` が確かめたいことが
+    確かめられなくなる。
+#>
+function Test-UnityWeb {
+    Build-Native
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $log    = Join-Path $ResultsDir 'unity-web.log'
+    $outDir = Join-Path $RepoRoot 'build/web-player'
+
+    Sync-AllPlatformsMarker -ProjectPath $project
+
+    $env:OCVU_WEB_BUILD_DIR = $outDir
+    $unityArgs = @(
+        '-projectPath', $project, '-batchmode', '-nographics', '-quit',
+        '-executeMethod', 'BuildPlayer.BuildWebGL', '-logFile', $log
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0) {
+        Write-DevFailure "WebGL Player のビルドが exit $($proc.ExitCode) で終了しました。`nログ: $log"
+    }
+
+    # **「ビルドが通った」を成果物の証拠にしない。** 出来た物を数える。
+    # Unity の WebGL 出力は Build/ の下に .wasm / .framework.js / .data を置く。
+    $wasm = @(Get-ChildItem -Path $outDir -Recurse -Filter '*.wasm' -ErrorAction SilentlyContinue)
+    if ($wasm.Count -eq 0) {
+        Write-DevFailure "WebGL Player に .wasm がありません（出力先: $outDir）。`nログ: $log"
+    }
+    foreach ($w in $wasm) {
+        Write-Host ("==> {0} ({1:N0} bytes)" -f $w.Name, $w.Length)
+    }
+
+    # **出来た wasm が SIMD を有効にして作られていることまで見る。**
+    # plugin 側だけ SIMD でも、Player 側が違えば配る物として一貫しない。
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'verify-wasm-features.ps1') `
+            -Path $wasm[0].FullName
+    } 'verify the Web player wasm features'
+
+    Write-Host "==> [web] player built: $outDir" -ForegroundColor Green
+}
+
 function Test-UnityPlayer {
     Build-Native
 
@@ -1010,6 +1062,7 @@ switch ($Command) {
     'test-tools-slow' { Test-ToolsSlow }
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
+    'test-unity-web' { Reset-Results; Test-UnityWeb }
     'test-unity-tarball' { Reset-Results; Test-UnityTarball }
     'test'         { Reset-Results; Test-Tools; Test-Generated; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }

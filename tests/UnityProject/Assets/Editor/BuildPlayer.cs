@@ -57,4 +57,58 @@ public static class BuildPlayer
         importer.SaveAndReimport();
         AssetDatabase.SaveAssets();
     }
+
+    /// <summary>
+    /// WebGL の Player をビルドする（M6）。
+    ///
+    /// **stripping を有効のまま出す。** 無効にすると、
+    /// <c>AbiReachabilityChecks.g.cs</c> が確かめたいこと ——
+    /// 「stripping が消せるのは呼ばれない宣言だけである」——
+    /// が確かめられなくなり、**配布時の構成と違う物をテストすることになる**
+    /// （IL2CPP の Player と同じ理由）。
+    ///
+    /// **単一スレッド。** threads profile は M6 の非ゴールで、別 profile として
+    /// 後続する。ここで有効にすると、SharedArrayBuffer を要求する Player に
+    /// なり、ブラウザ側の要件（COOP/COEP ヘッダ）まで巻き込む。
+    ///
+    /// 出力先は環境変数 OCVU_WEB_BUILD_DIR（無ければ build/web-player）。
+    /// </summary>
+    public static void BuildWebGL()
+    {
+        var target = NamedBuildTarget.WebGL;
+        PlayerSettings.SetManagedStrippingLevel(target, ManagedStrippingLevel.Medium);
+        // threads を使わない（非ゴール）。既定でもそうだが、明示しておく。
+        PlayerSettings.WebGL.threadsSupport = false;
+        // 開発ビルドにしない —— 配る形に近いほうを見る。
+        PlayerSettings.WebGL.exceptionSupport = WebGLExceptionSupport.None;
+        AssetDatabase.SaveAssets();
+
+        var outDir = System.Environment.GetEnvironmentVariable("OCVU_WEB_BUILD_DIR");
+        if (string.IsNullOrEmpty(outDir))
+        {
+            outDir = System.IO.Path.Combine(
+                System.IO.Directory.GetCurrentDirectory(), "build", "web-player");
+        }
+        System.IO.Directory.CreateDirectory(outDir);
+
+        var scenes = new string[0];
+        var options = new BuildPlayerOptions
+        {
+            scenes = scenes,
+            locationPathName = outDir,
+            target = BuildTarget.WebGL,
+            options = BuildOptions.None,
+        };
+
+        var report = BuildPipeline.BuildPlayer(options);
+        var summary = report.summary;
+        UnityEngine.Debug.Log($"WebGL build: {summary.result}, {summary.totalSize} bytes, out={outDir}");
+        if (summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
+        {
+            UnityEngine.Debug.LogError($"WebGL build failed: {summary.result}");
+            EditorApplication.Exit(1);
+            return;
+        }
+        EditorApplication.Exit(0);
+    }
 }
