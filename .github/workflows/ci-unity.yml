@@ -627,6 +627,27 @@ jobs:
           #
           # 実際の出力先は job の `OCVU_WEB_PLAYER_DIR` にある。
 
+      # **コンテナは root で書く。以降の step は runner の UID で動く。**
+      #
+      # そのままだと `build/` の下に 1 バイトも書けない。2026-09-03 に実測:
+      #
+      #     New-Item: Access to the path '.../build/web-e2e' is denied.
+      #
+      # **読むのは通るので、気づくのは書こうとした瞬間である** ——
+      # 版ファイルの照合（読むだけ）は緑のまま通り、その次で落ちた。
+      #
+      # 同じ形の対応がこのファイルの `unity` job にもある（あちらは
+      # OpenCV をコンテナでビルドした後）。
+      - name: Take ownership of what the container wrote
+        run: |
+          set -euo pipefail
+          for d in build tests/UnityProject/build; do
+            # **無い物を chown して落とさない。** ただし `|| true` で
+            # 全部を握り潰しはしない —— 在るのに失敗したなら、それは
+            # 次の step が読めない理由そのものである。
+            if [ -d "$d" ]; then sudo chown -R "$(id -u):$(id -g)" "$d"; fi
+          done
+
       # **chromium を毎回落とさない。** 150 MB を毎 run で取ると遅いうえ、
       # 上流の帯域にも当たる（M6 の 3 回目のレビューの指摘）。
       - name: Cache the Playwright browsers
