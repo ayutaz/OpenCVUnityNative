@@ -55,14 +55,59 @@ if (-not (Test-Path -LiteralPath $Path)) {
 
 $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Path))
 
-# --- 先頭は "\0asm" + version(4) である。ここが違えば wasm ではない ---
-if ($bytes.Length -lt 8 -or
-    $bytes[0] -ne 0x00 -or $bytes[1] -ne 0x61 -or $bytes[2] -ne 0x73 -or $bytes[3] -ne 0x6D) {
-    Fail @(
-        "wasm の magic number がありません: $Path"
-        "先頭 8 byte: $(($bytes | Select-Object -First 8 | ForEach-Object { '{0:x2}' -f $_ }) -join ' ')"
-        "**host 向けの object を掴んでいる可能性がある** —— クロスの設定を確かめること。"
-    )
+# **ar のアーカイブなら、中の wasm member を全部見る。**
+#
+# 配るのは `.a` なので、**配る物そのものを検査できるべきである。**
+# アーカイブを渡されて「wasm ではない」と言うだけだと、**検査の対象が
+# 成果物からずれる**（呼ぶ側が中身を取り出す手順を自分で書くことになり、
+# そこが検査の外になる）。
+#
+# **「最初の 1 つ」を見るのは恣意的である**（2026-09-03 に踏んだ ——
+# 最初の member はこちらの object で、OpenCV の SIMD コードは後ろの
+# member に入っていた）。**全 member の和を取る。**
+#
+# ar の形式: "!<arch>" + LF のあと、60 バイトのヘッダ
+# （名前 16 / 日時 12 / uid 6 / gid 6 / mode 8 / 大きさ 10 / 終端 2）と
+# 本体が並び、本体は 2 バイト境界に揃う。
+$modules = @()
+if ($bytes.Length -ge 8 -and
+    [System.Text.Encoding]::ASCII.GetString($bytes, 0, 8) -eq ('!<arch>' + [char]0x0A)) {
+    $pos = 8
+    while ($pos + 60 -le $bytes.Length) {
+        $sizeText = [System.Text.Encoding]::ASCII.GetString($bytes, $pos + 48, 10).Trim()
+        [int64]$memberSize = 0
+        if (-not [int64]::TryParse($sizeText, [ref]$memberSize)) { break }
+        $body = $pos + 60
+        if ($body + 4 -le $bytes.Length -and
+            $bytes[$body] -eq 0x00 -and $bytes[$body + 1] -eq 0x61 -and
+            $bytes[$body + 2] -eq 0x73 -and $bytes[$body + 3] -eq 0x6D) {
+            $m = [byte[]]::new($memberSize)
+            [Array]::Copy($bytes, [int64]$body, $m, [int64]0, $memberSize)
+            $modules += , $m
+        }
+        $pos = $body + $memberSize
+        if ($pos % 2 -ne 0) { $pos++ }
+    }
+    if ($modules.Count -eq 0) {
+        Fail @(
+            "ar のアーカイブですが、中に wasm の member が 1 つもありません: $Path"
+            "**host 向けの object を詰めた archive の可能性がある。**"
+        )
+    }
+} else {
+    $modules = @(, $bytes)
+}
+
+# --- どの module も先頭は wasm の magic number であること ---
+foreach ($m in $modules) {
+    if ($m.Length -lt 8 -or
+        $m[0] -ne 0x00 -or $m[1] -ne 0x61 -or $m[2] -ne 0x73 -or $m[3] -ne 0x6D) {
+        Fail @(
+            "wasm の magic number がありません: $Path"
+            "先頭 8 byte: $(($m | Select-Object -First 8 | ForEach-Object { '{0:x2}' -f $_ }) -join ' ')"
+            "**host 向けの object を掴んでいる可能性がある** —— クロスの設定を確かめること。"
+        )
+    }
 }
 
 # LEB128（符号なし）を読む。offset は参照で進める。
@@ -79,43 +124,40 @@ function Read-ULeb([byte[]]$Buf, [ref]$Offset) {
     return $result
 }
 
-$offset = 8
-$features = @()
+$featureSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $sectionCount = 0
 
-while ($offset -lt $bytes.Length) {
-    $id = $bytes[$offset]; $offset++
-    $size = Read-ULeb $bytes ([ref]$offset)
-    $sectionEnd = $offset + $size
-    if ($sectionEnd -gt $bytes.Length) {
-        Fail @("section が宣言した大きさ（$size）がファイルを超えています: $Path")
-    }
-    $sectionCount++
+foreach ($buf in $modules) {
+    $offset = 8
+    while ($offset -lt $buf.Length) {
+        $id = $buf[$offset]; $offset++
+        $size = Read-ULeb $buf ([ref]$offset)
+        $sectionEnd = $offset + $size
+        if ($sectionEnd -gt $buf.Length) {
+            Fail @("section が宣言した大きさ（$size）がファイルを超えています: $Path")
+        }
+        $sectionCount++
 
-    if ($id -eq 0) {
-        # custom section: 名前（LEB 長 + bytes）が先頭に在る。
-        $nameStart = $offset
-        $nameLen = Read-ULeb $bytes ([ref]$offset)
-        $name = [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $nameLen)
-        $offset += $nameLen
-
-        if ($name -eq 'target_features') {
-            $count = Read-ULeb $bytes ([ref]$offset)
-            for ($i = 0; $i -lt $count; $i++) {
-                # 1 byte の prefix（'+' 0x2B / '-' 0x2D / '=' 0x3D）+ 名前
-                $offset++
-                $fLen = Read-ULeb $bytes ([ref]$offset)
-                $features += [System.Text.Encoding]::UTF8.GetString($bytes, $offset, $fLen)
-                $offset += $fLen
+        if ($id -eq 0) {
+            # custom section: 名前（LEB 長 + bytes）が先頭に在る。
+            $nameLen = Read-ULeb $buf ([ref]$offset)
+            $name = [System.Text.Encoding]::UTF8.GetString($buf, $offset, $nameLen)
+            $offset += $nameLen
+            if ($name -eq 'target_features') {
+                $count = Read-ULeb $buf ([ref]$offset)
+                for ($i = 0; $i -lt $count; $i++) {
+                    $offset++   # '+' / '-' / '=' の prefix
+                    $fLen = Read-ULeb $buf ([ref]$offset)
+                    $null = $featureSet.Add([System.Text.Encoding]::UTF8.GetString($buf, $offset, $fLen))
+                    $offset += $fLen
+                }
             }
         }
         $offset = $sectionEnd
-        # nameStart は使わないが、custom section の形を読んだことを明示するために残す
-        $null = $nameStart
-    } else {
-        $offset = $sectionEnd
     }
 }
+
+$features = @($featureSet | Sort-Object)
 
 # **section を 1 つも読めていないなら「違反なし」ではなく走査の失敗である。**
 if ($sectionCount -eq 0) {
@@ -123,7 +165,8 @@ if ($sectionCount -eq 0) {
 }
 
 Write-Host "wasm: $Path"
-Write-Host "  section 数            : $sectionCount"
+Write-Host "  wasm module 数        : $($modules.Count)"
+Write-Host "  section 数（合計）    : $sectionCount"
 Write-Host "  target_features       : $(if ($features.Count -gt 0) { $features -join ', ' } else { '(無し)' })"
 
 $missing = @($Require | Where-Object { $_ -notin $features })

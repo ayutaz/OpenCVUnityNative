@@ -58,7 +58,20 @@ set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 # 分かりにくい形で落ちる。**
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-# **SIMD はここでは有効にしない。** roadmap の完了条件 3 は
-# 「single-thread / SIMD を先に成立させる」だが、**先に SIMD 無しで
-# 成立させ、flag を足すと wasm の中身が変わることを実測する**手順にしてある
-# （計画の Task 5）。ここで既定で入れると、その負の対照が取れなくなる。
+# **SIMD を有効にする。**
+#
+# 当初は「先に SIMD 無しで成立させ、flag を足すと中身が変わることを見る」
+# 手順にしていたが、**OpenCV 側で SIMD 無しはビルドが通らない**ことが
+# 分かったので（intrin_wasm.hpp が simd128 を要求する）、
+# **SIMD 有りが出荷する構成である**（計画に裁定として記録した）。
+#
+# **こちら側の object にも要る。** OpenCV のビルドにだけ入れていたので、
+# plugin 自身の object は SIMD 無しで作られていた（2026-09-03 に実測:
+# 束ねた .a の最初の member の target_features が
+# `mutable-globals, sign-ext` だけだった）。
+# **リンクは通るので、検査するまで気づかない。**
+#
+# **include の後に書く。** Emscripten.cmake が同じ変数を設定し直すので、
+# 前に書くと黙って消える。
+string(APPEND CMAKE_C_FLAGS " -msimd128")
+string(APPEND CMAKE_CXX_FLAGS " -msimd128")

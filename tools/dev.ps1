@@ -986,21 +986,50 @@ function Test-UnityWeb {
         Write-DevFailure "WebGL Player のビルドが exit $($proc.ExitCode) で終了しました。`nログ: $log"
     }
 
-    # **「ビルドが通った」を成果物の証拠にしない。** 出来た物を数える。
-    # Unity の WebGL 出力は Build/ の下に .wasm / .framework.js / .data を置く。
-    $wasm = @(Get-ChildItem -Path $outDir -Recurse -Filter '*.wasm' -ErrorAction SilentlyContinue)
+    <#
+        **「ビルドが通った」を成果物の証拠にしない。** 出来た物を数える。
+
+        **Unity は wasm を圧縮して出す。** 既定は gzip で、
+        `Build/<name>.wasm.gz` になる（2026-09-03 に実測。非圧縮の
+        `.wasm` は 1 つも無い）。**拡張子で `*.wasm` を探すと 0 件になり、
+        「ビルドできていない」と読み違える。**
+
+        圧縮の種類は PlayerSettings で変えられるので、**どれか 1 つを
+        決め打ちしない** —— .wasm / .wasm.gz / .wasm.br を拾う。
+    #>
+    $wasm = @(Get-ChildItem -Path $outDir -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '\.wasm(\.gz|\.br)?$' })
     if ($wasm.Count -eq 0) {
-        Write-DevFailure "WebGL Player に .wasm がありません（出力先: $outDir）。`nログ: $log"
+        Write-DevFailure "WebGL Player に wasm がありません（出力先: $outDir）。`nログ: $log"
     }
     foreach ($w in $wasm) {
         Write-Host ("==> {0} ({1:N0} bytes)" -f $w.Name, $w.Length)
     }
 
-    # **出来た wasm が SIMD を有効にして作られていることまで見る。**
-    # plugin 側だけ SIMD でも、Player 側が違えば配る物として一貫しない。
+    <#
+        **出来た wasm が SIMD を有効にして作られていることまで見る。**
+        plugin 側だけ SIMD でも、Player 側が違えば配る物として一貫しない。
+
+        **圧縮されているなら解いてから読む。** 検査は wasm の section を
+        直接読むので、圧縮のままでは magic number の時点で落ちる ——
+        **「落ちた」で終わらせると、圧縮を検査の失敗と取り違える。**
+    #>
+    $target = $wasm[0].FullName
+    if ($target -like '*.gz') {
+        $plain = Join-Path $ResultsDir 'web-player.wasm'
+        $in  = [IO.File]::OpenRead($target)
+        $gz  = [IO.Compression.GZipStream]::new($in, [IO.Compression.CompressionMode]::Decompress)
+        $out = [IO.File]::Create($plain)
+        try { $gz.CopyTo($out) } finally { $out.Dispose(); $gz.Dispose(); $in.Dispose() }
+        Write-Host ("==> gunzip -> {0} ({1:N0} bytes)" -f (Split-Path -Leaf $plain), (Get-Item $plain).Length)
+        $target = $plain
+    } elseif ($target -like '*.br') {
+        Write-DevFailure "Brotli 圧縮の wasm はまだ扱えません: $target（PlayerSettings の圧縮を gzip か無効にしてください）"
+    }
+
     Invoke-Checked {
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'verify-wasm-features.ps1') `
-            -Path $wasm[0].FullName
+            -Path $target
     } 'verify the Web player wasm features'
 
     Write-Host "==> [web] player built: $outDir" -ForegroundColor Green
