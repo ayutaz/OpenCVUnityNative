@@ -118,11 +118,43 @@ function Write-EmscriptenConfig {
     # 考えたが、逆だった。**
     $cacheDir = Join-Path (Split-Path -Parent $Destination) 'cache'
 
+    <#
+        **LLVM と binaryen の在り処を決め打ちしない。**
+
+        木の形が出所で違う（2026-09-03 に両方を実測）:
+
+          Unity 同梱 : <Root>/llvm/clang.exe        <Root>/binaryen/bin/wasm-opt.exe
+          emsdk      : <Root>/bin/clang             <Root>/bin/wasm-opt
+
+        最初は Unity の形だけを書いていて、**CI（emsdk）で落ちた**:
+
+            emcc: error: '.../emsdk-main/upstream/llvm/clang ...' failed:
+            [Errno 2] No such file or directory
+
+        **手元で通ったことが CI で通る保証にならない**、の実例である。
+        **在るはずの実行ファイルを探して、見つかった側を使う。**
+        見つからなければ **throw する** —— 間違ったパスを config に書くと、
+        エラーが出るのは emcc を呼んだ時点まで遅れる。
+    #>
+    function Find-ToolRoot([string]$Base, [string[]]$Relatives, [string]$Exe, [string]$What) {
+        foreach ($rel in $Relatives) {
+            $dir = if ($rel) { Join-Path $Base $rel } else { $Base }
+            foreach ($name in @($Exe, "$Exe.exe")) {
+                if (Test-Path -LiteralPath (Join-Path $dir $name)) { return $dir }
+                if (Test-Path -LiteralPath (Join-Path (Join-Path $dir 'bin') $name)) { return $dir }
+            }
+        }
+        throw "$What が見つかりません（$Exe を探しました）。Root='$Base'、探した先: $($Relatives -join ', ')"
+    }
+
+    $llvmRoot     = Find-ToolRoot $Root @('llvm', 'bin', '')       'clang'    'LLVM'
+    $binaryenRoot = Find-ToolRoot $Root @('binaryen', 'bin', '')   'wasm-opt' 'binaryen'
+
     $lines = @(
         '# tools/Emscripten.psm1 が生成した。手で編集しても次の実行で上書きされる。'
         "CACHE = $(ToPy $cacheDir)"
-        "LLVM_ROOT = $(ToPy (Join-Path $Root 'llvm'))"
-        "BINARYEN_ROOT = $(ToPy (Join-Path $Root 'binaryen'))"
+        "LLVM_ROOT = $(ToPy $llvmRoot)"
+        "BINARYEN_ROOT = $(ToPy $binaryenRoot)"
         "EMSCRIPTEN_ROOT = $(ToPy (Join-Path $Root 'emscripten'))"
         "NODE_JS = $(ToPy $node)"
         "PYTHON = $(ToPy $python)"
