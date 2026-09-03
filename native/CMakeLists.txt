@@ -122,6 +122,8 @@ if(OCVU_WITH_OPENCV)
             VERBATIM
         )
 
+    endif()
+
     # **Web / Wasm も同じ理由で束ねる。** CMake が STATIC に依存を取り込まない
     # のは platform に依らないので、iOS で踏んだ欠陥がそのまま再来する。
     #
@@ -195,6 +197,5 @@ end
             COMMENT "web-wasm: bundling OpenCV into libopencv_unity_native.a"
             VERBATIM
         )
-    endif()
     endif()
 endif()

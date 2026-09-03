@@ -208,8 +208,40 @@ function Build-Native {
         ) -join "`n")
     }
 
+    <#
+        **Web / Wasm は追加の道具が要る。**
+
+        opencv.ps1 側にだけ書いていて、こちらに書き忘れていた
+        （2026-09-03 に実測: `CMAKE_MAKE_PROGRAM is not set` で落ちた）。
+        **同じことを 2 箇所に書くのではなく、探す規則は
+        tools/Emscripten.psm1 の 1 箇所に置いてある** —— ここはそれを呼ぶ。
+    #>
+    $extraArgs = @()
+    if ($Platform -eq 'web-wasm') {
+        Import-Module (Join-Path $PSScriptRoot 'Emscripten.psm1') -Force
+        $em = Get-EmscriptenToolchain
+        Write-Host "==> Emscripten $($em.Version) ($($em.Source)) at $($em.Root)" -ForegroundColor Cyan
+        $env:EM_CONFIG = $em.ConfigFile
+        $env:OCVU_EMSCRIPTEN_ROOT = $em.Root
+        $extraArgs += "-DOCVU_EMSCRIPTEN_ROOT=$($em.Root.Replace([char]92, '/'))"
+
+        # Emscripten は Visual Studio generator で駆動できないので、
+        # **Windows でも Ninja が要る platform はこれだけ**である。
+        $ninja = if ($env:OCVU_NINJA) { $env:OCVU_NINJA }
+                 else { (Get-Command 'ninja' -ErrorAction SilentlyContinue)?.Source }
+        if (-not $ninja -or -not (Test-Path -LiteralPath $ninja)) {
+            Write-DevFailure (@(
+                'web-wasm のビルドには Ninja が要ります（Emscripten は Visual Studio generator では使えません）。'
+                '  - Ninja を導入して PATH に置く（winget install Ninja-build.Ninja）'
+                '  - 環境変数 OCVU_NINJA に ninja の実行ファイルを渡す'
+                'CI（Linux / macOS runner）には元から在ります。'
+            ) -join "`n")
+        }
+        $extraArgs += "-DCMAKE_MAKE_PROGRAM=$($ninja.Replace([char]92, '/'))"
+    }
+
     Invoke-Checked {
-        cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot"
+        cmake --preset $Preset "-DOCVU_OPENCV_ROOT=$opencvRoot" @extraArgs
     } 'configure native'
     Invoke-Checked { cmake --build --preset $Preset } 'build native'
 
@@ -231,13 +263,29 @@ function Copy-NativePluginForUnity {
     # 出力ファイル名と配置は platform ごとに違う。Visual Studio generator は
     # 構成名のサブディレクトリ（Debug/）を作るが、Ninja は作らない。
     $buildDir = Join-Path $RepoRoot "build/$Preset/native"
-    $source = if ($IsWindows) {
-        Join-Path $buildDir "Debug/$NativeLibraryName"
-    } elseif ($IsMacOS) {
-        Join-Path $buildDir $NativeLibraryName
-    } else {
-        Join-Path $buildDir $NativeLibraryName
-    }
+
+    <#
+        **判定するのは host の OS ではなく generator である。**
+
+        Debug/ のサブディレクトリを作るのは Visual Studio generator であって
+        Windows ではない。**Windows でも Ninja を使う platform がある**
+        （web-wasm。Emscripten は Visual Studio generator で駆動できない）。
+
+        host で分岐していたので、Windows 上の web-wasm ビルドが
+        `build/web-wasm-debug/native/Debug/...` を探して
+        **「native plugin が見つかりません」で落ちた**（2026-09-03 に実測）。
+        **ビルド自体は成功していたので、原因が 1 段隠れていた。**
+
+        **在るほうを採る** —— generator の名前を持ち回るより、
+        出来た物を見るほうが「次に generator が増えたとき」に強い。
+    #>
+    $candidates = @(
+        (Join-Path $buildDir $NativeLibraryName)
+        (Join-Path $buildDir "Debug/$NativeLibraryName")
+        (Join-Path $buildDir "Release/$NativeLibraryName")
+    )
+    $source = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $source) { $source = $candidates[0] }
 
     if (-not (Test-Path -LiteralPath $source)) {
         Write-DevFailure (@(
