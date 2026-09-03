@@ -95,6 +95,7 @@ $PlatformBinaries = [ordered]@{
     # **iOS だけ拡張子が違う。** アプリの外から .dylib を読み込めないので
     # 静的ライブラリを配り、IL2CPP のバイナリへ静的リンクさせる。
     'ios-arm64'     = 'Runtime/Plugins/iOS/libopencv_unity_native.a'
+    'web-wasm'      = 'Runtime/Plugins/WebGL/libopencv_unity_native.a'
 }
 
 <#
@@ -122,6 +123,8 @@ $AllowedPluginFiles = @(
     'Android.meta'
     'iOS/libopencv_unity_native.a'
     'iOS/libopencv_unity_native.a.meta'
+    'WebGL/libopencv_unity_native.a'
+    'WebGL/libopencv_unity_native.a.meta'
     'iOS.meta'
 )
 

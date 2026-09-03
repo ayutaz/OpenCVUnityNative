@@ -87,6 +87,13 @@ public class PluginGatingTests
                          EditorOs = "", Target = BuildTarget.Android },
         new PluginSlot { PathFragment = "/iOS/libopencv_unity_native.a",
                          EditorOs = "", Target = BuildTarget.iOS },
+        // **Web もエディタで動かない。** iOS と同じ扱いである。
+        //
+        // **PathFragment が iOS と同じファイル名を持つ** ——
+        // 見分けるのはディレクトリ（/WebGL/ と /iOS/）だけなので、
+        // ファイル名で引く形に書き換えないこと。
+        new PluginSlot { PathFragment = "/WebGL/libopencv_unity_native.a",
+                         EditorOs = "", Target = BuildTarget.WebGL },
     };
 
     private static PluginSlot SlotOf(string assetPath)

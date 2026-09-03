@@ -84,6 +84,8 @@ $Allowed = @(
     'Android.meta'
     'iOS/libopencv_unity_native.a'
     'iOS/libopencv_unity_native.a.meta'
+    'WebGL/libopencv_unity_native.a'
+    'WebGL/libopencv_unity_native.a.meta'
     'iOS.meta'
 )
 
@@ -99,6 +101,7 @@ $BinaryToMeta = @{
     'Linux/x86_64/libopencv_unity_native.so'          = 'Linux/x86_64/libopencv_unity_native.so.meta'
     'Android/arm64-v8a/libopencv_unity_native.so'     = 'Android/arm64-v8a/libopencv_unity_native.so.meta'
     'iOS/libopencv_unity_native.a'                    = 'iOS/libopencv_unity_native.a.meta'
+    'WebGL/libopencv_unity_native.a'                  = 'WebGL/libopencv_unity_native.a.meta'
 }
 
 $destPlugins = Join-Path $PackageDir 'Runtime/Plugins'

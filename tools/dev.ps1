@@ -40,7 +40,7 @@ param(
         `build` だけが受ける。テストのレーンは host で実行するものなので、
         クロスの対象を渡す意味が無い（渡されたら止める）。
     #>
-    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')]
     [string]$Platform
 )
 
@@ -81,6 +81,11 @@ $NativeLibraryName = switch ($Platform) {
     'android-arm64' { 'libopencv_unity_native.so' }
     # iOS は静的ライブラリ。アプリの外から共有ライブラリを読み込めない。
     'ios-arm64'     { 'libopencv_unity_native.a' }
+    # Web も静的ライブラリ。wasm に共有ライブラリという仕組みが無い。
+    # **iOS と同じファイル名になる** —— 見分けるのはディレクトリだけなので、
+    # ファイル名で plugin を引く検査を書かないこと（M4 で Android と Linux が
+    # 同じ .so になって踏んだのと同じ形）。
+    'web-wasm'      { 'libopencv_unity_native.a' }
     default { throw "unknown platform '$Platform': ライブラリのファイル名が決まっていない。" }
 }
 $Preset        = "$Platform-debug"
@@ -248,6 +253,7 @@ function Copy-NativePluginForUnity {
         'linux-x64'     { 'Linux/x86_64' }
         'android-arm64' { 'Android/arm64-v8a' }
         'ios-arm64'     { 'iOS' }
+        'web-wasm'      { 'WebGL' }
         default { throw "unknown platform '$Platform': plugin の置き場所が決まっていない。" }
     }
     $pluginRoot = Join-Path $RepoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
@@ -442,6 +448,7 @@ $script:AllPlatformBinaries = @(
     'Linux/x86_64/libopencv_unity_native.so'
     'Android/arm64-v8a/libopencv_unity_native.so'
     'iOS/libopencv_unity_native.a'
+    'WebGL/libopencv_unity_native.a'
 )
 
 
@@ -663,6 +670,7 @@ function Test-UnityTarball {
             'linux-x64'     { 'Linux/x86_64/libopencv_unity_native.so' }
             'android-arm64' { 'Android/arm64-v8a/libopencv_unity_native.so' }
             'ios-arm64'     { 'iOS/libopencv_unity_native.a' }
+            'web-wasm'      { 'WebGL/libopencv_unity_native.a' }
             default { throw "unknown platform '$Platform': tarball の中で何を探すか決まっていない。" }
         }
         # **正本と食い違っていないこと。** 上の対応表は 2 つ目の一覧なので、
