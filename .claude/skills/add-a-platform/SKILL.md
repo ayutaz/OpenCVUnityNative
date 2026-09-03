@@ -222,6 +222,47 @@ M4 では `Plugin ios-arm64` がこれで落ち、**artifact は 20 分後に正
 当てたいのはこちらの `.so` なので、**toolchain ファイル側**に、しかも
 **NDK の toolchain を include した後に**追記する（先に書くと上書きされる）。
 
+## OpenCV は CI にビルドさせる。手元で回さない
+
+**これは新しい platform を足すときに最も破りたくなる規則である。**
+
+`CLAUDE.md` は 3 箇所で「OpenCV はローカルでビルドしない」と書いているが、
+**新しい platform では CMake flag が一発で決まらない**ので、
+「CI に投げて 20〜40 分待つ」より「手元で回す」ほうが速く見える。
+
+**見えるだけである。** 2026-09-03、M6（Web / Wasm）でそれをやった結果:
+
+| 回 | 落ちた理由 |
+| --- | --- |
+| 1 | Emscripten の cache が Unity の導入先へ書けず **15 分停止** |
+| 2 | Windows に Ninja が無い |
+| 3 | `try_compile` の入れ子で自分の toolchain が `FATAL_ERROR` |
+| 4 | OpenCV の wasm 実装が `simd128` を要求する |
+| 5 | SIMD を足したら **SSE 互換ヘッダの経路**に入った |
+
+**1 回 10〜40 分で 5 回。CI 5 往復と変わらない。** しかも:
+
+- **手元の環境は CI と違う。** 上の 1 と 2 は**手元にしか無い問題**で、
+  CI では起きない。**手元で潰した時間の一部は、CI に何も貢献しない**
+- **手元で通っても CI で通る保証にならない。** 逆も同じで、
+  「手元で落ちるから CI でも落ちる」とは限らない
+- **ローカルループが秒単位でなくなる。** これは
+  `CLAUDE.md` が「他の何よりも先に固定する」と書いた土台である
+
+**だから、新しい platform の OpenCV は最初から CI に作らせる:**
+
+1. `tools/opencv-config.psd1` に `Toolchains` / `PlatformCMakeArgs` を足す
+2. `.github/workflows/build-opencv.yml` の matrix に足す
+3. **push して CI に作らせる**
+4. artifact が出たら `./tools/opencv.ps1 restore` で取ってくる
+5. flag が違ったら 1 に戻る —— **その往復が、この作業の既定の形である**
+
+**`opencv.ps1 build` は「CI の結果を検証するとき」と「CI 側の切り分け」の
+ためにある。** flag 探しのために使わない。
+**hook（`.claude/hooks/block-local-opencv-build.sh`）が止める** ——
+本当に必要なら `OCVU_ALLOW_LOCAL_OPENCV_BUILD=1` を明示すること
+（**意図して回したことが履歴に残る形にしてある**）。
+
 ## CI 往復を前提に計画する
 
 **M4 の後半は、ローカルで緑・CI で赤が 8 回続いた。** 内訳は

@@ -91,12 +91,15 @@ foreach ($wf in $workflowFiles) {
     }
 }
 
-if ($pinned.Count -gt 0) {
-    Assert-That ($null -ne $expectedEmscripten) 'the table supplies a version to compare the workflows against'
-    foreach ($p in $pinned) {
-        Assert-That ($p.Version -eq $expectedEmscripten) `
-            "$($p.File) pins emsdk $expectedEmscripten (got '$($p.Version)')"
-    }
+# **求めるのは「表と同じ数字が書いてあること」ではなく「数字が書いていないこと」である。**
+#
+# 最初はリテラルと表を突き合わせる形にしていたが、**それは 2 箇所に同じ値を
+# 持つことを前提にした検査**だった。workflow が表を実行時に読む形にしたので、
+# **リテラルが在ること自体が欠陥**になる —— 表を直しても workflow が古いまま
+# 残る経路が、そこにしか生まれない。
+foreach ($p in $pinned) {
+    Assert-That ($p.Version -notmatch '^\d+\.\d+') `
+        "$($p.File) does not hardcode an emsdk version (got '$($p.Version)'; 表から読むこと)"
 }
 # **`pinned.Count -eq 0` を失敗にしない。** M6 の Task 2 で emsdk を使う job を
 # 足すまで 0 件が正しい状態である。**0 件のときに何も主張していないことは、

@@ -228,6 +228,37 @@
             #>
             '-DCMAKE_C_FLAGS=-msimd128'
             '-DCMAKE_CXX_FLAGS=-msimd128'
+
+            <#
+                **x86 の baseline / dispatch を空にする。これも必要である。**
+
+                `-msimd128` を付けると Emscripten の SSE 互換ヘッダ
+                （compat/emmintrin.h 等）が使えるようになり、**OpenCV の CPU
+                検査が「SSE が在る」と判断して x86 の経路を選ぶ。**
+                ところが互換ヘッダは完全ではないので、そこで落ちる
+                （2026-09-03 に実測）:
+
+                    error: use of undeclared identifier '_mm_setr_epi64'
+                    error: cannot initialize a parameter of type 'long long'
+                    with an rvalue of type '__m128i' (aka 'v128_t')
+
+                **欲しいのは wasm の SIMD（intrin_wasm.hpp）であって、
+                SSE の翻訳ではない。** 空にすると OpenCV は x86 の経路を
+                作らなくなり、wasm の実装が使われる。
+
+                **測った組み合わせは 2 つだけである**（正直に書く）:
+
+                  - `-msimd128` 無し・baseline 既定 → **落ちる**
+                    （always_inline が simd128 を要求する）
+                  - `-msimd128` 有り・baseline 既定 → **落ちる**
+                    （SSE 互換ヘッダの経路に入る。上のエラー）
+
+                **`-msimd128` 無し・baseline 空**は測っていない。
+                intrin_wasm.hpp が simd128 を要求する以上そちらも落ちるはず
+                だが、**「はず」であって実測ではない。**
+            #>
+            '-DCPU_BASELINE='
+            '-DCPU_DISPATCH='
         )
     }
 

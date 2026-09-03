@@ -16,6 +16,12 @@
             "command": "sh .claude/hooks/check-staged-generated-file.sh",
             "timeout": 15,
             "statusMessage": "stage された生成物を検査中"
+          },
+          {
+            "type": "command",
+            "command": "sh .claude/hooks/block-local-opencv-build.sh",
+            "timeout": 15,
+            "statusMessage": "OpenCV のローカルビルドを検査中"
           }
         ]
       }
