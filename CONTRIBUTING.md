@@ -31,7 +31,7 @@ Requires PowerShell 7+, CMake 3.25+, the .NET 8 SDK, a C++ toolchain, and the
 ```
 
 `./tools/dev.ps1` is the only entry point for local development. Everything else
-(`test-asan`, `test-unity-editmode`, `test-unity-player`, `test-unity-tarball`)
+(`test-asan`, `test-unity-editmode`, `test-unity-player`, `test-unity-web`, `test-unity-tarball`)
 hangs off it. See [README](README.md#development) for the full list.
 
 ## What a change needs

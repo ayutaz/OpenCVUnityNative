@@ -164,6 +164,10 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 ./tools/dev.ps1 test-unity-editmode
 ./tools/dev.ps1 test-unity-player
 
+# WebGL の Player を建て、headless のブラウザで走らせる（Playwright + Chromium）。
+# Unity 同梱の Emscripten が tools/emscripten-versions.psd1 と一致することも確かめます。
+./tools/dev.ps1 test-unity-web
+
 # UPM tarball を使い捨ての Unity プロジェクトへ導入し、そこでテストを走らせる。
 # -PluginSource を渡さないとこのマシンの platform 分だけを固め、**そう述べます**
 # —— 全部入りのふりはしません。他 platform のプラグイン木（';' 区切り。
@@ -197,7 +201,7 @@ CI は Unity のレーン以外、すべて同じ `tools/dev.ps1` を呼びま�
 
 モバイルの列が「クロスビルドのみ」なのは、それが CI にできることの全部だからです —— コンパイルして成果物を検査しますが、**どの実機もそれらを読み込んだことがありません。**
 
-UPM tarball を使い捨てのプロジェクトへ導入するレーン（`test-unity-tarball`）がこの表に無いのは、**どの workflow からも走らない**ためです。ローカル専用で、上に書いた「導入できて通る」という結果は手で測ったものです。
+**この表に無いレーンが 2 つあります。どちらもどの workflow からも走りません。** `test-unity-web`（WebGL の Player を建ててブラウザで走らせる）は、CI 側が `Web browser E2E` job で同じことを別の形でやっています —— あちらは Player を自分で建て、`dev.ps1` を通さずに同じ 2 つのスクリプトを直接呼びます。もう 1 つは UPM tarball を使い捨てのプロジェクトへ導入するレーン（`test-unity-tarball`）で、ローカル専用で、上に書いた「導入できて通る」という結果は手で測ったものです。
 
 Unity のレーンは Linux で走り、Windows の IL2CPP Player はローカルのレーンだけが担います。**これはいまや推測ではなく実測に基づく結論です。** 以前ここに書いてあった理由は、実際には別の action と別のイメージ系統についての上流 issue を挙げていました。2026-08-31 に `windows-2022` で実際に試したところ、**EditMode は動いて 33 件通りました。Standalone は動きませんでした** —— IL2CPP は C++ を生成し、GameCI の Windows コンテナにはそれをコンパイルする MSVC が無いため、`ToolchainNotFoundException` でビルドが落ちます。**したがって Windows 固有の IL2CPP の欠陥は、見落としではなく設計上 CI に映りません。** macOS は同じ時期に 4 回試し、さらに手前で失敗します —— GameCI は darwin を支えず、エディタを直接入れる経路はライセンスが「entitlement 0 件」を返すところで止まります。ロードマップに両方の試行が記録されています。
 

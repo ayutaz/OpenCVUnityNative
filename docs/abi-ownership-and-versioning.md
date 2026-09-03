@@ -388,6 +388,17 @@ spec に無い関数を実装すると `tools/tests/BindingGenerator.Tests.ps1` 
 **これで allowlist は 11 本になった**（M2 の 9 本 + この 2 本）。**扱うのはメモリ上の
 byte 列だけで、ファイルパスは受けない**（理由は §1.6）。
 
+**扱える形式は platform で揃っていない**（M6 で確定、2026-09-03）。
+**Web だけは JPEG のみで、PNG を持たない** —— Unity の WebGL 支援が自前の
+libpng を同梱しているので、こちらが OpenCV の libpng を束ねると Player の
+リンクでシンボルが衝突し、束ねなければ OpenCV の PNG コードが未解決になる。
+**どちらの極端も通らないので、Web では PNG を外した。他の 5 platform は両方持つ。**
+
+**この差は ABI の形を変えない。** 関数の signature も status code も同じで、
+**Web で `".png"` を渡したときに `OCVU_STATUS_OPENCV_ERROR` が返るだけ**である。
+したがって `OCVU_ABI_VERSION` は動かない（§2 の「bump しない変更」に当たる）。
+**allowlist から外しもしない** —— 出すと決めた関数は 6 platform すべてに在る。
+
 **`imgcodecs` は M3.5 で初めてリンクされた。** それ以前の
 `cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` だけで、リポジトリ内の
 複数箇所にあった「モジュールはリンク済みで、足りないのは呼ぶ関数だけ」という記述は

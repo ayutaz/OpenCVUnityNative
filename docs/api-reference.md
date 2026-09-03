@@ -54,7 +54,8 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 （詳細後述）。C# から直接この層を呼ぶことは想定していない —
 `CvUnity.Interop.NativeMethods`（`internal`）が P/Invoke 宣言を持ち、`CvUnity.CvMat` /
 `CvUnity.CvOps` / `CvUnity.CvCodecs` / `CvUnity.CvNative` / `CvUnity.CvQrCode` /
-`CvUnity.CvFeatures` がそれを包んで公開する。
+`CvUnity.CvFeatures` / `CvUnity.CvGeometry` / `CvUnity.CvCalibration` が
+それを包んで公開する。
 
 ### Mat のライフサイクル
 
@@ -378,6 +379,16 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 byte 列だけである（`File.ReadAllBytes`、`UnityWebRequest`、Android の `StreamingAssets`
 から得たもの）。`CvOps` と別クラスにしてあるのは、`CvOps` が imgproc に範囲を
 限っているためである。
+
+> **Web では PNG が使えない。JPEG だけである。** 他の 5 platform は両方を
+> 扱えるが、**Web で `".png"` を渡すと失敗が返る**（`CvNativeException`）。
+> Unity の WebGL 支援が**自前の libpng を同梱している**ため、こちらが OpenCV の
+> libpng を束ねると Player のリンク段でシンボルが衝突し、束ねなければ OpenCV の
+> PNG コードが未解決になる。**どちらの極端も通らないので、Web のビルドでは
+> PNG を外してある**（M6、2026-09-03 に実測）。
+>
+> **これは platform の対応状況ではなく、この API の挙動の差である。**
+> 下の表の `".png"` はそのまま Web には当てはまらない。
 
 | メンバ | 内容 |
 | --- | --- |

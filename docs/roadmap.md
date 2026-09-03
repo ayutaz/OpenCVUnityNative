@@ -709,7 +709,7 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
 本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
-`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` の 18 本に留まる（M3.5 で `imgcodecs` の
+`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` に留まる（**本数は [所有権と versioning](./abi-ownership-and-versioning.md) §3 の冒頭が数える** —— ここに写すと 1 本増えた日にこの行だけが嘘になる）（M3.5 で `imgcodecs` の
 2 本、M5 の module 拡張で `objdetect` / `features` / `geometry` の 4 本、続けて
 カメラの歪み補正で `imgproc` / `objdetect` の 2 本、さらに `calib` の
 `ocvu_calibrate_camera` 1 本が加わった。公開 ABI 全体は
@@ -732,10 +732,10 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 | 2 | ~~画像を encode / decode できない~~ **M3.5 で解消** | 比較した競合はいずれも画像の入出力を持つ（そちらはファイル経路まで含む）。**ここに「モジュールはリンク済みで、足りないのは ABI 関数だけ」と書いていたのは誤りで、実際は `imgcodecs` をリンクしていなかった**（下記 M5 節） | **M3.5 完了**（M5 から前倒し）。component を足し、`ocvu_imencode` / `ocvu_imdecode` を出した |
 | 3 | OpenUPM に載っていない | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **M3.5（(c) が未了）**。(a) 版番号なしの asset 名と (b) 容量の検査は済んだ。**残るのは登録申請だけで、それは新しい asset 名を含む Release を公開した後になる**（[登録の準備](./openupm-registration.md)） |
 | 4 | 検証している Unity が 1 版だけ | **M3.5 でその 1 版を 6000.0.82f1 → 6000.3.16f1 に載せ替えた**（6000.0 LTS の通常サポートが 2026-10 に終わるため。6.3 LTS は 2027-12 まで）。**版が 1 つしかないこと自体は変わっていない** | **M3.5 完了**（載せ替えのみ。複数版の検証は担当なし） |
-| 5 | カメラ映像を受け取れない | Unity で OpenCV を使う最大の用途。今は `Texture2D` の RGBA32 のみ | **M4** |
-| 6 | macOS で Unity に読み込ませたことがない | iOS のビルドに macOS runner が要るので、M4 で自然に埋まる | **M4** |
-| 7 | Windows の IL2CPP を CI で回していない | **「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった。動く根拠も動かない根拠も持っていない** | **M4** |
-| 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決める** |
+| 5 | ~~カメラ映像を受け取れない~~ **M4 で解消** | `WebCamTextureConverter`（3 overload）が `WebCamTexture` から `CvMat` を作る。**新しい C ABI 関数は 1 本も増えていない** —— 既存の上に立つ純 C# である | **解消済み（2026-08-30）** |
+| 6 | macOS で Unity に読み込ませたことがない | 「iOS のビルドに macOS runner が要るので M4 で自然に埋まる」と書いていたが、**埋まらなかった。** macOS runner は plugin をビルドするだけで Unity を起動しない | **未解消。2026-08-31 に 4 回試して「CI では閉じない」と確定した**（game-ci は macOS を支えず、Hub で直接入れる経路は Editor が 14 分で入るのにライセンスで止まる）。詳細は下の「担当が無かった制約」 |
+| 7 | Windows の IL2CPP を CI で回していない | 「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった —— **そこで実際に投げて根拠を作った** | **未解消。2026-08-31 に「CI で回さない」と結論した** —— `windows-2022` で EditMode は 33 件通ったが、`Standalone` は `ToolchainNotFoundException` で落ちた（game-ci の Windows コンテナに MSVC が無い）。**根拠は実測であって他人の issue ではない。** これは「まだ調べていない穴」ではなく**意図して CI の外に置いたもの**である |
+| 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決めた: arm64 のみ**（Android は arm64-v8a、iOS は実機の arm64）。**穴は塞いでいない —— 塞がないと決めた。** 増やすと 5 platform が 7 platform になり、OpenCV のビルドも配布物も同じだけ増える |
 | 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
 | 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
 
