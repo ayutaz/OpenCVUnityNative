@@ -1504,20 +1504,77 @@ Unity の 2 レーンも実行し、`objdetect` / `features` を足した後も
 ## M6 — Web / Wasm
 
 **目的**
-競合が持たない Web 対応を、**Unity 同梱 Emscripten と整合した形**で獲得する。LLVM はバージョン間のバイナリ互換を保証しないため、この整合性の維持自体が継続的な作業になる。
+
+Web を、**Unity 同梱 Emscripten と整合した形**で獲得する。
+
+> **訂正（2026-09-03）。この節は長らく「競合が持たない Web 対応」と書いていたが、
+> 誤りである。** 同じリポジトリの
+> [競合調査](./unity-opencv-integration-research-and-plan.md) §4.2 が
+> **Enox の OpenCV for Unity は WebGL に対応している**と書いており（$95、
+> OpenCV 4.13.0、2026-08-25 時点）、比較表の platform 行にも WebGL が並んでいる。
+> **有償の競合に対して、Web は差別化ではない —— 追いつく側である。**
+>
+> **持っていないのは OSS の側である。** 同 §4.3 の
+> `neon-izm/OpenCV-plus-Unity`（OpenCV 4.11 / OpenCvSharp 依存）は
+> **Web / WebGL を対象一覧に持たない。** したがって Web の位置づけは
+> **「Apache-2.0 で、OpenCV 5 で、OpenCvSharp に依存せず、Web でも動く」
+> という組み合わせが他に無い**ことであって、Web 単体ではない。
+>
+> **この訂正で M6 の価値が下がることは認める。** それでも順序を変えないのは、
+> Web が**このリポジトリの構造をもう一度試す**からである（下記）。
+
+**Web が構造を試すという意味**: Web は **6 つ目の platform**であり、
+**クロスビルドかつ静的ライブラリ**という iOS と同じ 2 つの性質を持つ。
+M4 で「クロスビルドが緑になってから CI で 8 回落ちた」経路を、
+**足場が変わった後（M5 で宣言が生成物になった後）にもう一度通る。**
+
+**整合性の維持が継続的な作業になる理由**（M0 の頃は抽象論だったが、実測が付いた）:
+**Unity 6000.3.16f1 が同梱するのは Emscripten 3.1.39-git、commit
+`a2ee372fd4bf28c71c2bd8ab1bd74af016ff1bf9`（2023-05-15）である。**
+**2 年以上前の toolchain に固定される**ということで、
+LLVM はバージョン間のバイナリ互換を保証しないので、
+**Unity を上げた日に、こちらの wasm が黙って合わなくなりうる。**
 
 **ゴール**
-Unity Web Player 上で P/Invoke と代表処理が動く。
+
+Unity Web Player 上で、**他の platform と同じ検証本体が通る。**
+
+- `tests/UnityProject/Assets/Tests/Shared/` の検証本体が Web Player で通る
+  —— **EditMode / IL2CPP Player と同じものを使う。写して 3 つ目を作らない**
+  （写すと「Editor と Player と Web で同じ結果」を確かめられなくなる）
+- **`AbiReachabilityChecks.g.cs`** が spec の載せる宣言を Web でも 1 本残らず
+  呼べる —— **stripping が消せるのは呼ばれない宣言なので、これを確かめられるのは
+  Player だけである**
+- 全部入りの package に WebGL が入り、**Unity が Web の物だけを有効にする**
 
 **完了条件**
 
-- Unity version と Emscripten version の対応表を作り、CI で不一致を検出する
-- Unity 同梱 Emscripten で Wasm object (`.o`) を生成し `.a` にまとめる
-- single-thread / SIMD を先に成立させる
-- Web Player の起動、P/Invoke、メモリ転送、代表処理の browser E2E test
+- Unity version と Emscripten version の対応表を作り、CI で不一致を検出する。
+  **対応表は写しなので、それ 1 つでは足りない** —— 表の自己整合を見る検査と、
+  **Unity が実際に同梱する版と突き合わせる検査**を対にする
+- Unity 同梱 Emscripten で Wasm object (`.o`) を生成し `.a` にまとめる。
+  **「まとめた」ことを実証する** —— **iOS ではこれを見る検査が 2 本とも空振り
+  していた**（`ar t` は OpenCV ではなく自分の object に当たり、
+  `nm -u | match 'cv::'` は nm が demangle しないので決して真にならない）
+- single-thread / SIMD を先に成立させる。**flag を外すと落ちる**ことまで見る
+  （M4 の 16 KB page size と同じ形）
+- **全部入りに WebGL が入り、gating が Web の物だけを有効にする**
+  （**2026-09-03 に足した条件。** M4 の判定で「ビルドできる／配れる／動く」は
+  別物だと決めたのに、**Web だけ「配れる」の条件が無かった**）
+- Web Player の起動、P/Invoke、メモリ転送、代表処理の browser E2E test。
+  **「0 件で緑にしない」をここでも守る**
 
 **非ゴール**
-threads profile（別 profile として後続）。
+
+- **threads profile**（別 profile として後続）
+- **配ること** —— 2026-09-03 に「v0.4.0 は出さず、M6 の後にまとめて配る」と
+  決めた（「配布 その 5」）。**M6 の完了条件に配布は含まれない**
+- **`dnn`**（M7 の担当。**OpenCV 5.0 で作り込むと 5.1 で作り直しになる**根拠が
+  M7 節にある）
+- **新しい ABI 関数** —— platform を足すのであって API を足すのではない。
+  `OCVU_ABI_VERSION` は 1 のままである
+
+**実装計画**: [`docs/superpowers/plans/2026-09-03-m6-web-wasm.md`](./superpowers/plans/2026-09-03-m6-web-wasm.md)（Task 7 本）
 
 ### M4 / M5 の後に着手するとき、何が変わっているか（2026-09-03 に追記）
 
