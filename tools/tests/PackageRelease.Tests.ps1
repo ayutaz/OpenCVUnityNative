@@ -162,7 +162,12 @@ try {
     $iosSums = if (Test-Path -LiteralPath (Join-Path $tmp 'checksums.txt')) {
         @(Get-Content -LiteralPath (Join-Path $tmp 'checksums.txt'))
     } else { @() }
-    Assert-That (@($iosSums | Where-Object { $_ -like '*libopencv_unity_native.a' }).Count -eq 1) `
+    # **ファイル名で引かない。** `libopencv_unity_native.a` は **iOS と Web の
+    # 両方**が持つ（どちらも静的ライブラリ）。名前で引くと 2 件当たって
+    # `-eq 1` を満たさない —— **M6 の CI が実際にこれで落ちた。**
+    # `add-a-platform` skill の罠 2（ファイル名は platform 間で衝突する）そのもので、
+    # **見分けるのはパスの断片である。**
+    Assert-That (@($iosSums | Where-Object { $_ -like '*iOS/libopencv_unity_native.a' }).Count -eq 1) `
         'checksums.txt lists the iOS static library'
     Remove-Item -Recurse -Force $iosRoot, $tmp -ErrorAction SilentlyContinue
 
@@ -836,6 +841,11 @@ $expectedRelative = @(
     'Linux/x86_64/libopencv_unity_native.so'
     'Android/arm64-v8a/libopencv_unity_native.so'
     'iOS/libopencv_unity_native.a'
+    # **このファイル 3 つ目の一覧である。** M6 では 1 つ目（$pluginMetas）と
+    # 2 つ目（$allBinaries）を直したあと、これが残って CI で落ちた ——
+    # `add-a-platform` skill の「同一ファイル内の 2 つ目以降の一覧は
+    # hook から見えない」がそのまま起きた形である。
+    'WebGL/libopencv_unity_native.a'
 )
 # **手で書いた一覧を、正本の件数と突き合わせる。** 中身は独立に書く
 # （3 ファイルの一致を見るのがこの検査の役目なので、どれかから導出すると

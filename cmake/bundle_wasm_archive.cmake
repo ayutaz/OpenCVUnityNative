@@ -8,12 +8,15 @@
 # 同じ理由で存在する先例: cmake/run_expect_failure.cmake
 #
 # 呼び出し（すべて -D で渡す）:
-#   OCVU_PYTHON  — emar.py を動かす python（同梱のものでよい）
-#   OCVU_EMAR    — emar.py のパス
-#   OCVU_MRI     — MRI script
-#   OCVU_OUTPUT  — 出来るはずのアーカイブ（**作られたことを確かめるため**）
+#   OCVU_EMAR_CMD — 実際に起こすコマンド。**木によって形が違う**:
+#                    emsdk は emar の実行ファイル（同梱の python が無い）、
+#                    Unity 同梱は python（emar.py を渡す）
+#   OCVU_EMAR_PY  — python 経路のときだけ在る（判定に使う）
+#   OCVU_EMAR     — emar.py のパス（python 経路のときだけ使う）
+#   OCVU_MRI      — MRI script
+#   OCVU_OUTPUT   — 出来るはずのアーカイブ（**作られたことを確かめるため**）
 
-foreach(_var OCVU_PYTHON OCVU_EMAR OCVU_MRI OCVU_OUTPUT)
+foreach(_var OCVU_EMAR_CMD OCVU_MRI OCVU_OUTPUT)
     if(NOT DEFINED ${_var})
         message(FATAL_ERROR "bundle_wasm_archive.cmake: -D${_var} が渡されていません。")
     endif()
@@ -23,8 +26,17 @@ if(NOT EXISTS "${OCVU_MRI}")
     message(FATAL_ERROR "MRI script が見つかりません: ${OCVU_MRI}")
 endif()
 
+# **python 経由が要るのは、emar の実行ファイルが無い木だけ。**
+# emsdk には同梱の python が無いので、そちらでは emar を直接呼ぶ。
+if(OCVU_EMAR_PY AND EXISTS "${OCVU_EMAR_PY}")
+    set(_cmd "${OCVU_EMAR_CMD}" "${OCVU_EMAR}" -M)
+else()
+    set(_cmd "${OCVU_EMAR_CMD}" -M)
+endif()
+message(STATUS "bundling with: ${_cmd}")
+
 execute_process(
-    COMMAND "${OCVU_PYTHON}" "${OCVU_EMAR}" -M
+    COMMAND ${_cmd}
     INPUT_FILE "${OCVU_MRI}"
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out

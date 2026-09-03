@@ -244,17 +244,38 @@ end
 
         # python は同梱に在ればそれを、無ければ PATH のものを使う。
         # **同梱を先に見る** —— emcc 自身がそれで動いている組み合わせだからである。
-        set(OCVU_EM_PYTHON "")
-        foreach(_py "${OCVU_EMSCRIPTEN_ROOT}/python/python.exe"
-                    "${OCVU_EMSCRIPTEN_ROOT}/python/python3"
-                    "${OCVU_EMSCRIPTEN_ROOT}/python/bin/python3")
-            if(EXISTS "${_py}")
-                set(OCVU_EM_PYTHON "${_py}")
+        # **emar の実行ファイルを直接使う。**
+        #
+        # 最初は `python emar.py` にしていたが、**emsdk には同梱の python が
+        # 無い**（Unity の同梱にはある）ので CI で起動できず、
+        # `emar -M が失敗しました (exit no such file or directory)` になった。
+        #
+        # **emar 自体はどちらの木にも在る** —— Linux / macOS は拡張子なし、
+        # Windows は .bat である。**在るほうを採る。**
+        set(OCVU_EMAR_CMD "")
+        foreach(_ar "${OCVU_EMSCRIPTEN_ROOT}/emscripten/emar.bat"
+                    "${OCVU_EMSCRIPTEN_ROOT}/emscripten/emar")
+            if(EXISTS "${_ar}")
+                set(OCVU_EMAR_CMD "${_ar}")
                 break()
             endif()
         endforeach()
-        if(NOT OCVU_EM_PYTHON)
-            find_program(OCVU_EM_PYTHON NAMES python3 python NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+
+        # **見つからなければ python 経由に落とす**（そちらも無ければ止める）。
+        set(OCVU_EM_PYTHON "")
+        if(NOT OCVU_EMAR_CMD)
+            foreach(_py "${OCVU_EMSCRIPTEN_ROOT}/python/python.exe"
+                        "${OCVU_EMSCRIPTEN_ROOT}/python/python3"
+                        "${OCVU_EMSCRIPTEN_ROOT}/python/bin/python3")
+                if(EXISTS "${_py}")
+                    set(OCVU_EM_PYTHON "${_py}")
+                    break()
+                endif()
+            endforeach()
+            if(NOT OCVU_EM_PYTHON)
+                find_program(OCVU_EM_PYTHON NAMES python3 python NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+            endif()
+            set(OCVU_EMAR_CMD "${OCVU_EM_PYTHON}")
         endif()
 
         add_custom_command(
@@ -263,7 +284,8 @@ end
             # **shell を通さないのでリダイレクトは書けない。** driver 経由で
             # stdin を渡す（cmake/run_expect_failure.cmake と同じ理由）。
             COMMAND ${CMAKE_COMMAND}
-                    -DOCVU_PYTHON=${OCVU_EM_PYTHON}
+                    -DOCVU_EMAR_CMD=${OCVU_EMAR_CMD}
+                    -DOCVU_EMAR_PY=${OCVU_EM_PYTHON}
                     -DOCVU_EMAR=${OCVU_EMAR_PY}
                     -DOCVU_MRI=${OCVU_MRI}
                     -DOCVU_OUTPUT=${OCVU_BUNDLED}

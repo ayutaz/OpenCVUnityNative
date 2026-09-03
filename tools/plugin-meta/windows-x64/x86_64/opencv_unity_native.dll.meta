@@ -40,6 +40,9 @@ PluginImporter:
       enabled: 1
       settings:
         CPU: x86_64
+    WebGL:
+      enabled: 0
+      settings: {}
     iOS:
       enabled: 0
       settings:
