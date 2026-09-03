@@ -115,7 +115,8 @@ if (-not (Test-Path -LiteralPath $versionTxt)) {
 
 # '3.1.39-git' のような値が入る。'-git' 以降は落として比べる
 # （表は emsdk が受け取る形 '3.1.39' で持っているため）。
-$actualRaw = (Get-Content -LiteralPath $versionTxt -Raw).Trim()
+# emsdk は引用符つきで書く（"3.1.39"）。Unity 同梱は引用符なし（3.1.39-git）。
+$actualRaw = (Get-Content -LiteralPath $versionTxt -Raw).Trim().Trim('"')
 $actual = ($actualRaw -split '-')[0]
 
 if ($actual -ne $expected) {

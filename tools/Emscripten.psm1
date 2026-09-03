@@ -215,16 +215,35 @@ function Get-EmscriptenToolchain {
     if (-not (Test-Path -LiteralPath $versionTxt)) {
         throw "Emscripten の版ファイルが見つかりません: $versionTxt (Root='$Root')"
     }
-    $version = (Get-Content -LiteralPath $versionTxt -Raw).Trim()
+    # emsdk の emscripten-version.txt は **引用符つき**で書く（"3.1.39"）。
+    # Unity 同梱は引用符なし（3.1.39-git）。両方を受ける。
+    $version = (Get-Content -LiteralPath $versionTxt -Raw).Trim().Trim('"')
 
     $toolchainFile = Join-Path $emscriptenDir 'cmake/Modules/Platform/Emscripten.cmake'
     if (-not (Test-Path -LiteralPath $toolchainFile)) {
         throw "Emscripten の CMake toolchain が見つかりません: $toolchainFile"
     }
 
-    # 同梱には emcc（拡張子なし）と emcc.bat が並ぶ。**py を直接呼ぶ**ことで
-    # OS ごとの分岐と、.bat が config を見つけられない問題を同時に避ける。
-    $config = Write-EmscriptenConfig -Root $Root -Destination (Join-Path $script:RepoRoot 'build/emscripten/.emscripten')
+    <#
+        **config を作るのは、既に在るものが無いときだけである。**
+
+        emsdk は導入時に自分で `.emscripten` を書き、`EM_CONFIG` を環境に置く。
+        **その上に自作の config を被せると壊れる**（2026-09-03 に CI で実測）——
+        emsdk の木では node が `$EMSDK/node/<ver>/bin/node` に在り、
+        **`upstream/` の下には無い。** こちらの生成器はそこを探すので
+        `NODE_JS` が存在しないパスになり、**すべての try_compile が失敗した**
+        （`HAVE_CXX_FSIGNED_CHAR - Failed` から始まり、最後は
+        `Compiler doesn't support baseline optimization flags`）。
+
+        **他人が用意したものを尊重する。** 自作の config は Unity 同梱
+        （config を持たない）のためにだけ要る。
+    #>
+    if ($env:EM_CONFIG -and (Test-Path -LiteralPath $env:EM_CONFIG)) {
+        $config = $env:EM_CONFIG
+        Write-Verbose "既存の EM_CONFIG を使う: $config"
+    } else {
+        $config = Write-EmscriptenConfig -Root $Root -Destination (Join-Path $script:RepoRoot 'build/emscripten/.emscripten')
+    }
 
     return @{
         Root               = $Root
