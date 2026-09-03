@@ -976,9 +976,13 @@ M4 の完了条件 9 件のうち 4 件が閉じておらず、2 件が実機で
 **その手順は下の「配布 その 5 — v0.4.0」にある。**
 下書きを消す必要は無い —— 残っていても誰にも見えないし、期限も無い。
 
-### 配布 その 5 — v0.4.0（**2026-09-03 に先送りと決めた。着手しない**）
+### 配布 その 5 — v0.4.0（**先送りの条件が満たされた。これが次にやることである**）
 
-> **この節は「いつか配るときの手順書」として残してある。次にやることではない。**
+> **更新（2026-09-03、M6 完了後）。この節はもう「いつかの手順書」ではない。**
+> **待っていた条件（M6 が片づくこと）が満たされたので、これが次にやることである。**
+> **ただし platform は 5 つではなく 6 つになった** —— 下の手順で
+> 「5 platform」と読める箇所は Web を含めて読むこと（`release.yml` が
+> staging する asset の数は `CLAUDE.md` の `release.yml` の行が持つ）。
 >
 > **2026-09-03、v0.4.0 を出さないと決めた。** 版を 1 つ飛ばすのではなく、
 > **次の区切り（M6）が片づいたところでまとめて配る。**
@@ -1589,6 +1593,58 @@ Unity Web Player 上で、**他の platform と同じ検証本体が通る。**
   `OCVU_ABI_VERSION` は 1 のままである
 
 **実装計画**: [`docs/superpowers/plans/2026-09-03-m6-web-wasm.md`](./superpowers/plans/2026-09-03-m6-web-wasm.md)（Task 7 本）
+
+### M6 の判定（2026-09-03。**5 件すべてを満たした**）
+
+**PR #63 が main に入った（`1e68d27`）。根拠はすべて CI の実測である** ——
+同じレーンをローカルでも回しているが、**merge 可否を決めるのは CI である**
+（`CLAUDE.md` の不変条件）。
+
+| # | 完了条件 | 判定 | 根拠（CI の実測） |
+| --- | --- | --- | --- |
+| 1 | Unity / Emscripten の対応表と、CI での不一致検出。**表の自己整合と、Unity の実物との突き合わせを対にする** | **満たした** | 対は成立している。自己整合は `tools/tests/EmscriptenVersion.Tests.ps1`（速いレーン）、実物との突き合わせは `Web browser E2E` job が `assert-emscripten-version.ps1` で行う: `OK: Unity 6000.3.16f1 が同梱する Emscripten は 3.1.39-git で、対応表 ('6000.3' = 3.1.39) と一致します。` **SKIP の経路を作っていない** —— WebGL の Player を建てられる時点で Unity と WebGL 支援は必ず在るので、「道具が無いから飛ばす」が構造的に生まれない |
+| 2 | Wasm object を生成し `.a` にまとめる。**まとめたことを実証する** | **満たした** | `Web wasm32 (cross-build)`: `_ZN2cv を含む定義済み: 5547` / `同・未定義（member ごと）: 3967` / **`archive 内に定義が無い未定義: 0`** / `ocvu_ を含む定義済み: 27`。**iOS が踏んだ空振りを繰り返さない形にしてある** —— `nm` は archive の member ごとに未定義を報告するので「未定義が無い」は誤り。**定義の差集合**を見る。`ocvu_` の側も数えるのは、**docstring が主張する保護が実際には無かった**とレビューが実測したためで、実際にこの検査が「`.a` を 8 バイトのダミーで上書きした」事故を捕まえた |
+| 3 | single-thread / SIMD。**flag を外すと落ちる**まで | **満たした** | 配る `.a`: `wasm module 数 461` / `target_features: mutable-globals, shared-mem, sign-ext, simd128` / `OK: 要求 [simd128] は在り、禁止 [atomics] は無い。` **和集合では弱い**ので、こちらの object だけの archive に**全 module 要求**でも当てる: `wasm module 数 14` / `Require を持たない module: 0 / 14`。**外部の道具に頼らず wasm の section を直接読む** |
+| 4 | 全部入りに WebGL が入り、gating が Web の物だけを有効にする | **満たした** | `Unity EditMode (Linux)`: `native plugins present: 6 [libopencv_unity_native.a, ...]` と `PluginGatingTests` 4 件が個別に passed。**`.meta` を自分で読むのではなく Unity に問う** —— M4 で `iPhone:` と書いて YAML としては正しいまま無効になった経験から、この形にしてある。`Unity Standalone (Linux)` も `Runtime/Plugins/WebGL/libopencv_unity_native.a` とその `.meta` の存在を出す |
+| 5 | Web Player の browser E2E。**0 件で緑にしない** | **満たした** | `Web browser E2E`: `OCVU_WEB_RESULT: passed=8 failed=0 reachable=28` / `==> [web] 共有本体の検査 8 件がすべて走った` / `==> [web] OK`。**下限だけを見ない** —— `passed` が**共有本体から数えた件数と完全一致**することを要求するので、8 件中 7 件が消えても緑にならない（レビューの指摘で下限から一致に変えた） |
+
+**このマイルストーンの価値は、Web が動いたことよりも、Web でしか出ない欠陥を
+7 件捕まえたことにある。うち 1 件は `CLAUDE.md` の中核の不変条件が Web でだけ
+黙って成立していなかったもの**である ——
+Emscripten は既定で C++ 例外を無効にするので、`throw` は残るのに `catch` が
+1 つも組み込まれない（`__cxa_throw` 244 件に対し `__cxa_begin_catch` 0 件）。
+**L1 も L3 も host で走るのでこの形は出ず、ブラウザで OpenCV が実際に投げて
+初めて出た。** `-fexceptions` を**投げる側（OpenCV）と捕まえる側（plugin）の
+両方**に入れて 0 → 68 件になった。
+
+**Web にだけ在る制限を 1 つ確定した**（上の「Web にだけ在る制限」）——
+`imgcodecs` は JPEG のみで、PNG を持たない。**利用者が読む 3 文書**
+（`README.md` / `README.ja.md` / この節）に書いてある。
+
+**CI が 5 往復で欠陥を 9 件出した。9 件とも「手元では緑」である。**
+レビュー 3 回（指摘 36 件）を通した後の差分に、である。内訳と、そこから
+出た一般則は PR #63 の本文にある（**ここに再掲しない**）。**そのうち 1 件は
+`release.yml` の「未知の platform は失敗させる」門が 2 箇所あり、後者にだけ
+足して前者に足し忘れたもの**で、**`pack-upm-tarball.ps1` の switch・
+`PackageRelease.Tests.ps1` の 3 つ目の一覧に続く 3 度目の
+「同一ファイルの 2 つ目の一覧」だった。** `tools/tests/OpenCvConfig.Tests.ps1`
+に検査を足してある（**一覧を持たず、正本から読んだ全 platform が
+すべての門に現れることだけを見る**。壊して 2 通りで確かめた）。
+
+**満たしていないもの / 意図してやっていないことを明記する。**
+
+- **M6 が足した 3 本の check は、まだ必須チェックではない**
+  （`Web wasm32 (cross-build)` / `Web browser E2E` / `Package web-wasm`）。
+  `CLAUDE.md` の規律は「**安定して緑になったのを見てから必須へ加える**」で、
+  **モバイルの 2 本も M4 の直後は必須外で、後から昇格した。** 同じ手順を踏む
+  —— **したがって現時点では、Web のレーンが赤くても merge できる。**
+  必須チェックの一覧の正本は GitHub 側の設定である
+- **配ることは M6 の完了条件に含まれない**（非ゴール）。**利用者に届く最新版は
+  依然として v0.2.0 である** —— M4 の 5 platform も、M5 の生成器と校正 API も、
+  M6 の Web も、まだ誰の手にも渡っていない。**次にやることはこれである**
+  （「配布 その 5」）
+- **threads profile / `dnn` / 新しい ABI 関数**は非ゴールのまま。
+  `OCVU_ABI_VERSION` は 1 から動いていない
 
 ### M4 / M5 の後に着手するとき、何が変わっているか（2026-09-03 に追記）
 
