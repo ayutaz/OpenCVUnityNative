@@ -349,7 +349,7 @@ jobs:
       - name: Check that all three platforms are present
         shell: pwsh
         run: |
-          $expected = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')
+          $expected = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')
           $missing = @($expected | Where-Object {
               -not (Test-Path "bundles/release-$_")
           })
@@ -368,7 +368,7 @@ jobs:
       - name: Assemble the all-in-one package
         shell: pwsh
         run: |
-          $sources = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64') |
+          $sources = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm') |
                      ForEach-Object { "bundles/release-$_/Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 

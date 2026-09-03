@@ -294,8 +294,12 @@ $pluginMetas = @(
        Meta = "$metaBase/android-arm64/Android/arm64-v8a/libopencv_unity_native.so.meta" }
     @{ Platform = 'ios-arm64';     Key = 'iOS';          EditorOS = ''
        Meta = "$metaBase/ios-arm64/iOS/libopencv_unity_native.a.meta" }
+    # Web も静的ライブラリ。**iOS と同じファイル名なので、見分けるのは
+    # ディレクトリ（/WebGL/ と /iOS/）だけである。**
+    @{ Platform = 'web-wasm';      Key = 'WebGL';        EditorOS = ''
+       Meta = "$metaBase/web-wasm/WebGL/libopencv_unity_native.a.meta" }
 )
-$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win', 'Android', 'iOS')
+$allPlatformKeys = @('Win64', 'OSXUniversal', 'Linux64', 'Win', 'Android', 'iOS', 'WebGL')
 
 <#
     **この一覧が、いま配っている platform を全部並べていること。**
@@ -393,7 +397,8 @@ try {
             1 であることを要求する。**知らない platform に配られない**
             ことまで見る。
         #>
-        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:?
+        $pdBlock = [regex]::Match($metaText, '(?ms)^  platformData:
+?
 (.*?)(?=^  [a-zA-Z])')
         Assert-That $pdBlock.Success `
             "$($entry.Platform): the platformData block is readable"

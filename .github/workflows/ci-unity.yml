@@ -262,7 +262,7 @@ jobs:
             # 重ねてから走るので、無条件に 5 を要求してよい。**
             # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
             # 'present: 50' にも当たる。
-            requireOutput: 'native plugins present: 5 ['
+            requireOutput: 'native plugins present: 6 ['
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
@@ -303,7 +303,7 @@ jobs:
           # **5 platform すべてを重ねる。** PluginGatingTests が Slots の数
           # （5）を要求するので、3 つだけ重ねると落ちる —— そして落ちるのが
           # 正しい。配る package には 5 つ入るからである。
-          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64') |
+          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
                      ForEach-Object { "other-plugins/unity-plugin-$_" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
@@ -513,4 +513,84 @@ jobs:
         with:
           name: test-results-unity-${{ matrix.lane }}
           path: artifacts/unity-${{ matrix.lane }}
+          if-no-files-found: warn
+
+  # **ブラウザで実際に動かす。** これが「動く」を主張できる唯一のレーンである
+  # （`add-a-platform` skill の「ビルドできる / 配れる / 動く」）。
+  #
+  # **上の unity job とは別の job にしてある** —— あちらは
+  # `game-ci/unity-test-runner` が Test Framework を回す形だが、
+  # **Unity Test Framework は WebGL の Player を batchmode から走らせられない**
+  # （実行にはブラウザが要る）。だから Player を建てる job と、
+  # それをブラウザで駆動する step を自分で組む。
+  web-e2e:
+    name: Web browser E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    needs: plugin
+    # **needs を持つ job は `!cancelled()` で守る。** ゆるい条件だと
+    # 必須チェックが常時 skip になりうる（CLAUDE.md の該当節）。
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the Unity version
+        id: unity
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+          $m = Select-String -LiteralPath $file -Pattern '^m_EditorVersion:\s*(\S+)' |
+               Select-Object -First 1
+          if (-not $m) { Write-Error "could not read m_EditorVersion from $file"; exit 1 }
+          "version=$($m.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+
+      # 全 platform 分の plugin を重ねる。**Web だけでは gating の形が
+      # 配る物と違う**ので、上の unity job と同じ材料を使う。
+      - name: Download every plugin
+        uses: actions/download-artifact@v8
+        with:
+          pattern: plugin-*
+          path: bundles
+
+      - name: Assemble the plugins
+        shell: pwsh
+        run: |
+          $sources = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm') |
+                     ForEach-Object { "bundles/plugin-$_/Runtime/Plugins" }
+          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
+
+      # **WebGL の Player を建てる。** webgl のイメージが要る
+      # （base では WebGL のビルドができない）。
+      - name: Build the WebGL player
+        uses: game-ci/unity-builder@adaf7cd8f42fd48fbbf2d4f5f67ca30d87f819f1 # v5.0.1
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: tests/UnityProject
+          unityVersion: ${{ steps.unity.outputs.version }}
+          targetPlatform: WebGL
+          buildMethod: BuildPlayer.BuildWebGL
+          customImage: unityci/editor:ubuntu-${{ steps.unity.outputs.version }}-webgl-3
+          allowDirtyBuild: true
+
+      # **ローカルと同じ script を通す。** 起動の仕方は分かれてよいが、
+      # 判定は分けない（CLAUDE.md の不変条件）。
+      - name: Drive the player in a browser
+        shell: pwsh
+        run: ./tools/run-web-e2e.ps1 -PlayerDir build/web-player
+
+      - name: Upload the player and the logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-web-e2e
+          path: |
+            build/web-player
+            build/web-e2e
           if-no-files-found: warn

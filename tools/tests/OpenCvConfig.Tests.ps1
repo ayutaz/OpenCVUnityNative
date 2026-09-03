@@ -969,8 +969,22 @@ if ($markerName) {
     })
     Assert-That ($declaredOutputs.Count -eq 1) `
         "ci-unity.yml declares exactly one non-empty requireOutput lane (saw $($declaredOutputs.Count))"
-    Assert-That (@($declaredOutputs | Where-Object { $_ -match 'native plugins present: 5 \[' }).Count -eq 1) `
-        "ci-unity.yml requires the tests to report every platform (saw: $($declaredOutputs -join ', '))"
+    # **数を写さない。正本から導く。**
+    #
+    # ここに `5` と書いていたので、**platform を 6 つにしたときに
+    # 「1 箇所だけ直すと別レーンが赤くなる」形**になっていた（M6 のレビューで
+    # 発覚）。**この検査自身が古い数を強制していた**のが最も悪い ——
+    # 直す側から見ると「どちらが正しいのか」が分からなくなる。
+    #
+    # 正本は tools/dev.ps1 の $script:AllPlatformBinaries である。
+    $devPs1 = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
+    $binBlock = [regex]::Match($devPs1, '\$script:AllPlatformBinaries\s*=\s*@\((?<body>[\s\S]*?)\)')
+    Assert-That ($binBlock.Success) 'dev.ps1 から $AllPlatformBinaries を読み取れる'
+    $platformCount = @([regex]::Matches($binBlock.Groups['body'].Value, "'[^']+'")).Count
+    Assert-That ($platformCount -ge 3) "正本から platform 数を数えられた (got $platformCount)"
+
+    Assert-That (@($declaredOutputs | Where-Object { $_ -match "native plugins present: $platformCount \[" }).Count -eq 1) `
+        "ci-unity.yml requires the tests to report every platform ($platformCount; saw: $($declaredOutputs -join ', '))"
 }
 
 
@@ -1724,7 +1738,7 @@ Assert-That (@($nativeCMakeLines | Where-Object {
 #
 # **matrix から静かに漏れると、restore が「artifact が無い」で落ちる。**
 # しかもそれは、モバイルをビルドしようとした人の手元で初めて起きる。
-$AllTargetPlatformsForWorkflows = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')
+$AllTargetPlatformsForWorkflows = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')
 
 foreach ($wf in @('build-opencv.yml', 'release.yml')) {
     $text = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/$wf") -Raw

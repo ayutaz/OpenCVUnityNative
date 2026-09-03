@@ -855,7 +855,7 @@ function Test-UnityTarball {
             「合否の判定は assert-unity-results.ps1 をローカルと CI の両方が
             通る」とも食い違う。
 
-            全部入りのときは、**結果として `native plugins present: 5` が
+            全部入りのときは、**結果として `native plugins present: 6` が
             出ていること**まで要求する。合図が届かなければ gating は
             「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた場合と
             1 バイトも違わない —— 入力を検査しても届いたことの証明にはならない。
@@ -874,7 +874,7 @@ function Test-UnityTarball {
         )
         $assertArgs += @('-RequireTest', ($script:GatingTestNames -join ';'))
         if ($allPlatforms) {
-            $assertArgs += @('-RequireOutput', 'native plugins present: 5 [')
+            $assertArgs += @('-RequireOutput', 'native plugins present: 6 [')
         }
         Invoke-Checked {
             & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') @assertArgs
@@ -985,6 +985,23 @@ function Stop-UnityTestPlayers {
     確かめられなくなる。
 #>
 function Test-UnityWeb {
+    <#
+        **対応表を実物と突き合わせる。**
+
+        `tools/emscripten-versions.psd1` は写しなので、
+        **速いレーンの検査（表の自己整合）だけでは、表が現実と合っているかを
+        誰も見ない。** Unity が実際に同梱している版と突き合わせるのが
+        `assert-emscripten-version.ps1` だが、**このレーンに配線するまで
+        どこからも呼ばれていなかった**（M6 のレビューで発覚）。
+
+        **ここに置くのが正しい** —— WebGL の Player を建てられる時点で
+        Unity と WebGL 支援は必ず在るので、**「道具が無いから飛ばす」経路が
+        構造的に生まれない。**
+    #>
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-emscripten-version.ps1')
+    } 'assert the Emscripten version matches the table'
+
     # **このレーンが要るのは Web の plugin である。**
     #
     # Build-Native は既定で「実行中の platform」を作る。そのまま呼ぶと

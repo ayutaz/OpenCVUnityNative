@@ -62,7 +62,7 @@ jobs:
           # Emscripten を emsdk で入れるので Linux にする（一番速い）。
           # **Unity は使わない** —— 版が Unity の同梱とずれないことは
           # tools/emscripten-versions.psd1 と、ci-unity の
-          # assert-emscripten-version.ps1 が対で見る。
+          # assert-emscripten-version.ps1（dev.ps1 test-unity-web が走らせる）が対で見る。
           - platform: web-wasm
             runner: ubuntu-24.04
 

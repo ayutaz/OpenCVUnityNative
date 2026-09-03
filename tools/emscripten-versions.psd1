@@ -6,7 +6,9 @@
     #
     # **だから写しだけを持たない。** `tools/assert-emscripten-version.ps1` が
     # Unity の導入先から emscripten-version.txt を読み、この表と突き合わせる
-    # （`ci-unity` が -RequireUnity 付きで走らせる）。
+    # （`dev.ps1 test-unity-web` が必ず走らせる —— WebGL の Player を
+    # 建てられる時点で Unity と WebGL 支援は必ず在るので、
+    # **「道具が無いから飛ばす」経路が構造的に生まれない**）。
     # 表の自己整合（Unity の版に対応する項が在るか、workflow の pin と一致するか）は
     # `tools/tests/EmscriptenVersion.Tests.ps1` が速いレーンで見る。
     #
