@@ -205,7 +205,7 @@ GitHub Release に付いた `.tgz` をそのまま公開する**経路が用意�
 platform ごとの tarball のうち 1 つを選んで公開すれば、`openupm add` で入るのは
 その platform 分の binary だけになる。**この前提は M3.5（2026-08-30）で消えた** ——
 全部入りの tarball を正にしたので、`githubReleaseAssetName` が選ぶ 1 つに
-Desktop 3 platform 分が入る。
+全 platform 分が入る（**この記述は M3.5 時点では Desktop 3 platform だった。M4 で 5、M6 で 6 になった** —— 現況は[ロードマップ](./roadmap.md)が持つ）。
 
 実装時に効く細かい制約が 2 つあった。**どちらも M3.5（2026-08-30）で満たした。**
 

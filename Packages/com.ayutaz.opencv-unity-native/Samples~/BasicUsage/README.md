@@ -58,9 +58,5 @@ Unity Editor の **Window > Package Manager** で `OpenCV Unity Native` を選�
 `./tools/dev.ps1 build` が、**実行中の platform 分だけ**をそこへ置く。
 他の platform 分が要るなら、公開済みリリースから取ってくるか CI の artifact を使う。
 
-**Web だけは 1 つ制限がある: 画像の encode / decode は JPEG のみで、PNG が無い。**
-このサンプルが PNG を使うなら、Web では動かない。理由はリポジトリの
-ロードマップ（M6 の節）にある。
-
 **対応 platform の一覧をここには書かない** —— 増減するたびにこの行だけが
 古くなる。正本はリポジトリの README である。

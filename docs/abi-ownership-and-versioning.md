@@ -318,14 +318,14 @@ status の追加が bump にならないのは、**呼ぶ側が未知の status 
 （C# 側の `CvNative.IsFailure` がこの形になっている）。網羅的な分岐を書いて未知の値で壊れる
 呼び出し側は、この契約に従っていない。
 
-### 2.3 platform 間の差は bump に当たらない（M6 で足した）
+### platform 間の差は bump に当たらない（M6 で足した）
 
 **上の 2 つの一覧は「版と版の間」を規定していて、「platform と platform の間」を
 規定していなかった。** M6 で実際にその差が出たので、扱いをここに書く。
 
 **同じ版の中で、platform によって観測できる挙動が違うことがある。**
 実例は `imgcodecs` で、**Web だけが PNG を扱えない**（§3.5）—— 同じ
-`ocvu_imencode(mat, ".png", ...)` が、5 platform では `OCVU_STATUS_OK` を、
+`ocvu_imencode(mat, ".png", ...)` が、**Web 以外では** `OCVU_STATUS_OK` を、
 Web では `OCVU_STATUS_OPENCV_ERROR` を返す。
 
 **これは bump に当たらない。** `OCVU_ABI_VERSION` が追うのは**宣言の形**
@@ -424,7 +424,7 @@ byte 列だけで、ファイルパスは受けない**（理由は §1.6）。
 （**実測ではなく導出である** —— 扱えない拡張子がその status になることは
 L3 と共有の検証本体が確かめているが、`.png` そのものは測っていない）。
 **allowlist から外しもしない** —— 出すと決めた関数は全 platform に在る。
-**`OCVU_ABI_VERSION` の扱いは §2.3 にある。**
+**`OCVU_ABI_VERSION` の扱いは §2 の「platform 間の差は bump に当たらない」にある。**
 
 **`imgcodecs` は M3.5 で初めてリンクされた。** それ以前の
 `cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` だけで、リポジトリ内の

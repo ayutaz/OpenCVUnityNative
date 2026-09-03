@@ -10,7 +10,7 @@
     ライセンスの配置は platform で変わる（tools/verify-opencv-artifact.ps1 と
     同じ理解）:
       Windows          etc/licenses/<file>
-      macOS/Linux/iOS  share/licenses/opencv5/<file>
+      macOS/Linux/iOS/Web  share/licenses/opencv5/<file>
       Android          sdk/etc/licenses/<file>   ← install の木ごと sdk/ の下
 
     **Android を落としていた。** verify-opencv-artifact.ps1 には sdk/ を

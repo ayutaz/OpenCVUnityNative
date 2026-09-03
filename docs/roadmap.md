@@ -1000,8 +1000,9 @@ M4 の完了条件 9 件のうち 3 件が閉じておらず、2 件が実機で
 > **`release.yml` は PR で空撃ちしているので配線は緑のまま保たれる** ——
 > M4 で 3 件たまったような欠陥は、たまる前に見つかるはずである。
 >
-> **下の内容は v0.4.0 として書いたときのままである。** 実際に配るときは
-> **版番号と、M6 の成果を含めるかどうかを決め直すこと。**
+> **版番号だけは決め直すこと**（`v0.4.0` のまま打たない）。
+> **内容は M6 まで反映してある** —— 上の「6 つになった」と同じで、
+> 手順も表もこの時点の現実に合わせて直してある。
 
 
 **M4（5 platform）・M5（生成器と校正 API）・M6（Web）の成果は、まだ誰にも届いていない。**
@@ -1883,7 +1884,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 - dnn を**別 package**（`…-dnn`）で配るか、同じ package の optional profile にするか。
   **全部入り tarball を配る正にしたのは M3.5 の決着**なので、dnn を足すことは
   **「中身を足す」ではなく「形を変える」**ことになりうる
-- GPU backend を持つ版の platform matrix（CUDA の版 × OS）。現在の 3 platform × 1 構成が何倍になるか
+- GPU backend を持つ版の platform matrix（CUDA の版 × OS）。現在の platform × 1 構成が何倍になるか（**platform 数をここに書かない。正本は `tools/opencv-config.psd1` の `Toolchains`**）
 
 **差別化としての位置づけは変えない。** 競合が書き直し前のエンジンを載せている点は
 [競合調査](./unity-opencv-integration-research-and-plan.md) §3 / §4.6 のとおりで、
