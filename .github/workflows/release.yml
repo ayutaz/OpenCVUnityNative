@@ -427,7 +427,7 @@ jobs:
 
           # 名前が衝突していたら、Copy-Item が黙って上書きした後になる。
           # 数えて確かめる:
-          #   5 platform x (tarball 1 + 配布物 4) = 25
+          #   6 platform x (tarball 1 + 配布物 4) = 30
           # + 全部入りの tarball 1 + その checksums.txt 1
           # = 32（6 platform x 5 + 全部入りの 2 件）
           $staged = @(Get-ChildItem assets -File)

@@ -192,6 +192,8 @@ if(OCVU_WITH_OPENCV)
         # ここへ足すこと**を明示しておく。
         set(OCVU_UNITY_PROVIDED_3RDPARTY libpng)
         foreach(_provided IN LISTS OCVU_UNITY_PROVIDED_3RDPARTY)
+            # **`\.` と 2 段書く。** CMake の引用符つき引数では `\.` が `.` に畳まれ、
+            # 正規表現が `libpng.a$`（`.` は任意 1 文字）になる。
             list(FILTER OCVU_OPENCV_3RDPARTY EXCLUDE REGEX "lib${_provided}\.a$")
         endforeach()
 
@@ -215,21 +217,21 @@ end
 ")
         file(GENERATE OUTPUT "${OCVU_MRI}" CONTENT "${_ocvu_mri_body}")
 
-            # **find_file / find_program を使わない。**
-#
-            # Emscripten の toolchain は CMAKE_FIND_ROOT_PATH_MODE_* を ONLY に
-            # するので、**探索が sysroot の中に閉じ込められる。**
-            # `OCVU_EMSCRIPTEN_ROOT` は sysroot の外なので、PATHS で明示しても
-            # 見つからない（2026-09-03 に実測:
-            # `Could not find OCVU_EMAR_PY using the following files: emar.py`。
-            # **cache には正しい値が入っていた**ので、値ではなく探し方の問題である）。
-#
-            # `add-a-platform` skill の罠 3 は `find_package` の話だが、
-            # **`find_file` / `find_program` にも同じことが起きる。**
-#
-            # **在り処は分かっているので探さない。** 組み立てて、無ければ
-            # その場で止める（`NO_CMAKE_FIND_ROOT_PATH` を足す手もあるが、
-            # **探索の設定に依存しないほうが読んで分かる**）。
+        # **find_file / find_program を使わない。**
+        #
+        # Emscripten の toolchain は CMAKE_FIND_ROOT_PATH_MODE_* を ONLY に
+        # するので、**探索が sysroot の中に閉じ込められる。**
+        # `OCVU_EMSCRIPTEN_ROOT` は sysroot の外なので、PATHS で明示しても
+        # 見つからない（2026-09-03 に実測:
+        # `Could not find OCVU_EMAR_PY using the following files: emar.py`。
+        # **cache には正しい値が入っていた**ので、値ではなく探し方の問題である）。
+        #
+        # `add-a-platform` skill の罠 3 は `find_package` の話だが、
+        # **`find_file` / `find_program` にも同じことが起きる。**
+        #
+        # **在り処は分かっているので探さない。** 組み立てて、無ければ
+        # その場で止める（`NO_CMAKE_FIND_ROOT_PATH` を足す手もあるが、
+        # **探索の設定に依存しないほうが読んで分かる**）。
         set(OCVU_EMAR_PY "${OCVU_EMSCRIPTEN_ROOT}/emscripten/emar.py")
         if(NOT EXISTS "${OCVU_EMAR_PY}")
             message(FATAL_ERROR "emar.py が見つかりません: ${OCVU_EMAR_PY}")

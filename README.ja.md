@@ -60,6 +60,7 @@ com.ayutaz.opencv-unity-native-<version>-macos-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-linux-x64.tgz
 com.ayutaz.opencv-unity-native-<version>-android-arm64.tgz
 com.ayutaz.opencv-unity-native-<version>-ios-arm64.tgz
+com.ayutaz.opencv-unity-native-<version>-web-wasm.tgz
 ```
 
 platform ごとの一覧は platform が増えれば増えます。**どれが実在するかは、

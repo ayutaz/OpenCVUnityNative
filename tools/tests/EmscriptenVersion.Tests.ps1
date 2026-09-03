@@ -101,10 +101,18 @@ foreach ($p in $pinned) {
     Assert-That ($p.Version -notmatch '^\d+\.\d+') `
         "$($p.File) does not hardcode an emsdk version (got '$($p.Version)'; 表から読むこと)"
 }
-# **`pinned.Count -eq 0` を失敗にしない。** M6 の Task 2 で emsdk を使う job を
-# 足すまで 0 件が正しい状態である。**0 件のときに何も主張していないことは、
-# 上の「走査が効いている」assertion で担保する** —— workflow を 1 つも読めて
-# いなければ、そちらが落ちる。
+# **0 件を失敗にする。**
+#
+# 当初は「emsdk を使う job を足すまで 0 件が正しい」としていたが、
+# **その根拠は失効した** —— いま emsdk を入れる job は
+# build-opencv / ci-native / release の 3 本ある（M6 のレビューの指摘）。
+#
+# **0 件になるのは「emsdk の step が消えた」か「拾い方が壊れた」ときだけ**で、
+# どちらも**この検査が何も主張していない状態**である。
+# **拾えなかったことを「一致した」と読まない。**
+Assert-That ($pinned.Count -gt 0) `
+    "setup-emsdk の version 入力を 1 つ以上拾えた (got $($pinned.Count))"
+
 
 if ($script:failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($script:failures.Count) assertion(s) failed")

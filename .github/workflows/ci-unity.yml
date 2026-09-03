@@ -94,7 +94,7 @@ jobs:
             runner: windows-2022
           - platform: macos-arm64
             runner: macos-14
-          # **モバイルも重ねる。** 配る package には 5 platform 分が入るので、
+          # **モバイルも重ねる。** 配る package には 6 platform 分が入るので、
           # 3 つだけで gating を検査すると「配る物とは違う形」を見ることになる。
           - platform: android-arm64
             runner: ubuntu-24.04
@@ -258,8 +258,8 @@ jobs:
             # **入力ではなく結果を見る。** 合図が届かなければ gating は
             # 「1 つ以上」しか要求せず、そのときの出力は意図どおり動いた
             # 場合と 1 バイトも違わない。テスト自身が出した事実を要求すれば、
-            # 合図の経路が壊れた時点で赤くなる。**このレーンは 5 platform を
-            # 重ねてから走るので、無条件に 5 を要求してよい。**
+            # 合図の経路が壊れた時点で赤くなる。**このレーンは 6 platform を
+            # 重ねてから走るので、無条件に全部を要求してよい。**
             # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
             # 'present: 50' にも当たる。
             requireOutput: 'native plugins present: 6 ['
@@ -300,7 +300,7 @@ jobs:
       - name: Assemble every platform into one package
         shell: pwsh
         run: |
-          # **5 platform すべてを重ねる。** PluginGatingTests が Slots の数
+          # **6 platform すべてを重ねる。** PluginGatingTests が Slots の数
           # （5）を要求するので、3 つだけ重ねると落ちる —— そして落ちるのが
           # 正しい。配る package には 5 つ入るからである。
           $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
