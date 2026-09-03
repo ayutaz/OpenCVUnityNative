@@ -565,9 +565,18 @@ jobs:
         run: |
           # **artifact の中身は直下である**（upload の path が
           # `.../Runtime/Plugins` なので、その中身が展開される）。
-          # `/Runtime/Plugins` を足すと 1 つも見つからない ——
-          # **上の unity job が suffix 無しで渡しているのが証拠である。**
-          $sources = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm') |
+          #
+          # **linux-x64 は入れない。** `plugin` job の matrix は
+          # windows / macos / android / ios / web の **5 つ**で、
+          # **Linux は `unity` job がコンテナの中で自前にビルドする。**
+          # 足すと `other-plugins/unity-plugin-linux-x64` が無くて
+          # assemble が落ちる（M6 の 3 回目のレビューが実測）。
+          # **`unity` job の一覧と同じにするのが正しい。**
+          #
+          # **この job は PluginGatingTests を走らせない**ので、他 platform を
+          # 重ねる必要は本来無い。**それでも重ねるのは、Player に入る
+          # plugin の集合を配る物と同じにするため**である。
+          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
                      ForEach-Object { "other-plugins/unity-plugin-$_" }
           ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
 
@@ -586,6 +595,27 @@ jobs:
           buildMethod: BuildPlayer.BuildWebGL
           customImage: unityci/editor:ubuntu-${{ steps.unity.outputs.version }}-webgl-3
           allowDirtyBuild: true
+          # **出力先を CWD に頼らない。**
+          #
+          # `BuildPlayer.BuildWebGL` は環境変数が無ければ
+          # `Directory.GetCurrentDirectory()/build/web-player` に落とすが、
+          # **コンテナの中の CWD が workspace 直下か project 直下かは
+          # こちらで決められない。**
+          #
+          # **環境変数で渡す形に逃げない** —— このリポジトリは
+          # 「game-ci がコンテナへ渡す環境変数は固定一覧で、任意の名前は
+          # 届かない」を実測している（`ocvu-expect-all-platforms` を
+          # ファイルにした理由）。**action が持つ入力で決める。**
+          buildsPath: build
+          buildName: web-player
+
+      # **chromium を毎回落とさない。** 150 MB を毎 run で取ると遅いうえ、
+      # 上流の帯域にも当たる（M6 の 3 回目のレビューの指摘）。
+      - name: Cache the Playwright browsers
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.49.1-${{ runner.os }}
 
       # **対応表を Unity の実物と突き合わせる。**
       #
@@ -598,7 +628,7 @@ jobs:
       # 経路が構造的に生まれない。
       - name: Assert the Emscripten version matches the table
         shell: pwsh
-        run: ./tools/assert-emscripten-version.ps1 -UnityRoot /opt/unity/Editor
+        run: ./tools/assert-emscripten-version.ps1 -RecordedVersionPath build/web-player/emscripten-version.txt
 
       # **ローカルと同じ script を通す。** 起動の仕方は分かれてよいが、
       # 判定は分けない（CLAUDE.md の不変条件）。

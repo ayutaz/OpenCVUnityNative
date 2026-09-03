@@ -1,3 +1,4 @@
+using System;
 using UnityEditor;
 using UnityEngine;
 using UnityEditor.Build;
@@ -160,6 +161,40 @@ public static class BuildPlayer
             targetGroup = BuildTargetGroup.WebGL,
             options = BuildOptions.None,
         };
+
+        // **同梱 Emscripten の版を書き出す。**
+        //
+        // 版の照合を **runner 側でやろうとして失敗した**（M6 の 3 回目の
+        // レビュー）—— game-ci の action は docker を使うので、
+        // **Unity はコンテナの中にしか無く、step が終われば消える。**
+        // `/opt/unity/Editor` は runner に存在しない。
+        //
+        // **Unity の中でしか読めないものは、Unity の中で読んで書き出す。**
+        // 突き合わせは runner 側が `-VersionFile` で行う。
+        try
+        {
+            var emVersion = System.IO.Path.Combine(
+                EditorApplication.applicationContentsPath,
+                "PlaybackEngines/WebGLSupport/BuildTools/Emscripten/emscripten/emscripten-version.txt");
+            if (System.IO.File.Exists(emVersion))
+            {
+                System.IO.File.Copy(emVersion,
+                    System.IO.Path.Combine(outDir, "emscripten-version.txt"), true);
+                UnityEngine.Debug.Log($"recorded Emscripten version from {emVersion}");
+            }
+            else
+            {
+                UnityEngine.Debug.LogError($"同梱 Emscripten の版ファイルがありません: {emVersion}");
+                EditorApplication.Exit(1);
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.LogError($"版ファイルを書き出せませんでした: {e.Message}");
+            EditorApplication.Exit(1);
+            return;
+        }
 
         var report = BuildPipeline.BuildPlayer(options);
         var summary = report.summary;

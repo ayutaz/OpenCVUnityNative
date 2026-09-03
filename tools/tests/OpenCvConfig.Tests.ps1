@@ -1754,7 +1754,7 @@ foreach ($wf in @('build-opencv.yml', 'release.yml')) {
 # 壊れたことが分かるのが tag を打った後になる —— M3.5 で踏んだ
 # 「配る直前に初めて走る配線」と同じ形である。
 $ciNativeText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-native.yml') -Raw
-foreach ($p in @('android-arm64', 'ios-arm64')) {
+foreach ($p in @('android-arm64', 'ios-arm64', 'web-wasm')) {
     Assert-That ($ciNativeText -match "(?m)^\s*- platform:\s*$([regex]::Escape($p))\s*$") `
         "ci-native.yml cross-builds $p (release でしか作らないと、壊れたと分かるのが tag の後になる)"
 }

@@ -28,7 +28,18 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$UnityRoot
+    [string]$UnityRoot,
+    # **Unity の中で書き出した版ファイルを突き合わせる。**
+    #
+    # CI では Unity が**コンテナの中にしか無く**、step が終われば消える
+    # （game-ci の action は docker を使う）。**runner から Unity の木は
+    # 見えない**ので、`-UnityRoot` は CI では使えない。
+    # **Unity の中でしか読めないものは Unity の中で読んで書き出し、
+    # 突き合わせだけをこちらで行う。**
+    # **名前に注意。** PowerShell の変数は大文字小文字を区別しないので、
+    # このファイルが既に持つ `$versionFile`（ProjectVersion.txt）と
+    # `$VersionFile` は**同じ変数になる**（実測で踏んだ）。
+    [string]$RecordedVersionPath
 )
 
 Set-StrictMode -Version Latest
@@ -65,6 +76,32 @@ if (-not $table.ContainsKey($unityMinor)) {
     )
 }
 $expected = $table[$unityMinor].Emscripten
+
+# --- 版ファイルを渡されたら、それを突き合わせる ---
+if ($RecordedVersionPath) {
+    if (-not (Test-Path -LiteralPath $RecordedVersionPath)) {
+        Fail @(
+            "版ファイルがありません: $RecordedVersionPath"
+            "**これは SKIP ではなく失敗である** —— 突き合わせる相手が無いので、"
+            "この検査は何も確かめられていない。"
+            "Unity 側（BuildPlayer.BuildWebGL）が書き出しているはずである。"
+        )
+    }
+    $actualRaw = (Get-Content -LiteralPath $RecordedVersionPath -Raw).Trim().Trim('"')
+    $actual = ($actualRaw -split '-')[0]
+    if ($actual -ne $expected) {
+        Fail @(
+            "Emscripten の版が対応表と一致しません。"
+            "  Unity $unityVersion が同梱: $actualRaw  (比較に使う値: $actual)"
+            "  tools/emscripten-versions.psd1 の '$unityMinor': $expected"
+            ''
+            "**表が古いか、Unity を上げたのに表を直していない。**"
+        )
+    }
+    Write-Host "OK: Unity $unityVersion が同梱する Emscripten は $actualRaw で、対応表 ('$unityMinor' = $expected) と一致します。"
+    Write-Host "    読んだ場所: $RecordedVersionPath（Unity の中で書き出したもの）"
+    exit 0
+}
 
 # --- Unity の導入先を決める ---
 $candidates = @()
