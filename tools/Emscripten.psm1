@@ -110,9 +110,12 @@ function Write-EmscriptenConfig {
     # **他人の導入先に書かない。** ビルドの副作用で Unity の木が変わる状態は、
     # 「動かなくなったとき何を戻せばいいか」が誰にも分からなくなる。
     #
-    # **代償は初回のビルド時間である** —— Unity の cache を再利用しないので
-    # sysroot をこちらで作り直す。CI は emsdk を cold から始めるのでどのみち
-    # 同じ costs を払う。
+    # **これは衛生の話ではなく、動くかどうかの話だった。** 設定しないまま
+    # 試したとき、3 行の .cpp のコンパイルが 15 分返らなかった —— 書けない
+    # 場所へ書こうとしていたためである。**cache を build/ へ移した後は
+    # 初回 7 秒・2 回目 0.8 秒**（2026-09-03 実測、Windows）。
+    # **「Unity の 1.6 GB の cache を再利用できなくなる分だけ遅くなる」と
+    # 考えたが、逆だった。**
     $cacheDir = Join-Path (Split-Path -Parent $Destination) 'cache'
 
     $lines = @(
