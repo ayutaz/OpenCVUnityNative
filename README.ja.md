@@ -100,7 +100,7 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 
 ### 1 つのパッケージに全 platform
 
-導入するパッケージには全 platform 分の binary が一緒に入っています（v0.2.0 では Windows / macOS / Linux、次の版から Android と iOS が加わります）。Unity は 1 つのパッケージ ID につき 1 つしかパッケージを許さないので、**エディタと build target の platform が違うプロジェクト**は、それらを 1 つのパッケージに入れる必要があります。以前のリリースは platform ごとの tarball を配っており、それを表現できませんでした。platform ごとの tarball は引き続き配りますが、それは 1 platform 分だけが欲しいプロジェクトのための便宜です。
+導入するパッケージには全 platform 分の binary が一緒に入っています（v0.2.0 では Windows / macOS / Linux、次の版から Android・iOS・Web が加わります）。Unity は 1 つのパッケージ ID につき 1 つしかパッケージを許さないので、**エディタと build target の platform が違うプロジェクト**は、それらを 1 つのパッケージに入れる必要があります。以前のリリースは platform ごとの tarball を配っており、それを表現できませんでした。platform ごとの tarball は引き続き配りますが、それは 1 platform 分だけが欲しいプロジェクトのための便宜です。
 
 各 binary の Plugin Import Settings は自分の platform でのみ有効になります。**これは主張ではなく実測です** —— EditMode のテストが、全 platform の binary を置いた状態で Unity 自身の `PluginImporter` に「その `.meta` をどう読んだか」を問います。自分で設定を覗くつもりなら、この実測で分かった 2 点を知っておく価値があります。
 
@@ -205,7 +205,7 @@ Unity のレーンは Linux で走り、Windows の IL2CPP Player はローカ�
 
 表の外では、すべての pull request が `actionlint` / `shellcheck` / `PSScriptAnalyzer` とリポジトリ内リンクの検査を走らせ、CodeQL が C++ と C# を解析します。nightly の workflow は Linux 成果物の glibc の下限を再確認し、Windows と macOS で速いレーンを走らせ、固定した OpenCV の artifact が期限切れでないことを確かめます —— **誰も push していない間に壊れるもの**です。**この nightly はまだ schedule で起動したことがありません**。手で 2 回起動しただけで、1 回目は失敗（API のレート制限）、2 回目は緑でした。
 
-**pull request で走るレーンのほとんどが merge を止めます。** 必須チェックは 21 本です: desktop 3 platform の契約・P/Invoke・sanitizer、Android と iOS のクロスビルド、lint の 4 job、CodeQL の 2 つ、Unity の 2 レーン、そして 5 platform 分の配布物をビルド・組み立てる release の 6 job。5 本は意図的に必須にしていません。うち 4 本は Unity のレーンが消費する platform ごとのプラグインをビルドするもので、**どれかが失敗すると Unity のレーンは走ったうえで材料が無いことで赤くなり**、それが merge を止めます。**skip された必須チェックは合格として通る**ので、その守りなしにそれらへ依存すると、壊れたビルドが通ってしまいます。**レーンは安定して緑になってから必須にします** —— 過去 2 回、早すぎる昇格が「赤いのに merge できる」隙間を作りました。2026-08-29 までは Unity・lint・CodeQL の workflow がすべての pull request で走りながら必須ではなく、**赤いまま merge できました。CI が見ていることと CI が止めることは別で、ゲートなのは後者だけです。** 残る 3 つの workflow（`build-opencv`、`nightly`、`unity-probe`）は pull request では起動しないので、そもそも必須にできません。`release` は 2026-08-31 までその一覧にありました —— いまは pull request でも走ります。tag でしか走らなかった間に配布の経路に欠陥が 3 件たまり、**うち 1 件は「tag を打つとリリースが 1 件も作られない」というものでした。** その `Publish the release` job だけは必須にしません —— pull request では設計上 skip され、**skip は合格として通る**ので、必須にしても何も止まらないからです。
+**pull request で走るレーンのほとんどが merge を止めます。** 必須チェックは 21 本です: desktop 3 platform の契約・P/Invoke・sanitizer、Android と iOS のクロスビルド、lint の 4 job、CodeQL の 2 つ、Unity の 2 レーン、そしてその 5 platform 分の配布物をビルド・組み立てる release の 6 job。9 本は意図的に必須にしていません。うち 5 本は Unity のレーンが消費する platform ごとのプラグインをビルドするもので、**どれかが失敗すると Unity のレーンは走ったうえで材料が無いことで赤くなり**、それが merge を止めます。3 本は Web / Wasm のもの（クロスビルド・ブラウザでの E2E・リリースの梱包）で、**まだ昇格の実績を積んでいないため、現時点では Web のレーンが赤くても merge を止めません。****skip された必須チェックは合格として通る**ので、その守りなしにそれらへ依存すると、壊れたビルドが通ってしまいます。**レーンは安定して緑になってから必須にします** —— 過去 2 回、早すぎる昇格が「赤いのに merge できる」隙間を作りました。2026-08-29 までは Unity・lint・CodeQL の workflow がすべての pull request で走りながら必須ではなく、**赤いまま merge できました。CI が見ていることと CI が止めることは別で、ゲートなのは後者だけです。** 残る 3 つの workflow（`build-opencv`、`nightly`、`unity-probe`）は pull request では起動しないので、そもそも必須にできません。`release` は 2026-08-31 までその一覧にありました —— いまは pull request でも走ります。tag でしか走らなかった間に配布の経路に欠陥が 3 件たまり、**うち 1 件は「tag を打つとリリースが 1 件も作られない」というものでした。** その `Publish the release` job だけは必須にしません —— pull request では設計上 skip され、**skip は合格として通る**ので、必須にしても何も止まらないからです。
 
 ## 貢献とセキュリティ
 

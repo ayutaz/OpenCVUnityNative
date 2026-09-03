@@ -28,7 +28,7 @@ mobile と Web の現況（何がビルドされ、何が公開版に入って�
 `Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/` は丸ごと成果物で、binary も
 `.meta` も git は追跡しない。ローカルでは `./tools/dev.ps1 build` が、実行中の platform 分を
 そこへ置く。利用者に届く経路は GitHub Release の **全部入り UPM tarball**
-（`com.ayutaz.opencv-unity-native.tgz`）で、**全 platform 分の binary が 1 つに入る**（M3.5 の時点では 3 platform、M4 以降は 5 platform） ——
+（`com.ayutaz.opencv-unity-native.tgz`）で、**全 platform 分の binary が 1 つに入る**（M3.5 の時点では 3 platform、M4 で 5 platform、M6 以降は 6 platform） ——
 Unity は同じ package ID を 1 つしか導入できないので、platform ごとに分かれた tarball では
 「エディタは Windows、実機は別の platform」が表現できないためである。**どの binary が
 有効になるかは Plugin Import Settings（`.meta`）が決め**、Unity は自分の platform 向けの

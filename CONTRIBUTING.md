@@ -60,7 +60,7 @@ and portability verification, and — on Linux — Unity EditMode and a real IL2
 player. Android and iOS are cross-compiled and their artifacts inspected (16 KB page
 alignment, bundled symbols), **but no device runs them.** The release path is
 dry-run on every pull request as well: it builds and assembles the distributable
-for all five platforms without publishing anything, because three defects had
+for all six platforms without publishing anything, because three defects had
 accumulated there while it only ran on tags — one of which meant tagging would have
 produced no release at all. Workflows, shell scripts and PowerShell are linted;
 CodeQL analyses the C++ and C#.

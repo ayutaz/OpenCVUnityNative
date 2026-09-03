@@ -10,7 +10,7 @@
   - **差別化の穴**（2026-08-29 の再調査。競合が全員 OpenCV 4 系のままであること、差別化の穴 10 件（掲げている差別化のうち達成していないものと、競合が持っていて本案が持たないものの合算）と、その担当。**うち 3 件は M3.5 で解消し、1 件が部分達成になった**）
   - **M7 の上流調査**（2026-08-30。OpenCV 5.1 に向けて `dnn` がどう動いているかを一次情報で確かめ、`dnn` を足す前に native bridge を module 単位に分ける決定を入れた）
   - ローカルループと CI の役割分担、GitHub Actions のワークフロー構成（M3 の後に `ci-lint` / `codeql` / `nightly` と Dependabot を追加。**`nightly` は schedule でまだ 1 度も走っていない**）
-  - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）、[M3.5 配布の形と最小の穴](./superpowers/plans/2026-08-30-m3.5-distribution-shape.md)（全部入り tarball / `imgcodecs` / Unity 6.3。**6 件すべて達成。v0.2.0 を公開し OpenUPM にも登録済み**——詳細は roadmap の M3.5 節）、[M4 Mobile](./superpowers/plans/2026-08-30-m4-mobile.md)（Android / iOS のクロスビルドと `WebCamTexture` 対応。**9 件中 5 件を満たし、4 件は閉じていない** —— iOS 実機 / lifecycle / macOS 上の Unity / Windows IL2CPP の結論。実機が要る 2 件は [実機検証の手順](./m4-device-verification.md) に落としてある）、[M5 binding specification と generator](./superpowers/plans/2026-08-31-m5-binding-generator.md)（spec を正本にして C ヘッダ・C# の P/Invoke・到達性テスト・[API 対応表](./api-map.md) を生成する。**5 件中 4 件を満たし、条件 2 は計画の側で意図的に外してある** —— 詳細は roadmap の M5 節）、[M5 条件 2 の前半 objdetect / features](./superpowers/plans/2026-09-01-m5-modules-objdetect-features.md)（QR コードの符号化・復号と ORB の特徴点検出を出し、条件 2 を「部分的に満たした」にした。続けて `geometry`（射影変換の推定）も出した）、[M5 条件 2 の最後 カメラの歪み補正](./superpowers/plans/2026-09-01-m5-calib-undistort.md)（`ocvu_undistort` / `ocvu_find_chessboard_corners` を `calib` module を足さずに出した。**この時点では係数を求める `cv::calibrateCamera` が無く、条件 2 は「部分的に満たした」のままだった**）、[M5 条件 2 の完了 カメラ校正](./superpowers/plans/2026-09-02-m5-calib-camera.md)（**`calib` module を足し、`cv::calibrateCamera` を出して校正の輪を閉じた。構成ハッシュが変わり 5 platform 分の OpenCV を作り直した**（`4785d98e9aad` → `09fcbe260d87`）—— 詳細は roadmap の M5 節）、[M6 Web / Wasm](./superpowers/plans/2026-09-03-m6-web-wasm.md)（**6 つ目の platform。クロスビルドかつ静的ライブラリ**で、**ブラウザで実際に走らせて初めて出る欠陥を 7 件捕まえた** —— そのうち「例外バリアが wasm で成立していなかった」が最も重い）
+  - 実装計画: [M0 自動 TDD ハーネス](./superpowers/plans/2026-08-25-m0-tdd-harness.md)（完了）、[M1 OpenCV ビルド](./superpowers/plans/2026-08-25-m1-opencv-build.md)（完了）、[M2 Windows vertical slice](./superpowers/plans/2026-08-26-m2-windows-vertical-slice.md)（完了。8 件中 8 件。条件 7 は game-ci + Linux で満たした — 詳細は roadmap の M2 節）、[M3 Desktop 3 platform と配布の再現性](./superpowers/plans/2026-08-28-m3-desktop-three-platforms.md)（6 件すべて達成。v0.1.0 と v0.1.1 を公開済み——詳細は roadmap の M3 節）、[M3.5 配布の形と最小の穴](./superpowers/plans/2026-08-30-m3.5-distribution-shape.md)（全部入り tarball / `imgcodecs` / Unity 6.3。**6 件すべて達成。v0.2.0 を公開し OpenUPM にも登録済み**——詳細は roadmap の M3.5 節）、[M4 Mobile](./superpowers/plans/2026-08-30-m4-mobile.md)（Android / iOS のクロスビルドと `WebCamTexture` 対応。**9 件中 5 件を満たし、4 件は閉じていない** —— iOS 実機 / lifecycle / macOS 上の Unity / Windows IL2CPP の結論。実機が要る 2 件は [実機検証の手順](./m4-device-verification.md) に落としてある）、[M5 binding specification と generator](./superpowers/plans/2026-08-31-m5-binding-generator.md)（spec を正本にして C ヘッダ・C# の P/Invoke・到達性テスト・[API 対応表](./api-map.md) を生成する。**5 件中 4 件を満たし、条件 2 は計画の側で意図的に外してある** —— 詳細は roadmap の M5 節）、[M5 条件 2 の前半 objdetect / features](./superpowers/plans/2026-09-01-m5-modules-objdetect-features.md)（QR コードの符号化・復号と ORB の特徴点検出を出し、条件 2 を「部分的に満たした」にした。続けて `geometry`（射影変換の推定）も出した）、[M5 条件 2 の最後 カメラの歪み補正](./superpowers/plans/2026-09-01-m5-calib-undistort.md)（`ocvu_undistort` / `ocvu_find_chessboard_corners` を `calib` module を足さずに出した。**この時点では係数を求める `cv::calibrateCamera` が無く、条件 2 は「部分的に満たした」のままだった**）、[M5 条件 2 の完了 カメラ校正](./superpowers/plans/2026-09-02-m5-calib-camera.md)（**`calib` module を足し、`cv::calibrateCamera` を出して校正の輪を閉じた。構成ハッシュが変わり 5 platform 分の OpenCV を作り直した**（`4785d98e9aad` → `09fcbe260d87`）—— 詳細は roadmap の M5 節）、[M6 Web / Wasm](./superpowers/plans/2026-09-03-m6-web-wasm.md)（**6 つ目の platform。クロスビルドかつ静的ライブラリ**で、**ブラウザで実際に走らせて初めて出る欠陥を 7 件捕まえた** —— そのうち「例外バリアが wasm で成立していなかった」が最も重い。**完了条件 5 件すべてを満たした** —— 詳細は roadmap の M6 節）
 - [API リファレンス](./api-reference.md)
   - allowlist に載っている C ABI 関数（M2 の `Mat` のライフサイクルと buffer 転送 + `cvtColor` / `resize` / `GaussianBlur`、**M3.5 の `imencode` / `imdecode`**、**M5 の `qr_encode` / `qr_decode` / `orb_detect` / `find_homography` / `undistort` / `find_chessboard_corners` / `calibrate_camera`**）と、その上に立つ C# の公開 API
   - **allowlist の本数は公開 ABI の総数ではありません。** 残りは M0 / M1 由来の診断用 API（ABI version の取得、last-error の取得、status 表の照会、OpenCV version / build information）と `ocvu_debug_crash` です。**どちらの数も [API 対応表](./api-map.md) の冒頭と [所有権と versioning](./abi-ownership-and-versioning.md) §3 が持ちます** —— ここには写しません。
@@ -63,7 +63,7 @@ M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完�
 
 以下のローカルの数字はこのマシン（Windows）での 2026-08-30 の実測です。
 
-配る正は **全 platform 分の binary が 1 つに入った `com.ayutaz.opencv-unity-native.tgz`** になりました（M3.5 の時点では 3 platform、**M4 以降は 5 platform**）（版番号を含まない名前。OpenUPM の `githubReleaseAssetName` が安定した接頭辞で asset を選ぶためです）。platform ごとの tarball も補助として引き続き出します。その全部入りを使い捨ての Unity プロジェクトに導入して **16/16 pass**（EditMode が 10 件から 16 件に増えたのは `PluginGatingTests` を足したためです）。**この tarball のレーンはどの CI workflow でも走りません** —— ローカルだけです。
+配る正は **全 platform 分の binary が 1 つに入った `com.ayutaz.opencv-unity-native.tgz`** になりました（M3.5 の時点では 3 platform、M4 で 5 platform、**M6 以降は 6 platform**）（版番号を含まない名前。OpenUPM の `githubReleaseAssetName` が安定した接頭辞で asset を選ぶためです）。platform ごとの tarball も補助として引き続き出します。その全部入りを使い捨ての Unity プロジェクトに導入して **16/16 pass**（EditMode が 10 件から 16 件に増えたのは `PluginGatingTests` を足したためです）。**この tarball のレーンはどの CI workflow でも走りません** —— ローカルだけです。
 
 `PluginGatingTests` は `PluginImporter` に問う形で「自分の platform 向けがちょうど 1 つ」「`Any` が立っていない」「他 platform の Standalone で有効になっていない」を見ます。**macOS の `.meta` を「Windows でも有効」に壊すと 3 件落ちます**（M3.5 時点の実測） —— 壊しても 10/10 で素通りしていた M3 までの状態から変わりました。もう 1 つ記録に値するのは、**`GetCompatibleWithEditor()` が 3 つとも true を返す**ことです。`.meta` は Editor を 3 platform とも有効にしたうえで、その下の `settings: OS:` で振り分けているので、**そのフラグだけを見る検査は常に true で無感**です。振り分けを見るには `GetEditorData("OS")` を読む必要があります（最初にそう書かずに落とし、直しました）。
 
@@ -75,13 +75,27 @@ M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完�
 
 M5（binding specification と generator）は**完了条件 5 件すべてを満たしました**（2026-09-02。判定表は roadmap の M5 節が正本）。境界の宣言を手で書く経路が無くなり、`bindings/spec/*.json` の entry から **C ABI 宣言 / C# の P/Invoke / 全 entry point を呼ぶ到達性テスト / [API 対応表](./api-map.md)** が `./tools/dev.ps1 generate` で出るようになりました（**本数は上に書いたとおり対応表の冒頭が数えます**）。**手書きの `[DllImport]` は 0 個です。** 一致は `./tools/dev.ps1 verify-generated` が見て、これは `dev.ps1 test` に入っているので 3 platform の CI が走らせます。**条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は当初は次へ送りましたが、続く 3 つの計画で閉じました** —— `objdetect`（QR の符号化・復号）と `features`（ORB 検出）、`geometry`（射影変換の推定。**リンクは無料でした** —— 既に推移的に引かれていました）、カメラの歪み補正、そして **`calib` module と `cv::calibrateCamera`**（2026-09-02）。**最後の 1 つだけが高く**、構成ハッシュが変わって 5 platform 分の OpenCV を作り直しました。**これでカメラ校正の 3 段（格子点を見つける / 係数を解く / 係数で補正する）が揃っています。** 詳細は roadmap の M5 節。**M4（Mobile）は依然として完了していません**（9 件中 5 件。詳細は roadmap の M4 節）。
 
+M6（Web / Wasm）は**完了条件 5 件すべてを満たしました**（2026-09-03。判定表は
+roadmap の M6 節が正本）。**Web は 6 つ目の platform で、クロスビルドかつ静的
+ライブラリ**（iOS の 2 つの性質を同時に持ちます）。**このマイルストーンの価値は、
+Web でしか出ない欠陥を 7 件捕まえたことにあります** —— うち 1 件は
+**「例外を ABI の外へ伝播させない」という中核の不変条件が、Web でだけ黙って
+成立していなかった**もので、**ブラウザで OpenCV が実際に投げるまで誰も
+知りませんでした**（Emscripten は既定で C++ 例外を無効にするので、`throw` は
+残るのに `catch` が 1 つも組み込まれません）。**Web にだけ在る制限が 1 つ
+あります: 画像の encode / decode は JPEG のみで、PNG を持ちません**（Unity の
+WebGL 支援が自前の libpng を同梱しているためです。他の 5 platform は両方
+持ちます）。CI は Linux の headless Chromium で実物の Player を起動し、**共有の検証本体が
+1 件残らず走ったこと**と、**spec が載せる宣言に全部到達できたこと**を確かめます
+（**数はここに写しません** —— ABI が 1 本増えるたびに動くので、roadmap の
+M6 節が持ちます）。**ただし動かしているブラウザはそれ 1 つだけ**です。
+
 **利用者に届いているのは v0.2.0（3 platform、M5 前の API）です。** OpenUPM が配信して
-いるのもそれで、**M4（5 platform）と M5（生成器と校正 API）の成果はまだ誰にも
-届いていません。** v0.3.0 の下書きは M5 が main に入る前のものなので使えません
-（生成物が 1 つも入っていない）。**2026-09-03 に「v0.4.0 は出さず、M6（Web /
-Wasm）が片づいたところでまとめて配る」と決めました** —— したがって
-**利用者に届く最新版は v0.2.0 のままで、届かない期間が M6 の分だけ延びます。**
-配るときの手順は [ロードマップ](./roadmap.md) の「配布 その 5」に残して
-ありますが、**あれは次にやることではありません。**
+いるのもそれで、**M4（5 platform）・M5（生成器と校正 API）・M6（Web）の成果は
+まだ誰にも届いていません。** v0.3.0 の下書きは M5 が main に入る前のものなので
+使えません（生成物が 1 つも入っていない）。**2026-09-03 に「v0.4.0 は出さず、
+M6 が片づいたところでまとめて配る」と決め、M6 が片づきました** ——
+**したがって次にやることは配ることです。** 手順は
+[ロードマップ](./roadmap.md) の「配布 その 5」にあります。
 
 本文中の「推奨」「目標」「案」のうち、まだ実装されていない部分は依然として設計提案であり、実装済み機能や動作確認結果ではありません。両者の区別は各文書内の記述を見て判断してください。競合製品のバージョンや対応状況は変わるため、実装開始時と公開前に再確認します。

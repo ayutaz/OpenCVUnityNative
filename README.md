@@ -68,7 +68,7 @@ Android and iOS binaries, QR encode/decode, ORB keypoints, homography estimation
 the three stages of monocular camera calibration (find the board corners, solve for the
 coefficients, undistort with them). The full surface, with what is deliberately absent,
 is in the [API reference](docs/api-reference.md); the count itself lives at the top of
-the [API map](docs/api-map.md). Web is not supported.
+the [API map](docs/api-map.md). Web/Wasm is there too, with PNG turned off (see above).
 
 **On Linux, use v0.1.1 or later.** The Linux plugin in v0.1.0 was built against
 glibc 2.38 and fails to load on anything older — Ubuntu 22.04 included — with
@@ -149,7 +149,7 @@ every `DllImport` fails at runtime. Use the release tarball —
 ### One package, every platform
 
 The package you install carries every platform's binary together (Windows, macOS and
-Linux in v0.2.0; Android and iOS join them in the next release). Unity
+Linux in v0.2.0; Android, iOS and Web join them in the next release). Unity
 allows one package per package ID, so a project whose editor and build target are
 different platforms needs them in one package. Earlier releases shipped one tarball
 per platform and could not express that; the per-platform tarballs still ship, but
@@ -314,10 +314,12 @@ yet run on its schedule**; it has only been started by hand, once unsuccessfully
 **Almost every lane that runs on a pull request blocks a merge.** Twenty-one checks are
 required: the contract, P/Invoke and sanitizer jobs across the three desktop platforms, the
 Android and iOS cross-builds, the four lint jobs, both CodeQL analyses, both Unity lanes,
-and the six release jobs that build and assemble the distributable for all five platforms.
-Five are deliberately not required. Four build the per-platform plugins the Unity lanes
+and the six release jobs that build and assemble the distributable for those five platforms.
+Nine are deliberately not required. Five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which
-is what stops the merge. A skipped required check counts as passing, so depending on one
+is what stops the merge. Three cover Web/Wasm — its cross-build, its browser end-to-end
+test and its release packaging — and are new enough that they have not yet earned
+promotion, so **a red Web lane does not currently stop a merge**. A skipped required check counts as passing, so depending on one
 without that guard would let a broken build through. A lane is only made required once it
 has been reliably green — twice before, promoting a lane too early left a gap where a red
 check could not stop a merge. Until 2026-08-29 the
