@@ -24,6 +24,16 @@ if(NOT DEFINED OCVU_EMSCRIPTEN_ROOT)
     endif()
 endif()
 
+# **try_compile は toolchain file を入れ子でもう一度実行する。**
+# そのとき `-D` で渡した変数は既定では届かない —— この一覧に載せたものだけが
+# 引き継がれる。載せ忘れると、上の FATAL_ERROR が **入れ子の側で**発火して
+#
+#     CMake Error: CMAKE_CXX_COMPILER not set, after EnableLanguage
+#     Failed to configure test project build system.
+#
+# という、原因が 2 段隠れた形で落ちる（2026-09-03 に実測）。
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES OCVU_EMSCRIPTEN_ROOT)
+
 set(_ocvu_em_toolchain
     "${OCVU_EMSCRIPTEN_ROOT}/emscripten/cmake/Modules/Platform/Emscripten.cmake")
 if(NOT EXISTS "${_ocvu_em_toolchain}")

@@ -143,6 +143,35 @@ Could not find a package configuration file provided by "OpenCV"
 **package の探索だけ** `BOTH` に緩める（library / include まで緩めると
 host の `.a` やヘッダを拾う経路が開く）。
 
+### 3.5 toolchain file は try_compile の中でもう一度実行される
+
+**`-D` で toolchain に渡した変数は、既定では入れ子の try_compile に届かない。**
+届くのは `CMAKE_TRY_COMPILE_PLATFORM_VARIABLES` に載せたものだけである。
+
+M6 で踏んだ形（2026-09-03）: toolchain file が「Emscripten の根が未設定なら
+`FATAL_ERROR`」と書いてあり、**外側では渡っているのに入れ子で発火した。**
+表に出るのはこれである:
+
+```
+CMake Error: CMAKE_CXX_COMPILER not set, after EnableLanguage
+CMake Error at cmake/OpenCVUtils.cmake:513 (TRY_COMPILE):
+  Failed to configure test project build system.
+```
+
+**原因が 2 段隠れている** —— 「コンパイラが無い」と読めるが、実際には
+自分の toolchain が入れ子で止めている。**エラーの本文を遡ると、自分が書いた
+FATAL_ERROR の文言が Call Stack の上のほうに出ている**ので、
+**要約ではなく本文を読むこと。**
+
+直し方は 1 行:
+
+```cmake
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES OCVU_EMSCRIPTEN_ROOT)
+```
+
+**toolchain に外から変数を渡す設計にしたら、必ずこれを書く。**
+環境変数での受け取りを併用しておくと保険になる（プロセスは引き継がれる）。
+
 ### 4. 静的ライブラリを配るなら、依存アーカイブは自分で束ねる
 
 **CMake は STATIC ライブラリに依存アーカイブを取り込まない。** 記録するのは

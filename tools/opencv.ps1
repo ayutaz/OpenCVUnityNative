@@ -138,6 +138,10 @@ function Invoke-Build {
             $em = Get-EmscriptenToolchain
             Write-Host "==> Emscripten $($em.Version) ($($em.Source)) at $($em.Root)" -ForegroundColor Cyan
             $env:EM_CONFIG = $em.ConfigFile
+            # **-D と環境変数の両方で渡す。** -D は try_compile の入れ子へは
+            # CMAKE_TRY_COMPILE_PLATFORM_VARIABLES に載せない限り届かない
+            # （toolchain 側で載せてある）。環境変数はその保険である。
+            $env:OCVU_EMSCRIPTEN_ROOT = $em.Root
             # .NET の Replace は文字どおり置換する。-replace は正規表現なので、
             # 区切り文字そのものを置きたいこの用途では使えない（実測: 不正なパターンで落ちた）。
             $toolchainArgs += "-DOCVU_EMSCRIPTEN_ROOT=$($em.Root.Replace([char]92, '/'))"
