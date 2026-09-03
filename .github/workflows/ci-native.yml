@@ -297,6 +297,12 @@ jobs:
           - platform: ios-arm64
             name: iOS arm64 (cross-build)
             runner: macos-14
+          # Web / Wasm も**クロスコンパイルかつ静的ライブラリ**。
+          # **L1 は走らない**（クロスした GoogleTest を host で実行できない）。
+          # このレーンが見るのは「ビルドできる」と「束ねられている」だけである。
+          - platform: web-wasm
+            name: Web wasm32 (cross-build)
+            runner: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v7
@@ -304,6 +310,32 @@ jobs:
       - name: Install Ninja
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then brew install ninja; else sudo apt-get update && sudo apt-get install -y ninja-build; fi
+
+      # **Emscripten は emsdk から入れる。版は対応表から読む。**
+      # workflow に数字を直書きしない（tools/tests/EmscriptenVersion.Tests.ps1 が
+      # 「リテラルが書かれていないこと」を見ている）。
+      - name: Resolve the Emscripten version from the table
+        if: matrix.platform == 'web-wasm'
+        id: emver
+        shell: pwsh
+        run: |
+          $table = Import-PowerShellDataFile ./tools/emscripten-versions.psd1
+          $pv = Get-Content ./tests/UnityProject/ProjectSettings/ProjectVersion.txt -Raw
+          $unity = ([regex]::Match($pv, 'm_EditorVersion:\s*(?<v>\S+)')).Groups['v'].Value
+          $minor = ($unity -split '\.')[0..1] -join '.'
+          if (-not $table.ContainsKey($minor)) { throw "Unity $minor の項が対応表にありません。" }
+          "version=$($table[$minor].Emscripten)" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Emscripten
+        if: matrix.platform == 'web-wasm'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ steps.emver.outputs.version }}
+
+      - name: Point the build at the emsdk toolchain
+        if: matrix.platform == 'web-wasm'
+        shell: bash
+        run: echo "OCVU_EMSCRIPTEN_ROOT=$EMSDK/upstream" >> "$GITHUB_ENV"
 
       # cache が無いと job のたびに artifact を探す API 呼び出しが起きる。
       # **レート制限に当たると、成果物にもコードにも問題が無いのに CI が
@@ -339,7 +371,16 @@ jobs:
         shell: pwsh
         run: |
           $platform = '${{ matrix.platform }}'
-          if ($platform -eq 'android-arm64') {
+          if ($platform -eq 'web-wasm') {
+              $lib = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins/WebGL/libopencv_unity_native.a'
+              # **束ねられていることを見る。** iOS で同じ検査が 2 本とも
+              # 空振りしていたので、こちらは script に出して壊して確かめてある。
+              ./tools/verify-static-bundle.ps1 -Path $lib -NmCommand "$env:EMSDK/upstream/bin/llvm-nm"
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+              # **SIMD が効いていることを、送った flag ではなく出来た物で見る。**
+              ./tools/verify-wasm-features.ps1 -Path $lib
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+          } elseif ($platform -eq 'android-arm64') {
               ./tools/verify-android-page-size.ps1
               if ($LASTEXITCODE -ne 0) { exit 1 }
           } elseif ($platform -eq 'ios-arm64') {

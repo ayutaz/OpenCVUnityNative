@@ -100,10 +100,39 @@ jobs:
             runner: ubuntu-24.04
           - platform: ios-arm64
             runner: macos-14
+          # **Web も重ねる。** 配る package には 6 platform 分が入るので、
+          # 欠けたまま gating を検査すると「配る物とは違う形」を見ることになる。
+          - platform: web-wasm
+            runner: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # **Emscripten は emsdk から入れる。版は対応表から読む。**
+      # workflow に数字を直書きしない（EmscriptenVersion.Tests.ps1 が見ている）。
+      - name: Resolve the Emscripten version from the table
+        if: matrix.platform == 'web-wasm'
+        id: emver
+        shell: pwsh
+        run: |
+          $table = Import-PowerShellDataFile ./tools/emscripten-versions.psd1
+          $pv = Get-Content ./tests/UnityProject/ProjectSettings/ProjectVersion.txt -Raw
+          $unity = ([regex]::Match($pv, 'm_EditorVersion:\s*(?<v>\S+)')).Groups['v'].Value
+          $minor = ($unity -split '\.')[0..1] -join '.'
+          if (-not $table.ContainsKey($minor)) { throw "Unity $minor の項が対応表にありません。" }
+          "version=$($table[$minor].Emscripten)" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Emscripten
+        if: matrix.platform == 'web-wasm'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ steps.emver.outputs.version }}
+
+      - name: Point the build at the emsdk toolchain
+        if: matrix.platform == 'web-wasm'
+        shell: bash
+        run: echo "OCVU_EMSCRIPTEN_ROOT=$EMSDK/upstream" >> "$GITHUB_ENV"
 
       # macOS / Linux の preset は Ninja を使う。runner に入っていないので入れる。
       - name: Install Ninja

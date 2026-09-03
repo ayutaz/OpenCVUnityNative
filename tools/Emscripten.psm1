@@ -81,8 +81,14 @@ function Write-EmscriptenConfig {
         [Parameter(Mandatory)][string]$Destination
     )
 
+    # **emsdk は node を環境変数で教えてくれる。** 木の中を探すより確実で、
+    # emsdk では node が Root（upstream/）の下に無い（CI で実測）。
     $nodeExe = if ($IsWindows) { 'node.exe' } else { 'node' }
-    $node = Join-Path (Join-Path $Root 'node') $nodeExe
+    $node = if ($env:EMSDK_NODE -and (Test-Path -LiteralPath $env:EMSDK_NODE)) {
+        $env:EMSDK_NODE
+    } else {
+        Join-Path (Join-Path $Root 'node') $nodeExe
+    }
     if (-not (Test-Path -LiteralPath $node)) {
         # emsdk の木は node/<version>/bin/node のように 1 段深いことがある。
         $found = Get-ChildItem -LiteralPath (Join-Path $Root 'node') -Recurse -File -Filter $nodeExe -ErrorAction SilentlyContinue |
@@ -238,9 +244,27 @@ function Get-EmscriptenToolchain {
         **他人が用意したものを尊重する。** 自作の config は Unity 同梱
         （config を持たない）のためにだけ要る。
     #>
+    # 既に在る config を、次の順で探す:
+    #   1. EM_CONFIG（誰かが明示的に指した）
+    #   2. emsdk が書いたもの。**emsdk は EM_CONFIG を環境に置かない**
+    #      （2026-09-03 に CI で実測: 置くのは EMSDK / EMSDK_NODE / PATH だけ）。
+    #      config は $EMSDK/.emscripten に在り、Root は $EMSDK/upstream なので 1 つ上。
+    $existing = $null
     if ($env:EM_CONFIG -and (Test-Path -LiteralPath $env:EM_CONFIG)) {
-        $config = $env:EM_CONFIG
-        Write-Verbose "既存の EM_CONFIG を使う: $config"
+        $existing = $env:EM_CONFIG
+    } else {
+        foreach ($cand in @(
+            (Join-Path $Root '.emscripten'),
+            (Join-Path (Split-Path -Parent $Root) '.emscripten'),
+            $(if ($env:EMSDK) { Join-Path $env:EMSDK '.emscripten' })
+        )) {
+            if ($cand -and (Test-Path -LiteralPath $cand)) { $existing = $cand; break }
+        }
+    }
+
+    if ($existing) {
+        $config = $existing
+        Write-Verbose "既存の config を使う: $config"
     } else {
         $config = Write-EmscriptenConfig -Root $Root -Destination (Join-Path $script:RepoRoot 'build/emscripten/.emscripten')
     }
