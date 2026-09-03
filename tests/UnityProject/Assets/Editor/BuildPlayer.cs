@@ -162,40 +162,6 @@ public static class BuildPlayer
             options = BuildOptions.None,
         };
 
-        // **同梱 Emscripten の版を書き出す。**
-        //
-        // 版の照合を **runner 側でやろうとして失敗した**（M6 の 3 回目の
-        // レビュー）—— game-ci の action は docker を使うので、
-        // **Unity はコンテナの中にしか無く、step が終われば消える。**
-        // `/opt/unity/Editor` は runner に存在しない。
-        //
-        // **Unity の中でしか読めないものは、Unity の中で読んで書き出す。**
-        // 突き合わせは runner 側が `-VersionFile` で行う。
-        try
-        {
-            var emVersion = System.IO.Path.Combine(
-                EditorApplication.applicationContentsPath,
-                "PlaybackEngines/WebGLSupport/BuildTools/Emscripten/emscripten/emscripten-version.txt");
-            if (System.IO.File.Exists(emVersion))
-            {
-                System.IO.File.Copy(emVersion,
-                    System.IO.Path.Combine(outDir, "emscripten-version.txt"), true);
-                UnityEngine.Debug.Log($"recorded Emscripten version from {emVersion}");
-            }
-            else
-            {
-                UnityEngine.Debug.LogError($"同梱 Emscripten の版ファイルがありません: {emVersion}");
-                EditorApplication.Exit(1);
-                return;
-            }
-        }
-        catch (Exception e)
-        {
-            UnityEngine.Debug.LogError($"版ファイルを書き出せませんでした: {e.Message}");
-            EditorApplication.Exit(1);
-            return;
-        }
-
         var report = BuildPipeline.BuildPlayer(options);
         var summary = report.summary;
 
@@ -227,6 +193,55 @@ public static class BuildPlayer
             EditorApplication.Exit(1);
             return;
         }
+
+        // **同梱 Emscripten の版を書き出す。**
+        //
+        // 版の照合を **runner 側でやろうとして失敗した**（M6 の 3 回目の
+        // レビュー）—— game-ci の action は docker を使うので、
+        // **Unity はコンテナの中にしか無く、step が終われば消える。**
+        // `/opt/unity/Editor` は runner に存在しない。
+        //
+        // **Unity の中でしか読めないものは、Unity の中で読んで書き出す。**
+        // 突き合わせは runner 側が `-RecordedVersionPath` で行う。
+        //
+        // **ビルドの後でなければならない。** 先に書くと消える ——
+        // WebGL のビルドは出力先を作り直すので、**BuildPlayer より前に
+        // 置いたファイルは残らない。** 2026-09-03 に CI で実測した:
+        // `recorded Emscripten version from ...` はログに出ているのに、
+        // 後続の step から見ると `emscripten-version.txt` が無い。
+        // **「書けた」と「残った」は別である。**
+        try
+        {
+            var emVersion = System.IO.Path.Combine(
+                EditorApplication.applicationContentsPath,
+                "PlaybackEngines/WebGLSupport/BuildTools/Emscripten/emscripten/emscripten-version.txt");
+            if (!System.IO.File.Exists(emVersion))
+            {
+                UnityEngine.Debug.LogError($"同梱 Emscripten の版ファイルがありません: {emVersion}");
+                EditorApplication.Exit(1);
+                return;
+            }
+
+            var recorded = System.IO.Path.Combine(outDir, "emscripten-version.txt");
+            System.IO.File.Copy(emVersion, recorded, true);
+
+            // **書いた後に、在ることを確かめる。** これが消える形を実際に
+            // 踏んだので、成功を報告する前に読み返す。
+            if (!System.IO.File.Exists(recorded))
+            {
+                UnityEngine.Debug.LogError($"版ファイルを書いた直後に消えています: {recorded}");
+                EditorApplication.Exit(1);
+                return;
+            }
+            UnityEngine.Debug.Log($"recorded Emscripten version at {recorded} (from {emVersion})");
+        }
+        catch (Exception e)
+        {
+            UnityEngine.Debug.LogError($"版ファイルを書き出せませんでした: {e.Message}");
+            EditorApplication.Exit(1);
+            return;
+        }
+
         EditorApplication.Exit(0);
     }
 }

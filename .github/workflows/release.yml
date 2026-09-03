@@ -208,8 +208,8 @@ jobs:
               $root = Get-OpenCvRoot -Config (Get-OpenCvConfig -Platform $platform)
               ./tools/verify-artifact-linkage.ps1 -Root $root
               if ($LASTEXITCODE -ne 0) { exit 1 }
-          } elseif ($platform -in @('android-arm64', 'ios-arm64')) {
-              Write-Host "==> skipped on ${platform} (linkage の判定は desktop の toolchain に固有。別の検査が ci-native の mobile job にある)"
+          } elseif ($platform -in @('android-arm64', 'ios-arm64', 'web-wasm')) {
+              Write-Host "==> skipped on ${platform} (linkage の判定は desktop の toolchain に固有。別の検査が ci-native の該当 job にある)"
           } else {
               Write-Error "unknown platform '${platform}': linkage を検査するかどうかが決まっていない。"
               exit 1

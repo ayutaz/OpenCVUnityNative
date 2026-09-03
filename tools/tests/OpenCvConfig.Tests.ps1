@@ -1740,7 +1740,14 @@ Assert-That (@($nativeCMakeLines | Where-Object {
 #
 # **matrix から静かに漏れると、restore が「artifact が無い」で落ちる。**
 # しかもそれは、モバイルをビルドしようとした人の手元で初めて起きる。
-$AllTargetPlatformsForWorkflows = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')
+# **写さず正本から読む。** ここは長らく platform 名を直書きしていたが、
+# `add-a-platform` skill が言うとおり「写している場所は直す場所を 1 つ増やす」。
+# 読めなければ空振りではなく落とす。
+$AllTargetPlatformsForWorkflows = @(
+    (Import-PowerShellDataFile -LiteralPath (Join-Path $repoRoot 'tools/opencv-config.psd1')).Toolchains.Keys |
+        Sort-Object)
+Assert-That ($AllTargetPlatformsForWorkflows.Count -ge 3) `
+    "opencv-config.psd1 から platform 一覧を読めた ($($AllTargetPlatformsForWorkflows.Count) 件)"
 
 foreach ($wf in @('build-opencv.yml', 'release.yml')) {
     $text = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/$wf") -Raw
@@ -1767,6 +1774,46 @@ $releaseLines = @(Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflo
 Assert-That (@($releaseLines | Where-Object {
     $_ -match '^\s*(run:\s*)?(&\s+)?\./tools/verify-android-page-size\.ps1(\s|$)'
 }).Count -eq 1) 'release.yml runs verify-android-page-size.ps1 in exactly one step (配る binary に掛からないと意味が無い)'
+
+# --- platform を振り分ける step は、どれも全 platform を名指しすること ---
+#
+# **同じファイルの中に振り分けが 2 つ在り、片方だけが置いていかれる。**
+# release.yml は「未知の platform は失敗させる」形（`unknown platform '...'`）を
+# 2 箇所に持つ —— linkage の検査と、移植性の検査である。**M6 で、後者にだけ
+# web-wasm を足して前者に足し忘れた。** ローカルの全レーンは緑のまま、
+# CI の `Package web-wasm` だけが落ち、`Assemble` がそれに連鎖した。
+#
+# **これは M4 から数えて 3 度目の「同一ファイルの 2 つ目の一覧」である**
+# （`pack-upm-tarball.ps1` の switch、`PackageRelease.Tests.ps1` の 3 つ目の一覧）。
+# 人が読んで気づく形ではないので、機械に見させる。
+#
+# **一覧を持たない。** 正本（opencv-config.psd1）から読んだ全 platform が、
+# **すべての振り分けに現れること**だけを見るので、platform が増えれば
+# 要求も自動で増える。
+$releaseRaw = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/release.yml') -Raw
+$platformGuards = [regex]::Matches($releaseRaw, "unknown platform '")
+
+# **0 件を緑にしない。** 振り分けごと消えたら、この検査は何も見ていない。
+Assert-That ($platformGuards.Count -ge 2) `
+    "release.yml has at least 2 platform dispatches guarded by `"unknown platform`" ($($platformGuards.Count) found)"
+
+foreach ($guard in $platformGuards) {
+    $head = $releaseRaw.Substring(0, $guard.Index)
+    # 直前の `- name:` から guard までが、その step の振り分け本体である。
+    $stepStart = $head.LastIndexOf('- name:')
+    if ($stepStart -lt 0) {
+        Assert-That $false 'unknown platform guard is inside a named step'
+        continue
+    }
+    $window = $releaseRaw.Substring($stepStart, $guard.Index - $stepStart)
+    $stepName = ($window -split "`r?`n")[0].Trim() -replace '^- name:\s*', ''
+
+    $missing = @($AllTargetPlatformsForWorkflows | Where-Object {
+        $window -notmatch [regex]::Escape("'$_'")
+    })
+    Assert-That ($missing.Count -eq 0) `
+        "release.yml step `"$stepName`" names every platform ($(if ($missing.Count) { "missing: $($missing -join ', ')" } else { 'all present' }))"
+}
 
 
 
