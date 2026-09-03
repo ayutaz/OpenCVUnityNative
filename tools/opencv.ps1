@@ -22,7 +22,7 @@ param(
         「Windows の構成で Android をビルドする」が静かに成立する ——
         **成功したように見えて中身が別物になる。**
     #>
-    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64')]
+    [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')]
     [string]$Platform
 )
 
@@ -111,6 +111,7 @@ function Invoke-Build {
     $crossToolchains = @{
         'android-arm64' = 'cmake/toolchains/android-arm64.cmake'
         'ios-arm64'     = 'cmake/toolchains/ios-arm64.cmake'
+        'web-wasm'      = 'cmake/toolchains/web-wasm.cmake'
     }
     $toolchainArgs = @()
     if ($crossToolchains.ContainsKey($Config.Platform)) {

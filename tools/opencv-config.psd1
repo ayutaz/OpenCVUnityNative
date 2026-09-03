@@ -91,6 +91,29 @@
             Architecture = 'arm64'
             BuildType    = 'Release'
         }
+
+        <#
+            Web / Wasm。**クロスコンパイルであり、かつ静的ライブラリである**
+            —— iOS と同じ 2 つの性質を同時に持つ。
+
+            toolchain は cmake/toolchains/web-wasm.cmake（Unity 同梱または
+            emsdk の Emscripten.cmake を include する）。
+
+            **Architecture は wasm32 と書く。** CMake の -A には渡さない
+            （Ninja generator は -A を取らない）が、**構成ハッシュに混ざる**
+            ので、将来 wasm64 を足したときに別ハッシュになる。
+
+            **ここに新しいキーを足しても、既存 platform のハッシュは動かない**
+            —— Get-OpenCvConfig が組み立てるのは Toolchains[$Platform] だけで
+            ある（2026-09-03 に実測。windows-x64 / linux-x64 / android-arm64 の
+            ハッシュが web-wasm 追加の前後で同一だった）。**対して Modules を
+            触ると全 platform が動く**ので、Web のために module を足さないこと。
+        #>
+        'web-wasm' = @{
+            Generator    = 'Ninja'
+            Architecture = 'wasm32'
+            BuildType    = 'Release'
+        }
     }
 
     # platform 固有の CMake flag。共通の CMakeArgs に足される。
@@ -155,6 +178,28 @@
             # bitcode は Xcode 14 で廃止された。明示的に切らないと古い CMake が
             # 有効化しようとする。
             '-DCMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE=NO'
+        )
+
+        <#
+            Web / Wasm。**この一覧は着手時の仮説であり、configure summary を
+            読んでから確定させる**（計画の Task 2 Step 4）。想定外の依存が
+            有効なら、名前を allowlist に足す前に一次情報でライセンスを確認し、
+            THIRD_PARTY_NOTICES.md に全文を足すこと（M4 の cpufeatures と同じ形）。
+        #>
+        'web-wasm' = @(
+            # wasm に共有ライブラリは無い。
+            '-DBUILD_SHARED_LIBS=OFF'
+            # **single-thread を先に成立させる**（roadmap の完了条件 3）。
+            # threads profile は非ゴールで、別 profile として後続する。
+            '-DWITH_PTHREADS_PF=OFF'
+            # ブラウザから開けるカメラ・動画は videoio ではなく Unity 側の
+            # 担当なので、ここでは要らない（既定でも切ってあるが明示する）。
+            '-DWITH_FFMPEG=OFF'
+            '-DWITH_GSTREAMER=OFF'
+            # host 向けの実行ファイルを作らせない。クロスでは動かせない。
+            '-DBUILD_opencv_apps=OFF'
+            '-DBUILD_PERF_TESTS=OFF'
+            '-DBUILD_TESTS=OFF'
         )
     }
 

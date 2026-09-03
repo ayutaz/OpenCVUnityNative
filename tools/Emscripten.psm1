@@ -102,8 +102,22 @@ function Write-EmscriptenConfig {
     # スラッシュへ寄せる（Windows でも emscripten 側はスラッシュを受ける）。
     function ToPy([string]$p) { if ($null -eq $p) { "''" } else { "'" + ($p -replace '\\', '/') + "'" } }
 
+    # **cache は build/ の下に置く。** 既定のままだと Emscripten は
+    # <EMSCRIPTEN_ROOT>/cache、つまり **Unity の導入先の中**へ書く
+    # （実測: Unity 6000.3.16f1 の同梱には 1.6 GB の cache が既に在り、
+    # 2026-06-27 付だった —— Unity 自身のものである）。
+    #
+    # **他人の導入先に書かない。** ビルドの副作用で Unity の木が変わる状態は、
+    # 「動かなくなったとき何を戻せばいいか」が誰にも分からなくなる。
+    #
+    # **代償は初回のビルド時間である** —— Unity の cache を再利用しないので
+    # sysroot をこちらで作り直す。CI は emsdk を cold から始めるのでどのみち
+    # 同じ costs を払う。
+    $cacheDir = Join-Path (Split-Path -Parent $Destination) 'cache'
+
     $lines = @(
         '# tools/Emscripten.psm1 が生成した。手で編集しても次の実行で上書きされる。'
+        "CACHE = $(ToPy $cacheDir)"
         "LLVM_ROOT = $(ToPy (Join-Path $Root 'llvm'))"
         "BINARYEN_ROOT = $(ToPy (Join-Path $Root 'binaryen'))"
         "EMSCRIPTEN_ROOT = $(ToPy (Join-Path $Root 'emscripten'))"
