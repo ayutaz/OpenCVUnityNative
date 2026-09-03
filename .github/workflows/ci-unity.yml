@@ -535,6 +535,28 @@ jobs:
     permissions:
       contents: read
       actions: read
+    env:
+      # **Player の出来る場所を 1 箇所に持つ。**
+      #
+      # `BuildPlayer.BuildWebGL` は `OCVU_WEB_BUILD_DIR` が無ければ
+      # **CWD 直下の `build/web-player`** に落とす。**この job の CWD は
+      # Unity プロジェクト**（`tests/UnityProject`）なので、出来るのは
+      # repo root ではなくその下である。**2026-09-03 に CI で実測した**:
+      #
+      #     out=/github/workspace/tests/UnityProject/build/web-player
+      #
+      # **`buildsPath` / `buildName` では動かせない。** game-ci が
+      # `-customBuildPath` を渡すのは自前の build method に対してだけで、
+      # **`buildMethod` を指定すると渡らない**（同じ run のログに
+      # `-customBuildPath` は 1 度も出ない）。
+      #
+      # **環境変数でも動かせない** —— game-ci がコンテナへ渡す環境変数は
+      # 固定一覧で、任意の名前は届かない（このリポジトリは
+      # `ocvu-expect-all-platforms` をファイルにした時点で実測している）。
+      #
+      # **だから動かさず、出来た場所を読む。** 3 つの step が同じ値を
+      # 見るので、ここ 1 箇所に持つ。
+      OCVU_WEB_PLAYER_DIR: tests/UnityProject/build/web-player
 
     steps:
       - uses: actions/checkout@v7
@@ -595,19 +617,15 @@ jobs:
           buildMethod: BuildPlayer.BuildWebGL
           customImage: unityci/editor:ubuntu-${{ steps.unity.outputs.version }}-webgl-3
           allowDirtyBuild: true
-          # **出力先を CWD に頼らない。**
+          # **`buildsPath` / `buildName` は渡さない。**
           #
-          # `BuildPlayer.BuildWebGL` は環境変数が無ければ
-          # `Directory.GetCurrentDirectory()/build/web-player` に落とすが、
-          # **コンテナの中の CWD が workspace 直下か project 直下かは
-          # こちらで決められない。**
+          # 以前は渡していたが、**`buildMethod` を指定した場合はどこにも
+          # 効かない**（game-ci が `-customBuildPath` を渡すのは自前の
+          # build method に対してだけである）。**渡っているように読める
+          # 入力を置いておくほうが、無いより悪い** —— 出力先はここで
+          # 決まっていると読めてしまう。
           #
-          # **環境変数で渡す形に逃げない** —— このリポジトリは
-          # 「game-ci がコンテナへ渡す環境変数は固定一覧で、任意の名前は
-          # 届かない」を実測している（`ocvu-expect-all-platforms` を
-          # ファイルにした理由）。**action が持つ入力で決める。**
-          buildsPath: build
-          buildName: web-player
+          # 実際の出力先は job の `OCVU_WEB_PLAYER_DIR` にある。
 
       # **chromium を毎回落とさない。** 150 MB を毎 run で取ると遅いうえ、
       # 上流の帯域にも当たる（M6 の 3 回目のレビューの指摘）。
@@ -628,13 +646,13 @@ jobs:
       # 経路が構造的に生まれない。
       - name: Assert the Emscripten version matches the table
         shell: pwsh
-        run: ./tools/assert-emscripten-version.ps1 -RecordedVersionPath build/web-player/emscripten-version.txt
+        run: ./tools/assert-emscripten-version.ps1 -RecordedVersionPath "$env:OCVU_WEB_PLAYER_DIR/emscripten-version.txt"
 
       # **ローカルと同じ script を通す。** 起動の仕方は分かれてよいが、
       # 判定は分けない（CLAUDE.md の不変条件）。
       - name: Drive the player in a browser
         shell: pwsh
-        run: ./tools/run-web-e2e.ps1 -PlayerDir build/web-player
+        run: ./tools/run-web-e2e.ps1 -PlayerDir "$env:OCVU_WEB_PLAYER_DIR"
 
       - name: Upload the player and the logs
         if: always()
@@ -642,6 +660,6 @@ jobs:
         with:
           name: test-results-web-e2e
           path: |
-            build/web-player
+            ${{ env.OCVU_WEB_PLAYER_DIR }}
             build/web-e2e
           if-no-files-found: warn

@@ -204,12 +204,14 @@ public static class BuildPlayer
         // **Unity の中でしか読めないものは、Unity の中で読んで書き出す。**
         // 突き合わせは runner 側が `-RecordedVersionPath` で行う。
         //
-        // **ビルドの後でなければならない。** 先に書くと消える ——
-        // WebGL のビルドは出力先を作り直すので、**BuildPlayer より前に
-        // 置いたファイルは残らない。** 2026-09-03 に CI で実測した:
-        // `recorded Emscripten version from ...` はログに出ているのに、
-        // 後続の step から見ると `emscripten-version.txt` が無い。
-        // **「書けた」と「残った」は別である。**
+        // **書いた先をログに出す。** 以前は元（Unity の中）だけを出して
+        // いたので、**「書けた」と言いながら後続の step から見えない**
+        // という状態の原因が読めなかった（2026-09-03 に CI で 2 往復した。
+        // 原因は消えたのではなく、`outDir` が repo root ではなく
+        // **Unity プロジェクトの下**だったことである）。
+        //
+        // **書いた直後に読み返す。** 相手が消し得る場所に書いているので、
+        // 成功を報告する前に在ることを確かめる。
         try
         {
             var emVersion = System.IO.Path.Combine(
