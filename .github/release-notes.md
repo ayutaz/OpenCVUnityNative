@@ -1,8 +1,8 @@
 <!--
   **このファイルは実際に配られる Release の本文である**（release.yml が読む）。
-  中の絶対 URL は `v0.4.0` を指しているが、**その tag はまだ存在しない。**
-  配る版を決め直したら（roadmap の「配布 その 5」）、URL の版も一緒に直すこと ——
+  中の絶対 URL は tag に貼り付くので、**版を決め直したら URL も一緒に直すこと** ——
   直さないと、公開した瞬間から 404 になる。
+  2026-09-03 に **v0.3.0** で出すと決め、URL もそれに合わせてある。
 -->
 
 OpenCV 5.0.0 を Unity 6000.3 以降向けに、独自の C ABI と C# API で提供する native UPM パッケージ。
@@ -87,7 +87,7 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   この package が持っていない**）
 - **Unity の下限は 6000.3 のまま。** 検証しているのは 6000.3.16f1 の 1 版だけである
 
-**公開している C ABI の本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.4.0/docs/api-map.md) の冒頭が数える**（この表は
+**公開している C ABI の本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.3.0/docs/api-map.md) の冒頭が数える**（この表は
 リポジトリにあり、**パッケージには入らない**）。
 `OCVU_ABI_VERSION` は **1 のまま変わっていない**（関数の追加は bump しない変更である）。
 
@@ -138,7 +138,7 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
   画像の encode / decode（`CvCodecs`）、QR コード（`CvQrCode`）、ORB の特徴点
   （`CvFeatures`）、射影変換の推定（`CvGeometry`）、単眼カメラの校正 3 段
   （`CvCalibration`）、`Texture2D` と `WebCamTexture` の連携。
-  **本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.4.0/docs/api-map.md) の冒頭が数える。**
+  **本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.3.0/docs/api-map.md) の冒頭が数える。**
   **API の広さではなく、所有権・stride・エラー処理・IL2CPP・platform の正しさを
   固めることを優先している**
 - **encode / decode が扱うのはメモリ上の byte 列だけで、ファイルパスは受けない。**
