@@ -178,13 +178,19 @@ CI は Unity のレーン以外、すべて同じ `tools/dev.ps1` を呼びま�
 
 ### CI が見ているもの
 
-| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 |
-| --- | --- | --- | --- | --- | --- |
-| L1 契約テスト + L3 P/Invoke | あり | あり | あり | クロスビルドのみ | クロスビルドのみ |
-| L2 sanitizer | ASan | — | ASan + **LeakSanitizer** | — | — |
-| 成果物の linkage と有効言語 | あり | あり | あり | 16 KB page size | 束ねたシンボル |
-| Unity EditMode（L4） | ローカルのみ | ローカルのみ | **あり** | — | — |
-| Unity IL2CPP Player（L5） | ローカルのみ | — | **あり** | — | — |
+| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 | Web wasm32 |
+| --- | --- | --- | --- | --- | --- | --- |
+| L1 契約テスト + L3 P/Invoke | あり | あり | あり | クロスビルドのみ | クロスビルドのみ | クロスビルドのみ |
+| L2 sanitizer | ASan | — | ASan + **LeakSanitizer** | — | — | — |
+| 成果物の linkage と有効言語 | あり | あり | あり | 16 KB page size | 束ねたシンボル | 束ねたシンボル + SIMD |
+| Unity EditMode（L4） | ローカルのみ | ローカルのみ | **あり** | — | — | — |
+| Unity IL2CPP Player（L5） | ローカルのみ | — | **あり** | — | — | — |
+| **ブラウザでの端から端まで** | — | — | — | — | — | **あり** |
+
+**Web の列だけ性質が違います** —— CI が本物の WebGL Player を建てて
+**headless の Chromium で実際に走らせる**ので、EditMode と IL2CPP Player が
+走らせるのと同じ検証本体がブラウザでも走ります。
+**sanitizer のレーンはありません**（クロスした sanitizer は host で走らせられません）。
 
 モバイルの列が「クロスビルドのみ」なのは、それが CI にできることの全部だからです —— コンパイルして成果物を検査しますが、**どの実機もそれらを読み込んだことがありません。**
 

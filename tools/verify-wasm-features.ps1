@@ -37,7 +37,10 @@
 param(
     [Parameter(Mandatory)][string]$Path,
     [string[]]$Require = @('simd128'),
-    [string[]]$Forbid  = @('atomics')
+    [string[]]$Forbid  = @('atomics'),
+    # **全 module に要求する。** 既定（和集合）は archive では弱い ——
+    # どれか 1 つが持てば通る。**束ねる前の .a に当てるときはこちらを使う。**
+    [switch]$RequireInEvery
 )
 
 Set-StrictMode -Version Latest
@@ -168,6 +171,61 @@ Write-Host "wasm: $Path"
 Write-Host "  wasm module 数        : $($modules.Count)"
 Write-Host "  section 数（合計）    : $sectionCount"
 Write-Host "  target_features       : $(if ($features.Count -gt 0) { $features -join ', ' } else { '(無し)' })"
+
+# **Require を和集合で見ると弱い。**
+#
+# archive では「どれか 1 つの member が持っていれば緑」になるので、
+# **こちら側の object が SIMD 無しに戻っても、OpenCV 側の 478 member の
+# どれかが持っていれば通る**（M6 のレビューが合成 archive で実測）。
+# **これは commit 4778173 が直した欠陥そのものの形である。**
+#
+# **Forbid は和集合のままでよい**（1 つでも持っていたら違反）。
+# **Require は -RequireInEvery で「全 member が持つこと」に切り替えられる**
+# ようにした。**既定は和集合のまま**である —— OpenCV の member には
+# target_features を持たないものが在り、全 member に要求すると
+# 常に落ちるためである（**そちらを既定にすると検査が使えなくなる**）。
+#
+# **こちら側に掛かっているかは、束ねる前の .a に当てて測る**のが直接的で、
+# ci-native と dev.ps1 がそうしている。
+if ($RequireInEvery) {
+    $perModule = @()
+    foreach ($buf in $modules) {
+        $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        $offset = 8
+        while ($offset -lt $buf.Length) {
+            $id = $buf[$offset]; $offset++
+            $size = Read-ULeb $buf ([ref]$offset)
+            $end = $offset + $size
+            if ($id -eq 0) {
+                $nameLen = Read-ULeb $buf ([ref]$offset)
+                $name = [System.Text.Encoding]::UTF8.GetString($buf, $offset, $nameLen)
+                $offset += $nameLen
+                if ($name -eq 'target_features') {
+                    $count = Read-ULeb $buf ([ref]$offset)
+                    for ($i = 0; $i -lt $count; $i++) {
+                        $offset++
+                        $fLen = Read-ULeb $buf ([ref]$offset)
+                        $null = $set.Add([System.Text.Encoding]::UTF8.GetString($buf, $offset, $fLen))
+                        $offset += $fLen
+                    }
+                }
+            }
+            $offset = $end
+        }
+        $perModule += , $set
+    }
+    $bad = 0
+    foreach ($set in $perModule) {
+        foreach ($r in $Require) { if (-not $set.Contains($r)) { $bad++; break } }
+    }
+    Write-Host "  Require を持たない module     : $bad / $($modules.Count)"
+    if ($bad -gt 0) {
+        Fail @(
+            "$bad 個の wasm module が [$($Require -join ', ')] を持っていません: $Path"
+            "**-RequireInEvery は「全 module が持つこと」を要求する。**"
+        )
+    }
+}
 
 $missing = @($Require | Where-Object { $_ -notin $features })
 $present = @($Forbid  | Where-Object { $_ -in $features })

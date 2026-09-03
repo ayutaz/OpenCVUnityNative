@@ -278,6 +278,41 @@ Write-Host "==> [web] passed=$passed failed=$failed reachable=$reachable"
 
 if ($failed -gt 0) { Fail @("Web Player で $failed 件の検査が失敗しました。") }
 if ($passed -eq 0) { Fail @('Web Player で 1 件も検査が走っていません（0 件で緑にしない）。') }
+
+# **下限だけでは足りない。**
+#
+# `passed >= 1` しか見ていなかったので、**8 件中 7 件が stripping で消えても
+# 緑になった**（M6 のレビューが偽の Player で実測）。
+# **`assert-unity-results.ps1` に -RequireTest を足したのと同じ形で、
+# Web だけがその学習の前に戻っていた。**
+#
+# **数を写さない。** 期待する件数は Player が数えるのではなく、
+# **こちらが共有本体から数える** —— AbiSurfaceChecks の
+# `public static void` で引数の無いものが、WebSmokeRunner が呼ぶ対象である。
+$checksFile = Join-Path $RepoRoot 'tests/UnityProject/Assets/Tests/Shared/AbiSurfaceChecks.cs'
+$expectedChecks = 0
+if (Test-Path -LiteralPath $checksFile) {
+    $text = Get-Content -LiteralPath $checksFile -Raw
+    $expectedChecks = @([regex]::Matches($text, '(?m)^\s*public static void\s+\w+\s*\(\s*\)')).Count
+}
+if ($expectedChecks -le 0) {
+    Fail @(
+        "共有本体から検査の件数を数えられませんでした: $checksFile"
+        '**0 件を「一致した」と読まない** —— 数えられないなら、'
+        'この照合は何も見ていない。'
+    )
+}
+if ($passed -ne $expectedChecks) {
+    Fail @(
+        "Web Player が走らせた検査の数が合いません: 期待 $expectedChecks、実際 $passed"
+        ''
+        '**stripping が検査ごと消した可能性がある。** WebSmokeRunner は'
+        'reflection で AbiSurfaceChecks を集めるので、**消えても例外にならず'
+        '「その分だけ少なく通る」**という形になる。'
+        "共有本体: $checksFile"
+    )
+}
+Write-Host "==> [web] 共有本体の検査 $expectedChecks 件がすべて走った"
 if ($reachable -le 0) {
     Fail @(
         "到達性テストが $reachable を返しました。"

@@ -262,16 +262,20 @@ A local green run is an approximation kept for speed; CI decides mergeability.
 
 ### What CI covers
 
-| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 |
-| --- | --- | --- | --- | --- | --- |
-| L1 contract tests + L3 P/Invoke | yes | yes | yes | cross-build only | cross-build only |
-| L2 sanitizers | ASan | — | ASan + **LeakSanitizer** | — | — |
-| Artifact linkage and enabled languages | yes | yes | yes | 16 KB page size | bundled symbols |
-| Unity EditMode (L4) | local only | local only | **yes** | — | — |
-| Unity IL2CPP player (L5) | local only | — | **yes** | — | — |
+| | Windows x64 | macOS arm64 | Linux x64 | Android arm64 | iOS arm64 | Web wasm32 |
+| --- | --- | --- | --- | --- | --- | --- |
+| L1 contract tests + L3 P/Invoke | yes | yes | yes | cross-build only | cross-build only | cross-build only |
+| L2 sanitizers | ASan | — | ASan + **LeakSanitizer** | — | — | — |
+| Artifact linkage and enabled languages | yes | yes | yes | 16 KB page size | bundled symbols | bundled symbols + SIMD |
+| Unity EditMode (L4) | local only | local only | **yes** | — | — | — |
+| Unity IL2CPP player (L5) | local only | — | **yes** | — | — | — |
+| **Browser end-to-end** | — | — | — | — | — | **yes** |
 
 The mobile columns say "cross-build only" because that is all CI can do: it compiles
-and inspects the artifacts, and **no device has ever loaded them.**
+and inspects the artifacts, and **no device has ever loaded them.** The Web column is
+different: CI builds a real WebGL player and **runs it in a headless Chromium**, so the
+same checks EditMode and the IL2CPP player run also run in a browser. There is no
+sanitizer lane for Web (a cross-compiled sanitizer cannot run on the host).
 
 The lane that installs the UPM tarball into a throwaway project
 (`test-unity-tarball`) is absent from that table because it runs in no workflow at

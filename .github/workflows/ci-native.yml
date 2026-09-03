@@ -378,7 +378,20 @@ jobs:
               ./tools/verify-static-bundle.ps1 -Path $lib -NmCommand "$env:EMSDK/upstream/bin/llvm-nm"
               if ($LASTEXITCODE -ne 0) { exit 1 }
               # **SIMD が効いていることを、送った flag ではなく出来た物で見る。**
+              #
+              # **配る .a に当てるのは和集合の判定**である（archive では
+              # どれか 1 つの member が持てば通る）。それだけだと
+              # **こちら側の object が SIMD 無しに戻っても、OpenCV 側の
+              # どれかが持っていれば緑になる**（M6 のレビューが実測）。
               ./tools/verify-wasm-features.ps1 -Path $lib
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+
+              # **だから「こちらの object だけの archive」にも当てる。**
+              # そちらは -RequireInEvery で **全 module が持つこと**を要求できる
+              # —— OpenCV の member には target_features を持たないものが
+              # 在るので、配る .a に同じ要求はできない。
+              $own = 'build/web-wasm-debug/native/libocvu_static.a'
+              ./tools/verify-wasm-features.ps1 -Path $own -RequireInEvery
               if ($LASTEXITCODE -ne 0) { exit 1 }
           } elseif ($platform -eq 'android-arm64') {
               ./tools/verify-android-page-size.ps1

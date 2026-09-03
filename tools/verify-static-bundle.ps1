@@ -41,7 +41,9 @@
 param(
     [Parameter(Mandatory)][string]$Path,
     [string]$NmCommand = 'nm',
-    [string]$SymbolPattern = '_ZN2cv'
+    [string]$SymbolPattern = '_ZN2cv',
+    # **こちら側の目印。** 束ねた結果に自分の object が入っていることを見る。
+    [string]$OwnSymbolPattern = 'ocvu_'
 )
 
 Set-StrictMode -Version Latest
@@ -112,6 +114,29 @@ Write-Host "  nm                            : $NmCommand"
 Write-Host "  $SymbolPattern を含む定義済み          : $($defined.Count)"
 Write-Host "  同・未定義（member ごと）      : $($undefinedRaw.Count)"
 Write-Host "  **archive 内に定義が無い未定義**: $($undefined.Count)"
+
+# **こちらの object が入っていることも見る。**
+#
+# docstring は「定義済みが 1 以上であることだけだと『束ねたが自分の object が
+# 入っていない』が通る」と書いていたが、**その保護は成立していなかった**
+# （M6 のレビューが実測）—— 自分の object が入っていなければ `cv::` を
+# 参照する未定義がそもそも生じないので、差集合は 0 のままになり、
+# **両方向とも通る**（OpenCV は内部で自己完結している）。
+#
+# **「塞いだ」と書いてあることが、次に検査を足す判断を止める。**
+# 実害の確率は低い（MRI script の addlib が静かに失敗する必要がある）が、
+# 1 行で閉じるなら閉じる。
+$ours = @(Get-NmSymbols -Archive $Path | Where-Object { $_ -like "*$OwnSymbolPattern*" })
+Write-Host "  $OwnSymbolPattern を含む定義済み   : $($ours.Count)"
+if ($ours.Count -eq 0) {
+    Fail @(
+        "この archive は $OwnSymbolPattern を 1 つも定義していません: $Path"
+        ""
+        "**束ねた結果に、こちらの object が入っていない。** MRI script の"
+        "addlib が静かに失敗したか、束ねる順序が違う可能性がある。"
+        "**OpenCV だけが入った archive は、配っても何も呼べない。**"
+    )
+}
 
 # **両方向を見る。** どちらか一方だけだと、別の壊れ方が通る。
 if ($defined.Count -eq 0) {

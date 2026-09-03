@@ -272,6 +272,10 @@ jobs:
               if ($LASTEXITCODE -ne 0) { exit 1 }
               ./tools/verify-wasm-features.ps1 -Path $lib
               if ($LASTEXITCODE -ne 0) { exit 1 }
+              # **和集合では弱い**ので、こちらの object だけの archive にも
+              # 全 module 要求で当てる（M6 のレビューの指摘）。
+              ./tools/verify-wasm-features.ps1 -Path 'build/web-wasm-debug/native/libocvu_static.a' -RequireInEvery
+              if ($LASTEXITCODE -ne 0) { exit 1 }
           } elseif ($platform -in @('windows-x64', 'macos-arm64', 'ios-arm64')) {
               # 走らなかったことをログに残す。灰色の skip と違い、
               # 「意図して外した」ことが後から読んで分かる。
