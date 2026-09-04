@@ -4,7 +4,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 [English](README.md)
 
-> **現状: 公開済みの最新版は v0.2.0 で、リポジトリはそれより大きく先に進んでいます。** あの版は desktop のみで、M0 から M3.5 までが入っています。その後リポジトリには Android と iOS のクロスビルド（M4）と、生成される binding 層およびカメラ校正（M5）が加わりましたが、**どれもまだ公開されていません。** Windows x64 / macOS arm64 / Linux x64 は CI がビルド・テスト・パッケージ化しており、Unity 自身が Mono（EditMode）と実物の IL2CPP Player の両方でプラグインを動かしています。**Android arm64 と iOS arm64 は CI がクロスビルドしますが、公開版には入っておらず、実機で一度も動かしていません。** Web / Wasm（M6）はリポジトリに入っており、CI が headless のブラウザで実際に走らせます（**他の platform には無い制限が 1 つあります** —— PNG が使えません。下記）。**以下に書いてあることは「リポジトリの現状」であって「落とせるもの」ではありません** —— v0.2.0 に入っているのは `Mat` のライフサイクルと buffer 転送、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の画像 encode / decode、そして desktop 3 platform を 1 つにまとめたパッケージまでです。**公開している C ABI はどちらにせよ意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP を正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
+> **現状: 公開済みの最新版は v0.3.0 です（2026-09-04）。以下に書いてあることは、その版に入っています。** **6 platform を配る最初の版**であり（Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)）、**生成される binding 層とカメラ校正を含む最初の版**でもあります。どの platform も CI がビルド・テスト・パッケージ化し、Unity 自身が Mono（EditMode）・実物の IL2CPP Player・headless のブラウザでプラグインを動かしています。**正直な限界が 3 つあります。** **Android と iOS は実機で一度も動かしていません** —— CI はクロスコンパイルして成果物を検査しますが、どの端末もこの binary を読み込んだことがありません。**Web には PNG がありません**（`imgcodecs` は JPEG のみ。下記）。動かしたブラウザも Linux の headless Chromium 1 つだけです。**macOS 上で Unity を起動したこともありません**（`.meta` の解釈は他の OS の Unity に問うて確認済みです）。**公開している C ABI は意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP・platform の振り分けを正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
 
 ## これは何か
 
@@ -45,9 +45,9 @@ encode / decode の検査が PNG ではなく JPEG を使うので、**画素の
 
 リリースは [github.com/ayutaz/OpenCVUnityNative/releases](https://github.com/ayutaz/OpenCVUnityNative/releases) にあります。
 
-**公開済みの版（v0.2.0）は desktop のみで、意図的に小さく作ってあります**: `Mat` のライフサイクル、`cvtColor` / `resize` / `GaussianBlur`、そしてメモリ上の byte 配列との間で PNG と JPEG を encode / decode する機能です。**この ABI はファイルパスを一切受け取りません** —— byte buffer だけです。これは意図したもので、Android の APK に入った `StreamingAssets` のファイルには開けるパスが存在せず、境界を越えるパスは Windows の文字コードの問題を引きずり込むためです。
+**公開済みの版（v0.3.0）は 6 platform 分を運びます**: `Mat` のライフサイクル、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の byte 配列との画像 encode / decode、QR コードの符号化・復号、ORB の特徴点、射影変換の推定、そして単眼カメラ校正の 3 段です。**この ABI はファイルパスを一切受け取りません** —— byte buffer だけです。これは意図したもので、Android の APK に入った `StreamingAssets` のファイルには開けるパスが存在せず、境界を越えるパスは Windows の文字コードの問題を引きずり込むためです。
 
-**リポジトリにはその版より多くのものが入っており**、次の版がそれを運びます: Android と iOS の binary、QR コードの符号化・復号、ORB の特徴点、射影変換の推定、そして単眼カメラ校正の 3 段（盤の格子点を見つける / 係数を解く / その係数で歪みを補正する）。全体像と**意図的に出していないもの**は [API リファレンス](docs/api-reference.md)に、本数そのものは [API 対応表](docs/api-map.md)の冒頭にあります。Web は動きますが PNG が使えません（下記）。
+全体像と**意図的に出していないもの**は [API リファレンス](docs/api-reference.md)に、本数そのものは [API 対応表](docs/api-map.md)の冒頭にあります。
 
 **Linux では v0.1.1 以降を使ってください。** v0.1.0 の Linux プラグインは glibc 2.38 に対してビルドされており、それより古い環境（Ubuntu 22.04 を含む）では `DllNotFoundException` で読み込めません。v0.1.1 以降、Linux の成果物は Ubuntu 22.04 のコンテナでビルドしており、要求するのは glibc 2.34 だけです。
 
@@ -66,7 +66,7 @@ com.ayutaz.opencv-unity-native-<version>-web-wasm.tgz
 platform ごとの一覧は platform が増えれば増えます。**どれが実在するかは、
 落とすリリースそのものが正本です。**
 
-全部入りの tarball のファイル名に版番号が入っていないのは意図的です。OpenUPM は安定した名前の接頭辞でリリース asset を選ぶので、名前に版が入っているとリリースのたびにその pattern を書き換えることになります。platform ごとの tarball は版番号を保持します。**このパッケージは OpenUPM に登録済みで**（2026-08-30 に受理）、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が v0.2.0 を配信しています（[docs/openupm-registration.md](docs/openupm-registration.md)）。
+全部入りの tarball のファイル名に版番号が入っていないのは意図的です。OpenUPM は安定した名前の接頭辞でリリース asset を選ぶので、名前に版が入っているとリリースのたびにその pattern を書き換えることになります。platform ごとの tarball は版番号を保持します。**このパッケージは OpenUPM に登録済みで**（2026-08-30 に受理）、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信しています（**OpenUPM は自前のビルドキューを持つので、出したての版が現れるまでには時間がかかります**）（[docs/openupm-registration.md](docs/openupm-registration.md)）。
 
 `com.ayutaz.opencv-unity-native.tgz` を落とし、プロジェクトの中か隣に置いて、パッケージの manifest から指します:
 
@@ -100,7 +100,7 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 
 ### 1 つのパッケージに全 platform
 
-導入するパッケージには全 platform 分の binary が一緒に入っています（v0.2.0 では Windows / macOS / Linux、次の版から Android・iOS・Web が加わります）。Unity は 1 つのパッケージ ID につき 1 つしかパッケージを許さないので、**エディタと build target の platform が違うプロジェクト**は、それらを 1 つのパッケージに入れる必要があります。以前のリリースは platform ごとの tarball を配っており、それを表現できませんでした。platform ごとの tarball は引き続き配りますが、それは 1 platform 分だけが欲しいプロジェクトのための便宜です。
+導入するパッケージには全 platform 分の binary が一緒に入っています（v0.3.0 で 6 つとも入りました）。Unity は 1 つのパッケージ ID につき 1 つしかパッケージを許さないので、**エディタと build target の platform が違うプロジェクト**は、それらを 1 つのパッケージに入れる必要があります。以前のリリースは platform ごとの tarball を配っており、それを表現できませんでした。platform ごとの tarball は引き続き配りますが、それは 1 platform 分だけが欲しいプロジェクトのための便宜です。
 
 各 binary の Plugin Import Settings は自分の platform でのみ有効になります。**これは主張ではなく実測です** —— EditMode のテストが、全 platform の binary を置いた状態で Unity 自身の `PluginImporter` に「その `.meta` をどう読んだか」を問います。自分で設定を覗くつもりなら、この実測で分かった 2 点を知っておく価値があります。
 

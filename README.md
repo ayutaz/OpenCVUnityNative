@@ -4,7 +4,7 @@ OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible 
 
 [日本語](README.ja.md)
 
-> **Status: v0.2.0 is the newest published release, and the repository is well ahead of it.** That release is desktop-only and carries M0 through M3.5. Since then the repository gained Android and iOS cross-builds (M4) and a generated binding layer with camera calibration (M5), **none of which has been published yet.** Windows x64, macOS arm64 and Linux x64 are built, tested and packaged by CI, and Unity itself exercises the plugin on both Mono (EditMode) and a real IL2CPP player. **Read what follows as describing the repository, not the download**: v0.2.0 carries the `Mat` lifecycle and buffer transfer, `cvtColor` / `resize` / `GaussianBlur`, in-memory image encode/decode, and one package holding all three desktop platforms. Everything else below is in the repository and not yet in any release. The public C ABI is deliberately narrow either way, because the point was getting ownership, stride, error handling and IL2CPP right rather than covering surface area. **Android arm64 and iOS arm64 are built and cross-compiled by CI, but they are not in any published release and have never been run on a device**, so treat mobile as unreleased. Web/Wasm (M6) is in the tree and CI runs it in a headless browser, with one limitation the other platforms do not have (no PNG; see below). **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+> **Status: v0.3.0 is the newest published release (2026-09-04), and it carries everything described below.** It is the first release with six platforms — Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS arm64 and Web/WebGL — the first with a generated binding layer, and the first with camera calibration. Every platform is built, tested and packaged by CI; Unity itself exercises the plugin on Mono (EditMode), a real IL2CPP player, and a headless browser. **Three honest limits.** **Android and iOS have never been run on a device** — CI cross-compiles them and inspects the artifacts, but no phone has loaded these binaries. **Web has no PNG**: `imgcodecs` there decodes and encodes JPEG only (see below), and the browser it was driven in is one headless Chromium on Linux. **Unity has never been run on macOS at all**, though its plugin settings are verified by asking Unity itself on other systems. The public C ABI is deliberately narrow, because the point was getting ownership, stride, error handling, IL2CPP and platform gating right rather than covering surface area. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -56,19 +56,17 @@ Unity 6000.3 or newer throughout.
 
 Releases live at
 [github.com/ayutaz/OpenCVUnityNative/releases](https://github.com/ayutaz/OpenCVUnityNative/releases).
-**The published release (v0.2.0) is desktop-only and deliberately small**: `Mat`
-lifecycle, `cvtColor` / `resize` / `GaussianBlur`, and encoding/decoding PNG and JPEG
-to and from byte arrays in memory. The ABI takes no file paths at all — only byte
-buffers. That is on purpose: a `StreamingAssets` file inside an Android APK has no
-path that can be opened, and a path crossing this boundary would drag Windows text
-encoding along with it.
+**The published release (v0.3.0) carries all six platforms**: `Mat` lifecycle,
+`cvtColor` / `resize` / `GaussianBlur`, encoding/decoding images to and from byte
+arrays in memory, QR encode/decode, ORB keypoints, homography estimation, and the
+three stages of monocular camera calibration. The ABI takes no file paths at all —
+only byte buffers. That is on purpose: a `StreamingAssets` file inside an Android APK
+has no path that can be opened, and a path crossing this boundary would drag Windows
+text encoding along with it.
 
-**The repository has more than that release does**, and the next one will carry it:
-Android and iOS binaries, QR encode/decode, ORB keypoints, homography estimation, and
-the three stages of monocular camera calibration (find the board corners, solve for the
-coefficients, undistort with them). The full surface, with what is deliberately absent,
-is in the [API reference](docs/api-reference.md); the count itself lives at the top of
-the [API map](docs/api-map.md). Web/Wasm is there too, with PNG turned off (see above).
+The full surface, with what is deliberately absent, is in the
+[API reference](docs/api-reference.md); the count itself lives at the top of the
+[API map](docs/api-map.md).
 
 **On Linux, use v0.1.1 or later.** The Linux plugin in v0.1.0 was built against
 glibc 2.38 and fails to load on anything older — Ubuntu 22.04 included — with
@@ -96,7 +94,8 @@ The all-platform tarball carries no version number in its filename on purpose:
 OpenUPM selects a release asset by a stable name prefix, so a version in the name
 would mean rewriting that pattern every release. The per-platform tarballs keep
 theirs. **The package is registered on OpenUPM** (accepted 2026-08-30) and
-`https://package.openupm.com/com.ayutaz.opencv-unity-native` serves v0.2.0
+`https://package.openupm.com/com.ayutaz.opencv-unity-native` serves it
+(OpenUPM builds on its own queue, so a fresh release takes a while to appear there)
 ([docs/openupm-registration.md](docs/openupm-registration.md)).
 
 Download `com.ayutaz.opencv-unity-native.tgz`, put it somewhere inside or beside your
