@@ -182,37 +182,41 @@ namespace CvUnity
                     $"maxFeatures は 1 以上 {MaxFeatures} 以下でなければなりません。");
             }
 
-            // **1 回目は個数の問い合わせにする**（capacity 0 で buffer を渡さない）。
-            // DetectOrb のように maxFeatures ぶんを確保して 1 回で済ませることは
-            // できない —— あちらは native が maxFeatures 個で切り詰めるので必要量が
-            // 事前に決まるが、こちらは切り詰めずに実際の個数を返す契約である。
-            // **maxFeatures と同じ大きさで確保すると、検出器が多く返した日に
-            // 溢れる**（SIFT は 160x160 で create(200) が 240 個を返した。実測）。
-            int found;
-            var probe = (CvStatus)NativeMethods.ocvu_detect_and_compute(
-                src.Handle, (int)detector, maxFeatures, null, 0, descriptors.Handle, out found);
-
-            // **1 つも見つからないのは誤りではない。** その場合だけ問い合わせが
-            // Ok を返し、descriptors は空の Mat に置き換わっている。
-            if (probe == CvStatus.Ok) { return Array.Empty<CvKeyPoint>(); }
-
-            // Ok でも BufferTooSmall でもない status（無効な handle、知らない
-            // detector、OpenCV の例外）はここで例外になる。
-            CvNative.ThrowIfFailed(probe);
-
-            // **ここに来るのは BufferTooSmall だけである。**
-            if (found <= 0)
-            {
-                throw new CvNativeException(
-                    CvStatus.UnknownError,
-                    $"ocvu_detect_and_compute reported {found} keypoints for a size query");
-            }
-
-            var raw = new OcvuKeyPoint[found];
+            // **1 回目は maxFeatures ぶんを確保して呼ぶ。**
+            //
+            // 以前はここを capacity 0 の「個数の問い合わせ」にしていたが、
+            // **それだと ORB / SIFT の検出を必ず 2 回走らせることになる** ——
+            // この ABI は検出器を保持しないので、問い合わせも本番も同じだけ
+            // 計算する。maxFeatures はたいていの入力で足りるので、
+            // **溢れたときだけ 2 回目を払う**ほうが安い（兄弟の
+            // DetectMarkers / HoughLinesP / FindContours と同じ形である）。
+            //
+            // **maxFeatures が上限でないことは、この形でも正しく扱える** ——
+            // 検出器が多く返せば BufferTooSmall が返り、下で確保し直す
+            // （SIFT は 160x160 で create(200) が 240 個を返した。実測）。
+            var raw = new OcvuKeyPoint[maxFeatures];
             int count;
             var status = (CvStatus)NativeMethods.ocvu_detect_and_compute(
                 src.Handle, (int)detector, maxFeatures, raw, raw.Length,
                 descriptors.Handle, out count);
+
+            if (status == CvStatus.BufferTooSmall)
+            {
+                // **native は out_keypoints にも descriptors にも 1 バイトも
+                // 書いていない。** count には実際に見つかった数が入っている。
+                if (count <= raw.Length)
+                {
+                    throw new CvNativeException(
+                        CvStatus.UnknownError,
+                        $"ocvu_detect_and_compute reported BufferTooSmall for {count} keypoints " +
+                        $"into a buffer of {raw.Length}");
+                }
+                raw = new OcvuKeyPoint[count];
+                status = (CvStatus)NativeMethods.ocvu_detect_and_compute(
+                    src.Handle, (int)detector, maxFeatures, raw, raw.Length,
+                    descriptors.Handle, out count);
+            }
+
             CvNative.ThrowIfFailed(status);
 
             // **BufferTooSmall は「失敗」ではないので ThrowIfFailed は素通しする**

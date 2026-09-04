@@ -60,7 +60,7 @@ namespace CvUnity.Interop
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_normalize(ulong src, ulong dst, double alpha, double beta, int norm_type);
 
-        /// <summary>src1 と src2 のビット演算（AND / OR / XOR）、または src1 のビット反転（NOT）を dst に入れる。dst は結果に応じて丸ごと置き換わり、src1 と同じ形状・型になる。op は OCVU_BITWISE_AND / OCVU_BITWISE_OR / OCVU_BITWISE_XOR / OCVU_BITWISE_NOT のいずれかで、それ以外は OCVU_STATUS_INVALID_ARGUMENT を返す。OCVU_BITWISE_NOT のときは src2 を一切見ない —— 無効な handle を渡しても成功する（黙って無視するのではなく、そう決めてある）。他の 3 つでは src2 の handle が無効なら OCVU_STATUS_INVALID_HANDLE を返す。src1 と src2 は同じ形状・同じ型でなければならず、違えば OpenCV が例外を投げるので OCVU_STATUS_OPENCV_ERROR になる。src と dst に同じ handle を渡してもよい。失敗したときは dst を書き換えない。</summary>
+        /// <summary>src1 と src2 のビット演算（AND / OR / XOR）、または src1 のビット反転（NOT）を dst に入れる。dst は結果に応じて丸ごと置き換わり、src1 と同じ形状・型になる。op は OCVU_BITWISE_AND / OCVU_BITWISE_OR / OCVU_BITWISE_XOR / OCVU_BITWISE_NOT のいずれかで、それ以外は OCVU_STATUS_INVALID_ARGUMENT を返す。OCVU_BITWISE_NOT のときは src2 を一切見ない —— 無効な handle を渡しても成功する（黙って無視するのではなく、そう決めてある）。他の 3 つでは src2 の handle が無効なら OCVU_STATUS_INVALID_HANDLE を返す。src1 と src2 は同じ形状・同じ型でなければならず、違えば OCVU_STATUS_INVALID_ARGUMENT を返す —— **この検査はこの ABI が自分で行う。** OpenCV に任せると、src2 が 1 要素のときにそれを scalar とみなして全画素へ黙って展開し、OCVU_STATUS_OK ともっともらしい結果を返すためである（実測）。src と dst に同じ handle を渡してもよい。失敗したときは dst を書き換えない。</summary>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_bitwise(ulong src1, ulong src2, ulong dst, int op);
 

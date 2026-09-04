@@ -1,5 +1,11 @@
 # Phase 4 — 特徴点マッチングとステレオ 実装計画
 
+> **この計画より優先する文書がある。**
+> 実装前に 12 観点 x 2 段で前提を実測し、**この計画の記述が 11 箇所で覆った** ——
+> 決定は [実測で覆った前提と、その決定](./2026-09-05-api-expansion-corrections.md)
+> にある。**食い違う箇所はあちらが正しい。**
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 特徴点の記述子を計算して対応づけられるようにし、左右の画像から視差を求められるようにする。

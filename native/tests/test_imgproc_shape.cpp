@@ -295,6 +295,50 @@ TEST(ImgprocShape, CornerSubPixMovesThePointTowardTheCorner) {
     EXPECT_NEAR(points[1], 16.0f, 1.5f);
 }
 
+TEST(ImgprocShape, CornerSubPixRejectsWindowsThatWouldOverflowInsideOpenCv) {
+    // **上限が無いと何が起きるかを実測してから足した検査である**（2026-09-05、
+    // 32x32 の 8UC1 に 1 点、Windows）:
+    //   zero_zone = 2^30      -> **プロセスが 0xC0000005 で即死した**（status を返さない）
+    //   win_size  = 2^30      -> "Failed to allocate 18446744056529682436 bytes"
+    //                            （符号あり整数のオーバーフローの証拠がそのまま出る）
+    //   win_size  = INT32_MAX -> **OCVU_STATUS_OK**（無意味な窓で成功と称した）
+    //
+    // **3 つとも壊れ方が違い、どれも status では気づけない。** しかも 1 つ目は
+    // C# からそのまま到達でき、Unity の Editor / Player がその 1 呼び出しで落ちる
+    // （CLAUDE.md いわく、Unity のレーンではクラッシュは赤いテストにならず
+    // 無音で 10 分以上返らない）。
+    //
+    // **このテストは 2^30 を渡さない。** 渡せば直っている今は通るが、検査を
+    // 外して走らせるとテストプロセスごと落ちて「赤いテスト」にならない ——
+    // **負の対照が取れない形の検査になってしまう。** 上限のすぐ外側で断ることを見る。
+    ScopedMat src(32, 32);
+    DrawCheckerCorner(src.get(), 32);
+
+    std::array<float, 2> points{14.0f, 14.0f};
+    const int64_t bytes = static_cast<int64_t>(sizeof(points));
+
+    EXPECT_EQ(ocvu_corner_sub_pix(src.get(), points.data(), bytes, 1,
+                                  OCVU_CORNER_MAX_WINDOW + 1, -1, 30, 0.01),
+              OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(ocvu_corner_sub_pix(src.get(), points.data(), bytes, 1,
+                                  5, OCVU_CORNER_MAX_WINDOW + 1, 30, 0.01),
+              OCVU_STATUS_INVALID_ARGUMENT);
+    // zero_zone は -1（無視しない）より小さい値も断る。
+    EXPECT_EQ(ocvu_corner_sub_pix(src.get(), points.data(), bytes, 1, 5, -2, 30, 0.01),
+              OCVU_STATUS_INVALID_ARGUMENT);
+
+    // **上限ちょうどはこの ABI の検査を通過する。** 窓が画像より大きいので
+    // OpenCV 側が断るが、返るのは INVALID_ARGUMENT ではない ——
+    // 「上限で切っている」ことと「上限より内側は素通しする」ことを両方見る。
+    EXPECT_NE(ocvu_corner_sub_pix(src.get(), points.data(), bytes, 1,
+                                  OCVU_CORNER_MAX_WINDOW, -1, 30, 0.01),
+              OCVU_STATUS_INVALID_ARGUMENT);
+
+    // **断ったのだから、渡した点は 1 つも動いていない。**
+    EXPECT_FLOAT_EQ(points[0], 14.0f);
+    EXPECT_FLOAT_EQ(points[1], 14.0f);
+}
+
 TEST(ImgprocShape, CornerSubPixRejectsBadArgumentsWithoutTouchingThePoints) {
     ScopedMat src(32, 32);
     DrawCheckerCorner(src.get(), 32);

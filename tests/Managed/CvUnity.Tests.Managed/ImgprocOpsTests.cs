@@ -685,6 +685,59 @@ public class ImgprocOpsTests
     /// 明示的に書く必要がある（CalibrationTests が同じ欠陥を踏んだ記録を持つ）。
     /// この道具は必ず全画素を書くので、呼ぶ側がそれを忘れる経路が無い。
     /// </remarks>
+    [Fact]
+    public void CornerSubPixRejectsWindowsBeforeTheyReachNative()
+    {
+        // **この検査が無いと、1 呼び出しでプロセスが落ちる。**
+        // 2026-09-05 の実測（native を直接叩いたもの）: zeroZone に 2 の 30 乗を
+        // 渡すとアクセス違反でプロセスが即死し、winSize に int.MaxValue を渡すと
+        // 無意味な窓のまま成功が返った。**どちらも status では気づけない。**
+        //
+        // **C# 側でも断るのは、その 1 呼び出しが Unity の Editor / Player を
+        // 落とすからである** —— CLAUDE.md いわく、Unity のレーンでは
+        // クラッシュは赤いテストにならず無音で 10 分以上返らない。
+        using var src = MakeCheckerboard(32, 16);
+        var points = new[] { new CvPoint2(14.0f, 14.0f) };
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CvOps.CornerSubPix(src, points, winSize: 257));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CvOps.CornerSubPix(src, points, winSize: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CvOps.CornerSubPix(src, points, zeroZone: 257));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CvOps.CornerSubPix(src, points, zeroZone: -2));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => CvOps.CornerSubPix(src, points, maxIterations: 0));
+
+        // **渡した配列は 1 要素も変わっていない。**
+        Assert.Equal(14.0f, points[0].X);
+        Assert.Equal(14.0f, points[0].Y);
+    }
+
+    [Fact]
+    public void TheManagedCornerWindowLimitMatchesWhatNativeAccepts()
+    {
+        // **両側を native に問う。** C の #define は C# から読めないので、
+        // 「managed が通す最大値を native も通す」ことで同期を測る
+        // （CalibrationTests.TheManagedCornerLimitMatchesWhatNativeAccepts と同じ形）。
+        using var src = MakeCheckerboard(32, 16);
+        var points = new[] { new CvPoint2(14.0f, 14.0f) };
+
+        // managed の上限ちょうど。**native の値域検査は通る** ——
+        // 窓が画像より大きいので OpenCV が断るが、それは別の理由である。
+        var ex = Record.Exception(() => CvOps.CornerSubPix(src, points, winSize: 256));
+        if (ex is CvNativeException native)
+        {
+            Assert.NotEqual(CvStatus.InvalidArgument, native.Status);
+        }
+        Assert.IsNotType<ArgumentOutOfRangeException>(ex);
+
+        // 実用の窓では成功し、点が角へ動く。
+        CvPoint2[] refined = CvOps.CornerSubPix(src, points, winSize: 5);
+        Assert.Single(refined);
+    }
+
     private static CvMat MakeGray(int width, int height, Func<int, int, byte> pixel)
     {
         var mat = CvMat.Create(height, width, CvMatType.Gray8);

@@ -239,6 +239,21 @@ namespace CvUnity
         private const int MaxCornerPoints = 10000;
 
         /// <summary>
+        /// C の <c>OCVU_CORNER_MAX_WINDOW</c> の写しである。
+        /// </summary>
+        /// <remarks>
+        /// <b>この上限が無いと、1 呼び出しでプロセスが落ちる。</b>
+        /// <c>cv::cornerSubPix</c> は窓の半径を <c>int</c> のまま 2 倍して寸法に
+        /// するので、大きな値は符号あり整数のオーバーフローになる ——
+        /// 2026-09-05 の実測で、<c>zeroZone</c> に 2 の 30 乗を渡すと
+        /// アクセス違反でプロセスが即死した。native 側も同じ上限で断るが、
+        /// <b>ここでも断るのは、その 1 呼び出しが Unity の Editor や Player を
+        /// 落とすからである</b>（Unity のレーンではクラッシュは赤いテストにならない）。
+        /// <c>ImgprocOpsTests</c> が両側を native に問うことで同期を守っている。
+        /// </remarks>
+        private const int MaxCornerWindow = 256;
+
+        /// <summary>
         /// <see cref="FindContours"/> が最初に用意する輪郭の本数。
         /// <b>上限ではない</b> —— 超えたぶんは 2 回目の呼び出しで受け取る。
         /// </summary>
@@ -603,8 +618,8 @@ namespace CvUnity
         /// </remarks>
         /// <param name="src">角点が写っている画像。1 channel で、8 bit か 32 bit 浮動小数。</param>
         /// <param name="points">精緻化したい位置。1 点以上、10000 点以下。</param>
-        /// <param name="winSize">探索窓の半径（画素）。1 以上。</param>
-        /// <param name="zeroZone">窓の中央で無視する領域の半径。-1 なら無視しない。</param>
+        /// <param name="winSize">探索窓の半径（画素）。1 以上 256 以下。</param>
+        /// <param name="zeroZone">窓の中央で無視する領域の半径。-1 なら無視しない。0 以上 256 以下。</param>
         /// <param name="maxIterations">打ち切るまでの繰り返し回数。1 以上。</param>
         /// <param name="epsilon">移動量がこれを下回ったら打ち切る。</param>
         public static CvPoint2[] CornerSubPix(CvMat src, CvPoint2[] points,
@@ -623,6 +638,25 @@ namespace CvUnity
                 throw new ArgumentException(
                     $"点は {MaxCornerPoints} 個以下でなければなりません（渡されたのは {points.Length} 個）。",
                     nameof(points));
+            }
+
+            if (winSize < 1 || winSize > MaxCornerWindow)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(winSize), winSize,
+                    $"winSize は 1 以上 {MaxCornerWindow} 以下でなければなりません。");
+            }
+            if (zeroZone < -1 || zeroZone > MaxCornerWindow)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(zeroZone), zeroZone,
+                    $"zeroZone は -1、または 0 以上 {MaxCornerWindow} 以下でなければなりません。");
+            }
+            if (maxIterations < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(maxIterations), maxIterations,
+                    "maxIterations は 1 以上でなければなりません。");
             }
 
             // **写しを渡す。** native はこの配列をその場で書き換えるので、

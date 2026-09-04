@@ -76,7 +76,7 @@ table の索引で、解放のたびに世代が進むため解放済み handle 
 | フィールド | 型 | 内容 |
 | --- | --- | --- |
 | `rows` / `cols` | `int32_t` | 形状 |
-| `type` | `int32_t` | `OCVU_MAT_TYPE_8UC1` (0) / `_8UC3` (16) / `_8UC4` (24) のいずれか |
+| `type` | `int32_t` | `OCVU_MAT_TYPE_8UC1` (0) / `_16SC1` (3) / `_32FC1` (5) / `_64FC1` (6) / `_8UC3` (16) / `_8UC4` (24) のいずれか。**この ABI が名前を持たない型のときは -1** が入り、それでも `OCVU_STATUS_OK` を返す（`rows` / `cols` / `channels` / `step` は正しいので、byte 列としては読める）|
 | `channels` | `int32_t` | チャンネル数 |
 | `step` | `int64_t` | 1 行のバイト数 |
 | `total_bytes` | `int64_t` | `rows * step` |
@@ -456,8 +456,18 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 | `void CopyFrom(IntPtr source, long length, long stride)` / `void CopyTo(IntPtr destination, long length, long stride)` | ポインタを直接渡す版。**借用契約**: `source`/`destination` は**この呼び出しが戻るまで**生きていなければならない。native はこの呼び出しの内側でしか触れず、戻った後は一切保持しない。`length`/`stride` は native 側が検証し、不整合なら 1 バイトも書かれない |
 | `void Dispose()` | `ocvu_mat_release` を呼ぶ。二度目以降の `Dispose()` は no-op（内部 handle が既に 0） |
 
-`CvMatType`（`enum`）: `Gray8 = 0`、`Bgr24 = 16`、`Bgra32 = 24`
-（`OCVU_MAT_TYPE_8UC1` / `_8UC3` / `_8UC4` に対応）。
+`CvMatType`（`enum`）: `Gray8 = 0`、`Disparity16 = 3`、`Response32 = 5`、
+`Transform64 = 6`、`Bgr24 = 16`、`Bgra32 = 24`（`OCVU_MAT_TYPE_*` に対応）。
+
+**後ろの 3 つは「画像」ではなく、OpenCV の関数が返す中間結果の型である** ——
+視差（`CvStereo.ComputeDisparity`）、テンプレート照合の応答（`CvOps.MatchTemplate`）、
+3x3 の変換行列（`CvOps.GetPerspectiveTransform`）。**1 画素のバイト数がそれぞれ違う**
+ので、`CopyTo` で読むときの stride は `Cols * 2` / `Cols * 4` / `Cols * 8` になる。
+
+**`OCVU_MAT_TYPE_*` の値は OpenCV の写しではない。** `ocvu_mat.cpp` の 2 つの
+`switch` が翻訳するので一致している必要が無く、実際 **16 と 24 は OpenCV 4 の
+`CV_8UC3` / `CV_8UC4` の値**である（OpenCV 5 は `CV_CN_SHIFT` を 3 から 5 に
+変えたので、いまの `CV_8UC3` は 64。2026-09-05 に実測）。**翻訳表が正本である。**
 
 `CvMat` を Dispose せずに破棄すると native 側の handle が解放されない
 （finalizer は無い）。`using` で確実に囲むこと。
@@ -670,8 +680,10 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 食い違っていても native からは見えず、短いほうの配列の終端を越えて読むことになる。
 **C# の入口が唯一それを見られる場所である。**
 
-求めた変換を画像に当てるには透視変換が要るが、**それはまだ C ABI に出していない**
-（`imgproc` にはあるがラップしていない）。
+求めた変換を画像に当てるには `CvOps.WarpPerspective`（§2.13）を使う。
+**4 点の対応から厳密に求めたいなら `CvOps.GetPerspectiveTransform`**（同）——
+こちらの `FindHomography` は 4 点以上から当てはめるので、外れ値がありうる
+対応に向く。
 
 ### 2.11 `CvUnity.CvCalibration`
 

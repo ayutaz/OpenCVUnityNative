@@ -1,5 +1,11 @@
 # Phase 2 — imgproc の実用関数 実装計画
 
+> **この計画より優先する文書がある。**
+> 実装前に 12 観点 x 2 段で前提を実測し、**この計画の記述が 11 箇所で覆った** ——
+> 決定は [実測で覆った前提と、その決定](./2026-09-05-api-expansion-corrections.md)
+> にある。**食い違う箇所はあちらが正しい。**
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 二値化・エッジ・形態素・射影変換・テンプレート照合・線分検出・角点精緻化・輪郭検出を C ABI に出す。

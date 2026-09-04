@@ -187,6 +187,31 @@ typedef struct ocvu_keypoint {
 /* ocvu_corner_sub_pix が受け取る点数の上限。同じ理由である。 */
 #define OCVU_CORNER_MAX_POINTS 10000
 
+/*
+ * ocvu_corner_sub_pix の win_size / zero_zone の上限。
+ *
+ * **これは int32_t の乗算を止めるための歯止めではない。** 上の 3 つと違い、
+ * こちらが掛け算をするのではなく **OpenCV の中で寸法になる**値である ——
+ * cv::cornerSubPix は winSize を「窓の半径」として受け、内部で
+ * (winSize * 2 + 1) の窓を int のまま作る。
+ *
+ * **2026-09-05 に、上限が無いと実際に何が起きるかを実測した**（Windows、
+ * 32x32 の 8UC1 に 1 点）:
+ *   zero_zone = 2^30  -> **プロセスが 0xC0000005 で即死する**（status は返らない）
+ *   win_size  = 2^30  -> OPENCV_ERROR。メッセージが
+ *                        "Failed to allocate 18446744056529682436 bytes" で、
+ *                        **符号あり整数のオーバーフローがそのまま出ている**
+ *   win_size  = INT32_MAX -> **OCVU_STATUS_OK**（無意味な窓で成功と称する）
+ *
+ * **1 つ目が最も重い** —— C# からそのまま到達でき、Unity の Editor / Player が
+ * この 1 呼び出しで落ちる。**CLAUDE.md が書いているとおり、Unity のレーンでは
+ * クラッシュは赤いテストにならず、無音で 10 分以上返らない。**
+ *
+ * 256 にしたのは、実用の角点精緻化で使う窓（半径 3〜11 程度）を大きく上回り、
+ * かつ (256 * 2 + 1)^2 が確保として無害な範囲に収まるからである。
+ */
+#define OCVU_CORNER_MAX_WINDOW 256
+
 /* ocvu_aruco_generate_marker の side_pixels の上限。
  * **これだけは意味が違う** —— 上の 2 つは「入力の個数から長さを作る」ための
  * 歯止めだが、こちらは native 側が side_pixels * side_pixels のバイト数を

@@ -1,5 +1,11 @@
 # Phase 3 — core の基本演算 実装計画
 
+> **この計画より優先する文書がある。**
+> 実装前に 12 観点 x 2 段で前提を実測し、**この計画の記述が 11 箇所で覆った** ——
+> 決定は [実測で覆った前提と、その決定](./2026-09-05-api-expansion-corrections.md)
+> にある。**食い違う箇所はあちらが正しい。**
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** channel の出し入れ・最小最大・範囲抽出・正規化・論理演算・ルックアップ変換・余白付けを C ABI に出す。

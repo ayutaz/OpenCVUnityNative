@@ -361,11 +361,14 @@ call into a module are written, none of that module's code reaches the shipped l
 Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
 10,177,536 bytes when the encode/decode functions landed (zlib, libpng and libjpeg-turbo
 came with them), and to 20,136,960 bytes when the QR and ORB functions landed
-(`annoylib` and the MSCR chi_table come with `features`). It stands at 21,464,576
-bytes now; the last 274,432 of that arrived with `calibrateCamera` alone, and the
-rest of the growth since the QR/ORB measurement came from the other calibration and
-geometry functions. Adding a module to the build system alone changes
-nothing: linking `calib` moved the library by exactly zero bytes until a function
+(`annoylib` and the MSCR chi_table come with `features`). It stands at **22,282,240 bytes** now.
+
+The previous figure recorded here was 21,464,576, measured when `calibrateCamera`
+landed. **Rebuilding the same sources after M6 gives 21,465,600** — the Web work
+changed the build without anyone re-measuring, so 1,024 bytes of the difference are
+not ours. **The 26 functions added in September 2026 account for 816,640 bytes.**
+Adding a module to the build system alone changes nothing: linking `calib`, and
+later `stereo`, each moved the library by exactly zero bytes until a function
 actually called into it.
 
 That distinction is easy to lose, and this repository lost it for a while. The pinned

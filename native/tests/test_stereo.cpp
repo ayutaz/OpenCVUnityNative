@@ -57,6 +57,41 @@ ocvu_mat_handle MakeStripes(int32_t width, int32_t height, int32_t offset_x) {
     return handle;
 }
 
+// **繰り返さない**模様のグレー画像。offset_x だけ横にずらす。
+//
+// **縞では駄目である。** 最初はここを周期 10 の縦縞にしていたが、
+// ステレオ照合は**繰り返す模様では視差が一意に決まらない** ——
+// StereoBM の uniqueness 検査が候補を全部弾き、**視差が 1 画素も
+// 求まらないまま「形も型も正しい Mat」が返った**（2026-09-05 に実測）。
+// **形と型しか見ていなかった当時のテストは、それで緑だった。**
+//
+// 決定的な擬似乱数で列ごとの明るさを作る（Date や rand を使わない）。
+// 行方向にも変化を付けるのは、StereoBM が縦方向のテクスチャも見るためである。
+ocvu_mat_handle MakeTexture(int32_t width, int32_t height, int32_t offset_x) {
+    ocvu_mat_handle handle = OCVU_MAT_HANDLE_NONE;
+    EXPECT_EQ(ocvu_mat_create(height, width, OCVU_MAT_TYPE_8UC1, &handle), OCVU_STATUS_OK);
+
+    std::vector<uint8_t> pixels(static_cast<size_t>(width) * static_cast<size_t>(height), 0);
+    for (int32_t r = 0; r < height; ++r) {
+        for (int32_t c = 0; c < width; ++c) {
+            // 列と行から作る決定的なハッシュ。**offset_x は列にだけ効く** ——
+            // それが「横にずれた同じ模様」= 視差のある左右の対になる。
+            const uint32_t x = static_cast<uint32_t>(c + offset_x);
+            const uint32_t y = static_cast<uint32_t>(r);
+            uint32_t h = x * 2654435761u ^ (y * 2246822519u);
+            h ^= h >> 13;
+            h *= 3266489917u;
+            h ^= h >> 16;
+            pixels[static_cast<size_t>(r) * static_cast<size_t>(width) +
+                   static_cast<size_t>(c)] = static_cast<uint8_t>(h & 0xFFu);
+        }
+    }
+    EXPECT_EQ(ocvu_mat_copy_from_buffer(handle, pixels.data(),
+                                        static_cast<int64_t>(pixels.size()), width),
+              OCVU_STATUS_OK);
+    return handle;
+}
+
 // 全画素が同じ値の 8 bit 1 channel。**0 では埋めない** ——
 // 「書いていない」と「0 を書いた」を区別できなくなる。
 ocvu_mat_handle MakeFilled(int32_t rows, int32_t cols, uint8_t value) {
@@ -101,8 +136,9 @@ void ExpectSentinelUntouched(ocvu_mat_handle dst) {
 }  // namespace
 
 TEST(Stereo, ComputeDisparityProducesA16BitImageOfTheSameShape) {
-    const ScopedMat left(MakeStripes(kWidth, kHeight, 0));
-    const ScopedMat right(MakeStripes(kWidth, kHeight, 4));
+    // **繰り返さない模様を使う**（MakeStripes ではない。理由はその定義の上に書いた）。
+    const ScopedMat left(MakeTexture(kWidth, kHeight, 0));
+    const ScopedMat right(MakeTexture(kWidth, kHeight, 4));
     ScopedMat dst;
 
     ASSERT_EQ(ocvu_compute_disparity(left.get(), right.get(), dst.get(),
@@ -129,6 +165,25 @@ TEST(Stereo, ComputeDisparityProducesA16BitImageOfTheSameShape) {
                   static_cast<int64_t>(disparity.size() * sizeof(int16_t)),
                   static_cast<int64_t>(kWidth) * 2),
               OCVU_STATUS_OK);
+
+    // **読み出すだけでは「視差が 1 画素も求まっていない」を捕まえられない。**
+    // 全画素が無効視差の印（最小視差 - 1 を 16 倍した -16）で埋まっていても、
+    // 上のここまでは全部通る —— **形と型は正しいまま、中身が空という壊れ方**である。
+    //
+    // 値そのものは狭く縛らない（アルゴリズムの実装しだいで動く）が、
+    // **有効な視差が 1 画素以上あることと、それが要求した範囲に収まること**は
+    // 入力によらず成り立つ。左右に 4 画素ずらした縞なので、視差は必ず見つかる。
+    constexpr int16_t kInvalid = -16;
+    int valid = 0;
+    for (int16_t d : disparity) {
+        if (d == kInvalid) { continue; }
+        ++valid;
+        // 値は実際の視差の 16 倍である（summary がそう書いている）。
+        EXPECT_GE(d, 0) << "視差が負である";
+        EXPECT_LE(d, 16 * 16) << "num_disparities = 16 を超える視差が返っている";
+    }
+    EXPECT_GT(valid, 0)
+        << "視差が 1 画素も求まっていない（全部が無効視差の印で埋まっている）";
 }
 
 TEST(Stereo, ComputeDisparitySupportsSgbm) {

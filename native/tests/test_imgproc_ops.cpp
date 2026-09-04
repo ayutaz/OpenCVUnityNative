@@ -319,6 +319,69 @@ TEST(ImgprocOps, ErodeRemovesTheDot) {
     }
 }
 
+TEST(ImgprocOps, MorphologyUsesTheKernelWidthAndHeightSeparately) {
+    // **非対称な構造要素で見る。** 5x5 の 1 画素点に幅 1 x 高さ 3 の矩形で
+    // 膨張させると、光るのは**縦 3 画素**である。**幅と高さを入れ替えれば
+    // 横 3 画素になるので、この検査は引数の取り違えを捕まえる。**
+    ScopedMat src(5, 5);
+    FillSingleDot(src);
+    ScopedMat dst;
+
+    ASSERT_EQ(ocvu_morphology_ex(src.get(), dst.get(), OCVU_MORPH_DILATE,
+                                 OCVU_MORPH_SHAPE_RECT, 1, 3, 1),
+              OCVU_STATUS_OK);
+
+    const std::vector<uint8_t> pixels = ReadPixels(dst.get());
+    ASSERT_EQ(pixels.size(), 25u);
+    for (int r = 0; r < 5; ++r) {
+        for (int c = 0; c < 5; ++c) {
+            const bool expect_lit = (c == 2) && (r >= 1 && r <= 3);
+            EXPECT_EQ(pixels[static_cast<size_t>(r) * 5 + c] == 255, expect_lit)
+                << "(" << r << ", " << c << ") が縦 3 画素の帯と合わない";
+        }
+    }
+}
+
+TEST(ImgprocOps, MorphologyUsesTheKernelShape) {
+    // **十字と矩形は光る画素数が違う。** 3x3 の矩形なら 9 画素、
+    // 十字なら 5 画素である。**shape を無視する実装なら、どちらも 9 になる。**
+    ScopedMat src(5, 5);
+    FillSingleDot(src);
+    ScopedMat dst;
+
+    ASSERT_EQ(ocvu_morphology_ex(src.get(), dst.get(), OCVU_MORPH_DILATE,
+                                 OCVU_MORPH_SHAPE_CROSS, 3, 3, 1),
+              OCVU_STATUS_OK);
+    int lit = 0;
+    for (uint8_t v : ReadPixels(dst.get())) { if (v == 255) ++lit; }
+    EXPECT_EQ(lit, 5) << "十字の構造要素なのに矩形（9 画素）になっている";
+}
+
+TEST(ImgprocOps, MorphologyRepeatsTheOperationAsManyTimesAsAsked) {
+    // **iterations が効いていることを見る。** 3x3 の矩形で 1 回膨張させると
+    // 9 画素、2 回なら 5x5 全体（25 画素）になる。**iterations を無視する
+    // 実装なら 9 のままである。**
+    ScopedMat src(5, 5);
+    FillSingleDot(src);
+    ScopedMat once;
+    ScopedMat twice;
+
+    ASSERT_EQ(ocvu_morphology_ex(src.get(), once.get(), OCVU_MORPH_DILATE,
+                                 OCVU_MORPH_SHAPE_RECT, 3, 3, 1),
+              OCVU_STATUS_OK);
+    ASSERT_EQ(ocvu_morphology_ex(src.get(), twice.get(), OCVU_MORPH_DILATE,
+                                 OCVU_MORPH_SHAPE_RECT, 3, 3, 2),
+              OCVU_STATUS_OK);
+
+    int lit_once = 0;
+    for (uint8_t v : ReadPixels(once.get())) { if (v == 255) ++lit_once; }
+    int lit_twice = 0;
+    for (uint8_t v : ReadPixels(twice.get())) { if (v == 255) ++lit_twice; }
+
+    EXPECT_EQ(lit_once, 9);
+    EXPECT_EQ(lit_twice, 25) << "iterations = 2 が 1 回ぶんしか効いていない";
+}
+
 TEST(ImgprocOps, MorphologyRejectsBadArguments) {
     ScopedMat src(5, 5);
     FillSingleDot(src);

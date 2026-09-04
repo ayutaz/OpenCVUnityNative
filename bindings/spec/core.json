@@ -8,10 +8,30 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "rows", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "cols", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "type", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "out_handle", "cType": "ocvu_mat_handle*", "csType": "out ulong", "direction": "out" }
+        {
+          "name": "rows",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "cols",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "type",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "out_handle",
+          "cType": "ocvu_mat_handle*",
+          "csType": "out ulong",
+          "direction": "out"
+        }
       ]
     },
     {
@@ -21,7 +41,12 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "handle", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" }
+        {
+          "name": "handle",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -31,8 +56,18 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "out_handle", "cType": "ocvu_mat_handle*", "csType": "out ulong", "direction": "out" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "out_handle",
+          "cType": "ocvu_mat_handle*",
+          "csType": "out ulong",
+          "direction": "out"
+        }
       ]
     },
     {
@@ -42,8 +77,18 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "handle", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "out_info", "cType": "ocvu_mat_info*", "csType": "out OcvuMatInfo", "direction": "out" }
+        {
+          "name": "handle",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "out_info",
+          "cType": "ocvu_mat_info*",
+          "csType": "out OcvuMatInfo",
+          "direction": "out"
+        }
       ]
     },
     {
@@ -53,10 +98,30 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "src", "cType": "const uint8_t*", "csType": "byte[]", "direction": "in-buffer" },
-        { "name": "src_length", "cType": "int64_t", "csType": "long", "direction": "in" },
-        { "name": "src_stride", "cType": "int64_t", "csType": "long", "direction": "in" }
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "src",
+          "cType": "const uint8_t*",
+          "csType": "byte[]",
+          "direction": "in-buffer"
+        },
+        {
+          "name": "src_length",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        },
+        {
+          "name": "src_stride",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -67,10 +132,30 @@
       "wrapInTryBarrier": true,
       "entryPoint": "ocvu_mat_copy_from_buffer",
       "params": [
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "src", "cType": "const uint8_t*", "csType": "System.IntPtr", "direction": "in-buffer" },
-        { "name": "src_length", "cType": "int64_t", "csType": "long", "direction": "in" },
-        { "name": "src_stride", "cType": "int64_t", "csType": "long", "direction": "in" }
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "src",
+          "cType": "const uint8_t*",
+          "csType": "System.IntPtr",
+          "direction": "in-buffer"
+        },
+        {
+          "name": "src_length",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        },
+        {
+          "name": "src_stride",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -80,10 +165,30 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "uint8_t*", "csType": "byte[]", "direction": "out-buffer" },
-        { "name": "dst_length", "cType": "int64_t", "csType": "long", "direction": "in" },
-        { "name": "dst_stride", "cType": "int64_t", "csType": "long", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "uint8_t*",
+          "csType": "byte[]",
+          "direction": "out-buffer"
+        },
+        {
+          "name": "dst_length",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        },
+        {
+          "name": "dst_stride",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -94,10 +199,30 @@
       "wrapInTryBarrier": true,
       "entryPoint": "ocvu_mat_copy_to_buffer",
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "uint8_t*", "csType": "System.IntPtr", "direction": "out-buffer" },
-        { "name": "dst_length", "cType": "int64_t", "csType": "long", "direction": "in" },
-        { "name": "dst_stride", "cType": "int64_t", "csType": "long", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "uint8_t*",
+          "csType": "System.IntPtr",
+          "direction": "out-buffer"
+        },
+        {
+          "name": "dst_length",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        },
+        {
+          "name": "dst_stride",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -107,9 +232,24 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "channel_index", "cType": "int32_t", "csType": "int", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "channel_index",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -119,9 +259,24 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "channel_index", "cType": "int32_t", "csType": "int", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "channel_index",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -131,13 +286,48 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "out_min_value", "cType": "double*", "csType": "out double", "direction": "out" },
-        { "name": "out_max_value", "cType": "double*", "csType": "out double", "direction": "out" },
-        { "name": "out_min_x", "cType": "int32_t*", "csType": "out int", "direction": "out" },
-        { "name": "out_min_y", "cType": "int32_t*", "csType": "out int", "direction": "out" },
-        { "name": "out_max_x", "cType": "int32_t*", "csType": "out int", "direction": "out" },
-        { "name": "out_max_y", "cType": "int32_t*", "csType": "out int", "direction": "out" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "out_min_value",
+          "cType": "double*",
+          "csType": "out double",
+          "direction": "out"
+        },
+        {
+          "name": "out_max_value",
+          "cType": "double*",
+          "csType": "out double",
+          "direction": "out"
+        },
+        {
+          "name": "out_min_x",
+          "cType": "int32_t*",
+          "csType": "out int",
+          "direction": "out"
+        },
+        {
+          "name": "out_min_y",
+          "cType": "int32_t*",
+          "csType": "out int",
+          "direction": "out"
+        },
+        {
+          "name": "out_max_x",
+          "cType": "int32_t*",
+          "csType": "out int",
+          "direction": "out"
+        },
+        {
+          "name": "out_max_y",
+          "cType": "int32_t*",
+          "csType": "out int",
+          "direction": "out"
+        }
       ]
     },
     {
@@ -147,12 +337,42 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "lower", "cType": "const double*", "csType": "double[]", "direction": "in-buffer" },
-        { "name": "lower_length", "cType": "int64_t", "csType": "long", "direction": "in" },
-        { "name": "upper", "cType": "const double*", "csType": "double[]", "direction": "in-buffer" },
-        { "name": "upper_length", "cType": "int64_t", "csType": "long", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "lower",
+          "cType": "const double*",
+          "csType": "double[]",
+          "direction": "in-buffer"
+        },
+        {
+          "name": "lower_length",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        },
+        {
+          "name": "upper",
+          "cType": "const double*",
+          "csType": "double[]",
+          "direction": "in-buffer"
+        },
+        {
+          "name": "upper_length",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -162,24 +382,69 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "alpha", "cType": "double", "csType": "double", "direction": "in" },
-        { "name": "beta", "cType": "double", "csType": "double", "direction": "in" },
-        { "name": "norm_type", "cType": "int32_t", "csType": "int", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "alpha",
+          "cType": "double",
+          "csType": "double",
+          "direction": "in"
+        },
+        {
+          "name": "beta",
+          "cType": "double",
+          "csType": "double",
+          "direction": "in"
+        },
+        {
+          "name": "norm_type",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        }
       ]
     },
     {
       "name": "ocvu_bitwise",
-      "summary": "src1 と src2 のビット演算（AND / OR / XOR）、または src1 のビット反転（NOT）を dst に入れる。dst は結果に応じて丸ごと置き換わり、src1 と同じ形状・型になる。op は OCVU_BITWISE_AND / OCVU_BITWISE_OR / OCVU_BITWISE_XOR / OCVU_BITWISE_NOT のいずれかで、それ以外は OCVU_STATUS_INVALID_ARGUMENT を返す。OCVU_BITWISE_NOT のときは src2 を一切見ない —— 無効な handle を渡しても成功する（黙って無視するのではなく、そう決めてある）。他の 3 つでは src2 の handle が無効なら OCVU_STATUS_INVALID_HANDLE を返す。src1 と src2 は同じ形状・同じ型でなければならず、違えば OpenCV が例外を投げるので OCVU_STATUS_OPENCV_ERROR になる。src と dst に同じ handle を渡してもよい。失敗したときは dst を書き換えない。",
+      "summary": "src1 と src2 のビット演算（AND / OR / XOR）、または src1 のビット反転（NOT）を dst に入れる。dst は結果に応じて丸ごと置き換わり、src1 と同じ形状・型になる。op は OCVU_BITWISE_AND / OCVU_BITWISE_OR / OCVU_BITWISE_XOR / OCVU_BITWISE_NOT のいずれかで、それ以外は OCVU_STATUS_INVALID_ARGUMENT を返す。OCVU_BITWISE_NOT のときは src2 を一切見ない —— 無効な handle を渡しても成功する（黙って無視するのではなく、そう決めてある）。他の 3 つでは src2 の handle が無効なら OCVU_STATUS_INVALID_HANDLE を返す。src1 と src2 は同じ形状・同じ型でなければならず、違えば OCVU_STATUS_INVALID_ARGUMENT を返す —— **この検査はこの ABI が自分で行う。** OpenCV に任せると、src2 が 1 要素のときにそれを scalar とみなして全画素へ黙って展開し、OCVU_STATUS_OK ともっともらしい結果を返すためである（実測）。src と dst に同じ handle を渡してもよい。失敗したときは dst を書き換えない。",
       "returns": "ocvu_status",
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src1", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "src2", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "op", "cType": "int32_t", "csType": "int", "direction": "in" }
+        {
+          "name": "src1",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "src2",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "op",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -189,10 +454,30 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "table", "cType": "const uint8_t*", "csType": "byte[]", "direction": "in-buffer" },
-        { "name": "table_length", "cType": "int64_t", "csType": "long", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "table",
+          "cType": "const uint8_t*",
+          "csType": "byte[]",
+          "direction": "in-buffer"
+        },
+        {
+          "name": "table_length",
+          "cType": "int64_t",
+          "csType": "long",
+          "direction": "in"
+        }
       ]
     },
     {
@@ -202,14 +487,54 @@
       "csReturns": "int",
       "wrapInTryBarrier": true,
       "params": [
-        { "name": "src", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "dst", "cType": "ocvu_mat_handle", "csType": "ulong", "direction": "in" },
-        { "name": "top", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "bottom", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "left", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "right", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "border_type", "cType": "int32_t", "csType": "int", "direction": "in" },
-        { "name": "border_value", "cType": "double", "csType": "double", "direction": "in" }
+        {
+          "name": "src",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "dst",
+          "cType": "ocvu_mat_handle",
+          "csType": "ulong",
+          "direction": "in"
+        },
+        {
+          "name": "top",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "bottom",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "left",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "right",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "border_type",
+          "cType": "int32_t",
+          "csType": "int",
+          "direction": "in"
+        },
+        {
+          "name": "border_value",
+          "cType": "double",
+          "csType": "double",
+          "direction": "in"
+        }
       ]
     }
   ]

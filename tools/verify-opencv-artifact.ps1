@@ -103,8 +103,14 @@ if (-not (Test-Path -LiteralPath $Root)) {
 # stereo は OpenCV 本体の module（ステレオ対応点探索）であって third-party
 # ではない。ライセンスは OpenCV 本体と同じで、新しい bundled 依存も持ち込まない
 # （同じビルドの install ログに、stereo 由来の etc/licenses は 1 件も現れない）。
-# **このプラグインは stereo のシンボルを 1 つも参照しない** —— 静的リンクは
-# 参照された object しか引かないので、配布する binary には入らない。
+# **この 2 行は 2026-09-05 に失効した。** ocvu_compute_disparity が
+# cv::StereoBM / cv::StereoSGBM を参照するようになったので、stereo は
+# cmake/FindOpenCvUnityDeps.cmake の COMPONENTS に入り、配布する binary にも入る。
+# **消さずに残してあるのは、同じ誤解が別の場所にもあるかを次に読む人が
+# 確かめられるようにするため**である（旧: このプラグインは stereo の
+# シンボルを 1 つも参照しないので、配布する binary には入らない）。
+# **allowlist に載せる根拠としては、いまも成立している** —— stereo は
+# OpenCV 本体の module で third-party ではなく、新しい bundled 依存も持ち込まない。
 $AcceptedTransitiveModules = @('flann', 'geometry', 'stereo')
 $PermittedOpenCvModules = @(@($config.Modules) + $AcceptedTransitiveModules | Sort-Object -Unique)
 

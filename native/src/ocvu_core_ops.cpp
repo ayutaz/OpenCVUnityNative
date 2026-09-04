@@ -338,6 +338,24 @@ extern "C" ocvu_status ocvu_bitwise(ocvu_mat_handle src1, ocvu_mat_handle src2, 
             return ::ocvu::set_last_error(OCVU_STATUS_INVALID_HANDLE,
                                           "ocvu_bitwise: src2 handle is invalid");
         }
+
+        // **形と型を自分で見る。** OpenCV に任せると、大きさが違っても
+        // 例外にならない場合がある —— cv::bitwise_* は src2 が 1 要素
+        // （あるいは src1 の channel 数と同じ要素数）のとき、**それを scalar と
+        // みなして全画素へ黙って展開する**（core.hpp:1281-1283 が
+        // "An array and a scalar when src2 ... has the same number of elements as
+        // src1.channels()" と明記している）。
+        //
+        // **実測（2026-09-05）: 8x8 の 8UC1 に 1x1 の 8UC1 を AND すると、
+        // OCVU_STATUS_OK が返り 64 画素すべてに 1 要素の値が当たる。**
+        // 呼ぶ側が handle を取り違えたとき、誤りが status ではなく
+        // 「もっともらしい画像」として現れる —— ocvu_match_template で
+        // 塞いだのと同じ壊れ方であり、この 1 本だけが漏れていた。
+        if (src1_mat->size() != src2_mat->size() || src1_mat->type() != src2_mat->type()) {
+            return ::ocvu::set_last_error(
+                OCVU_STATUS_INVALID_ARGUMENT,
+                "ocvu_bitwise: src1 and src2 must have the same size and type");
+        }
     }
 
     cv::Mat result;

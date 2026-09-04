@@ -454,19 +454,61 @@ TEST(CoreOps, BitwiseRejectsBadArguments) {
               OCVU_STATUS_INVALID_HANDLE);
 }
 
-TEST(CoreOps, BitwiseReportsAnOpenCvErrorWhenTheSizesDiffer) {
+TEST(CoreOps, BitwiseRejectsOperandsOfDifferentShape) {
+    // **この検査はこの ABI が自分で行う。** OpenCV に任せると例外にならない
+    // 場合があるためで、下の 1x1 のケースがまさにそれである。
     const ScopedMat a = MakeUniform(2, 2, 1);
     const ScopedMat b = MakeUniform(3, 3, 2);
     const ScopedMat dst = MakeDestination();
 
     EXPECT_EQ(ocvu_bitwise(a.get(), b.get(), dst.get(), OCVU_BITWISE_AND),
-              OCVU_STATUS_OPENCV_ERROR);
+              OCVU_STATUS_INVALID_ARGUMENT);
 
     // 失敗したので dst は置き換わっていない（作ったときの 1x1 のままである）。
     ocvu_mat_info info{};
     ASSERT_EQ(ocvu_mat_get_info(dst.get(), &info), OCVU_STATUS_OK);
     EXPECT_EQ(info.rows, 1);
     EXPECT_EQ(info.cols, 1);
+}
+
+TEST(CoreOps, BitwiseRejectsASingleElementSecondOperandInsteadOfBroadcasting) {
+    // **これが、OpenCV に任せず自分で検査する理由である。**
+    //
+    // 実測（2026-09-05、この検査を足す前）: 8x8 の 8UC1 に 1x1 の 8UC1 を
+    // AND すると **OCVU_STATUS_OK が返り、1 要素の値が 64 画素すべてに当たった。**
+    // cv::bitwise_* は src2 が 1 要素のとき、それを scalar とみなして黙って
+    // 展開する（core.hpp が "An array and a scalar when src2 ... has the same
+    // number of elements as src1.channels()" と明記している）。
+    //
+    // **呼ぶ側が handle を取り違えたとき、誤りが status ではなく
+    // 「もっともらしい画像」として現れる** —— ocvu_match_template で塞いだのと
+    // 同じ壊れ方であり、この 1 本だけが漏れていた。
+    const ScopedMat big = MakeUniform(8, 8, 0xF0);
+    const ScopedMat one = MakeUniform(1, 1, 0x3C);
+    const ScopedMat dst = MakeDestination();
+
+    EXPECT_EQ(ocvu_bitwise(big.get(), one.get(), dst.get(), OCVU_BITWISE_AND),
+              OCVU_STATUS_INVALID_ARGUMENT)
+        << "1 要素の src2 が scalar として展開されている（0x30 が 64 画素に入る）";
+
+    // dst は 1x1 のままで、8x8 に置き換わっていない。
+    ocvu_mat_info info{};
+    ASSERT_EQ(ocvu_mat_get_info(dst.get(), &info), OCVU_STATUS_OK);
+    EXPECT_EQ(info.rows, 1);
+    EXPECT_EQ(info.cols, 1);
+}
+
+TEST(CoreOps, BitwiseRejectsOperandsOfDifferentType) {
+    // 大きさが同じでも型が違えば断る。
+    ocvu_mat_handle three_channel = OCVU_MAT_HANDLE_NONE;
+    ASSERT_EQ(ocvu_mat_create(2, 2, OCVU_MAT_TYPE_8UC3, &three_channel), OCVU_STATUS_OK);
+    const ScopedMat a = MakeUniform(2, 2, 1);
+    const ScopedMat dst = MakeDestination();
+
+    EXPECT_EQ(ocvu_bitwise(a.get(), three_channel, dst.get(), OCVU_BITWISE_OR),
+              OCVU_STATUS_INVALID_ARGUMENT);
+
+    EXPECT_EQ(ocvu_mat_release(three_channel), OCVU_STATUS_OK);
 }
 
 // ---------------------------------------------------------------------------

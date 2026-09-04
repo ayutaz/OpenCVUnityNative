@@ -173,9 +173,24 @@ extern "C" ocvu_status ocvu_corner_sub_pix(ocvu_mat_handle src, float* points, i
             OCVU_STATUS_INVALID_ARGUMENT,
             "ocvu_corner_sub_pix: points_length (in bytes) is too small for point_count");
     }
-    if (win_size < 1) {
-        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
-                                      "ocvu_corner_sub_pix: win_size must be at least 1");
+    // **上限が要る。** cv::cornerSubPix は winSize / zeroZone を int のまま
+    // 2 倍して窓の寸法にするので、大きな値は符号あり整数のオーバーフローになる。
+    // 実測（2026-09-05）: zero_zone = 2^30 で**プロセスが 0xC0000005 で即死し**、
+    // win_size = 2^30 は "Failed to allocate 18446744056529682436 bytes" という
+    // オーバーフローの証拠つきで失敗し、win_size = INT32_MAX は無意味な窓で
+    // **OCVU_STATUS_OK を返した**。**status では気づけない壊れ方が 3 つとも違う。**
+    if (win_size < 1 || win_size > OCVU_CORNER_MAX_WINDOW) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_corner_sub_pix: win_size must be between 1 and OCVU_CORNER_MAX_WINDOW");
+    }
+    // **zero_zone は 1 度も検査されていなかった。** -1 が「無視しない」の指定で、
+    // それ以外は 1 以上でなければならない（0 は窓を持たない指定として OpenCV が
+    // 受けるが、-1 と同じ意味なので通す）。
+    if (zero_zone < -1 || zero_zone > OCVU_CORNER_MAX_WINDOW) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_corner_sub_pix: zero_zone must be -1 or between 0 and OCVU_CORNER_MAX_WINDOW");
     }
     if (max_iterations < 1) {
         return ::ocvu::set_last_error(OCVU_STATUS_INVALID_ARGUMENT,
