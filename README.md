@@ -4,7 +4,7 @@ OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible 
 
 [日本語](README.ja.md)
 
-> **Status: v0.3.0 is the newest published release (2026-09-04), and it carries everything described below.** It is the first release with six platforms — Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS arm64 and Web/WebGL — the first with a generated binding layer, and the first with camera calibration. Every platform is built, tested and packaged by CI; Unity itself exercises the plugin on Mono (EditMode), a real IL2CPP player, and a headless browser. **Three honest limits.** **Android and iOS have never been run on a device** — CI cross-compiles them and inspects the artifacts, but no phone has loaded these binaries. **Web has no PNG**: `imgcodecs` there decodes and encodes JPEG only (see below), and the browser it was driven in is one headless Chromium on Linux. **Unity has never been run on macOS at all**, though its plugin settings are verified by asking Unity itself on other systems. The public C ABI is deliberately narrow, because the point was getting ownership, stride, error handling, IL2CPP and platform gating right rather than covering surface area. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+> **Status: v0.3.0 is the newest published release (2026-09-04), and as this was written the repository and that release were in step** — what follows describes both. Whether the repository has since moved ahead is answered by the "配布" sections of the [roadmap](docs/roadmap.md), not here. It is the first release with six platforms — Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS arm64 and Web/WebGL — the first with a generated binding layer, and the first with camera calibration. Every platform is built, tested and packaged by CI; Unity itself exercises the plugin on Mono (EditMode), a real IL2CPP player, and a headless browser. **Some honest limits.** **Android and iOS have never been run on a device** — CI cross-compiles them and inspects the artifacts, but no phone has loaded these binaries. **Web has no PNG**: `imgcodecs` there decodes and encodes JPEG only (see below), and the browser it was driven in is one headless Chromium on Linux. **Unity has never been run on macOS at all**, though its plugin settings are verified by asking Unity itself on other systems. The public C ABI is deliberately narrow, because the point was getting ownership, stride, error handling, IL2CPP and platform gating right rather than covering surface area. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -94,8 +94,11 @@ The all-platform tarball carries no version number in its filename on purpose:
 OpenUPM selects a release asset by a stable name prefix, so a version in the name
 would mean rewriting that pattern every release. The per-platform tarballs keep
 theirs. **The package is registered on OpenUPM** (accepted 2026-08-30) and
-`https://package.openupm.com/com.ayutaz.opencv-unity-native` serves it
-(OpenUPM builds on its own queue, so a fresh release takes a while to appear there)
+`https://package.openupm.com/com.ayutaz.opencv-unity-native` serves it.
+**Releases land first.** OpenUPM builds on its own queue, so a new version takes
+hours to appear there — until it does, `openupm add` installs the *previous*
+version, not the one this page describes. **To be sure you get the newest, take the
+release tarball.**
 ([docs/openupm-registration.md](docs/openupm-registration.md)).
 
 Download `com.ayutaz.opencv-unity-native.tgz`, put it somewhere inside or beside your

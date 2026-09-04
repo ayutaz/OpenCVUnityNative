@@ -4,7 +4,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 [English](README.md)
 
-> **現状: 公開済みの最新版は v0.3.0 です（2026-09-04）。以下に書いてあることは、その版に入っています。** **6 platform を配る最初の版**であり（Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)）、**生成される binding 層とカメラ校正を含む最初の版**でもあります。どの platform も CI がビルド・テスト・パッケージ化し、Unity 自身が Mono（EditMode）・実物の IL2CPP Player・headless のブラウザでプラグインを動かしています。**正直な限界が 3 つあります。** **Android と iOS は実機で一度も動かしていません** —— CI はクロスコンパイルして成果物を検査しますが、どの端末もこの binary を読み込んだことがありません。**Web には PNG がありません**（`imgcodecs` は JPEG のみ。下記）。動かしたブラウザも Linux の headless Chromium 1 つだけです。**macOS 上で Unity を起動したこともありません**（`.meta` の解釈は他の OS の Unity に問うて確認済みです）。**公開している C ABI は意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP・platform の振り分けを正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
+> **現状: 公開済みの最新版は v0.3.0 です（2026-09-04）。これを書いた時点では、リポジトリと公開版は揃っています** —— 以下はその両方の説明です。その後リポジトリが先に進んだかどうかの正本は、[ロードマップ](docs/roadmap.md)の「配布」の節であって、ここではありません。 **6 platform を配る最初の版**であり（Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)）、**生成される binding 層とカメラ校正を含む最初の版**でもあります。どの platform も CI がビルド・テスト・パッケージ化し、Unity 自身が Mono（EditMode）・実物の IL2CPP Player・headless のブラウザでプラグインを動かしています。**正直な限界を先に書きます。** **Android と iOS は実機で一度も動かしていません** —— CI はクロスコンパイルして成果物を検査しますが、どの端末もこの binary を読み込んだことがありません。**Web には PNG がありません**（`imgcodecs` は JPEG のみ。下記）。動かしたブラウザも Linux の headless Chromium 1 つだけです。**macOS 上で Unity を起動したこともありません**（`.meta` の解釈は他の OS の Unity に問うて確認済みです）。**公開している C ABI は意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP・platform の振り分けを正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
 
 ## これは何か
 
@@ -66,7 +66,11 @@ com.ayutaz.opencv-unity-native-<version>-web-wasm.tgz
 platform ごとの一覧は platform が増えれば増えます。**どれが実在するかは、
 落とすリリースそのものが正本です。**
 
-全部入りの tarball のファイル名に版番号が入っていないのは意図的です。OpenUPM は安定した名前の接頭辞でリリース asset を選ぶので、名前に版が入っているとリリースのたびにその pattern を書き換えることになります。platform ごとの tarball は版番号を保持します。**このパッケージは OpenUPM に登録済みで**（2026-08-30 に受理）、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信しています（**OpenUPM は自前のビルドキューを持つので、出したての版が現れるまでには時間がかかります**）（[docs/openupm-registration.md](docs/openupm-registration.md)）。
+全部入りの tarball のファイル名に版番号が入っていないのは意図的です。OpenUPM は安定した名前の接頭辞でリリース asset を選ぶので、名前に版が入っているとリリースのたびにその pattern を書き換えることになります。platform ごとの tarball は版番号を保持します。**このパッケージは OpenUPM に登録済みで**（2026-08-30 に受理）、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信しています。
+**ただし Release のほうが先に出ます。** OpenUPM は自前のビルドキューを持つので、
+新しい版が現れるまで数時間かかります —— **それまで `openupm add` で入るのは
+1 つ前の版**で、このページが説明している物ではありません。
+**確実に最新を入れるなら、Release の tarball を使ってください。**（[docs/openupm-registration.md](docs/openupm-registration.md)）。
 
 `com.ayutaz.opencv-unity-native.tgz` を落とし、プロジェクトの中か隣に置いて、パッケージの manifest から指します:
 
