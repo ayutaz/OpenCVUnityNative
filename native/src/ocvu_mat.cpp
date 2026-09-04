@@ -3,6 +3,15 @@
 #include "ocvu_error.h"
 #include "ocvu_mat_table.h"
 
+/* 境界に出す type の値は OpenCV のものをそのまま使う。
+ * 写し間違いをコンパイル時に落とす（ocvu_imgproc.cpp と同じ形）。 */
+static_assert(OCVU_MAT_TYPE_8UC1 == CV_8UC1, "OCVU_MAT_TYPE_8UC1 が CV_8UC1 と違う");
+static_assert(OCVU_MAT_TYPE_8UC3 == CV_8UC3, "OCVU_MAT_TYPE_8UC3 が CV_8UC3 と違う");
+static_assert(OCVU_MAT_TYPE_8UC4 == CV_8UC4, "OCVU_MAT_TYPE_8UC4 が CV_8UC4 と違う");
+static_assert(OCVU_MAT_TYPE_16SC1 == CV_16SC1, "OCVU_MAT_TYPE_16SC1 が CV_16SC1 と違う");
+static_assert(OCVU_MAT_TYPE_32FC1 == CV_32FC1, "OCVU_MAT_TYPE_32FC1 が CV_32FC1 と違う");
+static_assert(OCVU_MAT_TYPE_64FC1 == CV_64FC1, "OCVU_MAT_TYPE_64FC1 が CV_64FC1 と違う");
+
 namespace {
 
 /* ABI に出す type 定数から OpenCV の型へ。未知なら false。 */
@@ -11,6 +20,9 @@ bool to_cv_type(int32_t abi_type, int* out_cv_type) {
         case OCVU_MAT_TYPE_8UC1: *out_cv_type = CV_8UC1; return true;
         case OCVU_MAT_TYPE_8UC3: *out_cv_type = CV_8UC3; return true;
         case OCVU_MAT_TYPE_8UC4: *out_cv_type = CV_8UC4; return true;
+        case OCVU_MAT_TYPE_16SC1: *out_cv_type = CV_16SC1; return true;
+        case OCVU_MAT_TYPE_32FC1: *out_cv_type = CV_32FC1; return true;
+        case OCVU_MAT_TYPE_64FC1: *out_cv_type = CV_64FC1; return true;
         default: return false;
     }
 }
@@ -20,6 +32,12 @@ int32_t from_cv_type(int cv_type) {
         case CV_8UC1: return OCVU_MAT_TYPE_8UC1;
         case CV_8UC3: return OCVU_MAT_TYPE_8UC3;
         case CV_8UC4: return OCVU_MAT_TYPE_8UC4;
+        case CV_16SC1: return OCVU_MAT_TYPE_16SC1;
+        case CV_32FC1: return OCVU_MAT_TYPE_32FC1;
+        case CV_64FC1: return OCVU_MAT_TYPE_64FC1;
+        /* **-1 は「この ABI が名前を持たない型」という意味である。**
+         * ocvu_mat_get_info はそれでも OCVU_STATUS_OK を返す —— rows / cols /
+         * channels / step は正しく、step があれば byte 列としては読めるためである。 */
         default: return -1;
     }
 }

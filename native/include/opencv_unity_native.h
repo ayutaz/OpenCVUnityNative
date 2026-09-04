@@ -81,10 +81,30 @@ enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
 typedef uint64_t ocvu_mat_handle;
 #define OCVU_MAT_HANDLE_NONE ((ocvu_mat_handle)0)
 
-/* OpenCV の CV_8UC1 等に対応する。ABI に cv:: の定数を露出させないための写し。 */
+/* OpenCV の CV_8UC1 等に対応する。ABI に cv:: の定数を露出させないための写し。
+ * 値は cv::CV_MAKETYPE のもので、実装 .cpp の static_assert が写し間違いを
+ * コンパイル時に落とす。 */
 #define OCVU_MAT_TYPE_8UC1  0
 #define OCVU_MAT_TYPE_8UC3 16
 #define OCVU_MAT_TYPE_8UC4 24
+
+/*
+ * 8 bit ではない 1 channel の 3 つ。
+ *
+ * **これらは「画像」ではなく、OpenCV の関数が返す中間結果である。**
+ * ocvu_compute_disparity は 16 bit 符号つき（視差 x 16）、
+ * ocvu_match_template は 32 bit 浮動小数（照合の応答）、
+ * ocvu_get_perspective_transform は 64 bit 浮動小数（3x3 の変換）を返す。
+ *
+ * **足した理由は「読めるようにするため」である。** 足す前は from_cv_type が
+ * これらに -1 を返し、それでも ocvu_mat_get_info は OCVU_STATUS_OK を返して
+ * いた —— 呼ぶ側は「型が -1 の Mat」を受け取り、1 画素が何バイトかを
+ * 知る手立てが無かった。**status では気づけず、読み出した byte 列の解釈だけが
+ * 静かに狂う**形だったので、名前を与えて閉じた。
+ */
+#define OCVU_MAT_TYPE_16SC1  3
+#define OCVU_MAT_TYPE_32FC1  5
+#define OCVU_MAT_TYPE_64FC1  6
 
 /* ocvu_mat_get_info の出力。固定サイズ型のみで構成する。 */
 typedef struct ocvu_mat_info {
@@ -145,6 +165,177 @@ typedef struct ocvu_keypoint {
  * （20 枚 x 大きめの盤でもこれには届かない）。 */
 #define OCVU_CALIB_MAX_POINTS 100000
 
+/* ocvu_solve_pnp / ocvu_project_points が受け取る点数の上限。
+ * OCVU_CALIB_MAX_POINTS と同じ理由 —— 点数から配列の必要バイト数を作るときに
+ * int32_t の乗算が符号付きオーバーフロー（未定義動作）を起こさないための歯止め。
+ * 1 枚ぶんの姿勢推定に 1 万点を使うことは実用上ありえない。 */
+#define OCVU_PNP_MAX_POINTS 10000
+
+/* ocvu_corner_sub_pix が受け取る点数の上限。同じ理由である。 */
+#define OCVU_CORNER_MAX_POINTS 10000
+
+/* ocvu_aruco_generate_marker の side_pixels の上限。
+ * **これだけは意味が違う** —— 上の 2 つは「入力の個数から長さを作る」ための
+ * 歯止めだが、こちらは native 側が side_pixels * side_pixels のバイト数を
+ * 実際に確保するので、縛らないと 4 GB 級の要求が通ってしまう。 */
+#define OCVU_ARUCO_MAX_MARKER_PIXELS 4096
+
+/* ocvu_solve_pnp の method。cv::SolvePnPMethod の値をそのまま出す
+ * （実装 .cpp の static_assert が写し間違いをコンパイル時に落とす）。
+ *
+ * ITERATIVE は既定で、平面上の 4 点でも非平面の 6 点でも解ける。
+ * IPPE_SQUARE は 1 辺が既知の正方形マーカー専用で、**点の並び順が決まっている**
+ * （左上・右上・右下・左下）。ArUco の 4 隅はその順で返るのでそのまま渡せる。 */
+#define OCVU_SOLVEPNP_ITERATIVE   0
+#define OCVU_SOLVEPNP_EPNP        1
+#define OCVU_SOLVEPNP_P3P         2
+#define OCVU_SOLVEPNP_AP3P        3
+#define OCVU_SOLVEPNP_IPPE        4
+#define OCVU_SOLVEPNP_IPPE_SQUARE 5
+#define OCVU_SOLVEPNP_SQPNP       6
+
+/* ocvu_aruco_* の辞書。cv::aruco::PredefinedDictionaryType の値をそのまま出す。
+ *
+ * 名前の 4X4 / 5X5 / 6X6 / 7X7 はマーカー内部の格子の細かさ、後ろの数字は
+ * その辞書が持つ ID の個数である。**細かいほど遠くから読みにくく、
+ * 個数が多いほど誤検出しやすい。** 決まっていないなら 4X4_50 でよい。
+ *
+ * **AprilTag 系の 5 つは出していない。** cv::aruco には在るが検証していない。 */
+#define OCVU_ARUCO_DICT_4X4_50          0
+#define OCVU_ARUCO_DICT_4X4_100         1
+#define OCVU_ARUCO_DICT_4X4_250         2
+#define OCVU_ARUCO_DICT_4X4_1000        3
+#define OCVU_ARUCO_DICT_5X5_50          4
+#define OCVU_ARUCO_DICT_5X5_100         5
+#define OCVU_ARUCO_DICT_5X5_250         6
+#define OCVU_ARUCO_DICT_5X5_1000        7
+#define OCVU_ARUCO_DICT_6X6_50          8
+#define OCVU_ARUCO_DICT_6X6_100         9
+#define OCVU_ARUCO_DICT_6X6_250        10
+#define OCVU_ARUCO_DICT_6X6_1000       11
+#define OCVU_ARUCO_DICT_7X7_50         12
+#define OCVU_ARUCO_DICT_7X7_100        13
+#define OCVU_ARUCO_DICT_7X7_250        14
+#define OCVU_ARUCO_DICT_7X7_1000       15
+#define OCVU_ARUCO_DICT_ARUCO_ORIGINAL 16
+
+/* threshold の種類。cv::ThresholdTypes の値をそのまま使う。
+ *
+ * OCVU_THRESH_OTSU は上の 5 つのいずれかと **or して**渡す —— しきい値を
+ * 画像から自動で選ばせる指定である（渡した threshold_value は無視され、
+ * 実際に選ばれた値が out_computed_threshold に入る）。 */
+#define OCVU_THRESH_BINARY     0
+#define OCVU_THRESH_BINARY_INV 1
+#define OCVU_THRESH_TRUNC      2
+#define OCVU_THRESH_TOZERO     3
+#define OCVU_THRESH_TOZERO_INV 4
+#define OCVU_THRESH_OTSU       8
+
+/* 形態素演算の種類。cv::MorphTypes の値をそのまま使う。 */
+#define OCVU_MORPH_ERODE    0
+#define OCVU_MORPH_DILATE   1
+#define OCVU_MORPH_OPEN     2
+#define OCVU_MORPH_CLOSE    3
+#define OCVU_MORPH_GRADIENT 4
+#define OCVU_MORPH_TOPHAT   5
+#define OCVU_MORPH_BLACKHAT 6
+
+/* 形態素演算の構造要素の形。cv::MorphShapes の値をそのまま使う。 */
+#define OCVU_MORPH_SHAPE_RECT    0
+#define OCVU_MORPH_SHAPE_CROSS   1
+#define OCVU_MORPH_SHAPE_ELLIPSE 2
+
+/* テンプレート照合の方法。cv::TemplateMatchModes の値をそのまま使う。
+ * SQDIFF 系は**小さいほど似ている**、他は大きいほど似ている。 */
+#define OCVU_TM_SQDIFF        0
+#define OCVU_TM_SQDIFF_NORMED 1
+#define OCVU_TM_CCORR         2
+#define OCVU_TM_CCORR_NORMED  3
+#define OCVU_TM_CCOEFF        4
+#define OCVU_TM_CCOEFF_NORMED 5
+
+/* 輪郭の取り出し方。cv::RetrievalModes の値をそのまま使う。
+ * **RETR_FLOODFILL は出していない** —— 32 bit の入力を要求するので、
+ * この関数が受ける 8 bit の 2 値画像では使えない。 */
+#define OCVU_RETR_EXTERNAL 0
+#define OCVU_RETR_LIST     1
+#define OCVU_RETR_CCOMP    2
+#define OCVU_RETR_TREE     3
+
+/* 輪郭の点の間引き方。cv::ContourApproximationModes の値をそのまま使う。 */
+#define OCVU_CHAIN_APPROX_NONE   1
+#define OCVU_CHAIN_APPROX_SIMPLE 2
+
+/* 画像の外側をどう埋めるか。cv::BorderTypes の値をそのまま使う。 */
+#define OCVU_BORDER_CONSTANT    0
+#define OCVU_BORDER_REPLICATE   1
+#define OCVU_BORDER_REFLECT     2
+#define OCVU_BORDER_WRAP        3
+#define OCVU_BORDER_REFLECT_101 4
+
+/* 正規化の仕方。cv::NormTypes の値をそのまま使う。
+ *
+ * MINMAX は値域を [alpha, beta] へ線形に写す。**画像を見えるようにするのは
+ * ふつうこれである。** INF / L1 / L2 はノルムが alpha になるように割る。
+ * HAMMING は記述子どうしの距離を測るためのもので、正規化には使わない。 */
+#define OCVU_NORM_INF     1
+#define OCVU_NORM_L1      2
+#define OCVU_NORM_L2      4
+#define OCVU_NORM_HAMMING 6
+#define OCVU_NORM_MINMAX 32
+
+/* ocvu_bitwise の演算。
+ *
+ * **これは OpenCV の定数の写しではない。** cv::bitwise_and などは関数であって
+ * 定数ではないので、対応する値が上流に存在しない。**この 4 つはこちらが決めた値**
+ * であり、したがって static_assert で固定する相手が無い。
+ *
+ * OCVU_BITWISE_NOT のときだけ src2 を見ない。 */
+#define OCVU_BITWISE_AND 0
+#define OCVU_BITWISE_OR  1
+#define OCVU_BITWISE_XOR 2
+#define OCVU_BITWISE_NOT 3
+
+/* ocvu_detect_and_compute が使う検出器。
+ *
+ * **これも OpenCV の定数の写しではない**（cv::ORB / cv::SIFT はクラスである）。
+ *
+ * ORB は速く、記述子が 32 バイトの 2 値である（ハミング距離で比べる）。
+ * SIFT は遅いが回転と拡大縮小に強く、記述子が 128 次元の float である
+ * （L2 距離で比べる）。**距離の選び方が変わる**ので、ocvu_match_descriptors の
+ * norm_type を検出器に合わせること。 */
+#define OCVU_FEATURE_ORB  0
+#define OCVU_FEATURE_SIFT 1
+
+/* ocvu_compute_disparity のアルゴリズム。
+ *
+ * **これも OpenCV の定数の写しではない**（cv::StereoBM / cv::StereoSGBM は
+ * クラスである）。BM は速いが粗く、SGBM は遅いが滑らかである。 */
+#define OCVU_STEREO_BM   0
+#define OCVU_STEREO_SGBM 1
+
+/*
+ * 記述子どうしの対応 1 つ。境界に出るので固定サイズ型だけで構成する。
+ *
+ * cv::DMatch をそのまま出すことはできない（C++ のクラスで、layout の
+ * 保証も無い）。**この struct の layout がこちら側の正本である。**
+ * 実装 .cpp に static_assert を置いて大きさと並びを固定してあり、
+ * C# 側の OcvuDMatch とは L3 が Marshal.SizeOf と Marshal.OffsetOf の
+ * **両方**で突き合わせる —— **合計だけを固定した検査は、同じ型の
+ * フィールドを入れ替えても通る**（M5 で ocvu_keypoint について実測した）。
+ *
+ * query_index は問い合わせ側の記述子の索引、train_index は照合先の索引、
+ * image_index は照合先が複数の画像から来るときの識別に使うもの
+ * （この ABI は 1 対 1 の照合しか出していないので常に 0 である）、
+ * distance は 2 つの記述子の距離で **小さいほど似ている。**
+ */
+typedef struct ocvu_dmatch {
+    int32_t query_index;
+    int32_t train_index;
+    int32_t image_index;
+    float   distance;
+} ocvu_dmatch;
+
 /* cvtColor の変換コード。cv::COLOR_* の値をそのまま使う（写し間違いを避けるため
  * 実装側で static_assert する）。M2 で必要な 3 つだけを公開する。 */
 #define OCVU_CVT_BGRA2BGR   1
@@ -177,5 +368,6 @@ typedef struct ocvu_keypoint {
 #include "ocvu/features.h"
 #include "ocvu/geometry.h"
 #include "ocvu/calib.h"
+#include "ocvu/stereo.h"
 
 #endif /* OPENCV_UNITY_NATIVE_H */

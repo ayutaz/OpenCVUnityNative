@@ -689,6 +689,11 @@ public class SpecSchemaTests
     [InlineData("const float*", "System.IntPtr")]
     [InlineData("ocvu_keypoint*", "OcvuKeyPoint[]")]
     [InlineData("ocvu_keypoint*", "System.IntPtr")]
+    [InlineData("ocvu_dmatch*", "OcvuDMatch[]")]
+    [InlineData("ocvu_dmatch*", "System.IntPtr")]
+    // ocvu_aruco_detect_markers は ID を、ocvu_find_contours は輪郭ごとの点数を
+    // int の配列で返す。**int32_t* の書き込み版で、下の double* と同じ関係にある。**
+    [InlineData("int32_t*", "int[]")]
     [InlineData("const double*", "double[]")]
     [InlineData("const double*", "System.IntPtr")]
     [InlineData("float*", "float[]")]
@@ -712,6 +717,16 @@ public class SpecSchemaTests
     public void ADoublePointerAlsoSpellsAScalarOutParam()
     {
         Assert.Equal("out double", LoadOneParam("double*", "out double", "out")
+            .Single().Functions.Single().Params.Single().CsType);
+    }
+
+    // **`int32_t*` も同じく 2 つの意味を持つ。** 上の Theory が配列版
+    // （`int[]`）を見るので、こちらはスカラー版が生きていることを見る ——
+    // 片方を足したときにもう片方を落とす形の回帰を、両方見ることで塞ぐ。
+    [Fact]
+    public void AnIntPointerStillSpellsAScalarOutParam()
+    {
+        Assert.Equal("out int", LoadOneParam("int32_t*", "out int", "out")
             .Single().Functions.Single().Params.Single().CsType);
     }
 
