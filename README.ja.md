@@ -68,9 +68,9 @@ platform ごとの一覧は platform が増えれば増えます。**どれが�
 
 全部入りの tarball のファイル名に版番号が入っていないのは意図的です。OpenUPM は安定した名前の接頭辞でリリース asset を選ぶので、名前に版が入っているとリリースのたびにその pattern を書き換えることになります。platform ごとの tarball は版番号を保持します。**このパッケージは OpenUPM に登録済みで**（2026-08-30 に受理）、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信しています。
 **ただし Release のほうが先に出ます。** OpenUPM は自前のビルドキューを持つので、
-新しい版が現れるまで数時間かかります —— **それまで `openupm add` で入るのは
-1 つ前の版**で、このページが説明している物ではありません。
-**確実に最新を入れるなら、Release の tarball を使ってください。**（[docs/openupm-registration.md](docs/openupm-registration.md)）。
+新しい版が現れるまで数時間かかります（v0.3.0 は約 4 時間でした）——
+**それまで `openupm add` で入るのは 1 つ前の版**で、このページが説明している物では
+ありません。**出したばかりの版が要るなら、Release の tarball を使ってください。**（[docs/openupm-registration.md](docs/openupm-registration.md)）。
 
 `com.ayutaz.opencv-unity-native.tgz` を落とし、プロジェクトの中か隣に置いて、パッケージの manifest から指します:
 
