@@ -71,6 +71,19 @@ if ($platforms.Count -lt 3) { Write-Error '...'; exit 1 }   # 読めなければ
 **写している場所は「直す場所」を 1 つ増やし、導出に変えれば 1 つ減る。**
 新しく platform 一覧を書きたくなったら、まず正本から読めないかを考えること。
 
+**一覧を持つ場所は、このリポジトリの外にもある（2026-09-04 に判明）。**
+OpenUPM の package 定義（`openupm/openupm` の
+`data/packages/com.ayutaz.opencv-unity-native.yml`）の `description` が
+**platform を名指しで列挙している** —— openupm.com のページに出る説明文である。
+
+**このリポジトリを何回 grep しても見つからない。** v0.3.0 を配った後に
+OpenUPM の API を叩いて初めて気づき、**3 platform のまま残っていた**
+（openupm/openupm#6866 で直した）。
+
+**帰結**: platform を足したら、**OpenUPM 側の定義も直す**。手順は
+`docs/openupm-registration.md` にある（fork が古いので `gh repo sync` から始める）。
+**外部リポジトリへの PR なので、人の確認を取ってから出すこと。**
+
 **M6 で 4 つ目が出た（2026-09-03）。同じファイルの中に振り分けが 2 つある形である。**
 `.github/workflows/release.yml` は「未知の platform は失敗させる」門を **2 箇所**持つ
 （linkage の検査と移植性の検査）。**M6 では後者にだけ web-wasm を足し、前者に

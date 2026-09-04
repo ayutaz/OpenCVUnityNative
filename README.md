@@ -96,9 +96,9 @@ would mean rewriting that pattern every release. The per-platform tarballs keep
 theirs. **The package is registered on OpenUPM** (accepted 2026-08-30) and
 `https://package.openupm.com/com.ayutaz.opencv-unity-native` serves it.
 **Releases land first.** OpenUPM builds on its own queue, so a new version takes
-hours to appear there — until it does, `openupm add` installs the *previous*
-version, not the one this page describes. **To be sure you get the newest, take the
-release tarball.**
+hours to appear there — v0.3.0 took about four. Until it does, `openupm add`
+installs the *previous* version, not the one this page describes. **If a version
+was just published, take the release tarball instead.**
 ([docs/openupm-registration.md](docs/openupm-registration.md)).
 
 Download `com.ayutaz.opencv-unity-native.tgz`, put it somewhere inside or beside your

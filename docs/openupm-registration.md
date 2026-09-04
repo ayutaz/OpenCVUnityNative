@@ -4,8 +4,16 @@
   通り自動マージ）。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信している
   （**版番号をここに書かない** —— 出すたびにこの行だけが古くなる）。
   **OpenUPM は Release より遅れる** —— 自前のビルドキューを持つので、
-  公開してからレジストリに現れるまで数時間かかる。**その間 `openupm add` で
-  入るのは 1 つ前の版である**
+  公開してからレジストリに現れるまで数時間かかる（**v0.3.0 は約 4 時間**）。
+  **その間 `openupm add` で入るのは 1 つ前の版である**
+- **`description` は platform を名指しで列挙している。** つまり**この定義も
+  platform 一覧を持つ場所の 1 つ**で、**このリポジトリを grep しても見つからない。**
+  2026-09-04 に 3 platform のまま残っていたのを見つけ、6 platform に直した
+  （openupm/openupm#6866）。**platform を足したらここも直すこと**
+  （`add-a-platform` skill にも書いてある）
+- **2026-09-04 に定義を 1 度直した** —— `description` が 3 platform のままだったので
+  6 platform にした（openupm/openupm#6866）。**fork が古かったので `gh repo sync` から
+  始めた。**
 - **この文書は記録として残す。** 次に定義を変えるとき（platform を足す、`minVersion` を上げる）に
   同じ検査を繰り返せるようにするためである
 
