@@ -709,7 +709,7 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
 本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
-`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` に留まる（**本数は [所有権と versioning](./abi-ownership-and-versioning.md) §3 の冒頭が数える** —— ここに写すと 1 本増えた日にこの行だけが嘘になる）（M3.5 で `imgcodecs` の
+`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` / `stereo` に留まる（**本数は [所有権と versioning](./abi-ownership-and-versioning.md) §3 の冒頭が数える** —— ここに写すと 1 本増えた日にこの行だけが嘘になる）（M3.5 で `imgcodecs` の
 2 本、M5 の module 拡張で `objdetect` / `features` / `geometry` の 4 本、続けて
 カメラの歪み補正で `imgproc` / `objdetect` の 2 本、さらに `calib` の
 `ocvu_calibrate_camera` 1 本が加わった。公開 ABI 全体は

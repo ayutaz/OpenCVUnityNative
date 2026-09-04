@@ -95,9 +95,11 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 リポジトリにあり、**パッケージには入らない**）。
 `OCVU_ABI_VERSION` は **1 のまま変わっていない**（関数の追加は bump しない変更である）。
 
-**出していないもの**も書いておく: ステレオ校正、魚眼、`solvePnP`（既知の係数から
-1 枚ぶんの姿勢を求める）、`cornerSubPix`（格子点の副画素精度への精緻化）、
-記述子を伴う特徴点マッチング、`aruco`、動画入出力、DNN、GPU backend。
+**出していないもの**も書いておく: ステレオ校正（`stereoCalibrate`）、魚眼、
+ステレオの平行化（`stereoRectify`）、視差から 3D への復元（`reprojectImageTo3D`）、
+`knnMatch` / `radiusMatch`、FLANN ベースの照合、輪郭の階層、`connectedComponents`、
+`remap`、`equalizeHist`、`calcHist`、描画関数、Haar / HOG（OpenCV 5 で contrib へ移った）、
+動画入出力、DNN、GPU backend。
 
 ## この版で確かめていないこと
 

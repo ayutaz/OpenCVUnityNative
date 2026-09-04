@@ -355,7 +355,7 @@ Apache License 2.0 for this repository's own source. That does not by itself det
 
 Which of those then reach the plugin **you** redistribute depends on which OpenCV
 modules this plugin links, and that has changed several times. It now links `core`,
-`imgproc`, `imgcodecs`, `objdetect`, `features`, `geometry` and `calib`; before
+`imgproc`, `imgcodecs`, `objdetect`, `features`, `geometry`, `calib` and `stereo`; before
 `imgcodecs` it linked only `core` and `imgproc`. Static linking pulls in only what is referenced, so until the functions that
 call into a module are written, none of that module's code reaches the shipped library.
 Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
