@@ -20,5 +20,13 @@ namespace CvUnity.Interop
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ocvu_find_chessboard_corners(ulong src, int pattern_cols, int pattern_rows, float[] out_corners, int capacity, out int out_count);
 
+        /// <summary>辞書とマーカー ID からマーカーの画像を生成して dst に入れる。dst は結果に応じて丸ごと置き換わり、side_pixels 四方の 8 bit 1 channel になる（作ったときの形と型は残らない）。dictionary_id は OCVU_ARUCO_DICT_* のいずれかで、それ以外は OCVU_STATUS_INVALID_ARGUMENT を返す —— cv::aruco には AprilTag 系の辞書もあるが、この plugin では検証していないので出していない。marker_id は 0 以上、その辞書が持つ個数未満でなければならない（DICT_4X4_50 なら 0 から 49 まで）。side_pixels は 1 以上 OCVU_ARUCO_MAX_MARKER_PIXELS 以下で、さらに「その辞書の格子の一辺 + border_bits の 2 倍」以上でなければならない（それより小さいと格子 1 つが 1 画素に満たない。これはこの ABI が自分で決めた制限であり、OpenCV の挙動を根拠にしていない）。border_bits は 1 以上で、マーカーの内側に置く黒い枠の太さ（格子単位）である —— 検出にはこの枠のさらに外側に白い余白が要るが、それを付けるのは呼ぶ側の仕事である。OpenCV が例外を投げた場合は OCVU_STATUS_OPENCV_ERROR を返す。どの失敗経路でも dst は書き換えない。</summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_aruco_generate_marker(int dictionary_id, int marker_id, int side_pixels, int border_bits, ulong dst);
+
+        /// <summary>src から ArUco マーカーを検出し、その ID を out_ids へ、4 隅の座標を out_corners へ書いて、見つかった個数を out_count に返す。src は 8 bit の 1 channel か 3 channel か 4 channel でなければならず、それ以外は OCVU_STATUS_INVALID_ARGUMENT を返す（3 channel と 4 channel はこの関数がグレースケールへ落としてから検出する —— Unity のテクスチャは 4 channel なので、呼ぶ側に変換を強いない）。dictionary_id は OCVU_ARUCO_DICT_* のいずれかで、それ以外は OCVU_STATUS_INVALID_ARGUMENT を返す。ids_capacity と corners_capacity はどちらも配列の要素数である（バイト数ではない）—— 1 マーカーにつき ID が 1 個、隅の座標が 8 個（x と y が交互に 4 隅ぶん）要るので、n 個を受けるには ids_capacity が n 以上、corners_capacity が n の 8 倍以上でなければならない。隅は OpenCV の detectMarkers が返す順、すなわち時計回りで、最初がマーカーの左上である。容量が足りないときはどちらの配列にも 1 バイトも書かずに OCVU_STATUS_BUFFER_TOO_SMALL を返し、out_count には実際に見つかった個数を入れる —— 容量 0 とポインタ NULL の組み合わせは「何個写っているか」を先に問い合わせる正規の呼び方で、そこで得た個数ぶん確保して呼び直せる。容量が正なのにポインタが NULL なら OCVU_STATUS_NULL_POINTER を返す。1 個も見つからないのは誤りではない —— OCVU_STATUS_OK を返して out_count に 0 を入れる。out_count が NULL なら他の何より先に OCVU_STATUS_NULL_POINTER を返し、通ったあとはどの失敗経路でも out_count に 0 を書く。OpenCV が例外を投げた場合は OCVU_STATUS_OPENCV_ERROR を返す。buffer の所有権は最初から最後まで呼ぶ側にある。</summary>
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ocvu_aruco_detect_markers(ulong src, int dictionary_id, int[] out_ids, int ids_capacity, float[] out_corners, int corners_capacity, out int out_count);
+
     }
 }

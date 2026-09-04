@@ -81,9 +81,19 @@ enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
 typedef uint64_t ocvu_mat_handle;
 #define OCVU_MAT_HANDLE_NONE ((ocvu_mat_handle)0)
 
-/* OpenCV の CV_8UC1 等に対応する。ABI に cv:: の定数を露出させないための写し。
- * 値は cv::CV_MAKETYPE のもので、実装 .cpp の static_assert が写し間違いを
- * コンパイル時に落とす。 */
+/*
+ * ABI に出す Mat の型。
+ *
+ * **これは OpenCV の値の写しではない。** ocvu_mat.cpp の 2 つの switch が
+ * 翻訳するので、cv:: の値と一致している必要が無い —— OCVU_CVT_* や
+ * OCVU_THRESH_* が「OpenCV の値をそのまま出す」のとは扱いが違う。
+ *
+ * **16 と 24 は OpenCV 4 の CV_8UC3 / CV_8UC4 の値である。** OpenCV 5 は
+ * CV_CN_SHIFT を 3 から 5 に変えたので、いまの CV_8UC3 は 64 である
+ * （2026-09-05 に実測。static_assert を置こうとして落ちて分かった）。
+ * **値を合わせ直すことはしない** —— 境界に出ている番号を変えるのは
+ * 破壊的変更で、OCVU_ABI_VERSION の bump が要る。
+ */
 #define OCVU_MAT_TYPE_8UC1  0
 #define OCVU_MAT_TYPE_8UC3 16
 #define OCVU_MAT_TYPE_8UC4 24
@@ -101,6 +111,9 @@ typedef uint64_t ocvu_mat_handle;
  * いた —— 呼ぶ側は「型が -1 の Mat」を受け取り、1 画素が何バイトかを
  * 知る手立てが無かった。**status では気づけず、読み出した byte 列の解釈だけが
  * 静かに狂う**形だったので、名前を与えて閉じた。
+ *
+ * **この 3 つは偶然 OpenCV 5 の値と一致している**（CV_16SC1 = 3 など）が、
+ * 上の 3 つと同じく**翻訳表が正本である。** 一致を根拠にしないこと。
  */
 #define OCVU_MAT_TYPE_16SC1  3
 #define OCVU_MAT_TYPE_32FC1  5

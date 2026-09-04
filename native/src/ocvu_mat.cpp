@@ -3,14 +3,30 @@
 #include "ocvu_error.h"
 #include "ocvu_mat_table.h"
 
-/* 境界に出す type の値は OpenCV のものをそのまま使う。
- * 写し間違いをコンパイル時に落とす（ocvu_imgproc.cpp と同じ形）。 */
-static_assert(OCVU_MAT_TYPE_8UC1 == CV_8UC1, "OCVU_MAT_TYPE_8UC1 が CV_8UC1 と違う");
-static_assert(OCVU_MAT_TYPE_8UC3 == CV_8UC3, "OCVU_MAT_TYPE_8UC3 が CV_8UC3 と違う");
-static_assert(OCVU_MAT_TYPE_8UC4 == CV_8UC4, "OCVU_MAT_TYPE_8UC4 が CV_8UC4 と違う");
-static_assert(OCVU_MAT_TYPE_16SC1 == CV_16SC1, "OCVU_MAT_TYPE_16SC1 が CV_16SC1 と違う");
-static_assert(OCVU_MAT_TYPE_32FC1 == CV_32FC1, "OCVU_MAT_TYPE_32FC1 が CV_32FC1 と違う");
-static_assert(OCVU_MAT_TYPE_64FC1 == CV_64FC1, "OCVU_MAT_TYPE_64FC1 が CV_64FC1 と違う");
+/*
+ * **OCVU_MAT_TYPE_* は OpenCV の値の写しではない。** 下の switch が翻訳する
+ * ので、一致している必要が無い —— これは OCVU_CVT_* や OCVU_THRESH_* と違う。
+ *
+ * **2026-09-05 にそれを実測で確かめた。** 「写しである」と思って
+ * static_assert を置いたら、8UC3 と 8UC4 の 2 本が落ちた:
+ *
+ *   OpenCV 5 は CV_CN_SHIFT を 3 から **5** に変えている
+ *   （third_party/.../core/hal/interface.h:51）。したがって
+ *   CV_8UC3 は 2 << 5 = **64**、CV_8UC4 は 3 << 5 = **96** である。
+ *
+ * **この ABI の 16 と 24 は OpenCV 4 の値**で、M2 で写したときのものが
+ * そのまま残っている。**気づかなかったのは switch が翻訳しているからで、
+ * 実害は 1 度も出ていない。**
+ *
+ * したがって static_assert は置けない（置くと今のこの 2 本が落ちる）。
+ * **値を OpenCV 5 に合わせることもしない** —— 境界に出ている番号を変えるのは
+ * 破壊的変更で、OCVU_ABI_VERSION の bump が要る
+ * （docs/abi-ownership-and-versioning.md §2）。
+ *
+ * **代わりに、下の 2 つの switch が互いの逆であることを L1 が確かめる**
+ * （test_mat_lifecycle.cpp）。翻訳表が唯一の正本であり、
+ * ここに書いてよい不変条件は「往復すると元に戻る」だけである。
+ */
 
 namespace {
 

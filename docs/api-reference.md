@@ -317,6 +317,108 @@ status:
 2 本の扱いは非対称だが、`ocvu_mat_create` が空の `Mat` を作れない現在の ABI では
 どちらの経路も到達しない防御であり、実害は無い。
 
+### 姿勢と ArUco（geometry / objdetect、2026-09 の API 拡張で追加）
+
+**AR の輪を閉じる 6 本。** M5 で揃えたカメラ校正（`ocvu_find_chessboard_corners` →
+`ocvu_calibrate_camera` → `ocvu_undistort`）の上に立つ ——
+校正で求めた内部パラメータを使って、マーカーの姿勢を求められる。
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_solve_pnp` | 既知の 3D 点とその画像上の対応点から、1 枚ぶんの姿勢（回転ベクトルと並進）を求める |
+| `ocvu_rodrigues_to_matrix` | 回転ベクトル（3 要素）を回転行列（3x3）に直す |
+| `ocvu_rodrigues_to_vector` | 回転行列（3x3）を回転ベクトル（3 要素）に直す |
+| `ocvu_project_points` | 3D の点を、与えた姿勢とカメラで画像平面へ投影する |
+| `ocvu_aruco_generate_marker` | 辞書と ID からマーカーの画像を作る |
+| `ocvu_aruco_detect_markers` | 画像から ArUco マーカーを検出し、ID と 4 隅を返す |
+
+**`ocvu_solve_pnp` と `ocvu_project_points` は互いの逆である。** 同じ数値で往復するので、
+片方が壊れればもう片方のテストが残る。
+
+**`ocvu_aruco_generate_marker` が返す画像には余白が入っていない。**
+`border_bits` はマーカーの**内側**に置く黒い枠で、検出にはその外側にも白い余白が要る ——
+**それを付けるのは呼ぶ側の仕事である。**
+
+**マーカーの姿勢推定に新しい C ABI は要らない。** 4 隅を `ocvu_solve_pnp` へ
+`OCVU_SOLVEPNP_IPPE_SQUARE` で渡すだけで、C# 側の `CvAruco.EstimateMarkerPose` が
+それを行う（§2.12）。
+
+### imgproc の実用関数（2026-09 の API 拡張で追加）
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_threshold` | 二値化する。Otsu を使ったときに**実際に選ばれたしきい値**も返す |
+| `ocvu_canny` | Canny のエッジ検出 |
+| `ocvu_morphology_ex` | 収縮・膨張・開閉などの形態素演算 |
+| `ocvu_match_template` | テンプレート照合の応答画像を作る（`OCVU_MAT_TYPE_32FC1`）|
+| `ocvu_warp_perspective` | 射影変換で画像を変形する |
+| `ocvu_get_perspective_transform` | ちょうど 4 点の対応から射影変換を厳密に求める（**`geometry` module**）|
+| `ocvu_hough_lines_p` | 確率的 Hough 変換で線分を検出する |
+| `ocvu_corner_sub_pix` | 既に見つけた角点を副画素精度へ精緻化する |
+| `ocvu_find_contours` | 輪郭を検出し、点列と輪郭ごとの点数を返す |
+
+**`ocvu_get_perspective_transform` だけが `geometry` module である。**
+`cv::getPerspectiveTransform` は OpenCV 5 で `imgproc` ではなく `geometry` に在る（実測）ので、
+用途が `ocvu_warp_perspective` と一体でも module は分かれる。
+
+**`ocvu_match_template` は自分で大きさを検査する。** OpenCV は template が image より
+両方向とも大きいとき**例外を投げず、入れ替えて計算する**（実測）——
+それでは出力の形の約束が黙って破られるので、`OCVU_STATUS_INVALID_ARGUMENT` で断る。
+
+**`ocvu_corner_sub_pix` の `points` はこの ABI で唯一の入出力兼用**である。
+渡した位置を読み、精緻化した位置でその場を上書きする。**断った場合は 1 バイトも書き換えない。**
+
+**`ocvu_find_contours` は階層（どの輪郭がどの輪郭の内側にあるか）を返さない。**
+入れ子の可変長を、平らな 2 本の配列（全点 + 輪郭ごとの点数）で表す。
+
+### core の基本演算（2026-09 の API 拡張で追加）
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_extract_channel` | 1 channel を取り出す |
+| `ocvu_insert_channel` | 1 channel を差し込む |
+| `ocvu_min_max_loc` | 最小値・最大値と、その位置を返す |
+| `ocvu_in_range` | 下限と上限の間にある画素を 255、それ以外を 0 にする |
+| `ocvu_normalize` | 値域を正規化する |
+| `ocvu_bitwise` | AND / OR / XOR / NOT をひとつの入口で行う |
+| `ocvu_lut` | ルックアップテーブルで画素値を置き換える |
+| `ocvu_copy_make_border` | 周囲に余白を足す |
+
+**`ocvu_insert_channel` は dst を置き換えない唯一の関数である。**
+他はすべて結果で丸ごと置き換わるが、これは指定した channel だけを書き換える。
+
+**`ocvu_min_max_loc` は 6 つの出力をすべて個別に受け、どれも NULL を許す。**
+**位置の 4 つがすべて NULL なら、OpenCV にも位置を要求しない** ——
+`cv::minMaxLoc` は複数 channel でも値は返すが、**位置を要求したときだけ例外を投げる**（実測）。
+
+**`ocvu_bitwise` の `OCVU_BITWISE_NOT` は `src2` を一切見ない。** 無効な handle を
+渡しても成功する（黙って無視するのではなく、そう決めてある）。
+
+### マッチングとステレオ（features / stereo、2026-09 の API 拡張で追加）
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_detect_and_compute` | 特徴点の検出と記述子の計算を 1 回で行う |
+| `ocvu_match_descriptors` | 2 つの記述子集合を総当たりで対応づける |
+| `ocvu_compute_disparity` | 左右の画像から視差画像を作る（**`stereo` module**。`OCVU_MAT_TYPE_16SC1`）|
+
+**`stereo` はこの 3 本で 8 つ目のリンク済み module になった。**
+`tools/opencv-config.psd1` の `Modules` は触っていない（`calib` が推移的に引くので
+既にビルドされている）ので、**構成ハッシュは変わらず OpenCV の再ビルドは起きていない。**
+
+**`max_features` は上限ではない。** `cv::ORB::create(n)` も `cv::SIFT::create(n)` も
+`n` を守らず、それより多く返すことがある（実測: ORB は `create(5)` で 24 個、
+SIFT は `create(200)` で 240 個）。**`capacity` を `max_features` と同じ値にしてはならない** ——
+溢れたら `OCVU_STATUS_BUFFER_TOO_SMALL` と実際の個数が返るので、確保し直して呼び直す。
+
+**溢れたとき `out_descriptors` は書き換わらない。** 更新されるのは `out_count` だけである ——
+そのまま `ocvu_match_descriptors` へ渡しても**例外にならず、もっともらしい結果が返る**（実測）。
+
+**`ocvu_compute_disparity` の制限は OpenCV の要求ではない。**
+`num_disparities` が 16 の倍数であること・`block_size` が 5 以上の奇数であることを
+強制するのは `StereoBM` だけで、`StereoSGBM` はどちらも検査しない（実測）——
+**この ABI が自分で決めた、OpenCV より厳しい契約である**（呼ぶ側にとって単純になる）。
+
 ### この allowlist に含まれないもの
 
 `ocvu_get_abi_version` / `ocvu_get_last_error_status` / `ocvu_get_last_error_message` /

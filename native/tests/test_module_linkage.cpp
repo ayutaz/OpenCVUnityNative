@@ -19,6 +19,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib.hpp>
 #include <opencv2/objdetect.hpp>
+#include <opencv2/stereo.hpp>
 
 TEST(ModuleLinkage, ObjdetectSymbolsResolve) {
     cv::Ptr<cv::QRCodeEncoder> encoder = cv::QRCodeEncoder::create();
@@ -115,4 +116,31 @@ TEST(ModuleLinkage, CalibIsLinked) {
         cv::calibrateCamera(object_points, image_points, cv::Size(64, 64),
                             camera_matrix, dist_coeffs, rvecs, tvecs),
         cv::Exception);
+}
+
+TEST(ModuleLinkage, StereoIsLinked) {
+    // **stereo は tools/opencv-config.psd1 の Modules に無いが、
+    // ビルドされている。** calib が推移的に引くためで、復元済みのツリーに
+    // opencv_stereo が実在する（2026-09-05 に実測）。
+    //
+    // **desktop では COMPONENTS への追加は no-op である。** 実測の根拠:
+    // OpenCVModules.cmake:135-139 が opencv_calib の INTERFACE_LINK_LIBRARIES に
+    // opencv_stereo を含めており、COMPONENTS には既に calib が在る。
+    // **geometry とまったく同じ形で、CalibIsLinked とは違う** ——
+    // calib はどの module からも引かれないので COMPONENTS に足す前は
+    // LNK2019 で落ちたが、stereo は足す前から通る。
+    //
+    // **それでも COMPONENTS には足してある。iOS と Web では話が違うからである** ——
+    // 静的ライブラリを束ねる分岐は要求した COMPONENTS だけから OpenCV_LIBS を
+    // 作るので、足さないと束ねられない。**つまりこの 1 語は desktop に対する
+    // 意図の宣言であると同時に、その 2 platform に対しては実際の指示である。**
+    //
+    // したがって**このテストは Windows / macOS / Linux では COMPONENTS の
+    // 編集で落ちない**（UndistortionSymbolsResolveWithoutCalib と同じ性質）。
+    // それでも守っているものがある —— 上流が cv::StereoBM を別 module へ
+    // 移したり、calib が stereo を引かなくなったりしたら、ここが最初に赤くなる。
+    const cv::Ptr<cv::StereoBM> matcher = cv::StereoBM::create(16, 21);
+    ASSERT_FALSE(matcher.empty());
+    EXPECT_EQ(matcher->getNumDisparities(), 16);
+    EXPECT_EQ(matcher->getBlockSize(), 21);
 }
