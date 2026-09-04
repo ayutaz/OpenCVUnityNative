@@ -1,7 +1,11 @@
 # OpenUPM への登録
 
 - 状態: **提出済み。2026-08-30 に受理された**（openupm/openupm PR #6843。`Data validation` が
-  通り自動マージ）。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が `0.2.0` を配信している
+  通り自動マージ）。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信している
+  （**版番号をここに書かない** —— 出すたびにこの行だけが古くなる）。
+  **OpenUPM は Release より遅れる** —— 自前のビルドキューを持つので、
+  公開してからレジストリに現れるまで数時間かかる。**その間 `openupm add` で
+  入るのは 1 つ前の版である**
 - **この文書は記録として残す。** 次に定義を変えるとき（platform を足す、`minVersion` を上げる）に
   同じ検査を繰り返せるようにするためである
 
