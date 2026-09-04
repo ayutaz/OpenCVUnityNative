@@ -32,6 +32,23 @@ private:
     ocvu_mat_handle handle_ = OCVU_MAT_HANDLE_NONE;
 };
 
+// 8 bit 1 channel 以外の Mat を作る。**OPENCV_ERROR の経路を通すために要る** ——
+// OpenCV が拒む型を渡さないと、summary が約束した status に到達できない。
+class ScopedTypedMat {
+public:
+    ScopedTypedMat(int rows, int cols, int32_t type) {
+        EXPECT_EQ(ocvu_mat_create(rows, cols, type, &handle_), OCVU_STATUS_OK);
+    }
+    ~ScopedTypedMat() { ocvu_mat_release(handle_); }
+    ScopedTypedMat(const ScopedTypedMat&) = delete;
+    ScopedTypedMat& operator=(const ScopedTypedMat&) = delete;
+
+    ocvu_mat_handle get() const { return handle_; }
+
+private:
+    ocvu_mat_handle handle_ = OCVU_MAT_HANDLE_NONE;
+};
+
 // 左半分が 10、右半分が 200 の 4x4 グレー画像にする。
 //
 // **画素を明示的に入れる。** ocvu_mat_create は画素を初期化しないので、
@@ -675,4 +692,106 @@ TEST(ImgprocOps, WarpPerspectiveRejectsBadArguments) {
 
     // **失敗しても dst は書き換わっていない。**
     ExpectUntouchedDestination(dst.get());
+}
+
+// ---------------------------------------------------------------------------
+// **summary が OPENCV_ERROR を約束している経路を、実際に通す。**
+//
+// **約束だけして実装が返さない状態は、ビルドも既存テストも緑のまま隠れる**
+// （add-abi-function skill）。この 5 本はどれも「OpenCV が例外を投げた場合は
+// OCVU_STATUS_OPENCV_ERROR を返す」と書いているのに、**その経路を 1 度も
+// 通していなかった** —— PR 前のレビューが指摘した。
+//
+// **UNKNOWN_ERROR でないことを見るのが要点である。** OCVU_TRY_END は
+// cv::Exception を UNKNOWN_ERROR に落とすので、各関数が手前で個別に
+// catch していなければ「原因不明」として報告される。
+// ---------------------------------------------------------------------------
+
+TEST(ImgprocOps, ThresholdReportsOpenCvFailuresAsOpenCvError) {
+    // **Otsu は 1 channel でしか動かない**（summary にそう書いてある）。
+    const ScopedTypedMat src(4, 4, OCVU_MAT_TYPE_8UC3);
+    ScopedMat dst;
+    std::array<uint8_t, 48> pixels{};
+    ASSERT_EQ(ocvu_mat_copy_from_buffer(src.get(), pixels.data(), 48, 12), OCVU_STATUS_OK);
+
+    double computed = 12345.0;
+    EXPECT_EQ(ocvu_threshold(src.get(), dst.get(), 0.0, 255.0,
+                             OCVU_THRESH_BINARY | OCVU_THRESH_OTSU, &computed),
+              OCVU_STATUS_OPENCV_ERROR);
+    EXPECT_DOUBLE_EQ(computed, 0.0) << "失敗したのに out_computed_threshold を書いている";
+}
+
+TEST(ImgprocOps, CannyReportsOpenCvFailuresAsOpenCvError) {
+    // **Canny は 8 bit を要求する。** 32 bit 浮動小数は受けない。
+    const ScopedTypedMat src(8, 8, OCVU_MAT_TYPE_32FC1);
+    ScopedMat dst;
+    std::vector<uint8_t> zeros(8 * 8 * 4, 0);
+    ASSERT_EQ(ocvu_mat_copy_from_buffer(src.get(), zeros.data(),
+                                        static_cast<int64_t>(zeros.size()), 8 * 4),
+              OCVU_STATUS_OK);
+
+    EXPECT_EQ(ocvu_canny(src.get(), dst.get(), 50.0, 150.0, 3, 0),
+              OCVU_STATUS_OPENCV_ERROR);
+}
+
+TEST(ImgprocOps, MatchTemplateReportsOpenCvFailuresAsOpenCvError) {
+    // **image と templ は同じ型でなければならない**（OpenCV の assertion）。
+    ScopedMat image(8, 8);
+    const ScopedTypedMat templ(3, 3, OCVU_MAT_TYPE_8UC3);
+    ScopedMat dst;
+    std::array<uint8_t, 64> image_pixels{};
+    ASSERT_EQ(ocvu_mat_copy_from_buffer(image.get(), image_pixels.data(), 64, 8),
+              OCVU_STATUS_OK);
+    std::array<uint8_t, 27> templ_pixels{};
+    ASSERT_EQ(ocvu_mat_copy_from_buffer(templ.get(), templ_pixels.data(), 27, 9),
+              OCVU_STATUS_OK);
+
+    EXPECT_EQ(ocvu_match_template(image.get(), templ.get(), dst.get(), OCVU_TM_CCORR),
+              OCVU_STATUS_OPENCV_ERROR);
+}
+
+TEST(ImgprocOps, WarpPerspectiveReportsOpenCvFailuresAsOpenCvError) {
+    // **変換行列は浮動小数でなければならない。** 3x3 であることは
+    // この ABI が自分で見るが、**型は OpenCV に任せている** ——
+    // 8 bit の 3x3 を渡すと例外になる。
+    ScopedMat src(4, 4);
+    FillSplit(src);
+    const ScopedTypedMat bad_transform(3, 3, OCVU_MAT_TYPE_8UC1);
+    std::array<uint8_t, 9> t{};
+    ASSERT_EQ(ocvu_mat_copy_from_buffer(bad_transform.get(), t.data(), 9, 3), OCVU_STATUS_OK);
+    ScopedMat dst;
+
+    EXPECT_EQ(ocvu_warp_perspective(src.get(), dst.get(), bad_transform.get(), 8, 8,
+                                    OCVU_INTER_NEAREST, OCVU_BORDER_CONSTANT),
+              OCVU_STATUS_OPENCV_ERROR);
+}
+
+TEST(ImgprocOps, MorphologyReportsOpenCvFailuresAsOpenCvError) {
+    // **型では到達できなかった。** 最初は 64 bit 浮動小数を渡す形で書いたが、
+    // cv::morphologyEx はそれを受け付けて成功した（2026-09-05 に実測）——
+    // **8 bit だけだろうという推測が外れた。**
+    //
+    // 代わりに summary が名指ししている経路を使う ——
+    // 「構造要素が大きすぎて確保できない場合」である。iterations を極端に
+    // 大きくすると、OpenCV は実際の窓の大きさを
+    // ksize + (iterations - 1) * (ksize - 1) で先に計算し、そこで破綻する。
+    // **繰り返しが実行されるわけではないので、このテストは速い。**
+    ScopedMat src(4, 4);
+    FillSplit(src);
+    ScopedMat dst;
+
+    const ocvu_status status = ocvu_morphology_ex(
+        src.get(), dst.get(), OCVU_MORPH_DILATE, OCVU_MORPH_SHAPE_RECT, 3, 3, INT32_MAX);
+
+    // **UNKNOWN_ERROR でないことが要点である。** 個別の catch が無ければ
+    // OCVU_TRY_END が「原因不明」に落とす。
+    EXPECT_NE(status, OCVU_STATUS_UNKNOWN_ERROR)
+        << "OpenCV 由来の失敗が「原因不明」として報告されている";
+    EXPECT_EQ(status, OCVU_STATUS_OPENCV_ERROR);
+
+    // 失敗したので dst は置き換わっていない（作ったときの 1x1 のままである）。
+    ocvu_mat_info info{};
+    ASSERT_EQ(ocvu_mat_get_info(dst.get(), &info), OCVU_STATUS_OK);
+    EXPECT_EQ(info.rows, 1);
+    EXPECT_EQ(info.cols, 1);
 }

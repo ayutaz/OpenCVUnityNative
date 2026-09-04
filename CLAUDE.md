@@ -70,7 +70,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `./tools/dev.ps1 test` | **既定**。tools の速いテスト 4 本 + `verify-generated` + L1 + L3 | **約 65 秒**（増分、成果物が最新。2026-09-01 実測、exit 0）。**M3.5 以前の「約 21 秒」から伸びた** —— tools のテストが 3 本になり、`verify-generated` と L3 の 2 つ目の assembly が `dotnet` の起動を 2 回増やした |
 | `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 4 本（OpenCV 構成・ハッシュ無効化・**生成物と spec の一致**・**Unity と Emscripten の対応表**）。**本数を写さない。正本は `tools/dev.ps1` の `$ToolsTestScriptsFast` である** | 約 18 秒（**2 本だった頃の値**） |
 | `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証・restore の実 download・linkage 検証・配布物生成 | 約 4 分 15 秒（2026-08-28 実測。M3 で `VerifyArtifactLinkage.Tests.ps1` と `PackageRelease.Tests.ps1` が加わり、M1 時点の約 70 秒から伸びた） |
-| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest **210 件** + CTest **4 件**） | 約 10 秒 |
+| `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest **215 件** + CTest **4 件**） | 約 10 秒 |
 | `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **179 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **106 件**（M5 で新設）。**件数を書いてあるのはこの行だけである** —— 他所に写すと、テストを 1 件足した瞬間にそちらだけが嘘になる（M5 で実際に 4 箇所が同時に古くなった） | 約 11 秒（**44 件だけだった頃の値**） |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 18 秒（増分。2026-08-28 実測。M1 時点の約 11 秒より伸びているが、原因は未特定——増えたのは L1 側で計測済みの再コンパイル対象と同じファイル群で、M3 固有の変更ではない） |
 | `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
