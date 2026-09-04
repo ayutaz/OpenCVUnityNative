@@ -35,7 +35,13 @@ private:
     ocvu_mat_handle handle_ = OCVU_MAT_HANDLE_NONE;
 };
 
-// 縦縞のグレー画像。offset_x だけ横にずらす（= 視差のある左右の対を作れる）。
+// 縦縞のグレー画像。offset_x だけ横にずらす。
+//
+// **ステレオ照合には使えない。** 周期 10 の繰り返しなので視差が一意に決まらず、
+// StereoBM の uniqueness 検査が候補を全部弾く —— **形も型も正しい Mat が返るのに
+// 有効視差は 0 件になる**（2026-09-05 に実測）。**視差を確かめるテストには
+// MakeTexture を使うこと。** ここに残してあるのは引数検査のテスト用である
+// （そちらは中身を見ないので、縞で足りる）。
 //
 // **Mat の作成は画素を初期化しないので、全画素を明示的に書く。**
 // **stride はバイト数である**（8 bit 1 channel なので width と同じ値になる）。
@@ -172,7 +178,7 @@ TEST(Stereo, ComputeDisparityProducesA16BitImageOfTheSameShape) {
     //
     // 値そのものは狭く縛らない（アルゴリズムの実装しだいで動く）が、
     // **有効な視差が 1 画素以上あることと、それが要求した範囲に収まること**は
-    // 入力によらず成り立つ。左右に 4 画素ずらした縞なので、視差は必ず見つかる。
+    // 入力によらず成り立つ。左右に 4 画素ずらした模様なので、視差は必ず見つかる。
     constexpr int16_t kInvalid = -16;
     int valid = 0;
     for (int16_t d : disparity) {
@@ -187,12 +193,21 @@ TEST(Stereo, ComputeDisparityProducesA16BitImageOfTheSameShape) {
 }
 
 TEST(Stereo, ComputeDisparitySupportsSgbm) {
-    const ScopedMat left(MakeStripes(kWidth, kHeight, 0));
-    const ScopedMat right(MakeStripes(kWidth, kHeight, 4));
+    // **BM 側と同じ強さで見る。** SGBM は別の照合器なので、
+    // BM のテストが有効視差を確かめても代替にならない。
+    //
+    // **入力を MakeTexture に揃えたが、SGBM は縞でも視差を見つける** ——
+    // 縞に戻して走らせても下の EXPECT_GT(valid, 0) は通った（2026-09-05 に実測）。
+    // **BM とはそこが違う**（BM は uniqueness 検査で候補を全部弾き、
+    // 有効視差が 0 件になる）。**したがってこの入力の変更は、この 1 本については
+    // 負の対照が取れない** —— 揃えたのは、次に読む人が「縞でよい」と読んで
+    // BM 側にも使うのを防ぐためである。
+    const ScopedMat left(MakeTexture(kWidth, kHeight, 0));
+    const ScopedMat right(MakeTexture(kWidth, kHeight, 4));
     ScopedMat dst;
 
-    // **BM で通る引数は SGBM でも通る。** この ABI は 2 つに同じ制限を
-    // かけているので、algorithm を差し替えるだけでよい。
+    // SGBM は blockSize を検査しないので、BM より小さい窓でも通る
+    // （**この ABI はどちらにも同じ制限をかける**ので 5 以上の奇数を渡す）。
     ASSERT_EQ(ocvu_compute_disparity(left.get(), right.get(), dst.get(),
                                      OCVU_STEREO_SGBM, 16, 5),
               OCVU_STATUS_OK);
@@ -202,6 +217,27 @@ TEST(Stereo, ComputeDisparitySupportsSgbm) {
     EXPECT_EQ(info.rows, kHeight);
     EXPECT_EQ(info.cols, kWidth);
     EXPECT_EQ(info.type, OCVU_MAT_TYPE_16SC1);
+
+    std::vector<int16_t> disparity(
+        static_cast<size_t>(kWidth) * static_cast<size_t>(kHeight), 0);
+    ASSERT_EQ(ocvu_mat_copy_to_buffer(
+                  dst.get(), reinterpret_cast<uint8_t*>(disparity.data()),
+                  static_cast<int64_t>(disparity.size() * sizeof(int16_t)),
+                  static_cast<int64_t>(kWidth) * 2),
+              OCVU_STATUS_OK);
+
+    // **「視差が 1 画素も求まっていない」を落とす。** 形と型だけを見ると、
+    // 中身が全部無効視差でも緑になる（BM 側で実際にそうなっていた）。
+    constexpr int16_t kInvalid = -16;
+    int valid = 0;
+    for (int16_t d : disparity) {
+        if (d == kInvalid) { continue; }
+        ++valid;
+        EXPECT_GE(d, 0) << "視差が負である";
+        EXPECT_LE(d, 16 * 16) << "num_disparities = 16 を超える視差が返っている";
+    }
+    EXPECT_GT(valid, 0)
+        << "SGBM で視差が 1 画素も求まっていない（全部が無効視差の印で埋まっている）";
 }
 
 TEST(Stereo, ComputeDisparityRejectsUnknownAlgorithms) {

@@ -553,6 +553,8 @@ buffer の所有権は `ocvu_mat_copy_from_buffer` などと同じく最初か�
 持ち込まない。このプラグインは `stereo` のシンボルを 1 つも参照しないので、
 静的リンクの性質上、配布する binary には入らない。
 
+**（**この 1 文は 2026-09-05 に失効した** —— `ocvu_compute_disparity` が `cv::StereoBM` / `cv::StereoSGBM` を参照するようになり、`stereo` は `COMPONENTS` に入って配布する binary にも入る。**M5 時点の記録として、消さずに残してある** —— 同じ誤解が別の場所にもあるかを、次に読む人が確かめられるようにするためである。）**
+
 **`geometry` のときと違い、`COMPONENTS` の追加は本物の RED を出した。**
 `cv::calibrateCamera` を参照する L1 テストを先に書くと、未解決の外部シンボルで
 リンクに失敗した（`native/tests/test_module_linkage.cpp` の `CalibIsLinked`）。

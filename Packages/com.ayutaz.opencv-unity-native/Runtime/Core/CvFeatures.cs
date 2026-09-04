@@ -158,9 +158,12 @@ namespace CvUnity
         /// </para>
         /// <para>
         /// **<paramref name="maxFeatures"/> は上限ではない。** OpenCV への希望で
-        /// あって、ORB も SIFT も指定より多く返すことがある（実測）。したがって
-        /// 必要量は呼ぶ側に事前に分からないので、**この関数が 2 回呼びを隠す** ——
-        /// 1 回目で個数を問い合わせ、その数で確保して 1 度だけ呼び直す。
+        /// あって、ORB も SIFT も指定より多く返すことがある（実測）。
+        /// **この関数はその溢れを隠す** —— まず <paramref name="maxFeatures"/> ぶんを
+        /// 確保して 1 回で呼び、検出器がそれより多く返したときだけ、
+        /// 返ってきた個数で確保し直して 1 度だけ呼び直す。
+        /// **問い合わせのためだけに検出器を走らせることはしない** ——
+        /// この ABI は検出器を保持しないので、問い合わせも本番も同じだけ計算する。
         /// </para>
         /// <para>
         /// **1 つも見つからないのは誤りではない** —— 空配列が返る。
@@ -220,7 +223,7 @@ namespace CvUnity
             CvNative.ThrowIfFailed(status);
 
             // **BufferTooSmall は「失敗」ではないので ThrowIfFailed は素通しする**
-            // （CvCodecs.cs と同じ理由）。2 度目も溢れるのは、問い合わせとの間に
+            // （CvCodecs.cs と同じ理由）。2 度目も溢れるのは、1 回目と 2 回目の間に
             // src が変わって個数が増えたときで、native は out_keypoints にも
             // descriptors にも 1 バイトも書いていない。**ここで見ないと、呼ぶ側は
             // 例外も無しに「全部 0 の特徴点」と「置き換わっていない記述子」を
@@ -235,7 +238,7 @@ namespace CvUnity
                 throw new CvNativeException(
                     CvStatus.UnknownError,
                     $"ocvu_detect_and_compute reported {count} keypoints for a buffer of {raw.Length} " +
-                    "(the source Mat likely changed between the size query and the write)");
+                    "(the source Mat likely changed between the two calls)");
             }
 
             var result = new CvKeyPoint[count];

@@ -312,8 +312,11 @@ namespace CvUnity
         /// <remarks>
         /// <paramref name="dst"/> は結果に応じて丸ごと置き換わり、
         /// <paramref name="src1"/> と同じ形状・型になる。
-        /// 2 つの入力は同じ形状・同じ型でなければならず、違えば OpenCV が
-        /// 例外を投げるので <see cref="CvStatus.OpenCvError"/> になる。
+        /// 2 つの入力は同じ形状・同じ型でなければならず、違えば
+        /// <see cref="CvStatus.InvalidArgument"/> になる。
+        /// <b>この検査はこの ABI が自分で行う。</b> OpenCV に任せると、
+        /// 2 つ目が 1 要素のときにそれを scalar とみなして全画素へ黙って展開し、
+        /// <see cref="CvStatus.Ok"/> ともっともらしい結果を返す（実測）。
         /// <paramref name="dst"/> に入力と同じ <see cref="CvMat"/> を
         /// 渡してもよい。
         /// <para>

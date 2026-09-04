@@ -48,7 +48,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **`calib` は高いと分かったうえで足した唯一の module である。** 構成ハッシュが `4785d98e9aad` → `09fcbe260d87` に変わり、**5 platform 分の OpenCV を作り直した**（run 33589583504）。他の 3 module は「安くて実証に向くから」選んだが、`calib` は違う —— **歪み補正を出したのに係数を求められないという、実際に閉じていない輪を閉じるために足した。**
 
-**最初のビルドは 4 platform とも依存 allowlist で落ちた。** `calib` が `stereo` を推移的に引き込み、`tools/verify-opencv-artifact.ps1` の `$AcceptedTransitiveModules` に無いとして拒否された。**検査が意図どおり働いた例である**（気づかずに通ることはなかった）。`stereo` は OpenCV 本体の module で third-party ではなく、新しい bundled 依存も持ち込まない。**この記述は 2026-09-05 に失効した** —— `ocvu_compute_disparity` が `cv::StereoBM` / `cv::StereoSGBM` を参照するようになったので、`stereo` は `COMPONENTS` に入り、配布する binary にも入る。
+**最初のビルドは 4 platform とも依存 allowlist で落ちた。** `calib` が `stereo` を推移的に引き込み、`tools/verify-opencv-artifact.ps1` の `$AcceptedTransitiveModules` に無いとして拒否された。**検査が意図どおり働いた例である**（気づかずに通ることはなかった）。`stereo` は OpenCV 本体の module で third-party ではなく、新しい bundled 依存も持ち込まない（**この部分はいまも成立している** —— allowlist に載せる根拠はこちらである）。このプラグインは `stereo` のシンボルを 1 つも参照しないので、静的リンクの性質上、配布する binary には入らない。**（**この 1 文は 2026-09-05 に失効した** —— `ocvu_compute_disparity` が `cv::StereoBM` / `cv::StereoSGBM` を参照するようになり、`stereo` は `COMPONENTS` に入って配布する binary にも入る。**M5 時点の記録として、消さずに残してある** —— 同じ誤解が別の場所にもあるかを、次に読む人が確かめられるようにするためである。）**
 
 **`geometry` のときと違い、`COMPONENTS` の追加は本物の RED を出した。** `cv::calibrateCamera` を参照する L1 テストを先に書くと未解決の外部シンボルでリンクに失敗し、`COMPONENTS` に足すと通った（`native/tests/test_module_linkage.cpp` の `CalibIsLinked`）。`calib` はどの module からも推移的に引かれない。**この時点では binary は 1 バイトも増えず**（21,190,144 のまま）、増えたのは関数を実装したときである（21,464,576 バイト、+274,432）。**「`COMPONENTS` に足すだけでは増えない」を M3.5 に続いて 2 度目の実測で確かめた形になる。**
 
@@ -71,7 +71,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `./tools/dev.ps1 test-tools` | `tools/tests/` の速い 4 本（OpenCV 構成・ハッシュ無効化・**生成物と spec の一致**・**Unity と Emscripten の対応表**）。**本数を写さない。正本は `tools/dev.ps1` の `$ToolsTestScriptsFast` である** | 約 18 秒（**2 本だった頃の値**） |
 | `./tools/dev.ps1 test-tools-slow` | **CI 専用**。allowlist 検証・restore の実 download・linkage 検証・配布物生成 | 約 4 分 15 秒（2026-08-28 実測。M3 で `VerifyArtifactLinkage.Tests.ps1` と `PackageRelease.Tests.ps1` が加わり、M1 時点の約 70 秒から伸びた） |
 | `./tools/dev.ps1 test-native` | L1 のみ（GoogleTest **215 件** + CTest **4 件**） | 約 10 秒 |
-| `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **179 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **106 件**（M5 で新設）。**件数を書いてあるのはこの行だけである** —— 他所に写すと、テストを 1 件足した瞬間にそちらだけが嘘になる（M5 で実際に 4 箇所が同時に古くなった） | 約 11 秒（**44 件だけだった頃の値**） |
+| `./tools/dev.ps1 test-managed` | L3 のみ。**solution の全テストプロジェクトを回す** —— `CvUnity.Tests.Managed` が P/Invoke 越しに実物の DLL を叩く **181 件**、`Ocvu.Generator.Tests` が spec と生成器を見る **106 件**（M5 で新設）。**件数を書いてあるのはこの行だけである** —— 他所に写すと、テストを 1 件足した瞬間にそちらだけが嘘になる（M5 で実際に 4 箇所が同時に古くなった） | 約 11 秒（**44 件だけだった頃の値**） |
 | `./tools/dev.ps1 test-asan` | L2（AddressSanitizer） | 約 18 秒（増分。2026-08-28 実測。M1 時点の約 11 秒より伸びているが、原因は未特定——増えたのは L1 側で計測済みの再コンパイル対象と同じファイル群で、M3 固有の変更ではない） |
 | `./tools/dev.ps1 test-managed-probe` | **CI 専用**。L3 のクラッシュ・ハングプローブ | 約 50 秒（segfault 6 秒 + hang 36 秒） |
 | `./tools/dev.ps1 test-unity-editmode` | L4（Unity EditMode、Mono、**34 件**） | 約 27 秒（増分。2026-08-28 実測。**Unity 6000.0.82f1・EditMode 10 件のときの値。** その後 M3.5 で 16 件、M4 で 33 件、M5 で 34 件になったが所要時間は取り直していない） |

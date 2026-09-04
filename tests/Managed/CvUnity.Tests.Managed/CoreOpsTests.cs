@@ -460,4 +460,41 @@ public class CoreOpsTests
         Assert.Throws<ArgumentNullException>(
             () => CvCoreOps.CopyMakeBorder(mat, null, 0, 0, 0, 0, CvBorderMode.Constant));
     }
+
+    [Fact]
+    public void BitwiseReportsInvalidArgumentWhenTheShapesDiffer()
+    {
+        // **doc が約束した status を、C# 側から実際に確かめる。**
+        //
+        // この検査が無かったせいで、native の status を
+        // OPENCV_ERROR から INVALID_ARGUMENT に変えたとき
+        // **CvCoreOps.Bitwise の XML doc だけが古い status を約束したまま残った**
+        // （生成物は自動で直り、手書きの C# だけが取り残された）——
+        // 再レビューが指摘するまで、どの検査も落ちなかった。
+        using var small = MakeGray(2, 2, new byte[] { 1, 1, 1, 1 });
+        using var big = MakeGray(3, 3, new byte[9]);
+        using var dst = CvMat.Create(1, 1, CvMatType.Gray8);
+
+        var ex = Assert.Throws<CvNativeException>(
+            () => CvCoreOps.Bitwise(small, big, dst, CvBitwiseOp.And));
+        Assert.Equal(CvStatus.InvalidArgument, ex.Status);
+    }
+
+    [Fact]
+    public void BitwiseRejectsASingleElementSecondOperandInsteadOfBroadcasting()
+    {
+        // **これが、OpenCV に任せず自分で検査する理由である。**
+        // 実測（検査を足す前）: 8x8 に 1x1 を AND すると OK が返り、
+        // 1 要素の値が 64 画素すべてに当たった —— **誤りが status ではなく
+        // 「もっともらしい画像」として現れる。**
+        var pixels = new byte[64];
+        for (int i = 0; i < pixels.Length; i++) { pixels[i] = 0xF0; }
+        using var big = MakeGray(8, 8, pixels);
+        using var one = MakeGray(1, 1, new byte[] { 0x3C });
+        using var dst = CvMat.Create(1, 1, CvMatType.Gray8);
+
+        var ex = Assert.Throws<CvNativeException>(
+            () => CvCoreOps.Bitwise(big, one, dst, CvBitwiseOp.And));
+        Assert.Equal(CvStatus.InvalidArgument, ex.Status);
+    }
 }
