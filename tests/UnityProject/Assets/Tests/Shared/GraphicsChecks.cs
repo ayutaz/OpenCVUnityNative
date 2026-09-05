@@ -103,6 +103,108 @@ namespace CvUnity.Tests.Shared
             finally { Release(rt); }
         }
 
+        /// <summary>
+        /// 非同期経路が同期経路と同じ画素を出すこと。
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>確かめていないことが 3 つある。</b>
+        /// </para>
+        /// <para>
+        /// 1. <b>「実際に非同期だった」ことは測っていない。</b>
+        /// ここでは <c>AsyncGPUReadback.WaitAllRequests()</c> で待つので、
+        /// このテストの中では同期的に完了する。非同期であることの価値
+        /// （GPU を待たせない）は、フレーム時間として benchmark が公開する。
+        /// </para>
+        /// <para>
+        /// 2. <b>IL2CPP の Player では 1 度も走っていない。</b>
+        /// Player のレーンは <c>-nographics</c> で走り、そこでは
+        /// <c>SystemInfo.supportsAsyncGPUReadback</c> が <c>false</c> である。
+        /// このレーンは Editor（Mono）だけである。
+        /// </para>
+        /// <para>
+        /// 3. <b>CI で走っているかは、このコメントを書いた時点では未確認である。</b>
+        /// docs/performance.md が現状を持つ。
+        /// </para>
+        /// </remarks>
+        public static void AsyncMatchesSync()
+        {
+            var rt = MakeHalves(new Color32(200, 0, 0, 255), new Color32(0, 0, 200, 255));
+            try
+            {
+                using var expected = RenderTextureConverter.ToMat(rt);
+
+                var request = RenderTextureConverter.RequestMat(rt);
+
+                // **無限に待たない。** 上限を切っておかないと、GPU が返さない
+                // 環境でレーンが無音のまま固まる（Unity のレーンではクラッシュも
+                // ハングも赤いテストにならない）。
+                const int MaxFrames = 120;
+                int waited = 0;
+                while (!request.IsDone && waited < MaxFrames)
+                {
+                    UnityEngine.Rendering.AsyncGPUReadback.WaitAllRequests();
+                    waited++;
+                }
+
+                Check.IsTrue(request.IsDone,
+                    $"AsyncGPUReadback が {MaxFrames} フレーム待っても完了しなかった");
+                Check.IsTrue(!request.HasError, "AsyncGPUReadback がエラーを報告した");
+
+                using var actual = request.TakeMat();
+
+                Check.AreEqual(expected.Rows, actual.Rows);
+                Check.AreEqual(expected.Cols, actual.Cols);
+                Check.AreEqual(expected.Channels, actual.Channels);
+
+                var a = new byte[expected.Rows * expected.Cols * 4];
+                var b = new byte[expected.Rows * expected.Cols * 4];
+                expected.CopyTo(a, expected.Cols * 4);
+                actual.CopyTo(b, actual.Cols * 4);
+
+                for (int i = 0; i < a.Length; i++)
+                {
+                    Check.AreEqual(a[i], b[i], $"バイト {i} が同期経路と違う");
+                }
+            }
+            finally { Release(rt); }
+        }
+
+        /// <summary>
+        /// <see cref="RenderTextureConverter.MatRequest.TakeMat"/> を 2 度
+        /// 呼ぶと必ず失敗すること。
+        /// </summary>
+        /// <remarks>
+        /// Unity が渡す <c>NativeArray</c> は次の readback で無効になるので、
+        /// 2 度目に取れてしまうと解放済みメモリを読みうる。一時的な確認では
+        /// 将来 <c>_taken</c> の判定を消した人を誰も止められないので、
+        /// 恒久的な検査として残す。
+        /// </remarks>
+        public static void TakingTheMatTwiceIsRejected()
+        {
+            var rt = MakeSolid(new Color32(10, 20, 30, 255));
+            try
+            {
+                var request = RenderTextureConverter.RequestMat(rt);
+
+                const int MaxFrames = 120;
+                int waited = 0;
+                while (!request.IsDone && waited < MaxFrames)
+                {
+                    UnityEngine.Rendering.AsyncGPUReadback.WaitAllRequests();
+                    waited++;
+                }
+                Check.IsTrue(request.IsDone,
+                    $"AsyncGPUReadback が {MaxFrames} フレーム待っても完了しなかった");
+
+                using var first = request.TakeMat();
+
+                Check.Throws<System.InvalidOperationException>(() => request.TakeMat(),
+                    "2 度目の TakeMat は例外を投げるはず");
+            }
+            finally { Release(rt); }
+        }
+
         internal static RenderTexture MakeSolid(Color32 color)
         {
             var rt = new RenderTexture(Size, Size, 0, RenderTextureFormat.ARGB32)

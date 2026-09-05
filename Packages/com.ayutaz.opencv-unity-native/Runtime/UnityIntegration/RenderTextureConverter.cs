@@ -62,6 +62,87 @@ namespace CvUnity.Unity
         }
 
         /// <summary>
+        /// RenderTexture の読み出しを GPU に依頼し、待たずに戻る。
+        /// </summary>
+        /// <remarks>
+        /// <b>GPU を待たせない。</b> <see cref="ToMat"/> は転送が済むまで戻らないので
+        /// 毎フレームの用途ではフレーム時間に直接乗るが、こちらは依頼だけして戻る。
+        /// 完了は <see cref="MatRequest.IsDone"/> で見る。
+        /// <para>
+        /// <b>読み出し結果の NativeArray を外へ出さない。</b> Unity が渡す
+        /// NativeArray は次の readback で無効になるので、外へ出すと寿命の管理が
+        /// 利用者の責任になる。<see cref="MatRequest.TakeMat"/> は
+        /// <b>受け取った時点で CvMat に写して</b>返す
+        /// （docs/abi-ownership-and-versioning.md §1 の「借用は呼び出しの内側で
+        /// 完結する」を Unity 層でも保つ）。
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException"><paramref name="source"/> が null。</exception>
+        public static MatRequest RequestMat(RenderTexture source)
+        {
+            if (source == null) { throw new ArgumentNullException(nameof(source)); }
+            return new MatRequest(source);
+        }
+
+        /// <summary>読み出し中の依頼。完了したら <see cref="TakeMat"/> で Mat を取る。</summary>
+        public sealed class MatRequest
+        {
+            private UnityEngine.Rendering.AsyncGPUReadbackRequest _request;
+            private readonly int _width;
+            private readonly int _height;
+            private bool _taken;
+
+            internal MatRequest(RenderTexture source)
+            {
+                _width = source.width;
+                _height = source.height;
+                _request = UnityEngine.Rendering.AsyncGPUReadback.Request(
+                    source, 0, TextureFormat.RGBA32);
+            }
+
+            /// <summary>GPU の転送が終わったか。エラーで終わった場合も true になる。</summary>
+            public bool IsDone => _request.done;
+
+            /// <summary>転送が失敗したか。</summary>
+            public bool HasError => _request.hasError;
+
+            /// <summary>
+            /// 読み出した内容を新しい CvMat（Bgra32、上下反転済み）にして返す。
+            /// </summary>
+            /// <exception cref="InvalidOperationException">
+            /// まだ完了していない、失敗した、または既に 1 度取り出した。
+            /// </exception>
+            public unsafe CvMat TakeMat()
+            {
+                if (!_request.done)
+                {
+                    throw new InvalidOperationException("readback がまだ完了していない");
+                }
+                if (_request.hasError)
+                {
+                    throw new InvalidOperationException("readback が失敗した");
+                }
+                if (_taken)
+                {
+                    // **2 度目は必ず失敗させる。** Unity の NativeArray は
+                    // 次の readback で無効になるので、2 度目に取れた「ように見える」
+                    // 状態は、解放済みメモリを読んでいる可能性がある。
+                    throw new InvalidOperationException("この依頼からは既に Mat を取り出した");
+                }
+                _taken = true;
+
+                var raw = _request.GetData<byte>();
+                var mat = CvMat.Create(_height, _width, CvMatType.Bgra32);
+                try
+                {
+                    FillFlipped(mat, raw, _width, _height);
+                    return mat;
+                }
+                catch { mat.Dispose(); throw; }
+            }
+        }
+
+        /// <summary>
         /// NativeArray の内容を上下反転して Mat に書く。
         /// </summary>
         /// <remarks>

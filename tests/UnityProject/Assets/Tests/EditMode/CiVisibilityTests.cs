@@ -35,6 +35,8 @@ public class CiVisibilityTests
         "GraphicsTests.AGraphicsDeviceIsPresent",
         "GraphicsTests.SyncReadbackProducesTheExpectedPixels",
         "GraphicsTests.VerticalFlipIsApplied",
+        "GraphicsTests.AsyncMatchesSync",
+        "GraphicsTests.TakingTheMatTwiceIsRejected",
         "GraphicsTests.EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint",
     };
 

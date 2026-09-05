@@ -30,6 +30,8 @@ public class GraphicsTests
     [Test] public void AGraphicsDeviceIsPresent() => GraphicsChecks.AGraphicsDeviceIsPresent();
     [Test] public void SyncReadbackProducesTheExpectedPixels() => GraphicsChecks.SyncReadbackProducesTheExpectedPixels();
     [Test] public void VerticalFlipIsApplied() => GraphicsChecks.VerticalFlipIsApplied();
+    [Test] public void AsyncMatchesSync() => GraphicsChecks.AsyncMatchesSync();
+    [Test] public void TakingTheMatTwiceIsRejected() => GraphicsChecks.TakingTheMatTwiceIsRejected();
 
     /// <summary>
     /// 共有本体に在るのに、この入口に配線されていない検査を名指しで落とす。
