@@ -135,6 +135,24 @@ allowlist に載っていない関数を出荷している状態は、正本が�
 asset は N 件」「EditMode は N 件」のような数はリポジトリ中に散らばっていて**一斉に
 古くなる。** `grep -rn` で数字ごと探し、増減分を全部直す。
 
+**`.md` だけを洗うと足りない。** 事実は**検査スクリプトと実装のコメント**にも
+書かれており、そちらは「文書」と呼ばれないので見落とす。2026-09-05 の API 拡張で
+実際に踏んだ 4 件:
+
+- `native/src/ocvu_features.cpp` のコメントが「ORB は `max_features` を上限として
+  守る」と書いていた（**実測では守らない**）
+- `native/tests/test_module_linkage.cpp` のコメントが「iOS と Web では
+  `COMPONENTS` から `OpenCV_LIBS` を作る」と書いていた
+  （**Web は `file(GLOB)` で全部束ねるので効かない**）
+- `tools/verify-opencv-artifact.ps1` の docstring が「config が要求する 5 module」
+  （実際は 6）、`tools/package-release.ps1` が「publish job が 3 つの artifact を
+  束ねる」（実際は assemble job が 6 platform 分）
+- `.github/workflows/release.yml` の step 名が `Check that all three platforms are present`
+  （**実際は 6 platform を見ている**）
+
+**どれも CI は緑のまま通る。** 洗う範囲は `git grep` であって
+`git grep -- '*.md'` ではない。
+
 **そのマイルストーンが「これまでの記述は誤りだった」と暴いたものは、訂正として明記
 する。** 黙って直すと、同じ誤解が別の文書に残っているかを誰も確かめられない。M3.5 が
 これだった —— 複数の文書が `imgcodecs` を「リンク済み」と書いていたが、

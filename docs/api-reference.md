@@ -478,7 +478,7 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 
 ### 2.2 `CvUnity.CvOps`
 
-`static class`。imgproc 3 関数の薄い wrapper で、非 OK status を
+`static class`。imgproc の薄い wrapper で、非 OK status を
 `CvNativeException` に変換する。
 
 | メンバ | 内容 |
@@ -869,7 +869,7 @@ SIFT の浮動小数の記述子には `L2`。**組み合わせを誤ると例�
 **`connectedComponents` / `remap` / `equalizeHist` / `calcHist`**、**描画関数**、
 **Haar / HOG**（`CascadeClassifier` / `HOGDescriptor`。**OpenCV 5 で contrib へ
 移ったので、この構成では出せない** —— 2026-09-05 に実測）—
-いずれも `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
+**大半は** `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
 しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
 この文書に追記する形にする。
 **メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と

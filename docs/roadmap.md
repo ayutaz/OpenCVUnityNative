@@ -709,11 +709,11 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
 本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
-`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` / `stereo` に留まる（**本数は [所有権と versioning](./abi-ownership-and-versioning.md) §3 の冒頭が数える** —— ここに写すと 1 本増えた日にこの行だけが嘘になる）（M3.5 で `imgcodecs` の
-2 本、M5 の module 拡張で `objdetect` / `features` / `geometry` の 4 本、続けて
-カメラの歪み補正で `imgproc` / `objdetect` の 2 本、さらに `calib` の
-`ocvu_calibrate_camera` 1 本が加わった。公開 ABI 全体は
-M3.5 と M5 で増えた。**本数を数える正本は [API 対応表](./api-map.md) の冒頭である**）
+`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` / `stereo` に留まる（**本数は [所有権と versioning](./abi-ownership-and-versioning.md) §3 の冒頭が数える** —— ここに写すと 1 本増えた日にこの行だけが嘘になる）（M3.5 で `imgcodecs`、
+M5 の module 拡張で `objdetect` / `features` / `geometry` / `calib`、そして
+**2026-09 の API 拡張で姿勢・ArUco・imgproc の実用関数・core の基本演算・
+記述子マッチング・ステレオ視差**が加わった。**本数を数える正本は
+[API 対応表](./api-map.md) の冒頭である**）
 —— **土台が 5 系なのは本案だけだが、使える機能の量では競合に遠く及ばない。**
 商用（OpenCV for Unity 3.0.3 / OpenCV 4.13.0）も OSS（neon-izm 版 / OpenCV 4.11）も
 4.x 系のままである。
