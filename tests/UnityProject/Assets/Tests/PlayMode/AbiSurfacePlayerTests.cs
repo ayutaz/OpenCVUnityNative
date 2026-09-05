@@ -26,7 +26,9 @@ public class AbiSurfacePlayerTests
     [UnityTest] public IEnumerator NativeExceptionsAreTurnedIntoStatusCodes() { AbiSurfaceChecks.NativeExceptionsAreTurnedIntoStatusCodes(); yield return null; }
     [UnityTest] public IEnumerator WebCamPixels_BecomeATopLeftOriginMat() { AbiSurfaceChecks.WebCamPixels_BecomeATopLeftOriginMat(); yield return null; }
 
-    // --- 2026-09 の API 拡張で足した 26 本を、IL2CPP の Player で実際に動かす 12 件 ---
+    // --- 2026-09 の API 拡張で足した 26 本を、IL2CPP の Player で実際に動かす ---
+    // **件数をここに書かない**（EditMode 側と同じ理由。下の
+    // EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint が数える）。
     [UnityTest] public IEnumerator SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse() { AbiSurfaceChecks.SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse(); yield return null; }
     [UnityTest] public IEnumerator Rodrigues_RoundTripsThroughTheMatrix() { AbiSurfaceChecks.Rodrigues_RoundTripsThroughTheMatrix(); yield return null; }
     [UnityTest] public IEnumerator Aruco_DetectsTheMarkerItGenerated() { AbiSurfaceChecks.Aruco_DetectsTheMarkerItGenerated(); yield return null; }
@@ -44,8 +46,9 @@ public class AbiSurfacePlayerTests
     /// <summary>
     /// spec が載せる P/Invoke 宣言を 1 つ残らず 1 回ずつ呼ぶ。
     /// **stripping が宣言を消していたら、ここで EntryPointNotFoundException に
-    /// なる。** Mono では再現しない。上の 8 件は公開 API を通るので宣言の
-    /// 一部しか触らないが、この 1 件は spec の全宣言を守る。
+    /// なる。** Mono では再現しない。**上に並ぶ検査は公開 API を通るので
+    /// 宣言の一部しか触らないが、この 1 件は spec の全宣言を守る**
+    /// （**件数を写さない** —— 2026-09 の API 拡張で 8 件から増えた）。
     /// </summary>
     [UnityTest]
     public IEnumerator EveryEntryPointIsReachable()

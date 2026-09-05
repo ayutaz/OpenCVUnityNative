@@ -17,7 +17,10 @@ public class AbiSurfaceTests
     [Test] public void NativeExceptionsAreTurnedIntoStatusCodes() => AbiSurfaceChecks.NativeExceptionsAreTurnedIntoStatusCodes();
     [Test] public void WebCamPixels_BecomeATopLeftOriginMat() => AbiSurfaceChecks.WebCamPixels_BecomeATopLeftOriginMat();
 
-    // --- 2026-09 の API 拡張で足した 26 本を、Unity の中で実際に動かす 12 件 ---
+    // --- 2026-09 の API 拡張で足した 26 本を、Unity の中で実際に動かす ---
+    // **件数をここに書かない** —— 数えるのは下の
+    // EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint で、
+    // 共有本体とリフレクションで突き合わせるので 1 件足すたびに勝手に増える。
     [Test] public void SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse() => AbiSurfaceChecks.SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse();
     [Test] public void Rodrigues_RoundTripsThroughTheMatrix() => AbiSurfaceChecks.Rodrigues_RoundTripsThroughTheMatrix();
     [Test] public void Aruco_DetectsTheMarkerItGenerated() => AbiSurfaceChecks.Aruco_DetectsTheMarkerItGenerated();

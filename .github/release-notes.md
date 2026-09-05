@@ -44,7 +44,9 @@ Git URL で参照しても `.meta` しか届かず、`DllImport` が実行時に
 確かめてある** —— **公開前にこの asset そのものを落として**展開し、
 6 platform 分を材料に、同じ script（`pack-upm-tarball.ps1`）で固め直して導入した。6 つ入った状態で Unity が読み込み、
 **自分の platform 向けだけを有効にする**ところまで見ている
-（`native plugins present: 6` / EditMode 34 件 pass）。
+（`native plugins present: 6` と EditMode が緑になるところまで）。
+**件数はここに書きません** —— この本文は次のリリースでも読まれるので、
+検査を 1 件足した日にこの行だけが嘘になります。
 **「中に 6 つ入っている」とは別の主張である。**
 
 全 asset の SHA-256 は `SHA256SUMS.txt` にある。
