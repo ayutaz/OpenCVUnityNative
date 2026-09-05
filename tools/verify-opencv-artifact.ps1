@@ -18,7 +18,7 @@
 
     許可される集合は 3 つだけ:
       1. このビルド構成で受け入れると決めた OpenCV module（$PermittedOpenCvModules）。
-         config が要求する 5 module に加え、BUILD_LIST の依存解決で実際に
+         config が要求する module に加え、BUILD_LIST の依存解決で実際に
          引き込まれ、レビュー済みの module（flann, geometry）を含む。
          opencv_ prefix を持つというだけで無条件に許可しない — videoio が
          opencv_ prefix を持ちながら許可されないのはこのため。

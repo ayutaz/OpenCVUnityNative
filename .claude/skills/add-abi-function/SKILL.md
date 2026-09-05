@@ -101,7 +101,11 @@ OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `
 **`COMPONENTS` を変えてもハッシュは変わらない** —— ハッシュを算出する
 `Get-OpenCvConfigHash` が読むのは `psd1` だけである。
 
-**`Modules` を足したら、同じ commit で次も動く**（2026-09-02 に `calib` で実測）:
+**`COMPONENTS` を足したら、同じ commit で次も動く**（2026-09-02 に `calib`、
+2026-09-05 に `stereo` で実測）。**発火するのは `Modules` ではなく `COMPONENTS` である** ——
+`stereo` は `Modules` に足さず（`calib` が推移的に引くので構成ハッシュは不変）、
+`COMPONENTS` に 1 語足しただけだが、下の 5 つのうち 4 つが動いた
+（`THIRD_PARTY_NOTICES.md` だけは動かない —— 新しい bundled 依存を持ち込まないため）:
 
 - **`tools/verify-opencv-artifact.ps1` の `$AcceptedTransitiveModules`** ——
   新しい module が別の module を推移的に引き込むと、依存 allowlist が拒否する。
@@ -191,8 +195,9 @@ C# の XML doc・API 対応表の「内容」列に同時に出る** —— 3 �
 直前にも当たるので、`Regex.IsMatch` だけでは末尾の改行を通してしまう
 （`prove-a-check-works` skill に実例がある）。
 
-**module ごとにファイルが分かれている。** 既存の 6 つ（`infra` / `core` /
-`imgproc` / `imgcodecs` / `objdetect` / `features`）のどれにも入らないなら新しい
+**module ごとにファイルが分かれている。** **module 名をここに写さない** ——
+`ls bindings/spec/*.json` が正本である（写すと module を 1 つ足すたびに
+この行だけが嘘になる。実際 6 -> 9 になった）。既存のどれにも入らないなら新しい
 `<module>.json` を作る —— そのとき生成されるヘッダも `native/include/ocvu/<module>.h`
 として増え、`native/include/opencv_unity_native.h` の `#include` 一覧に手で 1 行足す
 必要がある（**その 1 行だけは生成物ではない**）。
@@ -437,6 +442,14 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 ### 8. コミット
 
 変更したパスを個別に stage する。`git add -A` と `git add .` はフックが拒否する。
+
+**`docs/api-reference.md` に名前を書くのも同じ commit である。**
+`tools/tests/BindingGenerator.Tests.ps1` が「spec の全関数名が
+`docs/api-reference.md` に識別子として現れること」を要求し、**それは
+`$ToolsTestScriptsFast` に配線されていて `dev.ps1 test` が最初に fail-fast する。**
+**「文書は最後にまとめる」は成立しない** —— spec に entry を足して
+`generate` を通しても、名前を書くまで速いレーンが赤いままである
+（2026-09-05 に実測。26 本を足す作業で踏んだ）。
 
 **生成物も一緒にコミットする。** `native/include/ocvu/*.h`、
 `Runtime/Interop/NativeMethods.<module>.g.cs`（**`.meta` も**）、

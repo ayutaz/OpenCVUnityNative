@@ -969,6 +969,9 @@ M4 の完了条件 9 件のうち 3 件が閉じておらず、2 件が実機で
    28 asset を作れる。**動くかどうかだけが未知である。**
 3. **利用者に届く最新版は v0.2.0（3 platform）のままである。** OpenUPM が
    配信しているのもそれで、**モバイル対応は誰の手にも渡らない。**
+   **（この 3 番目は 2026-09-04 に失効した** —— v0.3.0 を公開し、OpenUPM も
+   0.3.0 を配信している。**1 と 2 は今も真である。** 2026-09-01 時点の
+   判断の記録として、消さずに残す。）
 
 **この下書きをそのまま公開してはならない。** 作った時点（2026-08-31T01:40Z）は
 **M5 が main に入る前**で、asset の中の `.g.cs` も `docs/api-map.md` も
@@ -2011,8 +2014,9 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 1. **C ABI を module ごとに分ける。** `core` / `imgproc` / `imgcodecs` は**安定 ABI として先行**し、
    `dnn` は別ヘッダ・別 `.cpp`・別 CMake target に置く。共通の型・status・version だけを
    `opencv_unity_native.h` に残す。**いま 20 本が 1 ヘッダにあるのを、足す前に割る**（この「20 本」は決定を書いた 2026-08-30 時点の値である）。
-   → **M5 で済んだ（2026-09-01）。** 関数宣言は
-   `native/include/ocvu/{infra,core,imgproc,imgcodecs,objdetect,features}.h` に分かれ、
+   → **M5 で済んだ（2026-09-01）。** 関数宣言は module ごとのヘッダ
+   `native/include/ocvu/*.h` に分かれ（**module 名を写さない** —— 正本は
+   `bindings/spec/*.json` のファイル名である）、
    `opencv_unity_native.h` に残ったのは型・status・定数だけである。**ただし分けたのは
    ヘッダであって CMake target ではない** —— まだ 1 つの target が全 module を作る。
    `OCVU_ABI_VERSION` を単一の整数のままにする判断とその留保は

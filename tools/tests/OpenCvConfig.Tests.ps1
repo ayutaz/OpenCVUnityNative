@@ -27,6 +27,8 @@ Assert-That ($config.Tag -eq '5.0.0') 'tag is pinned to 5.0.0'
 #   - geometry は Modules に書いていないが、features / objdetect の依存として
 #     OpenCV が推移的にビルドする（実測。cmake/FindOpenCvUnityDeps.cmake の
 #     COMPONENTS には意図の宣言として明示してある）
+#   - stereo も Modules に書いていないが、calib が推移的に引くので OpenCV 側は
+#     既にビルドしている（2026-09-05 に COMPONENTS へ足した。構成ハッシュは不変）
 $specModulesNotBuiltDirectly = @('infra', 'geometry', 'stereo')
 $specModules = @(
     Get-ChildItem -Path (Join-Path $PSScriptRoot '../../bindings/spec') -Filter '*.json' |

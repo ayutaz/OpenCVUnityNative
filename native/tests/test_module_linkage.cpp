@@ -130,10 +130,18 @@ TEST(ModuleLinkage, StereoIsLinked) {
     // calib はどの module からも引かれないので COMPONENTS に足す前は
     // LNK2019 で落ちたが、stereo は足す前から通る。
     //
-    // **それでも COMPONENTS には足してある。iOS と Web では話が違うからである** ——
-    // 静的ライブラリを束ねる分岐は要求した COMPONENTS だけから OpenCV_LIBS を
-    // 作るので、足さないと束ねられない。**つまりこの 1 語は desktop に対する
-    // 意図の宣言であると同時に、その 2 platform に対しては実際の指示である。**
+    // **それでも COMPONENTS には足してある。iOS では話が違うからである** ——
+    // native/CMakeLists.txt:88-90 の iOS の束ね分岐は ${OpenCV_LIBS} を
+    // foreach で回して実ファイルへ解決するので、**COMPONENTS に無い module は
+    // 束ねられない。**
+    //
+    // **Web は違う。** 同 :158-164 の Emscripten の分岐は OpenCV_LIBS を使わず、
+    // install 木の lib/libopencv_*.a を file(GLOB) で全部束ねる ——
+    // **COMPONENTS に足しても束ねる中身は 1 バイトも変わらない。**
+    // （そうした理由がその場に書いてある: COMPONENTS だけだと推移的に引かれる
+    // module が漏れ、実測で cv::flann の未定義が 29 件残った。）
+    //
+    // **つまりこの 1 語は、desktop と Web には意図の宣言、iOS には実際の指示である。**
     //
     // したがって**このテストは Windows / macOS / Linux では COMPONENTS の
     // 編集で落ちない**（UndistortionSymbolsResolveWithoutCalib と同じ性質）。

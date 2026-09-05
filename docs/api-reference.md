@@ -10,8 +10,9 @@
 （**本数は [API 対応表](./api-map.md) の冒頭が数える**。） まだ無い機能（`Mat` の部分参照、
 型変換・算術演算、**`imgcodecs` のファイルパス経路**、ステレオ校正、
 ステレオの平行化、輪郭の階層、Haar / HOG など）はここに書かない。
-**2026-09 の API 拡張で 26 本足したので、姿勢・ArUco・imgproc の実用関数・
-core の基本演算・特徴点マッチング・ステレオ視差は §1 と §2.12〜§2.15 にある。****`WebCamTexture` 連携は
+**2026-09 の API 拡張で 26 本足した** —— C ABI は §1 の後半 4 節、C# は
+**姿勢が §2.10**（`CvGeometry` に追記した）、ArUco が §2.12、imgproc の実用関数が
+§2.13、core の基本演算が §2.14、特徴点マッチングとステレオが §2.15 にある。**`WebCamTexture` 連携は
 M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
 推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
 features / geometry / カメラ校正」と §2.8〜§2.11 にある。**詳しい経緯は
@@ -43,11 +44,13 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 ## 1. C ABI（`native/include/ocvu/*.h`）
 
 **M5 で宣言の在り処が変わった。** 関数宣言は module ごとの
-`native/include/ocvu/{infra,core,imgproc,imgcodecs,objdetect,features,geometry,calib}.h` にあり、
+`native/include/ocvu/*.h` にあり（**module 名をここに写さない** —— 正本は
+`bindings/spec/*.json` のファイル名である）、
 **いずれも `bindings/spec/*.json` からの生成物である**（手で編集すると
 `./tools/dev.ps1 verify-generated` が落とす）。利用者が include するのは
 これまでどおり `native/include/opencv_unity_native.h` で、そちらは
-`OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数を持ち、8 つを include する。
+`OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数を持ち、**module の数だけ**
+include する（`tools/tests/BindingGenerator.Tests.ps1` が spec の module 数との一致を要求する）。
 **「関数宣言は `opencv_unity_native.h` に在る」と書いていた記述は、この時点で誤りになった。**
 
 すべて `extern "C"`、呼び出し規約は Cdecl。戻り値は `ocvu_status`（`int32_t`）。
@@ -55,7 +58,8 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 （詳細後述）。C# から直接この層を呼ぶことは想定していない —
 `CvUnity.Interop.NativeMethods`（`internal`）が P/Invoke 宣言を持ち、`CvUnity.CvMat` /
 `CvUnity.CvOps` / `CvUnity.CvCodecs` / `CvUnity.CvNative` / `CvUnity.CvQrCode` /
-`CvUnity.CvFeatures` / `CvUnity.CvGeometry` / `CvUnity.CvCalibration` が
+`CvUnity.CvFeatures` / `CvUnity.CvGeometry` / `CvUnity.CvCalibration` /
+`CvUnity.CvAruco` / `CvUnity.CvCoreOps` / `CvUnity.CvStereo` が
 それを包んで公開する。
 
 ### Mat のライフサイクル
@@ -658,7 +662,7 @@ native に同じ値を問うテスト（`FeaturesTests.TheManagedUpperBoundMatch
 1 つ目を支えるために、handle が指す `Mat` のアドレスは他の handle の作成・
 解放で動かないようにしてある（M3 でここが壊れていたのを直した。経緯は §1.5）。
 
-### 2.10 `CvUnity.CvGeometry` / `CvUnity.CvPoint2` / `CvUnity.CvHomographyMethod`
+### 2.10 `CvUnity.CvGeometry` / `CvPoint2` / `CvPoint3` / `CvHomographyMethod` / `CvSolvePnPMethod`
 
 点の対応から変換を求める（OpenCV の `geometry`）。
 
@@ -684,6 +688,36 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 **4 点の対応から厳密に求めたいなら `CvOps.GetPerspectiveTransform`**（同）——
 こちらの `FindHomography` は 4 点以上から当てはめるので、外れ値がありうる
 対応に向く。
+
+**2026-09 の API 拡張で 4 本増えた。** `CvGeometry` は射影変換の推定に加えて、
+**姿勢**（3D 点とその画像上の対応から、カメラから見た位置と向きを求めること）を扱う。
+
+| メンバ | 内容 |
+| --- | --- |
+| `CvGeometry.SolvePnP(CvPoint3[] objectPoints, CvPoint2[] imagePoints, double[] cameraMatrix, double[] distCoeffs, CvSolvePnPMethod method = Iterative)` | 既知の 3D 点とその画像上の対応点から 1 枚ぶんの姿勢を求め、`CvViewPose` で返す |
+| `CvGeometry.RodriguesToMatrix(CvViewPose pose)` | 回転ベクトルを 3x3 の回転行列（行優先の 9 個）に直す |
+| `CvGeometry.RodriguesToVector(double[] rotationMatrix)` | 回転行列を回転ベクトル（3 個）に直す |
+| `CvGeometry.ProjectPoints(CvPoint3[] objectPoints, CvViewPose pose, double[] cameraMatrix, double[] distCoeffs)` | 3D の点を、与えた姿勢とカメラで画像平面へ投影する |
+| `CvPoint3(float x, float y, float z)` | 空間中の点。`X` / `Y` / `Z` を持つ |
+| `CvSolvePnPMethod` | `Iterative`（既定）/ `Epnp` / `P3p` / `Ap3p` / `Ippe` / `IppeSquare` / `SqPnp` |
+
+**`SolvePnP` と `ProjectPoints` は互いの逆である。** 同じ数値で往復するので、
+片方が壊れればもう片方のテストが残る。
+
+**姿勢の型は `CvViewPose`**（§2.11 で校正が返すものと同じ）である ——
+回転は Rodrigues の軸角ベクトル、**座標系は OpenCV のもの**（右手系、y が下向き、
+z が奥）で、**Unity 座標系への変換はこの package が持っていない。**
+
+**`cameraMatrix` の `[0]` と `[4]`（fx と fy）が 0 だと断られる。**
+**OpenCV はこれを検出せず、例外も投げず false も返さず、有限だが無意味な姿勢を
+成功として返す**（実測）—— この package が自分で見ている。**一般的な特異性の
+検査ではない**ので、極端に小さい焦点距離までは弾かない。
+
+**`distCoeffs` は `null` か空で「歪み無し」を指定できる。** そうでなければ
+OpenCV が受ける個数（4 / 5 / 8 / 12 / 14）でなければならない。
+
+**`IppeSquare` は正方形マーカー専用で、点の並び順が決まっている**
+（左上・右上・右下・左下）。`CvAruco.EstimateMarkerPose`（§2.12）がこれを使う。
 
 ### 2.11 `CvUnity.CvCalibration`
 

@@ -281,8 +281,8 @@ native library と C# は同じ UPM パッケージで同時に配布される�
 見逃す方向に働く。完全一致なら必ず検出できる。
 
 **M5 で C ABI を module ごとのヘッダに割ったが、`OCVU_ABI_VERSION` は
-単一の整数のままである。** 宣言は `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h`
-に分かれ、いずれも `bindings/spec/*.json` からの生成物になったが、
+単一の整数のままである。** 宣言は module ごとの `native/include/ocvu/*.h`
+に分かれ（**module 名を写さない**）、いずれも `bindings/spec/*.json` からの生成物になったが、
 **module ごとに版を持たせてはいない** —— 配るのは 1 つの binary で、
 **「部分的に古い module」というものが存在しない**からである。
 `dnn` を別 target・別 binary にした場合はこの前提が崩れうるので、

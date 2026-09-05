@@ -51,7 +51,7 @@
 
 ## Status
 
-M0〜M3.5 は完了しました（**M3.5 は完了条件 6 件すべてを 2026-08-30 に満たしました**。判定は roadmap の M3.5 節が正本）。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29）を公開しました**（**その後 v0.2.0 を公開しており、そちらが現在の最新です** —— 下の M3.5 の段落）。**M3.5 の成果はまだリリースに載っていません** —— 次の版で初めて利用者に届きます。
+M0〜M3.5 は完了しました（**M3.5 は完了条件 6 件すべてを 2026-08-30 に満たしました**。判定は roadmap の M3.5 節が正本）。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29）を公開しました**（**その後 v0.2.0 / v0.3.0 と重ね、現在の最新は v0.3.0（2026-09-04、6 platform）です**）。**M3.5 の成果は v0.2.0 で、M4 / M5 / M6 の成果は v0.3.0 で配りました** —— 次の版で初めて利用者に届きます。
 
 M2 の最後に残っていた条件 7（CI 上で L4/L5 を実行）は、game-ci でランナーへの Unity 導入とライセンスのアクティベーションを行い、Linux で走らせることで満たしました。**その過程で、公開済み v0.1.0 の Linux 版が古い環境で読み込めない欠陥が判明しました** —— ubuntu-24.04 でビルドした `.so` が GLIBC_2.38 を要求していたためで、Unity を CI で実際に動かすまで誰も気づけませんでした。Linux のビルドを `ubuntu:22.04` コンテナへ移し、要求を 2.34 に下げたうえで、ビルド時点で上限を検査するようにしています。
 
@@ -73,7 +73,7 @@ M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完�
 
 検証する Unity は 6000.0 から **6000.3 LTS（6000.3.16f1）** へ載せ替えました（6000.0 の通常サポートが 2026-10 に終わるためです）。6.3 で EditMode 34 件、IL2CPP Player 19 件が通っています（M3.5 時点では 16 / 10、M4 で 33 / 18、M5 で到達性テストが 1 件ずつ加わりました） —— **IL2CPP モジュールは Hub の CLI で先に入れる必要がありました**（入っていない状態では Player のビルドが「Currently selected scripting backend (IL2CPP) is not installed」で落ちます）。OpenUPM への登録は**提出し、受理されました**（openupm/openupm PR #6843、2026-08-30 に自動マージ。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が 0.2.0 を配信しています。詳細は [OpenUPM への登録](./openupm-registration.md)）。詳細は roadmap の M3.5 節にあります。
 
-M5（binding specification と generator）は**完了条件 5 件すべてを満たしました**（2026-09-02。判定表は roadmap の M5 節が正本）。境界の宣言を手で書く経路が無くなり、`bindings/spec/*.json` の entry から **C ABI 宣言 / C# の P/Invoke / 全 entry point を呼ぶ到達性テスト / [API 対応表](./api-map.md)** が `./tools/dev.ps1 generate` で出るようになりました（**本数は上に書いたとおり対応表の冒頭が数えます**）。**手書きの `[DllImport]` は 0 個です。** 一致は `./tools/dev.ps1 verify-generated` が見て、これは `dev.ps1 test` に入っているので 3 platform の CI が走らせます。**条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は当初は次へ送りましたが、続く 3 つの計画で閉じました** —— `objdetect`（QR の符号化・復号）と `features`（ORB 検出）、`geometry`（射影変換の推定。**リンクは無料でした** —— 既に推移的に引かれていました）、カメラの歪み補正、そして **`calib` module と `cv::calibrateCamera`**（2026-09-02）。**最後の 1 つだけが高く**、構成ハッシュが変わって 5 platform 分の OpenCV を作り直しました。**これでカメラ校正の 3 段（格子点を見つける / 係数を解く / 係数で補正する）が揃っています。** 詳細は roadmap の M5 節。**M4（Mobile）は依然として完了していません**（9 件中 5 件。詳細は roadmap の M4 節）。
+M5（binding specification と generator）は**完了条件 5 件すべてを満たしました**（2026-09-02。判定表は roadmap の M5 節が正本）。境界の宣言を手で書く経路が無くなり、`bindings/spec/*.json` の entry から **C ABI 宣言 / C# の P/Invoke / 全 entry point を呼ぶ到達性テスト / [API 対応表](./api-map.md)** が `./tools/dev.ps1 generate` で出るようになりました（**本数は上に書いたとおり対応表の冒頭が数えます**）。**手書きの `[DllImport]` は 0 個です。** 一致は `./tools/dev.ps1 verify-generated` が見て、これは `dev.ps1 test` に入っているので 3 platform の CI が走らせます。**条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は当初は次へ送りましたが、続く 3 つの計画で閉じました** —— `objdetect`（QR の符号化・復号）と `features`（ORB 検出）、`geometry`（射影変換の推定。**リンクは無料でした** —— 既に推移的に引かれていました）、カメラの歪み補正、そして **`calib` module と `cv::calibrateCamera`**（2026-09-02）。**最後の 1 つだけが高く**、構成ハッシュが変わって 5 platform 分の OpenCV を作り直しました。**これでカメラ校正の 3 段（格子点を見つける / 係数を解く / 係数で補正する）が揃っています。** 詳細は roadmap の M5 節。**M4（Mobile）は依然として完了していません**（9 件中 6 件。詳細は roadmap の M4 節）。
 
 M6（Web / Wasm）は**完了条件 5 件すべてを満たしました**（2026-09-03。判定表は
 roadmap の M6 節が正本）。**Web は 6 つ目の platform で、クロスビルドかつ静的

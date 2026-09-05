@@ -22,11 +22,13 @@ OpenCV のアルゴリズムを実装し直すこと。OpenCV の API 全面を�
 
 ## 対応 platform
 
-**いま配っているもの**: Windows x64、macOS arm64、Linux x64。いずれも CI がビルド・テスト・パッケージ化し、Linux と Windows のプラグインは Unity 自身が動かしています（Mono の EditMode と実物の IL2CPP Player）。
+**いま配っているもの（v0.3.0 以降、6 つとも）**: Windows x64、macOS arm64、Linux x64、Android arm64-v8a、iOS arm64、Web（WebGL）。いずれも CI がビルド・テスト・パッケージ化し、Linux と Windows のプラグインは Unity 自身が動かしています（Mono の EditMode と実物の IL2CPP Player）。
+
+**「配っている」は「実機で確かめた」ではありません。** platform ごとに何を通っているかは違うので、下の段落が 1 つずつ書いています。
 
 macOS のプラグインはパッケージに入っており、Unity 自身が Plugin Import Settings を読むところまでは確かめてあります —— EditMode のテストが、全 platform の binary を置いた状態で Unity の `PluginImporter` に「その `.meta` をどう解釈したか」を問います。**ただし macOS のライブラリは一度も読み込まれておらず、macOS 上で Unity を起動したこともありません。** あの platform は「ビルドされ、gating されている」であって「動かした」ではないと考えてください。
 
-**ビルドはされているが、実機で一度も動かしていないもの**: Android arm64-v8a と iOS arm64。CI は両方をクロスコンパイルし、Android の `.so` については**実物の ELF program header を読んで** 16 KB page 整列を確かめ、iOS の `.a` については**このプラグインが参照する OpenCV のシンボルを実際に束ねているか**を確かめます。**しかしそれは、電話機の上で動かすこととは別です。** Android / iOS のどの端末も、これらの binary を読み込んだことがありません。リポジトリには入っており次の版に含まれますが、[実機検証の手順](docs/m4-device-verification.md)を誰かが実施するまでは未検証として扱ってください。
+**配っているが、実機で一度も動かしていないもの**: Android arm64-v8a と iOS arm64。CI は両方をクロスコンパイルし、Android の `.so` については**実物の ELF program header を読んで** 16 KB page 整列を確かめ、iOS の `.a` については**このプラグインが参照する OpenCV のシンボルを実際に束ねているか**を確かめます。**しかしそれは、電話機の上で動かすこととは別です。** Android / iOS のどの端末も、これらの binary を読み込んだことがありません。**v0.3.0 に入っているので、いま利用者に届いています。**[実機検証の手順](docs/m4-device-verification.md)を誰かが実施するまでは未検証として扱ってください。
 
 **Web / Wasm はリポジトリに入っており、実際にブラウザで動きます** —— headless の
 Chromium が本物の WebGL Player を読み込み、EditMode と IL2CPP Player が走らせるのと
@@ -224,7 +226,7 @@ Unity のレーンは Linux で走り、Windows の IL2CPP Player はローカ�
 
 このリポジトリ自身のソースは Apache License 2.0 です。**それだけでは、配布される binary にリンクされる third-party のコードの条件は決まりません** —— 固定した OpenCV のビルドが bundle するもののライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) にあります。同ファイルは成果物が運ぶすべてのライセンスを列挙し、component ごとに **OpenCV 自身のどの静的ライブラリにコンパイルされているか**を述べます。SoftFloat・annoylib・MSCR の chi table・Rubik フォントが、zlib・libpng・libjpeg-turbo・libclapack と並んでリンクされています（**ライセンスファイルは入っているがリンクされていないもの**もいくつかあります）。**Rubik フォントは BSD 系ではなく SIL Open Font License なので、この集合は一様ではありません。** 依存は allowlist（`tools/verify-opencv-artifact.ps1`）で縛られ、ビルド profile ごとに文書化されています。
 
-**そのうちどれが、あなたが再配布するプラグインに実際に届くかは、このプラグインがどの OpenCV module をリンクするかで決まり、それは何度か変わってきました。** いまは `core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `geometry` / `calib` / `stereo` をリンクしています（`imgcodecs` の前は `core` と `imgproc` だけでした）。**静的リンクは参照されたものしか引き込まない**ので、その module に入る関数が書かれるまで、その module のコードは配布ライブラリに 1 バイトも届きません。**書くことが引き込みます** —— Windows の debug ライブラリは encode / decode の関数が入ったときに 8,831,488 から 10,177,536 バイトへ（zlib / libpng / libjpeg-turbo が一緒に来ました）、QR と ORB が入ったときに 20,136,960 バイトへ（`annoylib` と MSCR の chi_table が `features` と一緒に来ました）増えました。いまは **22,282,240 バイト**です。**ここに記録してあった直前の値は 21,464,576 バイト**（`calibrateCamera` が入ったときの実測）ですが、**同じソースを M6 のあとで測り直すと 21,465,600 バイト**でした —— Web の作業がビルドを変えたのに誰も測り直していなかったので、差のうち 1,024 バイトはこの作業のものではありません。**2026-09 の API 拡張で入った 26 本（姿勢・ArUco・imgproc の実用関数・core の基本演算・特徴点マッチング・ステレオ視差）のぶんは 816,640 バイトです。****ビルドシステムに module を足すだけでは何も変わりません** —— `calib` をリンクしたときも `stereo` をリンクしたときも、実際にそこへ入る関数が書かれるまで、ライブラリの大きさはちょうど 0 バイトしか動きませんでした。
+**そのうちどれが、あなたが再配布するプラグインに実際に届くかは、このプラグインがどの OpenCV module をリンクするかで決まり、それは何度か変わってきました。** いまは `core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `geometry` / `calib` / `stereo` をリンクしています（`imgcodecs` の前は `core` と `imgproc` だけでした）。**静的リンクは参照されたものしか引き込まない**ので、その module に入る関数が書かれるまで、その module のコードは配布ライブラリに 1 バイトも届きません。**書くことが引き込みます** —— Windows の debug ライブラリは encode / decode の関数が入ったときに 8,831,488 から 10,177,536 バイトへ（zlib / libpng / libjpeg-turbo が一緒に来ました）、QR と ORB が入ったときに 20,136,960 バイトへ（`annoylib` と MSCR の chi_table が `features` と一緒に来ました）増えました。いまは **22,283,264 バイト**です。**ここに記録してあった直前の値は 21,464,576 バイト**（`calibrateCamera` が入ったときの実測）ですが、**同じソースを M6 のあとで測り直すと 21,465,600 バイト**でした —— Web の作業がビルドを変えたのに誰も測り直していなかったので、差のうち 1,024 バイトはこの作業のものではありません。**2026-09 の API 拡張で入った 26 本（姿勢・ArUco・imgproc の実用関数・core の基本演算・特徴点マッチング・ステレオ視差）のぶんは 817,664 バイトです。****ビルドシステムに module を足すだけでは何も変わりません** —— `calib` をリンクしたときも `stereo` をリンクしたときも、実際にそこへ入る関数が書かれるまで、ライブラリの大きさはちょうど 0 バイトしか動きませんでした。
 
 **この区別は失われやすく、このリポジトリも一時期それを失っていました。** 固定した OpenCV のビルドは最初から `imgcodecs` を含む構成で、`ocvu_get_build_information()` も「To be built」にそれを並べます —— **それは「OpenCV がその module を含めてビルドされた」であって「このプラグインがそれにリンクしている」ではありません。** リンクしていなかったのですが、決着をつけたのはリンカでした —— `cv::imencode` への最初の呼び出しが未解決の外部シンボルになったのです。
 

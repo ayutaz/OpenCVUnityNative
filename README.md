@@ -22,9 +22,13 @@ Reimplementing OpenCV algorithms. Hand-wrapping the entire OpenCV API up front. 
 
 ## Platforms
 
-**Shipping today:** Windows x64, macOS arm64, Linux x64. Each is built, tested and
+**Shipping today (all six, since v0.3.0 on 2026-09-04):** Windows x64, macOS arm64,
+Linux x64, Android arm64-v8a, iOS arm64 and Web (WebGL). Each is built, tested and
 packaged by CI, and the Linux and Windows plugins are exercised by Unity itself
 (EditMode on Mono and a real IL2CPP player).
+
+**"Shipped" is not "verified on a device."** What each platform has actually been
+through differs, and the paragraphs below say so one by one.
 
 The macOS plugin is packaged, and Unity itself now reads its Plugin Import Settings —
 an EditMode test asks Unity's own `PluginImporter` how it interpreted every `.meta`
@@ -32,12 +36,12 @@ file, with every binary present. But the macOS library has never been
 loaded, and Unity has never been run on macOS at all. Treat that platform as built and
 gated rather than exercised.
 
-**Built but never run on a device:** Android arm64-v8a and iOS arm64. CI cross-compiles
+**Shipped but never run on a device:** Android arm64-v8a and iOS arm64. CI cross-compiles
 both, checks the Android `.so` for 16 KB page alignment against the real ELF program
 headers, and confirms the iOS `.a` actually bundles the OpenCV symbols this plugin
 references. **None of that is the same as running on a phone.** No Android or iOS device
-has ever loaded these binaries. They are in the repository and will be in the next
-release; treat them as unverified until someone runs
+has ever loaded these binaries. **They are in v0.3.0, so they reach users today**;
+treat them as unverified until someone runs
 [the device checklist](docs/m4-device-verification.md).
 
 **Web/Wasm is in the tree and actually runs in a browser** — a headless Chromium loads a
@@ -150,8 +154,8 @@ every `DllImport` fails at runtime. Use the release tarball —
 
 ### One package, every platform
 
-The package you install carries every platform's binary together (Windows, macOS and
-Linux in v0.2.0; Android, iOS and Web join them in the next release). Unity
+The package you install carries every platform's binary together (**all six since
+v0.3.0**; Windows, macOS and Linux were the three in v0.2.0). Unity
 allows one package per package ID, so a project whose editor and build target are
 different platforms needs them in one package. Earlier releases shipped one tarball
 per platform and could not express that; the per-platform tarballs still ship, but
@@ -361,12 +365,12 @@ call into a module are written, none of that module's code reaches the shipped l
 Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
 10,177,536 bytes when the encode/decode functions landed (zlib, libpng and libjpeg-turbo
 came with them), and to 20,136,960 bytes when the QR and ORB functions landed
-(`annoylib` and the MSCR chi_table come with `features`). It stands at **22,282,240 bytes** now.
+(`annoylib` and the MSCR chi_table come with `features`). It stands at **22,283,264 bytes** now.
 
 The previous figure recorded here was 21,464,576, measured when `calibrateCamera`
 landed. **Rebuilding the same sources after M6 gives 21,465,600** — the Web work
 changed the build without anyone re-measuring, so 1,024 bytes of the difference are
-not ours. **The 26 functions added in September 2026 account for 816,640 bytes.**
+not ours. **The 26 functions added in September 2026 account for 817,664 bytes.**
 Adding a module to the build system alone changes nothing: linking `calib`, and
 later `stereo`, each moved the library by exactly zero bytes until a function
 actually called into it.
