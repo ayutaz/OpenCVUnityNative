@@ -39,6 +39,7 @@ public class AbiSurfacePlayerTests
     [UnityTest] public IEnumerator CoreOps_ProduceThePixelsWeComputeByHand() { AbiSurfaceChecks.CoreOps_ProduceThePixelsWeComputeByHand(); yield return null; }
     [UnityTest] public IEnumerator Descriptors_AreComputedAndMatched() { AbiSurfaceChecks.Descriptors_AreComputedAndMatched(); yield return null; }
     [UnityTest] public IEnumerator Disparity_IsComputedAndReadBackAs16Bit() { AbiSurfaceChecks.Disparity_IsComputedAndReadBackAs16Bit(); yield return null; }
+    [UnityTest] public IEnumerator RemainingImgprocAndCoreOps_WorkInsideUnity() { AbiSurfaceChecks.RemainingImgprocAndCoreOps_WorkInsideUnity(); yield return null; }
 
     /// <summary>
     /// spec が載せる P/Invoke 宣言を 1 つ残らず 1 回ずつ呼ぶ。

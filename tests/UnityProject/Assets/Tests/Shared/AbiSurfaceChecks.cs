@@ -736,6 +736,110 @@ public static class AbiSurfaceChecks
         Check.Greater(valid, 0, "視差が 1 画素も求まっていない");
     }
 
+
+    /// <summary>
+    /// エッジ検出・channel の差し込み・範囲抽出・正規化を Unity の中で動かす。
+    /// </summary>
+    /// <remarks>
+    /// <b>この 4 本だけが、Unity のどのレーンからも呼ばれていなかった。</b>
+    /// 26 本を Unity で動かす検査を足したとき、C# の入口の名前で機械的に
+    /// 突き合わせて見つけた —— <c>Canny</c> / <c>InsertChannel</c> /
+    /// <c>InRange</c> / <c>Normalize</c> の 4 つである。
+    /// <para>
+    /// L1 と L3 は覆っていたが、<b>IL2CPP の stripping を抜けた先で動くことは
+    /// 確かめられていなかった</b> —— 呼ばれない宣言は、消えても誰も気づかない。
+    /// </para>
+    /// </remarks>
+    public static void RemainingImgprocAndCoreOps_WorkInsideUnity()
+    {
+        // --- Canny: 段差にエッジが出る ---
+        var split = new byte[16];
+        for (int r = 0; r < 4; r++)
+        {
+            for (int c = 0; c < 4; c++) { split[r * 4 + c] = (byte)(c < 2 ? 10 : 200); }
+        }
+        using (var src = CvMat.Create(4, 4, CvMatType.Gray8))
+        using (var edges = CvMat.Create(1, 1, CvMatType.Gray8))
+        {
+            src.CopyFrom(split, 4);
+            CvOps.Canny(src, edges, 50.0, 150.0);
+
+            Check.AreEqual(4, edges.Rows);
+            Check.AreEqual(4, edges.Cols);
+            Check.AreEqual(1, edges.Channels, "Canny は 1 channel を返すこと");
+
+            var got = new byte[16];
+            edges.CopyTo(got, 4);
+            bool anyEdge = false;
+            foreach (var v in got) { if (v == 255) { anyEdge = true; } }
+            Check.IsTrue(anyEdge, "段差があるのにエッジが 1 画素も無い");
+        }
+
+        // --- InsertChannel: **dst を置き換えず、その channel だけを書き換える** ---
+        var quad = new byte[16];
+        for (int i = 0; i < 4; i++)
+        {
+            for (int c = 0; c < 4; c++) { quad[i * 4 + c] = (byte)(i * 10 + c); }
+        }
+        using (var target = CvMat.Create(2, 2, CvMatType.Bgra32))
+        using (var replacement = CvMat.Create(2, 2, CvMatType.Gray8))
+        {
+            target.CopyFrom(quad, 2 * 4);
+            replacement.CopyFrom(new byte[] { 99, 99, 99, 99 }, 2);
+
+            CvCoreOps.InsertChannel(replacement, target, 1);
+
+            // **形は変わらない。** これは他の 25 本と違う性質である。
+            Check.AreEqual(2, target.Rows);
+            Check.AreEqual(4, target.Channels, "InsertChannel は dst を置き換えないこと");
+
+            var got = new byte[16];
+            target.CopyTo(got, 2 * 4);
+            for (int i = 0; i < 4; i++)
+            {
+                Check.AreEqual((byte)(i * 10 + 0), got[i * 4 + 0], "channel 0 は元のままであること");
+                Check.AreEqual((byte)99, got[i * 4 + 1], "channel 1 だけが差し替わること");
+                Check.AreEqual((byte)(i * 10 + 2), got[i * 4 + 2], "channel 2 は元のままであること");
+            }
+        }
+
+        // --- InRange: 範囲に入る画素だけが 255 ---
+        var extremes = new byte[9];
+        for (int i = 0; i < 9; i++) { extremes[i] = 100; }
+        extremes[0] = 5;
+        extremes[1 * 3 + 1] = 200;
+        using (var src = CvMat.Create(3, 3, CvMatType.Gray8))
+        using (var mask = CvMat.Create(1, 1, CvMatType.Gray8))
+        {
+            src.CopyFrom(extremes, 3);
+
+            // 50..150 の間だけ 255。5 と 200 は外れ、100 が 7 個残る。
+            CvCoreOps.InRange(src, mask, new[] { 50.0 }, new[] { 150.0 });
+
+            var got = new byte[9];
+            mask.CopyTo(got, 3);
+            int lit = 0;
+            foreach (var v in got) { if (v == 255) { lit++; } }
+            Check.AreEqual(7, lit, "100 の画素が 7 個あること");
+            Check.AreEqual((byte)0, got[0], "5 は範囲外であること");
+            Check.AreEqual((byte)0, got[1 * 3 + 1], "200 は範囲外であること");
+        }
+
+        // --- Normalize: 値域が 0..255 へ引き伸ばされる ---
+        using (var src = CvMat.Create(3, 3, CvMatType.Gray8))
+        using (var stretched = CvMat.Create(1, 1, CvMatType.Gray8))
+        {
+            src.CopyFrom(extremes, 3);
+
+            CvCoreOps.Normalize(src, stretched, 0.0, 255.0, CvNormType.MinMax);
+
+            // **MinMaxLoc で確かめる。** 2 本を同時に通すことになる。
+            var mm = CvCoreOps.MinMaxLoc(stretched);
+            Check.AreEqual(0.0, mm.MinValue, "最小が 0 へ写ること");
+            Check.AreEqual(255.0, mm.MaxValue, "最大が 255 へ写ること");
+        }
+    }
+
     /// <summary>決定的な擬似乱数で、繰り返さない模様を作る。</summary>
     private static byte[] MakeStereoTexture(int width, int height, int offsetX)
     {

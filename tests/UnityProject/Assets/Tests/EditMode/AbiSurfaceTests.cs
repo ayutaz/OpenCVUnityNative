@@ -30,6 +30,7 @@ public class AbiSurfaceTests
     [Test] public void CoreOps_ProduceThePixelsWeComputeByHand() => AbiSurfaceChecks.CoreOps_ProduceThePixelsWeComputeByHand();
     [Test] public void Descriptors_AreComputedAndMatched() => AbiSurfaceChecks.Descriptors_AreComputedAndMatched();
     [Test] public void Disparity_IsComputedAndReadBackAs16Bit() => AbiSurfaceChecks.Disparity_IsComputedAndReadBackAs16Bit();
+    [Test] public void RemainingImgprocAndCoreOps_WorkInsideUnity() => AbiSurfaceChecks.RemainingImgprocAndCoreOps_WorkInsideUnity();
 
     /// <summary>
     /// spec が載せる P/Invoke 宣言を 1 つ残らず 1 回ずつ呼ぶ（本体は

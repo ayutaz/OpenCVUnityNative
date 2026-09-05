@@ -235,6 +235,27 @@ C++ の `bool` は幅が platform で保証されず、C# の `bool` は既定�
 | --- | --- | --- |
 | `OCVU_ARUCO_MAX_MARKER_PIXELS` | 4096 | `ocvu_aruco_generate_marker` の `side_pixels`（native が `side_pixels * side_pixels` を確保する） |
 
+**実装後に 4 つ目が要ることが分かった**（2026-09-05、PR 前の AI レビュー）。
+
+| 定数 | 値 | 何を縛るか |
+| --- | --- | --- |
+| `OCVU_CORNER_MAX_WINDOW` | 256 | `ocvu_corner_sub_pix` の `win_size` / `zero_zone` |
+
+**上の「出力の capacity には上限を置かない」に反しない** —— これは入力であり、
+しかも **native が掛け算をするのではなく OpenCV の中で寸法になる**値である
+（`cv::cornerSubPix` は窓の半径を `int` のまま 2 倍する）。
+
+**上限が無いと何が起きるかを実測した:**
+
+```
+zero_zone = 2^30      -> プロセスが 0xC0000005 で即死する（status を返さない）
+win_size  = 2^30      -> "Failed to allocate 18446744056529682436 bytes"
+win_size  = INT32_MAX -> OCVU_STATUS_OK（無意味な窓で成功と称する）
+```
+
+**3 つとも壊れ方が違い、どれも status では気づけない。** 1 つ目は C# から
+そのまま到達でき、**Unity の Editor / Player がその 1 呼び出しで落ちる。**
+
 ### 5.7 OpenCV の値をそのまま出す定数には `static_assert` を置く
 
 `OCVU_IMREAD_*` / `OCVU_CVT_*` / `OCVU_HOMOGRAPHY_METHOD_*` が既にそうしている。
