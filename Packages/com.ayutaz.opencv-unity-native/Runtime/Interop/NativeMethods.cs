@@ -43,6 +43,29 @@ namespace CvUnity.Interop
     }
 
     /// <summary>
+    /// 記述子の対応 1 つ。native の ocvu_dmatch と layout を合わせる。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="OcvuKeyPoint"/> と同じく **この型は生成しない** —— spec が
+    /// 持つのは関数の signature だけで、layout の正本は native のヘッダ側に
+    /// ある（native/include/opencv_unity_native.h の ocvu_dmatch。native は
+    /// sizeof == 16、offset は 0 / 4 / 8 / 12 を static_assert で固定している）。
+    ///
+    /// 大きさが食い違うと marshalling だけが壊れるので、L3 の MatchingTests が
+    /// Marshal.SizeOf と Marshal.OffsetOf の**両方**で突き合わせる ——
+    /// **合計だけを固定した検査は、同じ型のフィールドの入れ替えを通す**
+    /// （QueryIndex / TrainIndex / ImageIndex は 3 つとも int である）。
+    /// </remarks>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct OcvuDMatch
+    {
+        internal int QueryIndex;
+        internal int TrainIndex;
+        internal int ImageIndex;
+        internal float Distance;
+    }
+
+    /// <summary>
     /// P/Invoke 宣言の置き場。
     /// </summary>
     /// <remarks>

@@ -55,8 +55,9 @@ hangs off it. See [README](README.md#development) for the full list.
 ## What CI will check
 
 Every pull request runs, across Windows / macOS / Linux: the contract tests, the
-P/Invoke tests, the sanitizer lanes (with LeakSanitizer on Linux), artifact linkage
-and portability verification, and — on Linux — Unity EditMode and a real IL2CPP
+P/Invoke tests, artifact linkage
+and portability verification; the sanitizer lanes run on Windows and Linux only
+(with LeakSanitizer on Linux); and — on Linux — Unity EditMode and a real IL2CPP
 player. Android and iOS are cross-compiled and their artifacts inspected (16 KB page
 alignment, bundled symbols), **but no device runs them.** Web/Wasm is cross-compiled
 too, its static archive checked for bundled OpenCV symbols and SIMD, and a headless

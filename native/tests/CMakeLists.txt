@@ -27,6 +27,13 @@ add_executable(ocvu_tests
     test_objdetect.cpp
     test_features.cpp
     test_calibration.cpp
+    test_pose.cpp
+    test_aruco.cpp
+    test_imgproc_ops.cpp
+    test_imgproc_shape.cpp
+    test_core_ops.cpp
+    test_matching.cpp
+    test_stereo.cpp
 )
 
 # SHARED ではなく STATIC 側にリンクする（native/CMakeLists.txt の注記を参照）

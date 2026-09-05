@@ -47,11 +47,21 @@ public sealed class WebSmokeRunner : MonoBehaviour
         // （`AbiSurfaceTests.cs` が `[Test] public void X() => AbiSurfaceChecks.X();`
         // を 1 行ずつ持つ）—— NUnit にテストとして見せるにはそれが要る。
         //
-        // **したがって、検査を 1 つ足したときに追随するのは Web だけである。**
+        // **したがって、検査を 1 つ足したときに自動で追随するのは Web だけである。**
         // EditMode / PlayMode は名指しなので、足し忘れるとそちらだけ走らない。
-        // **その差は tools/run-web-e2e.ps1 が埋める** —— 共有本体の
-        // `public static void` を数え、**Web で走った件数と完全一致**することを
-        // 要求するので、**片方だけ古くなれば Web のレーンが赤くなる。**
+        //
+        // **漏れは 2 つの機構が捕まえる。**
+        //
+        // 1. `tools/run-web-e2e.ps1` —— 共有本体の `public static void` を数え、
+        //    **Web で走った件数と完全一致**することを要求する。
+        //    **ただし「数が合わない」としか言えない。**
+        // 2. **EditMode / PlayMode の
+        //    `EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint`**（2026-09 に追加）
+        //    —— リフレクションで共有本体と突き合わせ、**どれが漏れたかを名指しする。**
+        //    しかも**その入口自身のレーンで落ちる**ので、Web を待たなくてよい。
+        //
+        // **2 のほうが強い。** 1 は「Web が数える」ので、EditMode の配線が
+        // 漏れていても Web のレーンが赤くなるまで分からなかった。
         var methods = typeof(AbiSurfaceChecks).GetMethods(
             BindingFlags.Public | BindingFlags.Static);
         foreach (var m in methods)

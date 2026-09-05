@@ -125,7 +125,20 @@ public static class SpecModel
             ["int32_t"] = new[] { "int" },
             ["int64_t"] = new[] { "long" },
             ["double"] = new[] { "double" },
-            ["int32_t*"] = new[] { "out int" },
+            // **1 つの cType が 2 つの意味を持つ** —— スカラー 1 個の出力
+            // （見つかった個数、選ばれたしきい値の位置）と、配列への書き出し
+            // （検出したマーカーの ID、輪郭ごとの点数）である。C 側の型は
+            // どちらも int32_t* で同じなので、どちらになるかは spec の
+            // direction と csType が決める。**下の double* とまったく同じ形**で、
+            // あちらが先例である（ocvu_calibrate_camera が再投影誤差を
+            // out double で、カメラ行列を double[] で返す）。
+            //
+            // **受け入れているコスト**: 足したことで、以後 int32_t* の param は
+            // out int と int[] のどちらでも表を通る —— 「配列を渡すつもりで
+            // out int と書いた」取り違えを、この表はもう捕まえない。
+            // double* で既に同じコストを払っているので新しい種類の穴ではないが、
+            // **1 つ増えたことは事実である。**
+            ["int32_t*"] = new[] { "out int", "int[]" },
             ["ocvu_mat_handle"] = new[] { "ulong" },
             ["ocvu_mat_handle*"] = new[] { "out ulong" },
             ["ocvu_mat_info*"] = new[] { "out OcvuMatInfo" },
@@ -143,6 +156,8 @@ public static class SpecModel
             ["double*"] = new[] { "double[]", "out double", "System.IntPtr" },
             // 特徴点配列。managed 配列版とアドレス版のどちらも正しい（buffer と同じ形）。
             ["ocvu_keypoint*"] = new[] { "OcvuKeyPoint[]", "System.IntPtr" },
+            // 記述子どうしの対応の配列。ocvu_keypoint* とまったく同じ形である。
+            ["ocvu_dmatch*"] = new[] { "OcvuDMatch[]", "System.IntPtr" },
             // byte 列を渡す 4 つ。managed 配列版とアドレス版のどちらも正しい。
             ["const uint8_t*"] = new[] { "byte[]", "System.IntPtr" },
             ["uint8_t*"] = new[] { "byte[]", "System.IntPtr" },

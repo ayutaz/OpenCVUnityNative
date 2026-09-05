@@ -18,7 +18,7 @@
 
     許可される集合は 3 つだけ:
       1. このビルド構成で受け入れると決めた OpenCV module（$PermittedOpenCvModules）。
-         config が要求する 5 module に加え、BUILD_LIST の依存解決で実際に
+         config が要求する module に加え、BUILD_LIST の依存解決で実際に
          引き込まれ、レビュー済みの module（flann, geometry）を含む。
          opencv_ prefix を持つというだけで無条件に許可しない — videoio が
          opencv_ prefix を持ちながら許可されないのはこのため。
@@ -103,8 +103,16 @@ if (-not (Test-Path -LiteralPath $Root)) {
 # stereo は OpenCV 本体の module（ステレオ対応点探索）であって third-party
 # ではない。ライセンスは OpenCV 本体と同じで、新しい bundled 依存も持ち込まない
 # （同じビルドの install ログに、stereo 由来の etc/licenses は 1 件も現れない）。
-# **このプラグインは stereo のシンボルを 1 つも参照しない** —— 静的リンクは
-# 参照された object しか引かないので、配布する binary には入らない。
+# **上の 2 行（ライセンスと bundled 依存）は、いまも成立している。**
+# allowlist に stereo を載せる根拠はそこであって、下の文ではない。
+#
+# **ここに在った次の 1 文は 2026-09-05 に失効した:**
+#   「このプラグインは stereo のシンボルを 1 つも参照しないので、
+#     配布する binary には入らない。」
+# ocvu_compute_disparity が cv::StereoBM / cv::StereoSGBM を参照するように
+# なったので、stereo は cmake/FindOpenCvUnityDeps.cmake の COMPONENTS に入り、
+# **配布する binary にも入る。** **失効しても allowlist の判断は変わらない** ——
+# 根拠は上の 2 行だったからである。
 $AcceptedTransitiveModules = @('flann', 'geometry', 'stereo')
 $PermittedOpenCvModules = @(@($config.Modules) + $AcceptedTransitiveModules | Sort-Object -Unique)
 

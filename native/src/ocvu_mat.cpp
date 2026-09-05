@@ -3,6 +3,31 @@
 #include "ocvu_error.h"
 #include "ocvu_mat_table.h"
 
+/*
+ * **OCVU_MAT_TYPE_* は OpenCV の値の写しではない。** 下の switch が翻訳する
+ * ので、一致している必要が無い —— これは OCVU_CVT_* や OCVU_THRESH_* と違う。
+ *
+ * **2026-09-05 にそれを実測で確かめた。** 「写しである」と思って
+ * static_assert を置いたら、8UC3 と 8UC4 の 2 本が落ちた:
+ *
+ *   OpenCV 5 は CV_CN_SHIFT を 3 から **5** に変えている
+ *   （third_party/.../core/hal/interface.h:51）。したがって
+ *   CV_8UC3 は 2 << 5 = **64**、CV_8UC4 は 3 << 5 = **96** である。
+ *
+ * **この ABI の 16 と 24 は OpenCV 4 の値**で、M2 で写したときのものが
+ * そのまま残っている。**気づかなかったのは switch が翻訳しているからで、
+ * 実害は 1 度も出ていない。**
+ *
+ * したがって static_assert は置けない（置くと今のこの 2 本が落ちる）。
+ * **値を OpenCV 5 に合わせることもしない** —— 境界に出ている番号を変えるのは
+ * 破壊的変更で、OCVU_ABI_VERSION の bump が要る
+ * （docs/abi-ownership-and-versioning.md §2）。
+ *
+ * **代わりに、下の 2 つの switch が互いの逆であることを L1 が確かめる**
+ * （test_mat_lifecycle.cpp）。翻訳表が唯一の正本であり、
+ * ここに書いてよい不変条件は「往復すると元に戻る」だけである。
+ */
+
 namespace {
 
 /* ABI に出す type 定数から OpenCV の型へ。未知なら false。 */
@@ -11,6 +36,9 @@ bool to_cv_type(int32_t abi_type, int* out_cv_type) {
         case OCVU_MAT_TYPE_8UC1: *out_cv_type = CV_8UC1; return true;
         case OCVU_MAT_TYPE_8UC3: *out_cv_type = CV_8UC3; return true;
         case OCVU_MAT_TYPE_8UC4: *out_cv_type = CV_8UC4; return true;
+        case OCVU_MAT_TYPE_16SC1: *out_cv_type = CV_16SC1; return true;
+        case OCVU_MAT_TYPE_32FC1: *out_cv_type = CV_32FC1; return true;
+        case OCVU_MAT_TYPE_64FC1: *out_cv_type = CV_64FC1; return true;
         default: return false;
     }
 }
@@ -20,6 +48,12 @@ int32_t from_cv_type(int cv_type) {
         case CV_8UC1: return OCVU_MAT_TYPE_8UC1;
         case CV_8UC3: return OCVU_MAT_TYPE_8UC3;
         case CV_8UC4: return OCVU_MAT_TYPE_8UC4;
+        case CV_16SC1: return OCVU_MAT_TYPE_16SC1;
+        case CV_32FC1: return OCVU_MAT_TYPE_32FC1;
+        case CV_64FC1: return OCVU_MAT_TYPE_64FC1;
+        /* **-1 は「この ABI が名前を持たない型」という意味である。**
+         * ocvu_mat_get_info はそれでも OCVU_STATUS_OK を返す —— rows / cols /
+         * channels / step は正しく、step があれば byte 列としては読めるためである。 */
         default: return -1;
     }
 }

@@ -69,8 +69,9 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     checksums.txt は package を走査して作るだけで、OpenCV のツリーを一度も
     読まない。ところが以前はこの script が無条件に Get-OpenCvRoot の実在を
     要求していたので、**OpenCV を復元しない job から呼ぶと必ず落ちた** ——
-    まさに release.yml の publish job がそれである（3 つの artifact を束ねる
-    だけで、opencv.ps1 restore を走らせない）。tag を打った瞬間に Release が
+    まさに release.yml の assemble job がそれである（全 platform 分の artifact を
+    束ねるだけで、opencv.ps1 restore を走らせない。**数を写さない** —— 正本は
+    tools/dev.ps1 の $AllPlatformBinaries である）。tag を打った瞬間に Release が
     作られずに終わる形だった。
 
     SBOM の生成も同じ理由でここより後ろに置く。全部入り用に「統合 SBOM」を

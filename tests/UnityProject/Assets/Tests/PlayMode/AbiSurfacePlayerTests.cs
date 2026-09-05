@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine.TestTools;
 
@@ -25,11 +26,29 @@ public class AbiSurfacePlayerTests
     [UnityTest] public IEnumerator NativeExceptionsAreTurnedIntoStatusCodes() { AbiSurfaceChecks.NativeExceptionsAreTurnedIntoStatusCodes(); yield return null; }
     [UnityTest] public IEnumerator WebCamPixels_BecomeATopLeftOriginMat() { AbiSurfaceChecks.WebCamPixels_BecomeATopLeftOriginMat(); yield return null; }
 
+    // --- 2026-09 の API 拡張で足した 26 本を、IL2CPP の Player で実際に動かす ---
+    // **件数をここに書かない**（EditMode 側と同じ理由。下の
+    // EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint が数える）。
+    [UnityTest] public IEnumerator SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse() { AbiSurfaceChecks.SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse(); yield return null; }
+    [UnityTest] public IEnumerator Rodrigues_RoundTripsThroughTheMatrix() { AbiSurfaceChecks.Rodrigues_RoundTripsThroughTheMatrix(); yield return null; }
+    [UnityTest] public IEnumerator Aruco_DetectsTheMarkerItGenerated() { AbiSurfaceChecks.Aruco_DetectsTheMarkerItGenerated(); yield return null; }
+    [UnityTest] public IEnumerator Threshold_SplitsThePixelsAndReportsTheValueOtsuChose() { AbiSurfaceChecks.Threshold_SplitsThePixelsAndReportsTheValueOtsuChose(); yield return null; }
+    [UnityTest] public IEnumerator MorphologyEx_UsesEveryArgument() { AbiSurfaceChecks.MorphologyEx_UsesEveryArgument(); yield return null; }
+    [UnityTest] public IEnumerator MatchTemplate_ProducesAFloatResponseWeCanRead() { AbiSurfaceChecks.MatchTemplate_ProducesAFloatResponseWeCanRead(); yield return null; }
+    [UnityTest] public IEnumerator PerspectiveTransform_IsProducedAndThenApplied() { AbiSurfaceChecks.PerspectiveTransform_IsProducedAndThenApplied(); yield return null; }
+    [UnityTest] public IEnumerator HoughAndContours_ReturnTheShapesTheyFind() { AbiSurfaceChecks.HoughAndContours_ReturnTheShapesTheyFind(); yield return null; }
+    [UnityTest] public IEnumerator CornerSubPix_RefinesWithoutTouchingTheInput() { AbiSurfaceChecks.CornerSubPix_RefinesWithoutTouchingTheInput(); yield return null; }
+    [UnityTest] public IEnumerator CoreOps_ProduceThePixelsWeComputeByHand() { AbiSurfaceChecks.CoreOps_ProduceThePixelsWeComputeByHand(); yield return null; }
+    [UnityTest] public IEnumerator Descriptors_AreComputedAndMatched() { AbiSurfaceChecks.Descriptors_AreComputedAndMatched(); yield return null; }
+    [UnityTest] public IEnumerator Disparity_IsComputedAndReadBackAs16Bit() { AbiSurfaceChecks.Disparity_IsComputedAndReadBackAs16Bit(); yield return null; }
+    [UnityTest] public IEnumerator RemainingImgprocAndCoreOps_WorkInsideUnity() { AbiSurfaceChecks.RemainingImgprocAndCoreOps_WorkInsideUnity(); yield return null; }
+
     /// <summary>
     /// spec が載せる P/Invoke 宣言を 1 つ残らず 1 回ずつ呼ぶ。
     /// **stripping が宣言を消していたら、ここで EntryPointNotFoundException に
-    /// なる。** Mono では再現しない。上の 8 件は公開 API を通るので宣言の
-    /// 一部しか触らないが、この 1 件は spec の全宣言を守る。
+    /// なる。** Mono では再現しない。**上に並ぶ検査は公開 API を通るので
+    /// 宣言の一部しか触らないが、この 1 件は spec の全宣言を守る**
+    /// （**件数を写さない** —— 2026-09 の API 拡張で 8 件から増えた）。
     /// </summary>
     [UnityTest]
     public IEnumerator EveryEntryPointIsReachable()
@@ -38,5 +57,33 @@ public class AbiSurfacePlayerTests
         // **0 件で緑にしない。** spec が空でも「呼び終えた」と言えてしまう。
         Assert.Greater(called, 10, "spec が空だと 0 本になる");
         yield return null;
+    }
+
+    /// <summary>
+    /// **共有本体の検査が、1 つ残らずこの入口に配線されているか。**
+    /// </summary>
+    /// <remarks>
+    /// EditMode 側と同じ検査である。<b>ここが本命で、Player に配線し忘れると
+    /// stripping が消したかどうかを確かめる機会そのものが失われる。</b>
+    /// </remarks>
+    [Test]
+    public void EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint()
+    {
+        var shared = typeof(AbiSurfaceChecks)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(m => m.ReturnType == typeof(void) && m.GetParameters().Length == 0)
+            .Select(m => m.Name)
+            .ToList();
+
+        Assert.Greater(shared.Count, 10, "共有本体の検査が拾えていない");
+
+        var wired = typeof(AbiSurfacePlayerTests)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Select(m => m.Name)
+            .ToList();
+
+        var missing = shared.Where(n => !wired.Contains(n)).ToList();
+        Assert.IsEmpty(missing,
+            "共有本体に在るのに、この入口に配線されていない検査: " + string.Join(", ", missing));
     }
 }

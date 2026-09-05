@@ -32,14 +32,37 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_mat_copy_from_buffer_ptr(0UL, default, 0L, 0L);
         NativeMethods.ocvu_mat_copy_to_buffer(0UL, null, 0L, 0L);
         NativeMethods.ocvu_mat_copy_to_buffer_ptr(0UL, default, 0L, 0L);
+        NativeMethods.ocvu_extract_channel(0UL, 0UL, 0);
+        NativeMethods.ocvu_insert_channel(0UL, 0UL, 0);
+        NativeMethods.ocvu_min_max_loc(0UL, out _, out _, out _, out _, out _, out _);
+        NativeMethods.ocvu_in_range(0UL, 0UL, default, 0L, default, 0L);
+        NativeMethods.ocvu_normalize(0UL, 0UL, 0.0, 0.0, 0);
+        NativeMethods.ocvu_bitwise(0UL, 0UL, 0UL, 0);
+        NativeMethods.ocvu_lut(0UL, 0UL, null, 0L);
+        NativeMethods.ocvu_copy_make_border(0UL, 0UL, 0, 0, 0, 0, 0, 0.0);
         NativeMethods.ocvu_orb_detect(0UL, 0, default, 0, out _);
+        NativeMethods.ocvu_detect_and_compute(0UL, 0, 0, default, 0, 0UL, out _);
+        NativeMethods.ocvu_match_descriptors(0UL, 0UL, 0, 0, default, 0, out _);
         NativeMethods.ocvu_find_homography(default, 0L, default, 0L, 0, 0, 0.0, 0UL);
+        NativeMethods.ocvu_solve_pnp(default, 0L, default, 0L, 0, default, 0L, default, 0L, 0, default, 0, default, 0);
+        NativeMethods.ocvu_rodrigues_to_matrix(default, 0L, default, 0);
+        NativeMethods.ocvu_rodrigues_to_vector(default, 0L, default, 0);
+        NativeMethods.ocvu_project_points(default, 0L, 0, default, 0L, default, 0L, default, 0L, default, 0L, default, 0);
+        NativeMethods.ocvu_get_perspective_transform(default, 0L, default, 0L, 0UL);
         NativeMethods.ocvu_imencode(0UL, null, null, 0, out _);
         NativeMethods.ocvu_imdecode(null, 0L, 0, 0UL);
         NativeMethods.ocvu_cvt_color(0UL, 0UL, 0);
         NativeMethods.ocvu_resize(0UL, 0UL, 0, 0, 0);
         NativeMethods.ocvu_gaussian_blur(0UL, 0UL, 0, 0, 0.0, 0.0);
         NativeMethods.ocvu_undistort(0UL, default, 0L, default, 0L, 0UL);
+        NativeMethods.ocvu_threshold(0UL, 0UL, 0.0, 0.0, 0, out _);
+        NativeMethods.ocvu_canny(0UL, 0UL, 0.0, 0.0, 0, 0);
+        NativeMethods.ocvu_morphology_ex(0UL, 0UL, 0, 0, 0, 0, 0);
+        NativeMethods.ocvu_match_template(0UL, 0UL, 0UL, 0);
+        NativeMethods.ocvu_warp_perspective(0UL, 0UL, 0UL, 0, 0, 0, 0);
+        NativeMethods.ocvu_hough_lines_p(0UL, 0.0, 0.0, 0, 0.0, 0.0, default, 0, out _);
+        NativeMethods.ocvu_corner_sub_pix(0UL, default, 0L, 0, 0, 0, 0, 0.0);
+        NativeMethods.ocvu_find_contours(0UL, 0, 0, default, 0, default, 0, out _, out _);
         NativeMethods.ocvu_get_abi_version();
         NativeMethods.ocvu_get_last_error_status();
         NativeMethods.ocvu_get_last_error_message(null, 0, out _);
@@ -51,6 +74,9 @@ public static class AbiReachabilityChecks
         NativeMethods.ocvu_qr_encode(null, 0UL);
         NativeMethods.ocvu_qr_decode(0UL, null, 0, out _);
         NativeMethods.ocvu_find_chessboard_corners(0UL, 0, 0, default, 0, out _);
-        return 28;
+        NativeMethods.ocvu_aruco_generate_marker(0, 0, 0, 0, 0UL);
+        NativeMethods.ocvu_aruco_detect_markers(0UL, 0, default, 0, default, 0, out _);
+        NativeMethods.ocvu_compute_disparity(0UL, 0UL, 0UL, 0, 0, 0);
+        return 54;
     }
 }

@@ -7,10 +7,12 @@
 この文書は伸びない。関数を足したら**ここを手で直すところまでが作業である**（M5）。
 
 **対象範囲: allowlist に載っている C ABI 関数と、その上に立つ C# の公開 API だけ。**
-（M2 の 9 本 + M3.5 の 2 本 + M5 の 7 本。**本数は `docs/abi-ownership-and-versioning.md`
-§3 の冒頭が数える**。） まだ無い機能（`Mat` の部分参照、型変換・算術演算、
-**`imgcodecs` のファイルパス経路**、記述子を伴う特徴点マッチング、`aruco`、
-ステレオ校正、`solvePnP` など）はここに書かない。**`WebCamTexture` 連携は
+（**本数は [API 対応表](./api-map.md) の冒頭が数える**。） まだ無い機能（`Mat` の部分参照、
+型変換・算術演算、**`imgcodecs` のファイルパス経路**、ステレオ校正、
+ステレオの平行化、輪郭の階層、Haar / HOG など）はここに書かない。
+**2026-09 の API 拡張で 26 本足した** —— C ABI は §1 の後半 4 節、C# は
+**姿勢が §2.10**（`CvGeometry` に追記した）、ArUco が §2.12、imgproc の実用関数が
+§2.13、core の基本演算が §2.14、特徴点マッチングとステレオが §2.15 にある。**`WebCamTexture` 連携は
 M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
 推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
 features / geometry / カメラ校正」と §2.8〜§2.11 にある。**詳しい経緯は
@@ -42,11 +44,13 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 ## 1. C ABI（`native/include/ocvu/*.h`）
 
 **M5 で宣言の在り処が変わった。** 関数宣言は module ごとの
-`native/include/ocvu/{infra,core,imgproc,imgcodecs,objdetect,features,geometry,calib}.h` にあり、
+`native/include/ocvu/*.h` にあり（**module 名をここに写さない** —— 正本は
+`bindings/spec/*.json` のファイル名である）、
 **いずれも `bindings/spec/*.json` からの生成物である**（手で編集すると
 `./tools/dev.ps1 verify-generated` が落とす）。利用者が include するのは
 これまでどおり `native/include/opencv_unity_native.h` で、そちらは
-`OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数を持ち、8 つを include する。
+`OCVU_STATUS_LIST`・handle と struct の型・`OCVU_*` 定数を持ち、**module の数だけ**
+include する（`tools/tests/BindingGenerator.Tests.ps1` が spec の module 数との一致を要求する）。
 **「関数宣言は `opencv_unity_native.h` に在る」と書いていた記述は、この時点で誤りになった。**
 
 すべて `extern "C"`、呼び出し規約は Cdecl。戻り値は `ocvu_status`（`int32_t`）。
@@ -54,7 +58,8 @@ platform ごとの tarball（`…-<version>-<platform>.tgz`）も補助として
 （詳細後述）。C# から直接この層を呼ぶことは想定していない —
 `CvUnity.Interop.NativeMethods`（`internal`）が P/Invoke 宣言を持ち、`CvUnity.CvMat` /
 `CvUnity.CvOps` / `CvUnity.CvCodecs` / `CvUnity.CvNative` / `CvUnity.CvQrCode` /
-`CvUnity.CvFeatures` / `CvUnity.CvGeometry` / `CvUnity.CvCalibration` が
+`CvUnity.CvFeatures` / `CvUnity.CvGeometry` / `CvUnity.CvCalibration` /
+`CvUnity.CvAruco` / `CvUnity.CvCoreOps` / `CvUnity.CvStereo` が
 それを包んで公開する。
 
 ### Mat のライフサイクル
@@ -75,7 +80,7 @@ table の索引で、解放のたびに世代が進むため解放済み handle 
 | フィールド | 型 | 内容 |
 | --- | --- | --- |
 | `rows` / `cols` | `int32_t` | 形状 |
-| `type` | `int32_t` | `OCVU_MAT_TYPE_8UC1` (0) / `_8UC3` (16) / `_8UC4` (24) のいずれか |
+| `type` | `int32_t` | `OCVU_MAT_TYPE_8UC1` (0) / `_16SC1` (3) / `_32FC1` (5) / `_64FC1` (6) / `_8UC3` (16) / `_8UC4` (24) のいずれか。**この ABI が名前を持たない型のときは -1** が入り、それでも `OCVU_STATUS_OK` を返す（`rows` / `cols` / `channels` / `step` は正しいので、byte 列としては読める）|
 | `channels` | `int32_t` | チャンネル数 |
 | `step` | `int64_t` | 1 行のバイト数 |
 | `total_bytes` | `int64_t` | `rows * step` |
@@ -317,6 +322,108 @@ status:
 2 本の扱いは非対称だが、`ocvu_mat_create` が空の `Mat` を作れない現在の ABI では
 どちらの経路も到達しない防御であり、実害は無い。
 
+### 姿勢と ArUco（geometry / objdetect、2026-09 の API 拡張で追加）
+
+**AR の輪を閉じる 6 本。** M5 で揃えたカメラ校正（`ocvu_find_chessboard_corners` →
+`ocvu_calibrate_camera` → `ocvu_undistort`）の上に立つ ——
+校正で求めた内部パラメータを使って、マーカーの姿勢を求められる。
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_solve_pnp` | 既知の 3D 点とその画像上の対応点から、1 枚ぶんの姿勢（回転ベクトルと並進）を求める |
+| `ocvu_rodrigues_to_matrix` | 回転ベクトル（3 要素）を回転行列（3x3）に直す |
+| `ocvu_rodrigues_to_vector` | 回転行列（3x3）を回転ベクトル（3 要素）に直す |
+| `ocvu_project_points` | 3D の点を、与えた姿勢とカメラで画像平面へ投影する |
+| `ocvu_aruco_generate_marker` | 辞書と ID からマーカーの画像を作る |
+| `ocvu_aruco_detect_markers` | 画像から ArUco マーカーを検出し、ID と 4 隅を返す |
+
+**`ocvu_solve_pnp` と `ocvu_project_points` は互いの逆である。** 同じ数値で往復するので、
+片方が壊れればもう片方のテストが残る。
+
+**`ocvu_aruco_generate_marker` が返す画像には余白が入っていない。**
+`border_bits` はマーカーの**内側**に置く黒い枠で、検出にはその外側にも白い余白が要る ——
+**それを付けるのは呼ぶ側の仕事である。**
+
+**マーカーの姿勢推定に新しい C ABI は要らない。** 4 隅を `ocvu_solve_pnp` へ
+`OCVU_SOLVEPNP_IPPE_SQUARE` で渡すだけで、C# 側の `CvAruco.EstimateMarkerPose` が
+それを行う（§2.12）。
+
+### imgproc の実用関数（2026-09 の API 拡張で追加）
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_threshold` | 二値化する。Otsu を使ったときに**実際に選ばれたしきい値**も返す |
+| `ocvu_canny` | Canny のエッジ検出 |
+| `ocvu_morphology_ex` | 収縮・膨張・開閉などの形態素演算 |
+| `ocvu_match_template` | テンプレート照合の応答画像を作る（`OCVU_MAT_TYPE_32FC1`）|
+| `ocvu_warp_perspective` | 射影変換で画像を変形する |
+| `ocvu_get_perspective_transform` | ちょうど 4 点の対応から射影変換を厳密に求める（**`geometry` module**）|
+| `ocvu_hough_lines_p` | 確率的 Hough 変換で線分を検出する |
+| `ocvu_corner_sub_pix` | 既に見つけた角点を副画素精度へ精緻化する |
+| `ocvu_find_contours` | 輪郭を検出し、点列と輪郭ごとの点数を返す |
+
+**`ocvu_get_perspective_transform` だけが `geometry` module である。**
+`cv::getPerspectiveTransform` は OpenCV 5 で `imgproc` ではなく `geometry` に在る（実測）ので、
+用途が `ocvu_warp_perspective` と一体でも module は分かれる。
+
+**`ocvu_match_template` は自分で大きさを検査する。** OpenCV は template が image より
+両方向とも大きいとき**例外を投げず、入れ替えて計算する**（実測）——
+それでは出力の形の約束が黙って破られるので、`OCVU_STATUS_INVALID_ARGUMENT` で断る。
+
+**`ocvu_corner_sub_pix` の `points` はこの ABI で唯一の入出力兼用**である。
+渡した位置を読み、精緻化した位置でその場を上書きする。**断った場合は 1 バイトも書き換えない。**
+
+**`ocvu_find_contours` は階層（どの輪郭がどの輪郭の内側にあるか）を返さない。**
+入れ子の可変長を、平らな 2 本の配列（全点 + 輪郭ごとの点数）で表す。
+
+### core の基本演算（2026-09 の API 拡張で追加）
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_extract_channel` | 1 channel を取り出す |
+| `ocvu_insert_channel` | 1 channel を差し込む |
+| `ocvu_min_max_loc` | 最小値・最大値と、その位置を返す |
+| `ocvu_in_range` | 下限と上限の間にある画素を 255、それ以外を 0 にする |
+| `ocvu_normalize` | 値域を正規化する |
+| `ocvu_bitwise` | AND / OR / XOR / NOT をひとつの入口で行う |
+| `ocvu_lut` | ルックアップテーブルで画素値を置き換える |
+| `ocvu_copy_make_border` | 周囲に余白を足す |
+
+**`ocvu_insert_channel` は dst を置き換えない唯一の関数である。**
+他はすべて結果で丸ごと置き換わるが、これは指定した channel だけを書き換える。
+
+**`ocvu_min_max_loc` は 6 つの出力をすべて個別に受け、どれも NULL を許す。**
+**位置の 4 つがすべて NULL なら、OpenCV にも位置を要求しない** ——
+`cv::minMaxLoc` は複数 channel でも値は返すが、**位置を要求したときだけ例外を投げる**（実測）。
+
+**`ocvu_bitwise` の `OCVU_BITWISE_NOT` は `src2` を一切見ない。** 無効な handle を
+渡しても成功する（黙って無視するのではなく、そう決めてある）。
+
+### マッチングとステレオ（features / stereo、2026-09 の API 拡張で追加）
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_detect_and_compute` | 特徴点の検出と記述子の計算を 1 回で行う |
+| `ocvu_match_descriptors` | 2 つの記述子集合を総当たりで対応づける |
+| `ocvu_compute_disparity` | 左右の画像から視差画像を作る（**`stereo` module**。`OCVU_MAT_TYPE_16SC1`）|
+
+**`stereo` はこの 3 本で 8 つ目のリンク済み module になった。**
+`tools/opencv-config.psd1` の `Modules` は触っていない（`calib` が推移的に引くので
+既にビルドされている）ので、**構成ハッシュは変わらず OpenCV の再ビルドは起きていない。**
+
+**`max_features` は上限ではない。** `cv::ORB::create(n)` も `cv::SIFT::create(n)` も
+`n` を守らず、それより多く返すことがある（実測: ORB は `create(5)` で 24 個、
+SIFT は `create(200)` で 240 個）。**`capacity` を `max_features` と同じ値にしてはならない** ——
+溢れたら `OCVU_STATUS_BUFFER_TOO_SMALL` と実際の個数が返るので、確保し直して呼び直す。
+
+**溢れたとき `out_descriptors` は書き換わらない。** 更新されるのは `out_count` だけである ——
+そのまま `ocvu_match_descriptors` へ渡しても**例外にならず、もっともらしい結果が返る**（実測）。
+
+**`ocvu_compute_disparity` の制限は OpenCV の要求ではない。**
+`num_disparities` が 16 の倍数であること・`block_size` が 5 以上の奇数であることを
+強制するのは `StereoBM` だけで、`StereoSGBM` はどちらも検査しない（実測）——
+**この ABI が自分で決めた、OpenCV より厳しい契約である**（呼ぶ側にとって単純になる）。
+
 ### この allowlist に含まれないもの
 
 `ocvu_get_abi_version` / `ocvu_get_last_error_status` / `ocvu_get_last_error_message` /
@@ -353,15 +460,25 @@ native が所有する `Mat` への handle を包む `sealed class`、`IDisposab
 | `void CopyFrom(IntPtr source, long length, long stride)` / `void CopyTo(IntPtr destination, long length, long stride)` | ポインタを直接渡す版。**借用契約**: `source`/`destination` は**この呼び出しが戻るまで**生きていなければならない。native はこの呼び出しの内側でしか触れず、戻った後は一切保持しない。`length`/`stride` は native 側が検証し、不整合なら 1 バイトも書かれない |
 | `void Dispose()` | `ocvu_mat_release` を呼ぶ。二度目以降の `Dispose()` は no-op（内部 handle が既に 0） |
 
-`CvMatType`（`enum`）: `Gray8 = 0`、`Bgr24 = 16`、`Bgra32 = 24`
-（`OCVU_MAT_TYPE_8UC1` / `_8UC3` / `_8UC4` に対応）。
+`CvMatType`（`enum`）: `Gray8 = 0`、`Disparity16 = 3`、`Response32 = 5`、
+`Transform64 = 6`、`Bgr24 = 16`、`Bgra32 = 24`（`OCVU_MAT_TYPE_*` に対応）。
+
+**後ろの 3 つは「画像」ではなく、OpenCV の関数が返す中間結果の型である** ——
+視差（`CvStereo.ComputeDisparity`）、テンプレート照合の応答（`CvOps.MatchTemplate`）、
+3x3 の変換行列（`CvOps.GetPerspectiveTransform`）。**1 画素のバイト数がそれぞれ違う**
+ので、`CopyTo` で読むときの stride は `Cols * 2` / `Cols * 4` / `Cols * 8` になる。
+
+**`OCVU_MAT_TYPE_*` の値は OpenCV の写しではない。** `ocvu_mat.cpp` の 2 つの
+`switch` が翻訳するので一致している必要が無く、実際 **16 と 24 は OpenCV 4 の
+`CV_8UC3` / `CV_8UC4` の値**である（OpenCV 5 は `CV_CN_SHIFT` を 3 から 5 に
+変えたので、いまの `CV_8UC3` は 64。2026-09-05 に実測）。**翻訳表が正本である。**
 
 `CvMat` を Dispose せずに破棄すると native 側の handle が解放されない
 （finalizer は無い）。`using` で確実に囲むこと。
 
 ### 2.2 `CvUnity.CvOps`
 
-`static class`。imgproc 3 関数の薄い wrapper で、非 OK status を
+`static class`。imgproc の薄い wrapper で、非 OK status を
 `CvNativeException` に変換する。
 
 | メンバ | 内容 |
@@ -545,7 +662,7 @@ native に同じ値を問うテスト（`FeaturesTests.TheManagedUpperBoundMatch
 1 つ目を支えるために、handle が指す `Mat` のアドレスは他の handle の作成・
 解放で動かないようにしてある（M3 でここが壊れていたのを直した。経緯は §1.5）。
 
-### 2.10 `CvUnity.CvGeometry` / `CvUnity.CvPoint2` / `CvUnity.CvHomographyMethod`
+### 2.10 `CvUnity.CvGeometry` / `CvPoint2` / `CvPoint3` / `CvHomographyMethod` / `CvSolvePnPMethod`
 
 点の対応から変換を求める（OpenCV の `geometry`）。
 
@@ -567,8 +684,40 @@ Unity 側で `Vector2` から詰め替えるのは呼ぶ側の仕事である。
 食い違っていても native からは見えず、短いほうの配列の終端を越えて読むことになる。
 **C# の入口が唯一それを見られる場所である。**
 
-求めた変換を画像に当てるには透視変換が要るが、**それはまだ C ABI に出していない**
-（`imgproc` にはあるがラップしていない）。
+求めた変換を画像に当てるには `CvOps.WarpPerspective`（§2.13）を使う。
+**4 点の対応から厳密に求めたいなら `CvOps.GetPerspectiveTransform`**（同）——
+こちらの `FindHomography` は 4 点以上から当てはめるので、外れ値がありうる
+対応に向く。
+
+**2026-09 の API 拡張で 4 本増えた。** `CvGeometry` は射影変換の推定に加えて、
+**姿勢**（3D 点とその画像上の対応から、カメラから見た位置と向きを求めること）を扱う。
+
+| メンバ | 内容 |
+| --- | --- |
+| `CvGeometry.SolvePnP(CvPoint3[] objectPoints, CvPoint2[] imagePoints, double[] cameraMatrix, double[] distCoeffs, CvSolvePnPMethod method = Iterative)` | 既知の 3D 点とその画像上の対応点から 1 枚ぶんの姿勢を求め、`CvViewPose` で返す |
+| `CvGeometry.RodriguesToMatrix(CvViewPose pose)` | 回転ベクトルを 3x3 の回転行列（行優先の 9 個）に直す |
+| `CvGeometry.RodriguesToVector(double[] rotationMatrix)` | 回転行列を回転ベクトル（3 個）に直す |
+| `CvGeometry.ProjectPoints(CvPoint3[] objectPoints, CvViewPose pose, double[] cameraMatrix, double[] distCoeffs)` | 3D の点を、与えた姿勢とカメラで画像平面へ投影する |
+| `CvPoint3(float x, float y, float z)` | 空間中の点。`X` / `Y` / `Z` を持つ |
+| `CvSolvePnPMethod` | `Iterative`（既定）/ `Epnp` / `P3p` / `Ap3p` / `Ippe` / `IppeSquare` / `SqPnp` |
+
+**`SolvePnP` と `ProjectPoints` は互いの逆である。** 同じ数値で往復するので、
+片方が壊れればもう片方のテストが残る。
+
+**姿勢の型は `CvViewPose`**（§2.11 で校正が返すものと同じ）である ——
+回転は Rodrigues の軸角ベクトル、**座標系は OpenCV のもの**（右手系、y が下向き、
+z が奥）で、**Unity 座標系への変換はこの package が持っていない。**
+
+**`cameraMatrix` の `[0]` と `[4]`（fx と fy）が 0 だと断られる。**
+**OpenCV はこれを検出せず、例外も投げず false も返さず、有限だが無意味な姿勢を
+成功として返す**（実測）—— この package が自分で見ている。**一般的な特異性の
+検査ではない**ので、極端に小さい焦点距離までは弾かない。
+
+**`distCoeffs` は `null` か空で「歪み無し」を指定できる。** そうでなければ
+OpenCV が受ける個数（4 / 5 / 8 / 12 / 14）でなければならない。
+
+**`IppeSquare` は正方形マーカー専用で、点の並び順が決まっている**
+（左上・右上・右下・左下）。`CvAruco.EstimateMarkerPose`（§2.12）がこれを使う。
 
 ### 2.11 `CvUnity.CvCalibration`
 
@@ -623,14 +772,104 @@ view は **2 枚以上**（平面パターンは 1 枚では解けない）、1 
 オーバーフローになりうるため（`patternCols` / `patternRows` それぞれの単独の
 下限は 2 以上）。
 
+### 2.12 `CvUnity.CvAruco` / `CvArucoMarker` / `CvArucoDictionary`
+
+ArUco マーカーの生成・検出と、その姿勢推定。
+
+| メンバ | 何をするか |
+| --- | --- |
+| `GenerateMarker(dictionary, markerId, sidePixels, borderBits = 1)` | 印刷できるマーカーの画像を作る |
+| `DetectMarkers(src, dictionary, maxMarkers = 64)` | 検出して `CvArucoMarker[]` を返す |
+| `EstimateMarkerPose(marker, markerLength, cameraMatrix, distCoeffs)` | 1 個の姿勢を求める |
+
+**`GenerateMarker` が返す画像には余白が入っていない。** `borderBits` はマーカーの
+**内側**に置く黒い枠で、検出にはその外側にも白い余白が要る ——
+印刷するときは周囲を白く空けること。
+
+**`EstimateMarkerPose` は新しい C ABI を使っていない。** マーカーの中心を原点に
+置いた正方形を組み立てて `CvGeometry.SolvePnP` に `IppeSquare` で渡すだけの
+純 C# である（`WebCamTextureConverter` と同じ形）。
+**座標系は OpenCV のもの**（右手系、y が下向き、z が奥）で、
+**Unity 座標系への変換はこの package が持っていない。**
+
+**`maxMarkers` は上限ではなく最初の見積もりである。** 超えて見つかった場合は
+その数で確保し直して 1 度だけ呼び直すので、呼ぶ側は溢れを意識しなくてよい。
+
+### 2.13 `CvUnity.CvOps` に足した 9 本 / `CvLine`
+
+`Threshold` / `Canny` / `MorphologyEx` / `MatchTemplate` /
+`GetPerspectiveTransform` / `WarpPerspective` / `HoughLinesP` /
+`CornerSubPix` / `FindContours`
+
+**`Threshold` は使われたしきい値を返す。** `CvThresholdType.Otsu` を or して
+渡したときに、OpenCV が選んだ値を知る唯一の手段である。
+
+**`CornerSubPix` は C# 側で in-place を見せない。** C の ABI は入出力兼用だが、
+渡された配列を書き換えず、写しを渡して新しい配列で返す ——
+**呼ぶ側が渡した配列が黙って変わるのは驚きが大きい。**
+
+**`WarpPerspective` の `interpolation` は `int` である。** 既存の
+`CvOps.Resize` と `CvOps.InterNearest` / `InterLinear` に合わせてあり、
+新しい enum を作っていない。
+
+**`HoughLinesP` と `FindContours` は溢れを隠す。** `maxLines` は最初の見積もりで、
+足りなければ実際の数で確保し直して 1 度だけ呼び直す。
+
+### 2.14 `CvUnity.CvCoreOps` / `CvMinMax` / `CvNormType` / `CvBitwiseOp`
+
+`ExtractChannel` / `InsertChannel` / `MinMaxLoc` / `InRange` /
+`Normalize` / `Bitwise` / `BitwiseNot` / `Lut` / `CopyMakeBorder`
+
+**`InsertChannel` は dst を置き換えない。** 指定した channel だけを書き換える ——
+この package で唯一そうする操作である。
+
+**`BitwiseNot` は別メソッドである。** C の ABI は `op` で 1 本だが、
+C# で `Bitwise(a, null, dst, Not)` と書かせないために分けてある。
+
+**`CvBitwiseOp` に `Not` が無いのはそのためである。** 3 値（`And` / `Or` / `Xor`）
+しか持たない。
+
+### 2.15 `CvUnity.CvFeatures` に足した 2 本 / `CvMatch` / `CvUnity.CvStereo`
+
+| メンバ | 何をするか |
+| --- | --- |
+| `CvFeatures.DetectAndCompute(src, detector, maxFeatures, descriptors)` | 特徴点と記述子を 1 回で求める |
+| `CvFeatures.MatchDescriptors(query, train, norm, crossCheck = false, maxMatches = 1024)` | 記述子を対応づける |
+| `CvStereo.ComputeDisparity(left, right, dst, algorithm, numDisparities = 16, blockSize = 21)` | 視差画像を作る |
+
+**`maxFeatures` は上限ではない。** `cv::ORB::create(n)` も `cv::SIFT::create(n)` も
+`n` を守らず、それより多く返す（実測: ORB は `create(5)` で 24 個、
+SIFT は `create(200)` で 240 個）—— **C# 側が溢れを隠すので呼ぶ側は意識しなくて
+よいが、`maxFeatures` を「これだけ返る」と読まないこと。**
+
+**`descriptors` を引数で受け取るのは所有権を呼ぶ側に置くためである。**
+native が Mat を作って返す形にすると、解放し忘れという壊れ方が 1 種類増える。
+
+**`norm` は検出器に合わせること。** ORB の 2 値記述子には `Hamming`、
+SIFT の浮動小数の記述子には `L2`。**組み合わせを誤ると例外になる**
+（`Hamming` を SIFT の記述子に当てた場合と、query と train の型が違う場合）。
+
+**視差画像は `CvMatType.Disparity16` で、値は実際の視差の 16 倍である。**
+`CopyTo` は `byte[]` しか受けないので、読み出すときの stride は `Cols * 2` になる。
+
+**左右の画像は平行化されていなければならない。** この package は平行化
+（`stereoRectify`）を持っていない。
+
+**`ComputeDisparity` の制限は OpenCV より厳しい。** `numDisparities` が 16 の倍数、
+`blockSize` が 5 以上の奇数であることを強制するのは `StereoBM` だけで、
+`StereoSGBM` はどちらも検査しない（実測）—— **呼ぶ側にとって単純になるよう、
+この package が両方に同じ制限をかけている。**
+
 ## 3. 対象外（この文書に書かないもの）
 
-`Mat` の部分参照（ROI）、型変換・算術演算、チャンネル分離、**`imgcodecs` のファイルパス
-経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、**ステレオ校正**
-（`stereoCalibrate`）、**魚眼**、**`solvePnP`**（既知の係数から 1 枚ぶんの姿勢を
-求める）、**`cornerSubPix`**（格子点の副画素精度への精緻化）、
-**透視変換の適用**（`warpPerspective`）—
-いずれも `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
+`Mat` の部分参照（ROI）、型変換・算術演算、**`imgcodecs` のファイルパス
+経路**、**ステレオ校正**（`stereoCalibrate`）、**魚眼**、**ステレオの平行化**
+（`stereoRectify`）、**視差から 3D への復元**（`reprojectImageTo3D`）、
+**`knnMatch` / `radiusMatch`**、**FLANN ベースの照合**、**輪郭の階層**、
+**`connectedComponents` / `remap` / `equalizeHist` / `calcHist`**、**描画関数**、
+**Haar / HOG**（`CascadeClassifier` / `HOGDescriptor`。**OpenCV 5 で contrib へ
+移ったので、この構成では出せない** —— 2026-09-05 に実測）—
+**大半は** `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
 しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
 この文書に追記する形にする。
 **メモリ上の byte 列の encode / decode は M3.5 で足したので、上の §1「imgcodecs」と

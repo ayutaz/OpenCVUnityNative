@@ -1,3 +1,4 @@
+using System.Linq;
 using NUnit.Framework;
 
 /// <summary>
@@ -16,6 +17,24 @@ public class AbiSurfaceTests
     [Test] public void NativeExceptionsAreTurnedIntoStatusCodes() => AbiSurfaceChecks.NativeExceptionsAreTurnedIntoStatusCodes();
     [Test] public void WebCamPixels_BecomeATopLeftOriginMat() => AbiSurfaceChecks.WebCamPixels_BecomeATopLeftOriginMat();
 
+    // --- 2026-09 の API 拡張で足した 26 本を、Unity の中で実際に動かす ---
+    // **件数をここに書かない** —— 数えるのは下の
+    // EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint で、
+    // 共有本体とリフレクションで突き合わせるので 1 件足すたびに勝手に増える。
+    [Test] public void SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse() => AbiSurfaceChecks.SolvePnP_RecoversAKnownPoseAndProjectPointsIsItsInverse();
+    [Test] public void Rodrigues_RoundTripsThroughTheMatrix() => AbiSurfaceChecks.Rodrigues_RoundTripsThroughTheMatrix();
+    [Test] public void Aruco_DetectsTheMarkerItGenerated() => AbiSurfaceChecks.Aruco_DetectsTheMarkerItGenerated();
+    [Test] public void Threshold_SplitsThePixelsAndReportsTheValueOtsuChose() => AbiSurfaceChecks.Threshold_SplitsThePixelsAndReportsTheValueOtsuChose();
+    [Test] public void MorphologyEx_UsesEveryArgument() => AbiSurfaceChecks.MorphologyEx_UsesEveryArgument();
+    [Test] public void MatchTemplate_ProducesAFloatResponseWeCanRead() => AbiSurfaceChecks.MatchTemplate_ProducesAFloatResponseWeCanRead();
+    [Test] public void PerspectiveTransform_IsProducedAndThenApplied() => AbiSurfaceChecks.PerspectiveTransform_IsProducedAndThenApplied();
+    [Test] public void HoughAndContours_ReturnTheShapesTheyFind() => AbiSurfaceChecks.HoughAndContours_ReturnTheShapesTheyFind();
+    [Test] public void CornerSubPix_RefinesWithoutTouchingTheInput() => AbiSurfaceChecks.CornerSubPix_RefinesWithoutTouchingTheInput();
+    [Test] public void CoreOps_ProduceThePixelsWeComputeByHand() => AbiSurfaceChecks.CoreOps_ProduceThePixelsWeComputeByHand();
+    [Test] public void Descriptors_AreComputedAndMatched() => AbiSurfaceChecks.Descriptors_AreComputedAndMatched();
+    [Test] public void Disparity_IsComputedAndReadBackAs16Bit() => AbiSurfaceChecks.Disparity_IsComputedAndReadBackAs16Bit();
+    [Test] public void RemainingImgprocAndCoreOps_WorkInsideUnity() => AbiSurfaceChecks.RemainingImgprocAndCoreOps_WorkInsideUnity();
+
     /// <summary>
     /// spec が載せる P/Invoke 宣言を 1 つ残らず 1 回ずつ呼ぶ（本体は
     /// bindings/spec/*.json から生成された AbiReachabilityChecks にある）。
@@ -28,5 +47,41 @@ public class AbiSurfaceTests
         var called = AbiReachabilityChecks.CallEveryEntryPoint();
         // **0 件で緑にしない。** spec が空でも「呼び終えた」と言えてしまう。
         Assert.Greater(called, 10, "spec が空だと 0 本になる");
+    }
+
+    /// <summary>
+    /// **共有本体の検査が、1 つ残らずこの入口に配線されているか。**
+    /// </summary>
+    /// <remarks>
+    /// <b>この検査が無いと、共有本体に足したのに入口へ配線し忘れたものが
+    /// 1 度も走らない。</b> Web の runner はリフレクションで自動に拾うので
+    /// 気づけるが、EditMode と PlayMode は <c>[Test]</c> を手で 1 行ずつ書く ——
+    /// <b>漏れても緑のまま通る。</b>
+    /// <para>
+    /// 2026-09 の API 拡張で 12 件を一度に足したときに置いた。
+    /// <b>数を写していない</b> —— リフレクションで両側を数えて突き合わせるので、
+    /// 検査を 1 件足すたびに勝手に増える。
+    /// </para>
+    /// </remarks>
+    [Test]
+    public void EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint()
+    {
+        var shared = typeof(AbiSurfaceChecks)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(m => m.ReturnType == typeof(void) && m.GetParameters().Length == 0)
+            .Select(m => m.Name)
+            .ToList();
+
+        // **0 件で緑にしない。** 本体が空でも「全部配線した」と言えてしまう。
+        Assert.Greater(shared.Count, 10, "共有本体の検査が拾えていない");
+
+        var wired = typeof(AbiSurfaceTests)
+            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Select(m => m.Name)
+            .ToList();
+
+        var missing = shared.Where(n => !wired.Contains(n)).ToList();
+        Assert.IsEmpty(missing,
+            "共有本体に在るのに、この入口に配線されていない検査: " + string.Join(", ", missing));
     }
 }

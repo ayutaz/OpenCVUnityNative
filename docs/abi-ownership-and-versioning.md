@@ -281,8 +281,8 @@ native library と C# は同じ UPM パッケージで同時に配布される�
 見逃す方向に働く。完全一致なら必ず検出できる。
 
 **M5 で C ABI を module ごとのヘッダに割ったが、`OCVU_ABI_VERSION` は
-単一の整数のままである。** 宣言は `native/include/ocvu/{infra,core,imgproc,imgcodecs}.h`
-に分かれ、いずれも `bindings/spec/*.json` からの生成物になったが、
+単一の整数のままである。** 宣言は module ごとの `native/include/ocvu/*.h`
+に分かれ（**module 名を写さない**）、いずれも `bindings/spec/*.json` からの生成物になったが、
 **module ごとに版を持たせてはいない** —— 配るのは 1 つの binary で、
 **「部分的に古い module」というものが存在しない**からである。
 `dnn` を別 target・別 binary にした場合はこの前提が崩れうるので、
@@ -356,8 +356,8 @@ status 表の同期は `StatusCodeSyncTests` が見ている。**この 2 つを
 ## 3. API の allowlist（M2 で確定、M3.5・M5 で追加）
 
 M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わないのが M2 の目的である。
-**M3.5 で 2 本、M5 で 7 本足したので、現在の allowlist は §3.5〜§3.9 を含めて
-18 本である。**
+**M3.5 で 2 本、M5 で 7 本、2026-09 の API 拡張で 26 本足したので、現在の
+allowlist は §3.5〜§3.13 を含めて 44 本である。**
 
 **この節は「何を出すと決めたか」の正本であって、「いま何が出ているか」の一覧ではない。**
 後者は `bindings/spec/*.json`（機械可読の正本）と、そこから生成される
@@ -553,6 +553,8 @@ buffer の所有権は `ocvu_mat_copy_from_buffer` などと同じく最初か�
 持ち込まない。このプラグインは `stereo` のシンボルを 1 つも参照しないので、
 静的リンクの性質上、配布する binary には入らない。
 
+**（**この 1 文は 2026-09-05 に失効した** —— `ocvu_compute_disparity` が `cv::StereoBM` / `cv::StereoSGBM` を参照するようになり、`stereo` は `COMPONENTS` に入って配布する binary にも入る。**M5 時点の記録として、消さずに残してある** —— 同じ誤解が別の場所にもあるかを、次に読む人が確かめられるようにするためである。）**
+
 **`geometry` のときと違い、`COMPONENTS` の追加は本物の RED を出した。**
 `cv::calibrateCamera` を参照する L1 テストを先に書くと、未解決の外部シンボルで
 リンクに失敗した（`native/tests/test_module_linkage.cpp` の `CalibIsLinked`）。
@@ -577,27 +579,144 @@ bump しない変更に当たり、既存関数の signature も struct の layo
 意味も 1 つも変えていない。**`calib` module が増えたことは ABI の版に影響しない**
 —— 呼ぶ側から見えるのは新しい entry point が 1 本増えたことだけである。
 
-**出していないもの**: ステレオ校正（`stereoCalibrate`）、魚眼、
-`solvePnP`（既知の係数から 1 枚ぶんの姿勢を求める）、
-**`cornerSubPix`**（格子点を副画素精度へ精緻化する。`imgproc` に在り、
-OpenCV 自身の校正サンプルは `findChessboardCorners` の直後にこれを呼ぶ ——
-**精度が要る用途では効くが、無くても校正は成立する**ので今回は出していない）。
+**出していないもの**: ステレオ校正（`stereoCalibrate`）、魚眼。
+
+**この段落は M5 時点の記録である。** ここに挙げていた `solvePnP` と
+`cornerSubPix` は **2026-09 の API 拡張で出した**（§3.10 と §3.11）——
+**消さずに移動先を書くのは、同じ誤解が別の場所に残っているかを
+次に読む人が確かめられるようにするため**である。
 **「カメラ校正に対応した」と読める書き方をしないこと** —— 出したのは
 単眼の校正 1 本である。
 
+### 3.10 姿勢と ArUco（2026-09 の API 拡張、その 1）
+
+**M5 で閉じた校正の輪の上に立つ 6 本。** 校正で求めた内部パラメータを使って、
+マーカーの姿勢を求められる。
+
+| 関数 | module | 所有権 |
+| --- | --- | --- |
+| `ocvu_solve_pnp` | `geometry` | 出力は呼ぶ側が確保した配列。`rvec_capacity` / `tvec_capacity` は**要素数**で、どちらも 3 以上 |
+| `ocvu_rodrigues_to_matrix` | `geometry` | 同上。`matrix_capacity` は 9 以上 |
+| `ocvu_rodrigues_to_vector` | `geometry` | 同上。`vector_capacity` は 3 以上 |
+| `ocvu_project_points` | `geometry` | 同上。`out_capacity` は `point_count` の 2 倍以上 |
+| `ocvu_aruco_generate_marker` | `objdetect` | `dst` の Mat が結果で丸ごと置き換わる |
+| `ocvu_aruco_detect_markers` | `objdetect` | 2 本の配列に書く。溢れたら**何も書かず**に実際の個数を返す |
+
+**`ocvu_solve_pnp` と `ocvu_project_points` は焦点距離を自分で検査する。**
+`camera_matrix` の `[0]` と `[4]`（fx と fy）が 0 なら `OCVU_STATUS_INVALID_ARGUMENT`
+を返す —— **OpenCV はこれを検出せず、例外も投げず false も返さず、
+有限だが無意味な姿勢を成功として返す**（2026-09-05 に実測）。
+**一般的な特異性の検査ではない。** 見ているのはその 2 要素だけで、
+`fx = 1e-300` のような病的な値までは見ない（そこまで行くと「どこで線を引くか」の
+判断になり、この境界の仕事ではない）。
+
+**マーカーの姿勢推定は C ABI に無い。** 4 隅を `ocvu_solve_pnp` へ
+`OCVU_SOLVEPNP_IPPE_SQUARE` で渡すだけなので、C# の `CvAruco.EstimateMarkerPose`
+が純 C# として持つ（`WebCamTextureConverter` と同じ形）。
+
+### 3.11 imgproc の実用関数（2026-09 の API 拡張、その 2）
+
+**9 本。うち `ocvu_get_perspective_transform` だけが `geometry` module である** ——
+`cv::getPerspectiveTransform` は OpenCV 5 で `imgproc` ではなく `geometry` に在る（実測）。
+
+`ocvu_threshold` / `ocvu_canny` / `ocvu_morphology_ex` / `ocvu_match_template` /
+`ocvu_warp_perspective` / `ocvu_get_perspective_transform` / `ocvu_hough_lines_p` /
+`ocvu_corner_sub_pix` / `ocvu_find_contours`
+
+**`ocvu_match_template` は大きさを自分で検査する。** OpenCV は template が image より
+両方向とも大きいとき**例外を投げず、入れ替えて計算する**（実測）——
+それでは `summary` が約束する出力の形が黙って破られるので `INVALID_ARGUMENT` で断る。
+
+**`ocvu_corner_sub_pix` の `points` はこの ABI で唯一の入出力兼用である。**
+渡した位置を読み、精緻化した位置でその場を上書きする。**断った場合は 1 バイトも
+書き換えない** —— 呼ぶ側の buffer を直接 OpenCV に渡さず、写してから戻している。
+
+**`ocvu_hough_lines_p` は `src` の写しを OpenCV に渡す。** doc が
+`The image may be modified by the function.` と明記しており（同じファイルの
+`findContours` はわざわざ「書き換えない」と断っている）、**書き忘れではなく契約である。**
+実測では書き換わらなかったが、それを根拠に省略していない。
+
+**`ocvu_find_contours` は階層を返さない。** 入れ子の可変長を、平らな 2 本の配列
+（全点 + 輪郭ごとの点数）で表す。呼ぶ側は点数を前から足せば各輪郭の範囲が決まる。
+
+### 3.12 core の基本演算（2026-09 の API 拡張、その 3）
+
+**8 本。** `ocvu_extract_channel` / `ocvu_insert_channel` / `ocvu_min_max_loc` /
+`ocvu_in_range` / `ocvu_normalize` / `ocvu_bitwise` / `ocvu_lut` / `ocvu_copy_make_border`
+
+**`ocvu_insert_channel` は dst を置き換えない唯一の関数である。**
+他はすべて結果で丸ごと置き換わるが、これは指定した channel だけを書き換える。
+
+**`ocvu_min_max_loc` は 6 つの出力を個別に受け、どれも NULL を許す。**
+**位置の 4 つがすべて NULL なら、OpenCV にも位置を要求しない** ——
+`cv::minMaxLoc` は複数 channel でも値は返すが、**位置を要求したときだけ例外を
+投げる**（実測。`minmax.dispatch.cpp` の assertion がそうなっている）。
+常に位置を要求する実装だと、値だけを求めた呼び出しまで失敗する。
+
+**`OCVU_BITWISE_*` は OpenCV の定数の写しではない。** `cv::bitwise_and` などは
+関数であって定数ではないので、対応する値が上流に存在しない ——
+**この 4 つはこちらが決めた値**であり、`static_assert` で固定する相手が無い。
+同じことが `OCVU_FEATURE_*` と `OCVU_STEREO_*` にも当てはまる。
+
+**`OCVU_BITWISE_NOT` は `src2` を一切見ない。** 無効な handle を渡しても成功する
+（黙って無視するのではなく、そう決めてある。L1 がそれを実証している）。
+
+### 3.13 マッチングとステレオ（2026-09 の API 拡張、その 4。**`stereo` module を足した**）
+
+| 関数 | module | 何を |
+| --- | --- | --- |
+| `ocvu_detect_and_compute` | `features` | 特徴点と記述子を 1 回で求める。記述子は Mat の handle に入る |
+| `ocvu_match_descriptors` | `features` | 2 つの記述子集合を総当たりで対応づける |
+| `ocvu_compute_disparity` | **`stereo`** | 左右の画像から視差画像を作る |
+
+**`stereo` は 8 つ目のリンク済み module である。**
+`tools/opencv-config.psd1` の `Modules` は触っていない —— `calib` が推移的に引くので
+OpenCV 側は既にビルドしており、`cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` に
+1 語足すだけで済んだ。**構成ハッシュは変わらず、6 platform 分の OpenCV 再ビルドは
+起きていない。**
+
+**`ocvu_dmatch` は境界に出る 3 つ目の struct である**（`ocvu_mat_info` /
+`ocvu_keypoint` に続く）。layout の正本は native のヘッダで、
+`sizeof == 16` と offset 4 本を `static_assert` が固定し、L3 が
+`Marshal.SizeOf` **と** `Marshal.OffsetOf` の両方で突き合わせる ——
+**合計だけを固定した検査は、同じ型のフィールドの入れ替えを通す**
+（`query_index` / `train_index` / `image_index` は 3 つとも `int32_t` である）。
+
+**`max_features` は上限ではない。** `cv::ORB::create(n)` も `cv::SIFT::create(n)` も
+`n` を守らず、それより多く返す（実測: ORB は `create(5)` で 24 個、
+SIFT は `create(200)` で 240 個）。**`capacity` を `max_features` と同じ値にすると、
+正しい使い方のまま `BUFFER_TOO_SMALL` が返る。**
+
+**溢れたとき `out_descriptors` は書き換わらない。** 更新されるのは `out_count`
+だけである —— そのまま `ocvu_match_descriptors` へ渡しても**例外にならず、
+もっともらしい結果が返る**（実測）ので、`summary` に明記してある。
+
+**`ocvu_compute_disparity` の制限は OpenCV の要求ではない。**
+`num_disparities` が 16 の倍数であること・`block_size` が 5 以上の奇数であることを
+強制するのは `StereoBM` だけで、`StereoSGBM` はどちらも検査しない（実測）——
+**この ABI が自分で決めた、OpenCV より厳しい契約である**（呼ぶ側にとって単純になる）。
+
 ### まだ作らないもの
 
-`Mat` の部分参照（ROI）、型変換、算術演算、チャンネル分離、**`imgcodecs` の
-ファイルパス経路**、記述子（descriptor）を伴う特徴点マッチング、`aruco`、
+`Mat` の部分参照（ROI）、型変換、算術演算、**`imgcodecs` の
+ファイルパス経路**、ステレオの平行化（`stereoRectify`）、視差から 3D への復元、
+`knnMatch` / `radiusMatch`、FLANN ベースの照合、輪郭の階層、描画関数、
+Haar / HOG（**OpenCV 5 で contrib へ移った**ので、この構成では出せない）、
+
 **`geometry` は 2026-09-01 に出した**（§3.7）。
 **`calib` は 2026-09-02 に足した**（§3.9）—— 歪み補正とチェスボードの格子点検出
 （§3.8）に続いて `cv::calibrateCamera` を出したので、**単眼カメラ校正の輪は
 閉じている。**
 
 **ただし `calib` module に出していない関数は多い。** `stereoCalibrate`（ステレオ）、
-`calibrateHandEye`、魚眼系、そして `solvePnP`（既知の係数から 1 枚ぶんの姿勢を
-求める）。**「`calib` を出した」は「`calib` の全部を出した」ではない。**
+`calibrateHandEye`、魚眼系。**「`calib` を出した」は「`calib` の全部を出した」ではない。**
 いずれも契約が固まってから足す。
+
+**`solvePnP` はこの段落に挙げていたが、2026-09 の API 拡張で出した**（§3.10）。
+
+**同じ拡張で、上の「まだ作らないもの」からも 3 つ消えた** —— チャンネル分離（§3.12）、
+記述子を伴う特徴点マッチング（§3.13）、`aruco`（§3.10）。
+
 **メモリ上の byte 列の encode / decode は M3.5 で足した（§3.5）。ファイルパスを
 受けない判断の理由は §1.6 にある。QR の符号化・復号と ORB 検出は M5 で足した（§3.6）。**
 
@@ -612,7 +731,7 @@ OpenCV 自身の校正サンプルは `findChessboardCorners` の直後にこれ
 
 - `CLAUDE.md` — 「アーキテクチャの中核」の不変条件。この文書はその具体化である
 - `docs/roadmap.md` — M2 の目的・ゴール・完了条件（上記 §1 の食い違いに従って更新済み）
-- `docs/api-reference.md` — この文書が決めた契約の、利用者向けの現れ方（C ABI 18 本と C# 公開 API）。**手書きである**
+- `docs/api-reference.md` — この文書が決めた契約の、利用者向けの現れ方（C ABI と C# 公開 API。**本数は [API 対応表](./api-map.md) の冒頭が数える**）。**手書きである**
 - `docs/api-map.md` — いま境界に在るものの機械的な一覧（M5 の生成物）。**手で編集しない**
 - `bindings/spec/*.json` — 宣言の機械可読な正本（M5）。C ヘッダ・C# の P/Invoke・到達性テスト・上の対応表はここから出る
 - `.claude/skills/add-abi-function/SKILL.md` — 関数を 1 本足すときの TDD 順序

@@ -49,6 +49,27 @@ ABI 関数を 1 本足す作業は 5〜7 ファイルにまたがる。順序を
 **`false` を選ぶのは最後の手段である**: IL2CPP の stripping が消せるのは
 呼ばれない宣言なので、**呼ばない宣言は消えても誰も気づかない。**
 
+**`reachable: true` が証明するのは「宣言が stripping を生き延びた」ことだけである。**
+生成される到達性テストは全引数を `0` / `0UL` / `0.0` / `null` / `out _` で渡し、
+status を捨てる —— **値が正しいかは見ていないし、配列の marshalling
+（`OcvuDMatch[]` / `float[]` / `OcvuKeyPoint[]`）も Unity の中では 1 度も通っていない。**
+それらが通っているのは **L3（素の .NET、stripping 無し）だけ**である。
+
+**だから手順 6（L3）の後に、もう 1 つ要る:**
+
+> **Unity の中で値まで見る検査を
+> `tests/UnityProject/Assets/Tests/Shared/AbiSurfaceChecks.cs` に足し、
+> EditMode と PlayMode の両入口に配線する。**
+
+**目視で確かめない。C# の入口名で機械的に突き合わせること。**
+2026-09 の API 拡張で 26 本を足したとき、**4 本（`Canny` / `InsertChannel` /
+`InRange` / `Normalize`）がどの Unity レーンからも呼ばれていなかった** ——
+`reachable: true` なので到達性テストは通っており、L1 も L3 も緑だった。
+見つけたのは目視ではなく名前の照合である。
+
+配線の漏れ自体は `EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint` が
+名指しで落とす（`prove-a-check-works` skill の §5）。
+
 **逆向きの検査が見ているのは `native/src/**/*.cpp` だけである。**
 `tools/tests/BindingGenerator.Tests.ps1` は、そこにある
 `extern "C"` の `ocvu_*` を全部拾って spec に無いものを落とす。
@@ -101,7 +122,11 @@ OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `
 **`COMPONENTS` を変えてもハッシュは変わらない** —— ハッシュを算出する
 `Get-OpenCvConfigHash` が読むのは `psd1` だけである。
 
-**`Modules` を足したら、同じ commit で次も動く**（2026-09-02 に `calib` で実測）:
+**`COMPONENTS` を足したら、同じ commit で次も動く**（2026-09-02 に `calib`、
+2026-09-05 に `stereo` で実測）。**発火するのは `Modules` ではなく `COMPONENTS` である** ——
+`stereo` は `Modules` に足さず（`calib` が推移的に引くので構成ハッシュは不変）、
+`COMPONENTS` に 1 語足しただけだが、下の 5 つのうち 4 つが動いた
+（`THIRD_PARTY_NOTICES.md` だけは動かない —— 新しい bundled 依存を持ち込まないため）:
 
 - **`tools/verify-opencv-artifact.ps1` の `$AcceptedTransitiveModules`** ——
   新しい module が別の module を推移的に引き込むと、依存 allowlist が拒否する。
@@ -191,8 +216,9 @@ C# の XML doc・API 対応表の「内容」列に同時に出る** —— 3 �
 直前にも当たるので、`Regex.IsMatch` だけでは末尾の改行を通してしまう
 （`prove-a-check-works` skill に実例がある）。
 
-**module ごとにファイルが分かれている。** 既存の 6 つ（`infra` / `core` /
-`imgproc` / `imgcodecs` / `objdetect` / `features`）のどれにも入らないなら新しい
+**module ごとにファイルが分かれている。** **module 名をここに写さない** ——
+`ls bindings/spec/*.json` が正本である（写すと module を 1 つ足すたびに
+この行だけが嘘になる。実際 6 -> 9 になった）。既存のどれにも入らないなら新しい
 `<module>.json` を作る —— そのとき生成されるヘッダも `native/include/ocvu/<module>.h`
 として増え、`native/include/opencv_unity_native.h` の `#include` 一覧に手で 1 行足す
 必要がある（**その 1 行だけは生成物ではない**）。
@@ -297,6 +323,29 @@ doc コメント）。
 見られないので CI でも検出できない（`docs/abi-ownership-and-versioning.md` §1）。
 検証を足したり変えたりしたら、`prove-a-check-works` skill の手順で、境界条件を
 1 つ緩めてテストが実際に赤くなることを確認してから戻すこと。
+
+**buffer ではないのに上限が要る引数がある（2026-09 の API 拡張で確立）**
+
+上の 5 項目は **buffer の長さと stride** の話である。**それとは別に、
+buffer の寸法ではないのに OpenCV の中で寸法になる `int32_t`** がある。
+`cv::cornerSubPix` の `win_size` / `zero_zone` で 3 通りの壊れ方を実測した:
+
+| 渡した値 | 起きたこと |
+| --- | --- |
+| `zero_zone = 2^30` | **プロセスが 0xC0000005 で即死する。** status を返さない |
+| `win_size = 2^30` | 18446744056529682436 バイトの確保に失敗 |
+| `win_size = INT32_MAX` | 意味の無い窓のまま `OCVU_STATUS_OK` を返す |
+
+**例外バリアはどれも捕まえない。** 1 つ目は C++ 例外ですらないので
+`OCVU_TRY_END` の外側で死ぬ —— **Unity では赤いテストにならず、無音で固まる**
+（`prove-a-check-works` skill の「Unity 経由のクラッシュ」）。
+
+だから `OCVU_CORNER_MAX_WINDOW` のような上限定数をヘッダに置き、
+超えたら `OCVU_STATUS_INVALID_ARGUMENT` を返す。
+
+**規則: 上限定数は、native か OpenCV が「その値から何かを作る」ときだけ置く。**
+呼ぶ側が既に確保してある出力 capacity には置かない ——
+**発火しえない上限は、壊して落とせない検査を 1 つ増やすだけである。**
 
 **出力の大きさを呼び出し側が知り得ないなら（M3.5 で確立した規約）**
 
@@ -438,6 +487,14 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 
 変更したパスを個別に stage する。`git add -A` と `git add .` はフックが拒否する。
 
+**`docs/api-reference.md` に名前を書くのも同じ commit である。**
+`tools/tests/BindingGenerator.Tests.ps1` が「spec の全関数名が
+`docs/api-reference.md` に識別子として現れること」を要求し、**それは
+`$ToolsTestScriptsFast` に配線されていて `dev.ps1 test` が最初に fail-fast する。**
+**「文書は最後にまとめる」は成立しない** —— spec に entry を足して
+`generate` を通しても、名前を書くまで速いレーンが赤いままである
+（2026-09-05 に実測。26 本を足す作業で踏んだ）。
+
 **生成物も一緒にコミットする。** `native/include/ocvu/*.h`、
 `Runtime/Interop/NativeMethods.<module>.g.cs`（**`.meta` も**）、
 `tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs`、
@@ -467,7 +524,7 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 **`add-a-platform` skill を使うこと。** ABI 関数の話ではないが、同じファイル群を
 触るのでここから指す。
 
-直す場所は **17 箇所**あり（M4 で実測）、`.meta` のキー名・ファイル名の衝突・
+直す場所は **少なくとも 17 箇所**ある（**数はあちらが持つ。ここに写さない**）。`.meta` のキー名・ファイル名の衝突・
 クロスでの `find_package` の閉じ込め・静的ライブラリの依存の束ねなど、
 **ビルドが通ってから CI で 8 回落ちた**罠がそこにまとまっている。
 

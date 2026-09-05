@@ -20,6 +20,13 @@ set(OCVU_SOURCES
     src/ocvu_features.cpp
     src/ocvu_geometry.cpp
     src/ocvu_calibration.cpp
+    src/ocvu_pose.cpp
+    src/ocvu_aruco.cpp
+    src/ocvu_imgproc_ops.cpp
+    src/ocvu_imgproc_shape.cpp
+    src/ocvu_core_ops.cpp
+    src/ocvu_matching.cpp
+    src/ocvu_stereo.cpp
 )
 
 # **iOS だけ静的ライブラリにする。**

@@ -66,7 +66,16 @@ extern "C" ocvu_status ocvu_orb_detect(ocvu_mat_handle src, int32_t max_features
         return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
     }
 
-    // ORB は nfeatures を超えないが、契約は自分でも守る。
+    // **cv::ORB::create(nfeatures) の nfeatures は上限ではない。**
+    // 2026-09-05 に実測した: 200x200 の市松模様で create(5) は 24 個、
+    // create(10) は 36 個を返した。**「ORB は nfeatures を超えない」と
+    // 書いてあった以前のコメントは誤りである。**
+    //
+    // したがって、ここで切り詰めることが max_features の意味を作っている ——
+    // 「上限は max_features」という summary の約束は OpenCV のものではなく、
+    // この行が守っているこの ABI 自身の契約である。
+    // （記述子まで要る ocvu_detect_and_compute は切り詰めず、溢れたら
+    //   OCVU_STATUS_BUFFER_TOO_SMALL と実際の個数を返す形にしてある。）
     const int32_t n = static_cast<int32_t>(
         std::min<size_t>(found.size(), static_cast<size_t>(max_features)));
     for (int32_t i = 0; i < n; ++i) {

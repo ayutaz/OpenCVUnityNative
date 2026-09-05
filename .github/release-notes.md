@@ -44,7 +44,9 @@ Git URL で参照しても `.meta` しか届かず、`DllImport` が実行時に
 確かめてある** —— **公開前にこの asset そのものを落として**展開し、
 6 platform 分を材料に、同じ script（`pack-upm-tarball.ps1`）で固め直して導入した。6 つ入った状態で Unity が読み込み、
 **自分の platform 向けだけを有効にする**ところまで見ている
-（`native plugins present: 6` / EditMode 34 件 pass）。
+（`native plugins present: 6` と EditMode が緑になるところまで）。
+**件数はここに書きません** —— この本文は次のリリースでも読まれるので、
+検査を 1 件足した日にこの行だけが嘘になります。
 **「中に 6 つ入っている」とは別の主張である。**
 
 全 asset の SHA-256 は `SHA256SUMS.txt` にある。
@@ -95,9 +97,11 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 リポジトリにあり、**パッケージには入らない**）。
 `OCVU_ABI_VERSION` は **1 のまま変わっていない**（関数の追加は bump しない変更である）。
 
-**出していないもの**も書いておく: ステレオ校正、魚眼、`solvePnP`（既知の係数から
-1 枚ぶんの姿勢を求める）、`cornerSubPix`（格子点の副画素精度への精緻化）、
-記述子を伴う特徴点マッチング、`aruco`、動画入出力、DNN、GPU backend。
+**出していないもの**も書いておく: ステレオ校正（`stereoCalibrate`）、魚眼、
+ステレオの平行化（`stereoRectify`）、視差から 3D への復元（`reprojectImageTo3D`）、
+`knnMatch` / `radiusMatch`、FLANN ベースの照合、輪郭の階層、`connectedComponents`、
+`remap`、`equalizeHist`、`calcHist`、描画関数、Haar / HOG（OpenCV 5 で contrib へ移った）、
+動画入出力、DNN、GPU backend。
 
 ## この版で確かめていないこと
 

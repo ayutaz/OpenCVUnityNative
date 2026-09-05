@@ -22,12 +22,14 @@ Assert-That ($config.Tag -eq '5.0.0') 'tag is pinned to 5.0.0'
 # 境界に出している module」の関係である。
 #
 # spec の module 名は OpenCV の module 名と一致していなければならない ——
-# ただし例外が 2 つある:
+# ただし例外が 3 つある:
 #   - infra は OpenCV の module ではなく、この ABI 自身（版・エラー・status 表）を指す
 #   - geometry は Modules に書いていないが、features / objdetect の依存として
 #     OpenCV が推移的にビルドする（実測。cmake/FindOpenCvUnityDeps.cmake の
 #     COMPONENTS には意図の宣言として明示してある）
-$specModulesNotBuiltDirectly = @('infra', 'geometry')
+#   - stereo も Modules に書いていないが、calib が推移的に引くので OpenCV 側は
+#     既にビルドしている（2026-09-05 に COMPONENTS へ足した。構成ハッシュは不変）
+$specModulesNotBuiltDirectly = @('infra', 'geometry', 'stereo')
 $specModules = @(
     Get-ChildItem -Path (Join-Path $PSScriptRoot '../../bindings/spec') -Filter '*.json' |
         Where-Object { $_.Name -ne 'schema.json' } |

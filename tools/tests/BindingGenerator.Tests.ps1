@@ -53,7 +53,8 @@ finally { Set-Content -LiteralPath $apiMap -Value $apiMapBackup -NoNewline }
 Assert-That ($LASTEXITCODE -eq 0) 'restoring docs/api-map.md makes the check pass again'
 
 # --- **名指しをやめる。** 上の 4 件は infra.h と api-map.md を名前で守るが、
-# 生成物は 10 個あり、残る 8 個は誰も見ていなかった。実測: Program.cs の
+# 生成物は当時 10 個あり、残る 8 個は誰も見ていなかった（**いまは 20 個ある** ——
+# module が増えるたびに 2 つずつ増える。だから下は名指しをやめている）。実測: Program.cs の
 # outputs から AbiReachabilityChecks.g.cs の配線を外すと、**この script は
 # 全 assertion PASS で exit 0 になった**（以後 spec に足した関数だけが
 # Player から呼ばれなくなる。Unity は緑のまま）。名前を 10 個に増やすと

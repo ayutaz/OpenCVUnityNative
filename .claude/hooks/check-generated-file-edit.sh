@@ -61,7 +61,7 @@ reason=$(printf '%s' "生成物を手で編集しました: ${file}
 
 直す先は spec です:
 
-  1. bindings/spec/{infra,core,imgproc,imgcodecs}.json を編集する
+  1. bindings/spec/<module>.json を編集する
   2. ./tools/dev.ps1 generate
   3. ./tools/dev.ps1 verify-generated
 

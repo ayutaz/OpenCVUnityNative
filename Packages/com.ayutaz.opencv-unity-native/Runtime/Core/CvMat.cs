@@ -4,10 +4,36 @@ using CvUnity.Interop;
 namespace CvUnity
 {
     /// <summary>ABI に出す Mat の型。native の OCVU_MAT_TYPE_* と対応する。</summary>
+    /// <remarks>
+    /// <see cref="Disparity16"/> / <see cref="Response32"/> / <see cref="Transform64"/> は
+    /// 「画像」ではなく、OpenCV の関数が返す中間結果の型である ——
+    /// 視差の計算が 16 bit、テンプレート照合の応答が 32 bit、
+    /// 3x3 の変換行列が 64 bit を返す。
+    /// <para>
+    /// <b>1 画素のバイト数がそれぞれ違う。</b>
+    /// <see cref="CopyTo"/> は <c>byte[]</c> しか受けないので、
+    /// 読み出すときの stride は <c>Cols * 2</c>（16 bit）/ <c>Cols * 4</c>（32 bit）/
+    /// <c>Cols * 8</c>（64 bit）になる。
+    /// </para>
+    /// </remarks>
     public enum CvMatType
     {
+        /// <summary>8 bit 1 channel。グレースケール画像。</summary>
         Gray8 = 0,
+
+        /// <summary>16 bit 符号つき 1 channel。視差画像（値は実際の視差の 16 倍）。</summary>
+        Disparity16 = 3,
+
+        /// <summary>32 bit 浮動小数 1 channel。テンプレート照合の応答。</summary>
+        Response32 = 5,
+
+        /// <summary>64 bit 浮動小数 1 channel。3x3 の変換行列。</summary>
+        Transform64 = 6,
+
+        /// <summary>8 bit 3 channel。BGR 画像。</summary>
         Bgr24 = 16,
+
+        /// <summary>8 bit 4 channel。BGRA 画像。</summary>
         Bgra32 = 24,
     }
 

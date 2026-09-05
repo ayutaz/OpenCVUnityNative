@@ -99,7 +99,8 @@ jobs:
         shell: pwsh
         run: ./tools/verify-plugin-portability.ps1
 
-  # 3 platform の速いレーンを毎日通す。runner イメージの更新で壊れたことに
+  # 速いレーンを毎日通す（下の matrix が持つ runner。Linux は同じ workflow の
+  # portability job が別に見る）。runner イメージの更新で壊れたことに
   # 気づくのが目的なので、重いレーン（sanitizer / Unity）は含めない——
   # それらは PR で回る。
   lanes:

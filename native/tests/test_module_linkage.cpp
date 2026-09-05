@@ -19,6 +19,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib.hpp>
 #include <opencv2/objdetect.hpp>
+#include <opencv2/stereo.hpp>
 
 TEST(ModuleLinkage, ObjdetectSymbolsResolve) {
     cv::Ptr<cv::QRCodeEncoder> encoder = cv::QRCodeEncoder::create();
@@ -115,4 +116,39 @@ TEST(ModuleLinkage, CalibIsLinked) {
         cv::calibrateCamera(object_points, image_points, cv::Size(64, 64),
                             camera_matrix, dist_coeffs, rvecs, tvecs),
         cv::Exception);
+}
+
+TEST(ModuleLinkage, StereoIsLinked) {
+    // **stereo は tools/opencv-config.psd1 の Modules に無いが、
+    // ビルドされている。** calib が推移的に引くためで、復元済みのツリーに
+    // opencv_stereo が実在する（2026-09-05 に実測）。
+    //
+    // **desktop では COMPONENTS への追加は no-op である。** 実測の根拠:
+    // OpenCVModules.cmake:135-139 が opencv_calib の INTERFACE_LINK_LIBRARIES に
+    // opencv_stereo を含めており、COMPONENTS には既に calib が在る。
+    // **geometry とまったく同じ形で、CalibIsLinked とは違う** ——
+    // calib はどの module からも引かれないので COMPONENTS に足す前は
+    // LNK2019 で落ちたが、stereo は足す前から通る。
+    //
+    // **それでも COMPONENTS には足してある。iOS では話が違うからである** ——
+    // native/CMakeLists.txt:88-90 の iOS の束ね分岐は ${OpenCV_LIBS} を
+    // foreach で回して実ファイルへ解決するので、**COMPONENTS に無い module は
+    // 束ねられない。**
+    //
+    // **Web は違う。** 同 :158-164 の Emscripten の分岐は OpenCV_LIBS を使わず、
+    // install 木の lib/libopencv_*.a を file(GLOB) で全部束ねる ——
+    // **COMPONENTS に足しても束ねる中身は 1 バイトも変わらない。**
+    // （そうした理由がその場に書いてある: COMPONENTS だけだと推移的に引かれる
+    // module が漏れ、実測で cv::flann の未定義が 29 件残った。）
+    //
+    // **つまりこの 1 語は、desktop と Web には意図の宣言、iOS には実際の指示である。**
+    //
+    // したがって**このテストは Windows / macOS / Linux では COMPONENTS の
+    // 編集で落ちない**（UndistortionSymbolsResolveWithoutCalib と同じ性質）。
+    // それでも守っているものがある —— 上流が cv::StereoBM を別 module へ
+    // 移したり、calib が stereo を引かなくなったりしたら、ここが最初に赤くなる。
+    const cv::Ptr<cv::StereoBM> matcher = cv::StereoBM::create(16, 21);
+    ASSERT_FALSE(matcher.empty());
+    EXPECT_EQ(matcher->getNumDisparities(), 16);
+    EXPECT_EQ(matcher->getBlockSize(), 21);
 }

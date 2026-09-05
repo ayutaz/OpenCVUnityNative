@@ -350,7 +350,7 @@ jobs:
       # 3 platform 分が揃っていることを確かめてから公開する。1 つでも欠けた
       # Release を出すと、利用者はその platform だけ導入できない状態になる。
       # fail-fast: false にしてあるぶん、ここで数えないと欠けたまま出る。
-      - name: Check that all three platforms are present
+      - name: Check that every target platform is present
         shell: pwsh
         run: |
           $expected = @('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')

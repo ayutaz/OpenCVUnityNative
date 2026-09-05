@@ -120,3 +120,88 @@ extern "C" ocvu_status ocvu_find_homography(const float* src_points, int64_t src
     return OCVU_STATUS_OK;
     OCVU_TRY_END
 }
+
+// **ちょうど 4 点から射影変換を厳密に求める。**
+//
+// **cv::getPerspectiveTransform は imgproc ではなく geometry に在る**
+// （実測 2026-09-05: 復元済みツリーの include/opencv2/geometry/2d.hpp:909。
+// imgproc.hpp に現れる 1 件は doc コメントの中の参照である）。OpenCV 5 が
+// calib3d を割ったときに一緒に動いた。**変換を当てる cv::warpPerspective の
+// ほうは imgproc に在る**ので、用途は 1 つでも module は 2 つにまたがる ——
+// ocvu_calibration.cpp が 3 module にまたがっているのと同じ形である。
+//
+// ocvu_find_homography との違いは、こちらが**ちょうど 4 点を厳密に通す**のに対し、
+// あちらは 4 点以上から当てはめる点である。外れ値がありうる対応には
+// ocvu_find_homography を使う。
+extern "C" ocvu_status ocvu_get_perspective_transform(const float* src_points, int64_t src_length, const float* dst_points, int64_t dst_length, ocvu_mat_handle dst) {
+    OCVU_TRY_BEGIN
+    // 射影変換はちょうど 4 点で一意に決まる。
+    constexpr int kPoints = 4;
+
+    if (src_points == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_get_perspective_transform: src_points is NULL");
+    }
+    if (dst_points == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
+                                      "ocvu_get_perspective_transform: dst_points is NULL");
+    }
+
+    // **単位はバイトである** —— この ABI の *_length はすべてバイト数で
+    // （ocvu_find_homography / ocvu_mat_copy_from_buffer / ocvu_imdecode）、
+    // ここだけ要素数にすると、既存に慣れた呼び手が 4 倍の値を渡して
+    // **検査を通過する**方向に倒れる。
+    //
+    // 積は int64_t に上げてから作る（この場合は定数だが、境界の作法を揃える）。
+    constexpr int64_t kNeeded =
+        static_cast<int64_t>(kPoints) * 2 * static_cast<int64_t>(sizeof(float));
+    if (src_length < kNeeded) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_get_perspective_transform: src_length (bytes) is too small for 4 points");
+    }
+    if (dst_length < kNeeded) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_get_perspective_transform: dst_length (bytes) is too small for 4 points");
+    }
+
+    cv::Mat* dst_mat = ::ocvu::mat_table_get(dst);
+    if (dst_mat == nullptr) {
+        return ::ocvu::set_last_error(OCVU_STATUS_INVALID_HANDLE,
+                                      "ocvu_get_perspective_transform: dst handle is invalid");
+    }
+
+    // 借用はこの呼び出しの内側で完結する。cv::Mat で包むだけで所有はしない。
+    // **先頭の 4 点だけを読む**ので、長さが余分にあっても構わない。
+    const cv::Mat src_view(kPoints, 2, CV_32F, const_cast<float*>(src_points));
+    const cv::Mat dst_view(kPoints, 2, CV_32F, const_cast<float*>(dst_points));
+
+    // **求めてから dst に入れる。** 直接 dst_mat へ書かせると、
+    // 失敗したときに dst が途中まで書き換わった状態で残りうる。
+    cv::Mat transform;
+    try {
+        transform = cv::getPerspectiveTransform(src_view, dst_view);
+    } catch (const cv::Exception& e) {
+        // OCVU_TRY_END でも捕まるが、そこでは UNKNOWN_ERROR になる。
+        return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
+    }
+    if (transform.empty()) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_OPENCV_ERROR,
+            "ocvu_get_perspective_transform: OpenCV returned an empty transform");
+    }
+
+    // **確かめるのではなく変換する**（ocvu_calibration.cpp が既にこの作法である）。
+    // OpenCV は 64 bit 浮動小数の 3x3 を返すが、summary が約束しているのは
+    // こちらなので、違えば合わせる。
+    if (transform.type() != CV_64FC1) {
+        cv::Mat converted;
+        transform.convertTo(converted, CV_64FC1);
+        transform = converted;
+    }
+
+    *dst_mat = transform;
+    return OCVU_STATUS_OK;
+    OCVU_TRY_END
+}

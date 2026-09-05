@@ -174,7 +174,7 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 
 | 種別 | OpenCV for Unity | 本案（**この表は M3.5 時点の記録である**。その後 v0.3.0（2026-09-04）まで公開し、M4 / M5 / M6 の成果は届いている。**最新の公開版は `docs/roadmap.md` の「配布」の節が正本**） |
 | --- | --- | --- |
-| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 6（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `calib`）。**プラグインがリンクしているのは 7 つ**（この 6 つに、依存として推移的に引かれる `geometry` を足したもの）で、C ABI に出ているのはさらにその一部である（**本数を数える正本は [API 対応表](./api-map.md) の冒頭**） |
+| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 6（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `calib`）。**プラグインがリンクしているのは 8 つ**（この 6 つに、依存として推移的に引かれる `geometry` と `stereo` を足したもの）で、C ABI に出ているのはさらにその一部である（**本数を数える正本は [API 対応表](./api-map.md) の冒頭**） |
 | platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | **この行は M3.5 時点の記録**（Windows / macOS / Linux）。**その後 M4 で Android / iOS、M6 で Web が加わった** —— 現況は [ロードマップ](./roadmap.md) が持つ |
 | 配布 | Asset Store から 1 つ入れれば全 platform | **1 つの tarball に Desktop 3 platform 分**（M3.5 で解消。[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目）。~~**モバイルはまだ入らない**（M4）~~ **2026-08-30 に入った** |
 | カメラ | `WebCamTexture` の補助クラス群、WebGPU 対応の非同期読み出し | 無し（`Texture2D` のみ） |
