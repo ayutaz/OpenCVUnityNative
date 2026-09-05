@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'test', 'clean')]
+    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-graphics', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'test', 'clean')]
     [string]$Command = 'test',
 
     <#
@@ -584,11 +584,19 @@ function Test-UnityEditMode {
 
 
     # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
+    #
+    # -testCategory '!Graphics' は GraphicsTests（M7a Task 2）を除外する。
+    # -nographics の下では graphicsDeviceType が Null になり、GL.Clear /
+    # ReadPixels が実際には描画しないまま 205,205,205 を返す（実測、
+    # 2026-09-05）。**GPU に依る検査は test-unity-graphics に分けてある**
+    # —— ここで除外しないと、GraphicsTests を足しただけでこのレーンが
+    # 恒久的に赤くなる。
     $unityArgs = @(
         '-projectPath', $project,
         '-runTests', '-testPlatform', 'EditMode',
         '-testResults', $results, '-logFile', $log,
-        '-batchmode', '-nographics'
+        '-batchmode', '-nographics',
+        '-testCategory', '!Graphics'
     )
     $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
     $exit = $proc.ExitCode
@@ -612,6 +620,52 @@ function Test-UnityEditMode {
             -ResultsPath $results -Lane 'editmode' -LogPath $log `
             -RequireTest ($script:GatingTestNames -join ';')
     } 'assert the editmode results'
+}
+
+
+<#
+    RenderTexture -> CvMat の同期経路のうち、**GPU に依る部分**を検証する
+    （M7a Task 2）。`Test-UnityEditMode` を写したもので、違いは 2 つだけ:
+    `-nographics` を渡さないことと、`GraphicsTests`（`[Category("Graphics")]`）
+    だけを対象にすることである。
+
+    **CI には配線しない**（controller の裁定）。game-ci の Linux コンテナに
+    グラフィックス装置が在るかは未確認で、投げてみるまで分からない。
+#>
+function Test-UnityGraphics {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $results = Join-Path $ResultsDir 'unity-graphics.xml'
+    $log     = Join-Path $ResultsDir 'unity-graphics.log'
+
+    Sync-AllPlatformsMarker -ProjectPath $project
+
+    # **-nographics を渡さない。** これが GPU に依る検査を成立させる唯一の
+    # 違いである（実測: -nographics だと graphicsDeviceType が Null になり
+    # ReadPixels が 205,205,205 を返す）。
+    $unityArgs = @(
+        '-projectPath', $project,
+        '-runTests', '-testPlatform', 'EditMode',
+        '-testResults', $results, '-logFile', $log,
+        '-batchmode',
+        '-testCategory', 'Graphics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
+
+    if ($exit -ne 0) {
+        Write-DevFailure "Unity Graphics が exit $exit で終了しました。`nログ: $log"
+    }
+
+    # 判定は既存と同じ script を通す（tools/assert-unity-results.ps1）。
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
+            -ResultsPath $results -Lane 'graphics' -LogPath $log `
+            -RequireTest 'GraphicsTests.AGraphicsDeviceIsPresent'
+    } 'assert the graphics results'
 }
 
 
@@ -1190,6 +1244,7 @@ switch ($Command) {
     'test-tools'   { Test-Tools }
     'test-tools-slow' { Test-ToolsSlow }
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
+    'test-unity-graphics' { Reset-Results; Test-UnityGraphics }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
     'test-unity-web' { Reset-Results; Test-UnityWeb }
     'test-unity-tarball' { Reset-Results; Test-UnityTarball }
