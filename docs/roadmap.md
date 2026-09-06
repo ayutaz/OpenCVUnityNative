@@ -2115,7 +2115,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 
 ### M7a の判定（2026-09-06。**完了条件 5 件のうち 2 件を扱う**）
 
-**M7 は 3 つの計画に分けてある**（`docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md`。M5 で「生成の仕組みと module 追加を同時にやると切り分けられない」と判断したのと同じ理由）。**M7a が担当するのは完了条件 2（低コピー経路の評価）と 3（benchmark の公開）だけである** —— 条件 1（profile ごとの native artifact 等）は M7c、条件 4（C ABI / C# の module 分離）は M7b、条件 5（CUDA / cuDNN の再配布確認）は M7c が担当する。**したがってこの節が閉じても M7 全体は完了しない** —— 残る 3 件が閉じるまで、M7 の判定は「未完了」のままである。
+**M7 は 3 つの計画に分けてある**（`docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md`。M5 で「生成の仕組みと module 追加を同時にやると切り分けられない」と判断したのと同じ理由）。**M7a が担当するのは完了条件 2（低コピー経路の評価）と 3（benchmark の公開）だけである** —— 条件 1（profile ごとの native artifact 等）は M7c、条件 4（C ABI / C# の module 分離）は M7b、条件 5（CUDA / cuDNN の再配布確認）は M7c が担当する。**この節はその 2 件だけの判定であって、M7 全体の判定ではない** —— 条件 1・4・5 がそれぞれ何本閉じているかは、この節ではなく担当する計画自身の判定にある（条件 4 は `### M7b の判定`）。ここに残数を書かないのは、担当する計画が閉じるたびにその数だけがこの節に取り残されて古くなるからである。
 
 実装は `.superpowers/sdd/2026-09-05-m7a-low-copy-and-benchmarks/`（Task 1〜6）。実測はすべてこのマシン（Windows 10.0.22631、X64、Unity 6000.3.16f1、2026-09-05〜09-06）。詳細な数字と読み方は [性能](./performance.md) が正本で、ここには写さない。
 
@@ -2129,7 +2129,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 - **M7a は roadmap の差別化の穴 #9（「低コピー連携」を測っていない）を「部分的に解消」にした。** 「解消済み」としなかった理由は、上の 2 経路のうち `RenderTexture` / `AsyncGPUReadback` が実機で動く実行形態（IL2CPP Player）で 1 度も検証されておらず、`test-unity-graphics` が CI に配線されていないため——**満たしたことと実証されたことは同じではない**（`milestone-complete` skill）。
 - **`test-unity-player` はこのマシンで、Player の後始末段階（`Stop-UnityTestPlayers` 内の `Get-CimInstance` 呼び出し）がハングする既知の欠陥を持つ。** テスト自体は完走し結果 XML も書かれるが、レーン全体が無音で固まる（`CLAUDE.md` が書く「Unity のレーンではクラッシュもハングも赤いテストにならない」という形そのもの）。M7a の変更が原因ではない（`git diff` でこの箇所に差分は無い）ので、この作業では直していない——本番の測定は、ハングしたプロセスを終了させたうえで `tools/assert-unity-results.ps1` を結果 XML に直接掛けて確認した（35 passed / exit 0）。
 - **`BenchmarkRunner` の `Report` ヘルパーが `BenchmarkRunner.cs` と `GraphicsBenchmarkRunner.cs` に複製されている。** このリポジトリは「本体はここにしか無い」を繰り返し記録しており、片方だけ直る壊れ方をする。M7a では直していない。
-- **M7 全体としては、条件 1・4・5 が未着手のまま残る。** dnn を opt-in profile として足す前提（C ABI / C# の module 分離）にも、CUDA / cuDNN の再配布確認にも、この計画は触れていない。
+- **この計画（M7a）が触れているのは条件 2・3 だけである。** dnn を opt-in profile として足す前提（C ABI / C# の module 分離、条件 4）にも、CUDA / cuDNN の再配布確認（条件 5）にも、条件 1（profile ごとの native artifact 等）にも触れていない。**それぞれの現在の状態は、この節ではなく担当する計画自身の判定にある**（条件 4 は `### M7b の判定`、条件 1・5 は M7c 自身の判定 —— 執筆時点でまだ無い）。
 
 ### M7b の判定（2026-09-06。**完了条件 5 件のうち 1 件を扱う**）
 
@@ -2144,7 +2144,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 - **CMake target は 1 つのままである。** `native/CMakeLists.txt` が同じソースを `opencv_unity_native`（`OCVU_BUILDING_DLL`）と `ocvu_static`（L1 テスト用、`OCVU_STATIC`）へ 2 回コンパイルするため、CMake OBJECT ライブラリでは両方を賄えない —— 分けなかったのは実装漏れではない。
 - **`-DOCVU_MODULES=...` は CMake キャッシュに sticky である。** 一度絞ると、`-UOCVU_MODULES` で明示的に外すかビルド木を作り直すまで既定へ戻らない。configure 時の `message`（既定でないときは `WARNING`）で状態を毎回可視化しているが、ローカルの速いレーンはこれを捕まえない —— 実物 binary の公開面を見るのは `ci-native.yml` だけである。
 - **native の module 選択と C# の profile は別の軸で、互いを自動では決めない。** ある module を `OCVU_MODULES` に足しても、対応する spec の `profile` を書き換えない限り、その宣言は `standard` の assembly に出続ける。
-- **M7 全体としては、条件 1・5 が未着手のまま残る**（条件 2・3 は M7a、条件 4 は本節が閉じた。残る 2 件はどちらも M7c の担当である）。
+- **この節が閉じたのは条件 4 だけである。** 条件 2・3 の状態は `### M7a の判定`、条件 1・5 の状態はそれぞれの担当計画（M7c）自身の判定にある —— 執筆時点でまだ無い。**ここに残数を書かないのは、`### M7a の判定` が「残る 3 件」と書いて M7b がそれを 1 件消した瞬間に古くなったのと同じ壊れ方を、この節自身が再生産しないようにするためである。**
 
 ---
 
