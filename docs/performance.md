@@ -1,9 +1,19 @@
 # 性能
 
-**この文書は測った数字と、測っていないことを書く。** 数字は
-`./tools/dev.ps1 benchmark`（GPU に依らない経路）と
-`./tools/dev.ps1 test-unity-graphics`（GPU に依る経路）が
-`artifacts/benchmarks/latest.json` に書いたものを転記する。
+**この文書は測った数字と、測っていないことを書く。** 数字を書く経路は
+`./tools/dev.ps1 benchmark` の 1 つだけである —— 内部で `test-unity-player`
+（GPU に依らない経路）と `test-unity-graphics`（GPU に依る経路）を順に走らせ、
+両方の結果 XML から集めた `OCVU_BENCH:` 行を `artifacts/benchmarks/latest.json`
+へ書く。**`test-unity-graphics` 単体は `latest.json` を 1 バイトも書かない**
+—— そちらは Unity のテストレーンにすぎず、収集は `run-benchmarks.ps1`
+（`benchmark` コマンドだけが呼ぶ）が担う。
+
+**ただし `./tools/dev.ps1 benchmark` は、Unity がある唯一のこのマシンでは
+現状完走しない。** 内部で呼ぶ `test-unity-player` が後始末段階
+（`Stop-UnityTestPlayers` 内の `Get-CimInstance`）でハングする既知の欠陥を
+踏むため（詳細は `docs/roadmap.md` の M7a の判定「穴を隠さず書く」の項）。
+**この文書の数字は、ハングしたプロセスを止めたうえで `run-benchmarks.ps1`
+を直接叩いて得たものである。**
 
 **測った環境**: Windows 10.0.22631、X64、Unity 6000.3.16f1、開発機 1 台
 （2026-09-06、このマシン）。512×512 RGBA。**転記した日付と測った環境を
@@ -65,9 +75,14 @@ ABI 関数を足すか、反転しないことを選ぶかで、**どちらも�
 
 **時間は測って公開するが、assert しない。** 共有 CI ランナーの上で時間を
 assert すると必ずフレークになり、閾値を緩めればその検査は何も見ていない
-ことになる。`./tools/dev.ps1 benchmark` と `test-unity-graphics` が
-落ちるのは「測れなかったとき」（0 マイクロ秒 = 測定が効いていない）だけで、
-遅い・速いでは落ちない。**割り当て（allocation）と package size は事情が違い、
+ことになる。`./tools/dev.ps1 benchmark` の収集（`run-benchmarks.ps1`）が
+時間の値そのものを理由に落ちるのは「測れなかったとき」（0 マイクロ秒 =
+測定が効いていない、または該当レーンから benchmark の行が 1 本も拾えない）
+だけで、遅い・速いでは落ちない。**ただし `test-unity-graphics` レーン全体は
+これとは別の理由でも落ちる** —— `GraphicsChecks.AGraphicsDeviceIsPresent`
+（GPU が無い）や画素の一致検査（読み出した内容が期待と違う）は correctness
+の検査であって時間の検査ではなく、こちらは意図どおり普通に fail する。
+**割り当て（allocation）と package size は事情が違い、
 そちらは L3 と `PackageSize.Tests.ps1` が実際に assert している** ——
 時間は run ごとに揺れるが、確保するバイト数と tarball のバイト数は
 決定的だからである。

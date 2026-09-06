@@ -15,7 +15,7 @@ namespace CvUnity.Unity
     /// <para>
     /// <b>この同期経路は GPU を待たせる。</b> <c>ReadPixels</c> は転送が済むまで
     /// 戻らないので、毎フレーム呼ぶとフレーム時間に直接乗る。毎フレームの用途では
-    /// <see cref="ToMatAsync"/> を使うこと。
+    /// <see cref="RequestMat"/> を使うこと。
     /// </para>
     /// <para>
     /// <b>上下を反転する。</b> Unity は左下原点、OpenCV は左上原点である。
@@ -43,8 +43,10 @@ namespace CvUnity.Unity
                 staging.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
                 staging.Apply(updateMipmaps: false);
 
-                // ここから先は Texture2D の経路と同じ。**写しを増やさない** ——
-                // GetRawTextureData が返す NativeArray のポインタをそのまま渡す。
+                // ここから先は Texture2D の経路と同じ形で読み出すが、
+                // **反転のため写しを 1 回増やす（FillFlipped）** ——
+                // GetRawTextureData が返す NativeArray はポインタのまま渡すが、
+                // 上下反転した内容を新しい buffer に組んでから native へ渡す。
                 var raw = staging.GetRawTextureData<byte>();
                 var mat = CvMat.Create(source.height, source.width, CvMatType.Bgra32);
                 try
