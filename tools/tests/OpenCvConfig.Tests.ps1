@@ -990,6 +990,86 @@ if ($markerName) {
 }
 
 
+# --- ci-unity の EditMode レーンが、ローカルの -testCategory 除外と一致すること ---
+#
+# tools/dev.ps1 の Test-UnityEditMode は GraphicsTests / GraphicsBenchmarkRunner
+# （M7a Task 2、GPU に依る検査）を -testCategory '!Graphics' で除外する。
+# -nographics の下では graphicsDeviceType が Null になり、GL.Clear の直後の
+# ReadPixels が実際には描画しないまま 205,205,205 を返す（実測、2026-09-05）。
+# GraphicsChecks.AGraphicsDeviceIsPresent は GPU が無ければ skip ではなく
+# fail する設計なので、この除外を欠いたまま Unity を起動すると本物の欠陥として
+# 落ちる。
+#
+# ci-unity.yml は「CI はローカルと同一のコマンドを呼ぶ」の意図的な例外
+# （game-ci が Unity を起動し、tools/dev.ps1 ではない）なので、この 2 つの
+# 引数は自然には揃わない —— 実際、customParameters を 1 本も渡していない版が
+# しばらく残っていた。**`!Graphics` という文字列をここに書いて workflow と
+# 突き合わせない。** 文字列を 2 度書くと、次に除外対象を変えたときに片方だけ
+# 直して緑のまま残る（このリポジトリが何度も踏んだ形）。両側から読み取って
+# 比較する。
+#
+# **どちらかが読み取れないなら「一致した」と読まない。** 空振りで PASS に
+# なる形を避けるため、抽出そのものを個別に assert し、比較は両方が読めた
+# ときにしか行わない —— 抽出の失敗は $failures に積まれるので exit code は
+# 変わらず 1 のままになる（PluginGatingTests の合図名と同じ形）。
+$devPs1Raw = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
+
+# Test-UnityGraphics にも '-testCategory' が在る（値は 'Graphics'、
+# -nographics を渡さない側）ので、関数本体を名前で切り出してから読む。
+# このファイルのトップレベル関数はすべて列 0 の '}' で閉じる規約
+# （tools/dev.ps1 の他の関数と同じ）なので、それを終端として使う。
+$editModeFnMatch = [regex]::Match($devPs1Raw, '(?ms)^function Test-UnityEditMode \{.*?^\}')
+Assert-That $editModeFnMatch.Success `
+    'tools/dev.ps1 から Test-UnityEditMode 関数を切り出せる (切り出せなければ以下は空振りする)'
+
+$localCategory = $null
+if ($editModeFnMatch.Success) {
+    $localCatMatch = [regex]::Match($editModeFnMatch.Value, "'-testCategory',\s*'(?<cat>[^']+)'")
+    Assert-That $localCatMatch.Success `
+        "Test-UnityEditMode から -testCategory の値を読み取れる (読み取れなければ以下は空振りする)"
+    if ($localCatMatch.Success) { $localCategory = $localCatMatch.Groups['cat'].Value }
+}
+
+# ci-unity.yml 側。**単純な「customParameters: の行を探す」では足りない** ——
+# matrix の 2 つの lane（リテラル文字列）に加えて、customParameters を実際に
+# action へ渡す with: の 1 行（`${{ matrix.customParameters }}`）も同じ
+# `customParameters:` で始まる。後者を「非空の値」として拾うと、比較対象が
+# 消えてもこの行自体は常に非空なので検査が空振りする（実測: 最初の版は
+# ここで `saw 2` になった）。**リテラル文字列（`'...'`）だけを対象にする**
+# ことで、`${{ }}` の参照行を構造的に除外する。
+$unityWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-unity.yml') -Raw
+$ciLiteralLines = @(($unityWorkflowText -split "`r?`n") | Where-Object {
+    $_ -match "^\s*customParameters:\s*'(?<val>[^']*)'\s*`$"
+})
+Assert-That ($ciLiteralLines.Count -eq 2) `
+    "ci-unity.yml declares customParameters as a literal string on both matrix lanes (saw $($ciLiteralLines.Count); $($ciLiteralLines -join ' | '))"
+
+# 2 つのリテラルのうち、非空なのが EditMode 側のはず
+# （Standalone は '' を明示している——上の requireTest / requireOutput と
+# 同じ「非空を探す」形）。空文字だけになると assert-unity-results.ps1 の
+# 照合と同じで「要求したことになっているが何も要求していない」になるので、
+# 非空を要求する。
+$ciCategoryLines = @($ciLiteralLines | Where-Object { $_ -notmatch "customParameters:\s*''\s*`$" })
+Assert-That ($ciCategoryLines.Count -eq 1) `
+    "ci-unity.yml declares exactly one non-empty customParameters lane (saw $($ciCategoryLines.Count))"
+
+$ciCategory = $null
+if ($ciCategoryLines.Count -eq 1) {
+    $ciCatMatch = [regex]::Match($ciCategoryLines[0], '-testCategory\s+(?<cat>\S+)')
+    Assert-That $ciCatMatch.Success `
+        "ci-unity.yml's customParameters carries a -testCategory value (saw: $($ciCategoryLines[0].Trim()))"
+    if ($ciCatMatch.Success) { $ciCategory = $ciCatMatch.Groups['cat'].Value.Trim("'", '"') }
+}
+
+# **比較そのものは、両方が読めたときにしか行わない。** 上の 2 つの抽出
+# assertion がすでに失敗を記録しているので、ここで無理に比較して
+# 「$null -eq $null」のような偶然の一致を PASS と報告する必要は無い。
+if ($null -ne $localCategory -and $null -ne $ciCategory) {
+    Assert-That ($localCategory -eq $ciCategory) `
+        "ci-unity.yml's EditMode -testCategory ('$ciCategory') matches tools/dev.ps1's Test-UnityEditMode ('$localCategory')"
+}
+
+
 # --- コンテナで走る job に sudo を残さない ---
 #
 # コンテナは root で走るので sudo は入っていない。`sudo apt-get ...` を
