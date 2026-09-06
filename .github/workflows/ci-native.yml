@@ -86,9 +86,15 @@ jobs:
       - name: Verify the exported surface matches the spec
         shell: pwsh
         run: |
-          ./tools/verify-exported-symbols.ps1 -LibraryPath (
-            Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so' |
-              Select-Object -First 1 -ExpandProperty FullName)
+          # **1 個であるべき。** build/ に複数 preset の binary が同居していたら
+          # Select-Object -First 1 は「たまたま最初に見つかったもの」を
+          # 無言で選ぶ——それは「見ていない」のと変わらない。数を確かめてから使う。
+          $bins = @(Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so')
+          if ($bins.Count -ne 1) {
+              Write-Error "native plugin の binary が $($bins.Count) 個見つかりました（1 個であるべき）: $($bins.FullName -join ', ')"
+              exit 1
+          }
+          ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
 
       # ローカルループから外した重いツールテスト。ここが唯一の実行場所なので、
       # 落とすと構成ハッシュと allowlist 検証の回帰テストが誰にも見られなくなる。
@@ -173,9 +179,15 @@ jobs:
       - name: Verify the exported surface matches the spec
         shell: pwsh
         run: |
-          ./tools/verify-exported-symbols.ps1 -LibraryPath (
-            Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so' |
-              Select-Object -First 1 -ExpandProperty FullName)
+          # **1 個であるべき。** build/ に複数 preset の binary が同居していたら
+          # Select-Object -First 1 は「たまたま最初に見つかったもの」を
+          # 無言で選ぶ——それは「見ていない」のと変わらない。数を確かめてから使う。
+          $bins = @(Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so')
+          if ($bins.Count -ne 1) {
+              Write-Error "native plugin の binary が $($bins.Count) 個見つかりました（1 個であるべき）: $($bins.FullName -join ', ')"
+              exit 1
+          }
+          ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
 
       # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
       # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
@@ -276,9 +288,15 @@ jobs:
       - name: Verify the exported surface matches the spec
         shell: pwsh
         run: |
-          ./tools/verify-exported-symbols.ps1 -LibraryPath (
-            Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so' |
-              Select-Object -First 1 -ExpandProperty FullName)
+          # **1 個であるべき。** build/ に複数 preset の binary が同居していたら
+          # Select-Object -First 1 は「たまたま最初に見つかったもの」を
+          # 無言で選ぶ——それは「見ていない」のと変わらない。数を確かめてから使う。
+          $bins = @(Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so')
+          if ($bins.Count -ne 1) {
+              Write-Error "native plugin の binary が $($bins.Count) 個見つかりました（1 個であるべき）: $($bins.FullName -join ', ')"
+              exit 1
+          }
+          ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
 
       # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
       # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
