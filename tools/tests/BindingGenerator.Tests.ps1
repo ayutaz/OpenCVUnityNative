@@ -309,12 +309,21 @@ $declaredForOrphanCheck = @(& dotnet @listArgsForOrphanCheck | Where-Object { $_
 Assert-That ($declaredForOrphanCheck.Count -gt 0) `
     'the generator declares its outputs for the orphan scan (0 件は「違反なし」ではない)'
 
-$interopRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime'
+# **走査するのは 1 つの木ではない。** 生成物の .g.cs は 2 か所に出る ——
+# package の `Runtime/Interop*/` と、到達性テストの
+# `tests/UnityProject/Assets/Tests/Shared*/`。**後者を見ていなかった** ——
+# profile を変えて `Shared.Dnn/` に置き去りができても、この検査は緑のまま
+# だった（捕まえるのは冒頭の名乗り検査だけで、しかも git に追跡された後に
+# 限られる）。**profile ごとに 1 ファイル出る以上、置き去りはこちらでこそ起きる。**
 $onDisk = @(
-    Get-ChildItem -LiteralPath $interopRoot -Recurse -Filter '*.g.cs' -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            [System.IO.Path]::GetRelativePath($repoRoot, $_.FullName).Replace('\', '/')
-        }
+    foreach ($root in @(
+        (Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime'),
+        (Join-Path $repoRoot 'tests/UnityProject/Assets/Tests'))) {
+        Get-ChildItem -LiteralPath $root -Recurse -Filter '*.g.cs' -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                [System.IO.Path]::GetRelativePath($repoRoot, $_.FullName).Replace('\', '/')
+            }
+    }
 )
 
 if ($onDisk.Count -eq 0) {
@@ -404,6 +413,56 @@ try {
         'Program.cs still emits the standard-profile reachability file'
     Assert-That ($orchestrationOutputs -contains 'tests/UnityProject/Assets/Tests/Shared.Dnn/AbiReachabilityChecks.Dnn.g.cs') `
         'Program.cs emits a separate reachability file for the non-standard profile'
+
+    # ----------------------------------------------------------------------
+    # **生成物そのものをコンパイルする。**
+    #
+    # 上の 4 件は**出力先の path** しか見ていない。ProfileTests.cs は
+    # **出力の文字列**しか見ていない。Task 4 の Unity 側の正の対照が
+    # コンパイルしたのは**手書きの probe ファイル**だった ——
+    # **生成された profile のファイルを誰もコンパイルしていなかった。**
+    #
+    # その穴を通って実際に欠陥が 1 件入った（最終レビュー C-1）:
+    # `[DllImport(LibraryName, ...)]` の `LibraryName` は手書きの
+    # `Runtime/Interop/NativeMethods.cs` にある internal const で、
+    # 既定 profile はそれと同じ型の partial だから見えていた。
+    # **非 standard は別 assembly・別型なので見えず、CS0103 になる**
+    # （このブロックを書く前に、実際にその error で落ちることを実測した）。
+    #
+    # **道具は増やさない。** NuGet の追加は入れず、SDK が持つ `dotnet build`
+    # だけで済ませる —— 対象の生成物は外部参照を 1 つも持たないので、
+    # 空の net8.0 プロジェクトへ 1 ファイル入れれば足りる。
+    & dotnet run --project (Join-Path $repoRoot 'bindings/generator/Ocvu.Generator') `
+        -- --repo-root $profileOrchestrationTmp 2>&1 | Out-Null
+    Assert-That ($LASTEXITCODE -eq 0) 'the generator writes the synthetic profile tree'
+
+    $emitted = Join-Path $profileOrchestrationTmp `
+        'Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/NativeMethods.Dnnprobe.g.cs'
+    Assert-That (Test-Path -LiteralPath $emitted) `
+        'the non-standard profile binding was written to disk (無ければ以下は空振りする)'
+
+    # **EnableDefaultCompileItems を切って 1 ファイルだけを入れる。**
+    # 既定のままだと生成器が同じ木へ書いた他の .cs（到達性テスト。
+    # NUnit を参照する）まで拾ってしまい、落ちる理由が変わる。
+    Set-Content -LiteralPath (Join-Path $profileOrchestrationTmp 'profile-compile.csproj') -Value @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/NativeMethods.Dnnprobe.g.cs" />
+  </ItemGroup>
+</Project>
+"@
+
+    $buildLog = (& dotnet build (Join-Path $profileOrchestrationTmp 'profile-compile.csproj') `
+        --nologo -v q 2>&1) -join "`n"
+    $compiled = $LASTEXITCODE -eq 0
+    if (-not $compiled) { Write-Host $buildLog }
+    Assert-That $compiled `
+        'the GENERATED non-standard profile binding compiles on its own (C-1: LibraryName が見えないと CS0103)'
 }
 finally {
     Remove-Item -LiteralPath $profileOrchestrationTmp -Recurse -Force -ErrorAction SilentlyContinue

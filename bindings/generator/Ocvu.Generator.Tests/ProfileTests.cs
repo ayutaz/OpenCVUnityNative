@@ -67,6 +67,108 @@ public class ProfileTests
         Assert.Contains("dnnn", ex.Message);
     }
 
+    // --- C-1: 非 standard profile の生成物がコンパイルできること ---
+    //
+    // **これが「機構が働く」の中身だった穴である。** `[DllImport(LibraryName, ...)]`
+    // の `LibraryName` は手書きの `Runtime/Interop/NativeMethods.cs` にある
+    // `internal const` で、既定 profile ではそれと同じ型の partial だから見えて
+    // いた。**非 standard は別 assembly・別型なので見えない** ——
+    // `CvUnity.Interop.Dnn` の asmdef は `references: []`、`AssemblyInfo.cs` は
+    // `InternalsVisibleTo` を意図的に出していない。生成物は名前が解決できず
+    // CS0103 になる（合成 spec から生成してコンパイルし、実測した）。
+    [Fact]
+    public void ANonStandardProfileCarriesItsOwnLibraryName()
+    {
+        var text = CsPInvokeEmitter.Emit(LoadSynthetic(profile: "dnn"));
+
+        // **値だけでなく platform の分岐ごと在ること。** 値を 1 つに畳むと、
+        // 静的リンクする platform（iOS / WebGL）で "__Internal" にならず、
+        // Player の中で最初の呼び出しが落ちる（M6 で既定側が踏んだ形）。
+        Assert.Contains("#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR", text);
+        Assert.Contains("internal const string LibraryName = \"__Internal\";", text);
+        Assert.Contains("internal const string LibraryName = \"opencv_unity_native\";", text);
+
+        // **宣言より前に在ること。** C# は宣言の順序を問わないので
+        // 実害は無いが、順序が入れ替わったら意図が変わっている。
+        Assert.True(
+            text.IndexOf("LibraryName =", StringComparison.Ordinal)
+                < text.IndexOf("[DllImport(", StringComparison.Ordinal),
+            "LibraryName の宣言が DllImport より後ろにある");
+    }
+
+    /// <summary>
+    /// **既定 profile には複製しない。**
+    ///
+    /// 既定側は手書きの `NativeMethods` と同じ型の partial なので、
+    /// 複製すると `LibraryName` が二重定義になってコンパイルが落ちる。
+    /// これは「既定の生成物が 1 バイトも変わらない」の裏づけでもある。
+    /// </summary>
+    [Fact]
+    public void TheStandardProfileDoesNotCarryACopyOfLibraryName()
+    {
+        var text = CsPInvokeEmitter.Emit(LoadSynthetic(profile: null));
+
+        Assert.DoesNotContain("const string LibraryName", text);
+        Assert.DoesNotContain("#if", text);
+    }
+
+    /// <summary>
+    /// **写しが 2 つあるので、機械が突き合わせる。**
+    ///
+    /// `LibraryName` の宣言は手書き（`Runtime/Interop/NativeMethods.cs`）と
+    /// 生成器（<see cref="CsPInvokeEmitter.LibraryNameBlock"/>）の 2 箇所に
+    /// 在る。片方だけ直すと、非 standard profile の binding だけが違う
+    /// ライブラリ名を指す —— **既定 profile は緑のままである。**
+    ///
+    /// **どちらかが読めなかったら落とす。** 抽出が空振りしたことを
+    /// 「一致した」と読まない（`tools/tests/OpenCvConfig.Tests.ps1` と同じ作法）。
+    /// </summary>
+    [Fact]
+    public void TheEmittedLibraryNameMatchesTheHandWrittenOne()
+    {
+        var handWrittenPath = Path.Combine(RepoRoot(),
+            "Packages", "com.ayutaz.opencv-unity-native", "Runtime", "Interop", "NativeMethods.cs");
+        var handWritten = ExtractPreprocessorBlock(
+            File.ReadAllLines(handWrittenPath), "LibraryName");
+
+        var emitted = ExtractPreprocessorBlock(
+            CsPInvokeEmitter.LibraryNameBlock, "LibraryName");
+
+        // **0 行を「一致」と読まない。** 抽出が空振りしたら、
+        // 下の比較は空 == 空 で必ず通る。
+        Assert.NotEmpty(handWritten);
+        Assert.NotEmpty(emitted);
+
+        Assert.Equal(handWritten, emitted);
+    }
+
+    /// <summary>
+    /// <c>#if</c> から対応する <c>#endif</c> までを、<paramref name="mustContain"/> を
+    /// 含むものだけ返す。行末の空白と行頭・行末の空行だけを正規化する
+    /// （字下げは残す —— 手書きと生成物で字下げが違えば、それは食い違いである）。
+    /// 見つからなければ空配列を返し、呼ぶ側が落とす。
+    /// </summary>
+    private static string[] ExtractPreprocessorBlock(string[] lines, string mustContain)
+    {
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (!lines[i].TrimStart().StartsWith("#if", StringComparison.Ordinal)) { continue; }
+            for (var j = i + 1; j < lines.Length; j++)
+            {
+                if (lines[j].TrimStart().StartsWith("#if", StringComparison.Ordinal)) { break; }
+                if (!lines[j].TrimStart().StartsWith("#endif", StringComparison.Ordinal)) { continue; }
+
+                var block = lines[i..(j + 1)].Select(l => l.TrimEnd()).ToArray();
+                if (block.Any(l => l.Contains(mustContain, StringComparison.Ordinal)))
+                {
+                    return block;
+                }
+                break;
+            }
+        }
+        return Array.Empty<string>();
+    }
+
     // --- Step 4b: ReachabilityEmitter を profile ごとに分ける負の対照 ---
     //
     // **「既定側が変わらない」だけを見ない。** それは分岐が丸ごと死んでいても
