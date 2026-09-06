@@ -4,7 +4,7 @@
 
 **Goal:** `dnn` のような opt-in profile を後から足せるよう、native の CMake target と C# の assembly を module 単位に割り、**割っても配布する binary の公開面が 1 バイトも変わっていないこと**を機械が守る形にする。
 
-**Architecture:** 先に**安全網**を作る —— 配布する binary が実際にエクスポートしているシンボルを読み、`bindings/spec/*.json` の関数一覧と**完全一致**することを要求する検査を足す。この網があってはじめて、CMake の作り替えが「何も落としていない」と言える。そのうえで (1) module ごとの OBJECT ライブラリに割り、(2) spec に `profile` を持たせ、profile が既定でないものは別 assembly・別クラスへ出す、(3) その assembly を `defineConstraints` で切る。
+**Architecture:** 先に**安全網**を作る —— 配布する binary が実際にエクスポートしているシンボルを読み、`bindings/spec/*.json` の関数一覧と**完全一致**することを要求する検査を足す。この網があってはじめて、CMake の作り替えが「何も落としていない」と言える。そのうえで (1) ソース一覧を module ごとに割って `OCVU_MODULES` から組み立て、(2) spec に `profile` を持たせ、profile が既定でないものは別 assembly・別クラスへ出す、(3) その assembly を `defineConstraints` で切る。
 
 **Tech Stack:** CMake 3.25+ / .NET 8（生成器）/ Unity asmdef / PowerShell 7 / `dumpbin`（Windows）・`nm`（macOS / Linux）
 
@@ -54,7 +54,7 @@
 | --- | --- | --- |
 | `tools/verify-exported-symbols.ps1` | 新規 | **安全網。** 配布 binary のエクスポートが spec の関数一覧と完全一致することを要求する |
 | `tools/tests/ExportedSymbols.Tests.ps1` | 新規 | 上が実際に落ちることを、合成した入力で毎回確かめる |
-| `native/CMakeLists.txt` | 変更 | ソース一覧を module ごとの OBJECT ライブラリに割り、`OCVU_MODULES` から組み立てる |
+| `native/CMakeLists.txt` | 変更 | ソース一覧を module ごとに割り、`OCVU_MODULES` から `OCVU_SOURCES` を組み立てる |
 | `native/modules.cmake` | 新規 | **module 名 → ソースの対応表。正本。** CMake から読む |
 | `bindings/spec/schema.json` | 変更 | 任意の `profile` を許す（既定 `"standard"`） |
 | `bindings/generator/Ocvu.Generator/SpecModel.cs` | 変更 | `ModuleSpec.Profile` を読む |
@@ -351,7 +351,7 @@ SKIP は「公開面を確かめていない」と同義である。
 
 ---
 
-## Task 2: native を module ごとの OBJECT ライブラリに割る
+## Task 2: native のソース一覧を module 単位に割る
 
 **Files:**
 - Create: `native/modules.cmake`
@@ -359,8 +359,23 @@ SKIP は「公開面を確かめていない」と同義である。
 
 **Interfaces:**
 - Consumes: `tools/verify-exported-symbols.ps1`（Task 1）
-- Produces: CMake 変数 `OCVU_MODULES`（既定は `native/modules.cmake` の全 module）と、
-  module ごとの OBJECT ライブラリ `ocvu_obj_<module>`
+- Produces: CMake 変数 `OCVU_MODULES`（既定は `native/modules.cmake` の全 module）、
+  module ごとのソース一覧 `OCVU_MODULE_<module>`、
+  そこから組み立てた `OCVU_SOURCES`（**既存の変数名をそのまま使う**）
+
+> **OBJECT ライブラリは使わない。** この計画は当初「module ごとの OBJECT
+> ライブラリに割る」と書いていたが、**このリポジトリの構造では成立しない**
+> ——`native/CMakeLists.txt` は同じソースを **2 回**コンパイルしている:
+> `opencv_unity_native` には `OCVU_BUILDING_DLL` を付け（`:52`）、
+> `ocvu_static` には `OCVU_STATIC` を PUBLIC で付ける（`:66`）。
+> **OBJECT ライブラリは 1 回しかコンパイルしないので、両方を賄えない。**
+> L1 のテストが静的側へリンクしているのは、DLL がエクスポートしない内部
+> シンボル（`ocvu::set_last_error` など）に届く必要があるからで
+> （同ファイル `:5-7` のコメント）、**そこを崩すのはこの Task の範囲外である。**
+>
+> **外せる単位を作る**という目的は、ソース一覧を割るだけで満たせる ——
+> `OCVU_MODULES` から外した module のソースは 2 つの target の
+> どちらにも入らない。**着手前の走査で決めた**（ledger の Ruling 2）。
 
 **何を成立させるか**: **module を 1 つ外すと、その module の関数だけが binary から消える。**
 これが「profile」の native 側の実体である。
