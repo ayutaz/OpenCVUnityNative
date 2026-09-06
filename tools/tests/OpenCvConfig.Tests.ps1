@@ -1069,6 +1069,22 @@ if ($null -ne $localCategory -and $null -ne $ciCategory) {
         "ci-unity.yml's EditMode -testCategory ('$ciCategory') matches tools/dev.ps1's Test-UnityEditMode ('$localCategory')"
 }
 
+# **matrix の宣言だけでは足りない。** 上のリテラル判定は
+# `customParameters: '-testCategory !Graphics'` が matrix 側に「宣言されて
+# いること」を見るが、それが実際に `game-ci/unity-test-runner` の `with:` へ
+# 渡っているかは別に見ていない。渡す `with:` 側の行（`customParameters:
+# ${{ matrix.customParameters }}`）を消しても matrix の宣言はそのまま残るので
+# 上の検査は緑のままだが、action には何も渡らず、EditMode の除外が効かなく
+# なる。壊れ方は GPU の有無に依存する — GPU が無ければ `AGraphicsDeviceIsPresent`
+# が本物の欠陥として落ちて気づけるが、GPU が在れば緑のまま `docs/performance.md`
+# / `docs/roadmap.md` の「CI で 1 度も実行されていない」という前提が黙って嘘に
+# なる。だから `with:` 側の参照がちょうど 1 本在ることを別に assert する。
+$ciRefLines = @(($unityWorkflowText -split "`r?`n") | Where-Object {
+    $_ -match '^\s*customParameters:\s*\$\{\{\s*matrix\.customParameters\s*\}\}\s*$'
+})
+Assert-That ($ciRefLines.Count -eq 1) `
+    "ci-unity.yml passes matrix.customParameters to the test runner exactly once (saw $($ciRefLines.Count))"
+
 
 # --- コンテナで走る job に sudo を残さない ---
 #
