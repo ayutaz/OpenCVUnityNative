@@ -33,6 +33,32 @@ public static class ReachabilityEmitter
     public const string OutputPath =
         "tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs";
 
+    /// <summary>
+    /// profile ごとの出力先。既定 profile では <see cref="OutputPath"/> を
+    /// そのまま返す。
+    /// </summary>
+    /// <remarks>
+    /// **<see cref="OutputPath"/> は変えない・付け替えない。** <c>ApiMapEmitter</c>
+    /// がこの定数の値を <c>docs/api-map.md</c> の本文へ書き込んでおり、
+    /// そのテストが 4 箇所で見ている。付け替えると生成物の中身が無関係な差分で動く。
+    ///
+    /// **非既定 profile は別 assembly（<c>CvUnity.Tests.Shared.&lt;Profile&gt;</c>）へ
+    /// 出る。** partial class は assembly を跨げないので、既定 profile が呼ぶ
+    /// <c>NativeMethods</c> と非既定 profile が呼ぶ <c>NativeMethods&lt;Profile&gt;</c>
+    /// を同じ 1 ファイルに同居させられない（spec の D8）。
+    /// </remarks>
+    public static string OutputPathFor(string profile)
+    {
+        if (profile == "standard") { return OutputPath; }
+        var suffix = Pascalize(profile);
+        return $"tests/UnityProject/Assets/Tests/Shared.{suffix}/AbiReachabilityChecks.{suffix}.g.cs";
+    }
+
+    // "dnn" -> "Dnn"。profile 名は schema の enum で閉じているので
+    // 先頭 1 文字は必ず存在する。
+    private static string Pascalize(string profile) =>
+        char.ToUpperInvariant(profile[0]) + profile[1..];
+
     // 型ごとの無害な実引数。**結果は見ない。呼べることだけを見る。**
     // 引数はすべて native 側の入口の検査に捕まる値で、status を返して戻る。
     private static string Argument(ParamSpec p) => p.CsType switch
@@ -48,11 +74,34 @@ public static class ReachabilityEmitter
         _ => "default",
     };
 
-    public static string Emit(IReadOnlyList<ModuleSpec> specs)
+    /// <summary>
+    /// profile ごとに 1 ファイル出す。既定 profile は今までどおり
+    /// <see cref="OutputPath"/> へ、非既定は <see cref="OutputPathFor"/> の
+    /// 場所へ。
+    /// </summary>
+    /// <remarks>
+    /// **1 ファイルに #if で同居させない。** そちらだと
+    /// <c>CvUnity.Tests.Shared</c> が <c>CvUnity.Interop.Dnn</c> を参照する
+    /// ことになり、define が立っていないとき参照先がコンパイルされない場合に
+    /// Unity がその参照をどう扱うかは測っていない（spec の D8）。
+    ///
+    /// **<paramref name="profile"/> に既定値を付けない。** 既定値を付けると
+    /// 呼び出し側が profile を渡し忘れても気づけず、profile のループが
+    /// 1 度も分岐しないまま緑になりうる。
+    /// </remarks>
+    public static string Emit(IReadOnlyList<ModuleSpec> specs, string profile)
     {
-        var fns = specs.SelectMany(s => s.Functions)
+        var fns = specs
+            .Where(s => s.Profile == profile)
+            .SelectMany(s => s.Functions)
             .Where(f => f.IsReachable)
             .ToList();
+
+        var isStandard = profile == "standard";
+        var suffix = isStandard ? "" : Pascalize(profile);
+        var interopNamespace = isStandard ? "CvUnity.Interop" : $"CvUnity.Interop.{suffix}";
+        var className = $"AbiReachabilityChecks{suffix}";
+        var nativeMethods = $"NativeMethods{suffix}";
 
         var sb = new StringBuilder();
         sb.AppendLine("// このファイルは生成物である。手で編集しないこと。");
@@ -69,9 +118,9 @@ public static class ReachabilityEmitter
         sb.AppendLine("// 理由は spec の reachableNote にある（印だけ付けて理由が");
         sb.AppendLine("// 無い spec は SpecModel が拒む）。");
         sb.AppendLine();
-        sb.AppendLine("using CvUnity.Interop;");
+        sb.AppendLine($"using {interopNamespace};");
         sb.AppendLine();
-        sb.AppendLine("public static class AbiReachabilityChecks");
+        sb.AppendLine($"public static class {className}");
         sb.AppendLine("{");
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 呼んだ宣言の本数を返す。C の entry point 1 本に対して C# の宣言が");
@@ -84,7 +133,7 @@ public static class ReachabilityEmitter
         foreach (var fn in fns)
         {
             var args = string.Join(", ", fn.Params.Select(Argument));
-            sb.AppendLine($"        NativeMethods.{fn.Name}({args});");
+            sb.AppendLine($"        {nativeMethods}.{fn.Name}({args});");
         }
 
         sb.AppendLine($"        return {fns.Count};");

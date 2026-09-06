@@ -46,7 +46,16 @@ public sealed record FunctionSpec(
 
 public sealed record ModuleSpec(
     [property: JsonPropertyName("module")] string Module,
-    [property: JsonPropertyName("functions")] IReadOnlyList<FunctionSpec> Functions);
+    [property: JsonPropertyName("functions")] IReadOnlyList<FunctionSpec> Functions)
+{
+    /// <summary>
+    /// この module がどの profile に属するか。spec が書かなければ "standard"。
+    /// **standard 以外は別 assembly・別クラスへ出る**（partial class は
+    /// assembly を跨げないため）。
+    /// </summary>
+    [JsonPropertyName("profile")]
+    public string Profile { get; init; } = "standard";
+}
 
 public static class SpecModel
 {
@@ -78,23 +87,64 @@ public static class SpecModel
         var result = new List<ModuleSpec>();
         foreach (var file in files)
         {
-            ModuleSpec? spec;
-            try
-            {
-                spec = JsonSerializer.Deserialize<ModuleSpec>(File.ReadAllText(file), Options);
-            }
-            catch (JsonException ex)
-            {
-                throw new SpecFormatException($"{Path.GetFileName(file)} を読めません: {ex.Message}");
-            }
-            if (spec is null)
-            {
-                throw new SpecFormatException($"{Path.GetFileName(file)} が null になりました");
-            }
-            ValidateAgainstSchema(Path.GetFileName(file), spec, schemaConstraints);
-            result.Add(spec);
+            result.Add(LoadOneFile(file, schemaConstraints));
         }
         return result;
+    }
+
+    /// <summary>
+    /// spec を 1 ファイルだけ読む。<c>schema.json</c> は spec と同じ
+    /// ディレクトリではなく、リポジトリの正本
+    /// （<c>bindings/spec/schema.json</c>）から読む —— 合成した spec を
+    /// 一時ディレクトリへ単独で置いて検証したいテストのための入口である。
+    /// </summary>
+    /// <remarks>
+    /// **schema 検証は <see cref="Load"/> とまったく同じ経路を通る。**
+    /// 経路を分けると、<c>Load</c> だけに直した修正がこちらへ効かない
+    /// （逆もまた同様）ということが起こりうる。
+    /// </remarks>
+    public static ModuleSpec LoadFile(string path)
+    {
+        var schemaConstraints = SchemaConstraints.ReadFrom(FindRepoSchemaPath());
+        return LoadOneFile(path, schemaConstraints);
+    }
+
+    private static ModuleSpec LoadOneFile(string file, SchemaConstraints schemaConstraints)
+    {
+        ModuleSpec? spec;
+        try
+        {
+            spec = JsonSerializer.Deserialize<ModuleSpec>(File.ReadAllText(file), Options);
+        }
+        catch (JsonException ex)
+        {
+            throw new SpecFormatException($"{Path.GetFileName(file)} を読めません: {ex.Message}");
+        }
+        if (spec is null)
+        {
+            throw new SpecFormatException($"{Path.GetFileName(file)} が null になりました");
+        }
+        ValidateAgainstSchema(Path.GetFileName(file), spec, schemaConstraints);
+        return spec;
+    }
+
+    // **リポジトリの正本を、cwd から歩いて見つける。** テスト側の各 RepoRoot()
+    // ヘルパーと同じ探し方 —— LoadFile は合成 spec を任意の一時ディレクトリへ
+    // 置いた状態で呼ばれるので、その隣に schema.json は無い。
+    private static string FindRepoSchemaPath()
+    {
+        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (dir is not null
+            && !File.Exists(Path.Combine(dir.FullName, "bindings", "spec", "schema.json")))
+        {
+            dir = dir.Parent;
+        }
+        if (dir is null)
+        {
+            throw new SpecFormatException(
+                "bindings/spec/schema.json が見つかりません（repo root を特定できません）");
+        }
+        return Path.Combine(dir.FullName, "bindings", "spec", "schema.json");
     }
 
     /// <summary>
@@ -232,6 +282,16 @@ public static class SpecModel
         {
             throw new SpecFormatException(
                 $"{fileName}: module '{spec.Module}' が schema の pattern '{c.ModulePattern}' に一致しません");
+        }
+
+        // **綴り間違いを新しい profile として受けない。** enum を開いておくと、
+        // その module の宣言がどこからも参照されない assembly へ静かに消える
+        // （名前は自由記述として通り、後から誰も気づけない）。
+        if (!c.ProfileEnum.Contains(spec.Profile))
+        {
+            throw new SpecFormatException(
+                $"{fileName}: module '{spec.Module}' の profile '{spec.Profile}' は schema の enum" +
+                $"（{string.Join(", ", c.ProfileEnum)}）のいずれでもありません");
         }
 
         foreach (var fn in spec.Functions)

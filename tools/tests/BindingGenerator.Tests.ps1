@@ -257,6 +257,68 @@ Assert-That ($checkedCount -gt 0) `
 Assert-That ($undocumented.Count -eq 0) `
     "docs/api-reference.md documents every spec function (missing: $($undocumented -join ', '))"
 
+# --------------------------------------------------------------------------
+# **native/modules.cmake の module 一覧が、spec のファイル名と一致すること。**
+#
+# CMake 側は写しである（glob すると生成物が構成に混ざって再現性が落ちる）。
+# **写しを持つなら、機械が正本と突き合わせる。**
+$specModulesForCmake = @(
+    Get-ChildItem -LiteralPath (Join-Path $repoRoot 'bindings/spec') -Filter '*.json' |
+        Where-Object { $_.Name -ne 'schema.json' } |
+        ForEach-Object { $_.BaseName }
+) | Sort-Object
+
+$cmakeText = Get-Content -LiteralPath (Join-Path $repoRoot 'native/modules.cmake') -Raw
+if ($cmakeText -notmatch '(?ms)set\(OCVU_ALL_MODULES\s+(.*?)\)') {
+    Write-Host 'FAIL: modules.cmake から OCVU_ALL_MODULES を取り出せなかった'
+    $script:failures += 'modules.cmake から OCVU_ALL_MODULES を取り出せなかった'
+} else {
+    $cmakeModules = @($Matches[1] -split '\s+' |
+        Where-Object { $_ -ne '' }) | Sort-Object
+
+    # **0 件を「一致」と読まない。**
+    if ($cmakeModules.Count -eq 0) {
+        Write-Host 'FAIL: OCVU_ALL_MODULES が空。抽出が効いていない'
+        $script:failures += 'OCVU_ALL_MODULES が空。抽出が効いていない'
+    } elseif (Compare-Object $specModulesForCmake $cmakeModules) {
+        Write-Host 'FAIL: modules.cmake と bindings/spec の module 一覧が食い違う'
+        Compare-Object $specModulesForCmake $cmakeModules |
+            ForEach-Object { Write-Host "  $($_.SideIndicator) $($_.InputObject)" }
+        $script:failures += 'modules.cmake と bindings/spec の module 一覧が食い違う'
+    } else {
+        Write-Host "PASS: module 一覧が一致（$($cmakeModules.Count) 件）"
+    }
+}
+
+# --------------------------------------------------------------------------
+# **生成物のディレクトリに、申告に無いファイルが残っていないこと。**
+#
+# Step 7 の壊し方 2 で分かった穴を塞ぐ。生成器は「出すべき物」を
+# --list-outputs で申告するが、**profile を変えると前の場所に古い物が残る。**
+# 残った物は「生成物である」と名乗ったまま、誰も再生成しない。
+$declaredForOrphanCheck = @(& dotnet run --project (Join-Path $repoRoot 'bindings/generator/Ocvu.Generator') -- --list-outputs)
+$interopRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime'
+$onDisk = @(
+    Get-ChildItem -LiteralPath $interopRoot -Recurse -Filter '*.g.cs' -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            [System.IO.Path]::GetRelativePath($repoRoot, $_.FullName).Replace('\', '/')
+        }
+)
+
+if ($onDisk.Count -eq 0) {
+    Write-Host 'FAIL: .g.cs が 1 つも見つからない。走査が効いていない'
+    $script:failures += '.g.cs が 1 つも見つからない。走査が効いていない'
+} else {
+    $orphans = @($onDisk | Where-Object { $_ -notin $declaredForOrphanCheck })
+    if ($orphans.Count -gt 0) {
+        Write-Host 'FAIL: 生成器が申告していない .g.cs が残っている:'
+        $orphans | ForEach-Object { Write-Host "  $_" }
+        $script:failures += '生成器が申告していない .g.cs が残っている'
+    } else {
+        Write-Host "PASS: 残留した生成物は無い（$($onDisk.Count) 件）"
+    }
+}
+
 if ($script:failures.Count -gt 0) {
     [Console]::Error.WriteLine("`n$($script:failures.Count) assertion(s) failed")
     exit 1

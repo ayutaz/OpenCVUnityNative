@@ -20,14 +20,14 @@ public class ReachabilityEmitterTests
     [Fact]
     public void CallsEveryEntryPoint()
     {
-        Assert.Contains("NativeMethods.ocvu_sample_do(", ReachabilityEmitter.Emit(Sample()));
+        Assert.Contains("NativeMethods.ocvu_sample_do(", ReachabilityEmitter.Emit(Sample(), "standard"));
     }
 
     // **数を返すこと。**「呼んだ」ではなく「何本呼んだ」を見たい。
     [Fact]
     public void ReturnsHowManyItCalled()
     {
-        var text = ReachabilityEmitter.Emit(Sample());
+        var text = ReachabilityEmitter.Emit(Sample(), "standard");
         Assert.Contains("public static int CallEveryEntryPoint()", text);
         Assert.Contains("return 1;", text);
     }
@@ -48,7 +48,7 @@ public class ReachabilityEmitterTests
                     Array.Empty<ParamSpec>()),
             }),
         };
-        var text = ReachabilityEmitter.Emit(spec);
+        var text = ReachabilityEmitter.Emit(spec, "standard");
         Assert.DoesNotContain("ocvu_debug_crash", text);
         Assert.Contains("ocvu_get_abi_version", text);
         Assert.Contains("return 1;", text);
@@ -68,7 +68,7 @@ public class ReachabilityEmitterTests
                     new[] { new ParamSpec("kind", "int32_t", "int", "in") }),
             }),
         };
-        Assert.Contains("NativeMethods.ocvu_debug_crash(0);", ReachabilityEmitter.Emit(spec));
+        Assert.Contains("NativeMethods.ocvu_debug_crash(0);", ReachabilityEmitter.Emit(spec, "standard"));
     }
 
     // **型ごとの無害な実引数で埋めること。** 目的は呼べることであって
@@ -95,13 +95,13 @@ public class ReachabilityEmitterTests
         };
         Assert.Contains(
             "NativeMethods.ocvu_sample_all(0UL, 0, 0L, 0.0, null, default, out _);",
-            ReachabilityEmitter.Emit(spec));
+            ReachabilityEmitter.Emit(spec, "standard"));
     }
 
     [Fact]
     public void SaysItIsGenerated()
     {
-        Assert.Contains("このファイルは生成物である", ReachabilityEmitter.Emit(Sample()));
+        Assert.Contains("このファイルは生成物である", ReachabilityEmitter.Emit(Sample(), "standard"));
     }
 
     // **実物の spec で数が合うこと。** 手で書いた期待値ではなく、
@@ -114,7 +114,7 @@ public class ReachabilityEmitterTests
         var expected = specs.SelectMany(s => s.Functions).Count(f => f.IsReachable);
 
         Assert.True(expected > 10, "spec が空だと 0 本になる");
-        Assert.Contains($"return {expected};", ReachabilityEmitter.Emit(specs));
+        Assert.Contains($"return {expected};", ReachabilityEmitter.Emit(specs, "standard"));
     }
 
     private static string RepoRoot()

@@ -5,6 +5,11 @@
   "required": ["module", "functions"],
   "properties": {
     "module": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "profile": {
+      "type": "string",
+      "enum": ["standard", "dnn"],
+      "description": "この module がどの profile に属するか。書かなければ standard。standard 以外は別 assembly へ出る"
+    },
     "functions": {
       "type": "array",
       "minItems": 1,

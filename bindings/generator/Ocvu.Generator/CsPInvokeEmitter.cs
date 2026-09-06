@@ -13,9 +13,18 @@ public static class CsPInvokeEmitter
         sb.AppendLine();
         sb.AppendLine("using System.Runtime.InteropServices;");
         sb.AppendLine();
-        sb.AppendLine("namespace CvUnity.Interop");
+
+        // **standard 以外は別 namespace・別クラスへ出す。** partial class は
+        // assembly を跨げないので、同じ型にはできない（internal のままにする
+        // 理由と合わせて AssemblyInfo.cs 側に書いてある）。
+        var isStandard = spec.Profile == "standard";
+        var suffix = isStandard ? "" : Pascalize(spec.Profile);
+
+        sb.AppendLine(isStandard
+            ? "namespace CvUnity.Interop"
+            : $"namespace CvUnity.Interop.{suffix}");
         sb.AppendLine("{");
-        sb.AppendLine("    internal static partial class NativeMethods");
+        sb.AppendLine($"    internal static partial class NativeMethods{suffix}");
         sb.AppendLine("    {");
 
         foreach (var fn in spec.Functions)
@@ -34,4 +43,9 @@ public static class CsPInvokeEmitter
         sb.AppendLine("}");
         return sb.ToString();
     }
+
+    // "dnn" -> "Dnn"。profile 名は schema の enum で閉じているので先頭 1 文字は
+    // 必ず存在する（空文字列にはなり得ない）。
+    private static string Pascalize(string profile) =>
+        char.ToUpperInvariant(profile[0]) + profile[1..];
 }
