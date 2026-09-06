@@ -166,6 +166,7 @@ $ToolsTestScriptsFast = @(
     'ConfigInvalidation.Tests.ps1'
     'BindingGenerator.Tests.ps1'
     'EmscriptenVersion.Tests.ps1'
+    'PackageSize.Tests.ps1'
 )
 
 $ToolsTestScriptsSlow = @(
