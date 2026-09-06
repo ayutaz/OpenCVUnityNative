@@ -5,8 +5,14 @@ using NUnit.Framework;
 
 /// <summary>
 /// GPU に依る検査の入口。検証の本体は <see cref="GraphicsChecks"/> にある。
-/// **ここに検証を書かないこと** —— Player 側と同じものを見ていることが、
-/// この 2 ファイルの唯一の役目である。
+/// **ここに検証を書かないこと。**
+///
+/// **PlayMode 側に対を作らない。** Player（`test-unity-player` /
+/// `ci-unity.yml` の Standalone レーン）は `-nographics` で起動するため、
+/// GPU に依る検査は原理的に通らない（下の実測と同じ理由）。
+/// `RenderTextureChecks` は GPU に依らない部分（`FillFlipped`）を純粋関数
+/// として切り出してあるので Player 側に対（`RenderTexturePlayerTests`）を
+/// 持てるが、`GraphicsChecks` にはその切り出しが無く、対を作りようがない。
 ///
 /// **`test-unity-graphics` レーンからだけ走る。** 既存の EditMode /
 /// PlayMode レーンは `-nographics` で起動するため、ここに置いた検査は
