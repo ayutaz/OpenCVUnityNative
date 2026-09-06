@@ -168,6 +168,7 @@ $ToolsTestScriptsFast = @(
     'EmscriptenVersion.Tests.ps1'
     'PackageSize.Tests.ps1'
     'ExportedSymbols.Tests.ps1'
+    'Benchmarks.Tests.ps1'
 )
 
 $ToolsTestScriptsSlow = @(

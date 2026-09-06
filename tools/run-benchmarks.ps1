@@ -83,6 +83,22 @@ foreach ($line in $lines) {
     }
 }
 
+# **1 行も解釈できなかったことを「成功」にしない。**
+#
+# 上の 2 つの門は `OCVU_BENCH:` を含む**行**を数えているだけで、
+# その行から key=value を**取り出せたか**は見ていない。key の書き方が
+# 少しずれるだけで（`[a-z0-9_]+` は camelCase を通さない）、
+# 行は在るのに $results が空のまま `results: {}` を書いて exit 0 する ——
+# **測っていないものを、測ったふりをして publish する形である。**
+#
+# 0 マイクロ秒の検査も同じ理由で空振りする（entry が 1 つも無ければ
+# $zeroKeys も空になる）。**空を「違反なし」と読まない。**
+if ($results.Count -eq 0) {
+    Write-Error ("OCVU_BENCH: の行は $($lines.Count) 本あるのに、key=value を 1 つも取り出せなかった。" +
+                 "key の書き方が 'OCVU_BENCH: <key>=<整数>'（key は英小文字・数字・_）から外れている")
+    exit 1
+}
+
 # **0 マイクロ秒を publish しない。** 0 は「速かった」ではなく
 # 「測定が効いていない」と区別がつかない。`BenchmarkRunner.Report`
 # （test-unity-player レーンの繰り返し計測）は既にこれを自分で assert
