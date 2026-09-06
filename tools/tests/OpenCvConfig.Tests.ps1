@@ -1552,6 +1552,52 @@ foreach ($job in $releaseBuilders) {
         Assert-That ($unknown.Count -eq 0) `
             "$($job.Workflow) job '$($job.Name)' does not branch on a platform the matrix never produces (余分: $($unknown -join ', '))"
     }
+
+    # --- 同じ形を、配布 binary の公開面の検査にも当てる ---
+    #
+    # **verify-exported-symbols.ps1 は、まったく同じ穴を開けていた。**
+    # M7b が足したときの配線先は ci-native だけで、当たっていたのは
+    # `dev.ps1 test` が作る開発用の binary である。文書は「配布 binary の
+    # 公開面」と書いていた —— **これは verify-plugin-portability.ps1 が
+    # M3 で踏んだ形と 1 対 1 に対応する。** 同じ検査を同じ強さで掛ける。
+    $exportSteps = @()
+    foreach ($step in $job.Steps) {
+        $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+        if (@($cmds | Where-Object {
+                $_ -match '^\s*(run:\s*)?(&\s+)?\./tools/verify-exported-symbols\.ps1(\s|$)'
+            }).Count -gt 0) {
+            $exportSteps += , $step
+        }
+    }
+
+    Assert-That ($exportSteps.Count -eq 1) `
+        "$($job.Workflow) job '$($job.Name)' builds the shipped plugin and runs verify-exported-symbols.ps1 in exactly one step (saw $($exportSteps.Count))"
+    if ($exportSteps.Count -ne 1) { continue }
+
+    $exportStep = $exportSteps[0]
+
+    Assert-That (@($exportStep | Where-Object {
+        $_ -match '^(      -\s+|        )if:\s*\S'
+    }).Count -eq 0) `
+        "$($job.Workflow) job '$($job.Name)' guards the exported-surface check inside the script, not with a step-level if:"
+
+    $exportBranchPlatforms = @()
+    foreach ($line in ($exportStep | Where-Object { $_ -match '\$platform\s+-(eq|ne|in|notin)\b' })) {
+        foreach ($m in [regex]::Matches($line, "'(?<p>[A-Za-z0-9_.-]+)'")) {
+            $exportBranchPlatforms += $m.Groups['p'].Value
+        }
+    }
+    Assert-That ($exportBranchPlatforms.Count -gt 0) `
+        "$($job.Workflow) job '$($job.Name)' branches the exported-surface check on the platform (読めなければ下の突き合わせは空振りする)"
+
+    if ($matrixPlatforms.Count -gt 0 -and $exportBranchPlatforms.Count -gt 0) {
+        $exportUnhandled = @($matrixPlatforms | Where-Object { $_ -notin $exportBranchPlatforms } | Sort-Object -Unique)
+        $exportUnknown = @($exportBranchPlatforms | Where-Object { $_ -notin $matrixPlatforms } | Sort-Object -Unique)
+        Assert-That ($exportUnhandled.Count -eq 0) `
+            "$($job.Workflow) job '$($job.Name)' decides for every matrix platform whether to verify the exported surface (未決定: $($exportUnhandled -join ', '))"
+        Assert-That ($exportUnknown.Count -eq 0) `
+            "$($job.Workflow) job '$($job.Name)' does not branch the exported-surface check on a platform the matrix never produces (余分: $($exportUnknown -join ', '))"
+    }
 }
 
 
