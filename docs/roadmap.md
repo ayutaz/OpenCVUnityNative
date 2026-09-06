@@ -2019,12 +2019,37 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
    `bindings/spec/*.json` のファイル名である）、
    `opencv_unity_native.h` に残ったのは型・status・定数だけである。**ただし分けたのは
    ヘッダであって CMake target ではない** —— まだ 1 つの target が全 module を作る。
+   → **M7b で、target ではなく「その target に何を入れるか」を分けた（2026-09-06）。**
+   `native/modules.cmake` の `OCVU_MODULES` が `OCVU_SOURCES` に組み込む module を選び、
+   除いた module の関数は binary から消える —— `tools/verify-exported-symbols.ps1` が
+   配布 binary の export 面と spec の完全一致を CI で見ており（3 platform とも `ocvu_`
+   の export 53 本が spec の 53 本と一致）、`OCVU_MODULES` を意図的に絞ると外した
+   module の関数が実際に export 面から消えることも確認済みである。**target はいまも
+   1 つのままで、これは実装漏れではなく分けられないからである** —— `native/CMakeLists.txt`
+   は同じソースを 2 回コンパイルする（配布物の `opencv_unity_native` に
+   `OCVU_BUILDING_DLL`、L1 テストが DLL の非公開な内部シンボルへ届くための
+   `ocvu_static` に `OCVU_STATIC` を PUBLIC）。CMake の OBJECT ライブラリは 1 回しか
+   コンパイルできないので、この 2 target を 1 つの OBJECT で賄うことはできない。
    `OCVU_ABI_VERSION` を単一の整数のままにする判断とその留保は
    [所有権と versioning](./abi-ownership-and-versioning.md) §2 に書いた（**正本はあちら**）。
+   profile と module 一覧の規約は同文書 §4 に書いた。
 2. **C# 側も別 assembly にする。** `Runtime/Core` / `Runtime/Interop` の分離
    （`UnityEngine` を参照しない）と同じ理由で、**dnn が入らないビルドで参照が壊れない**形にする。
    → **M5 では手を付けていない。** `Runtime/Interop` は 1 つの assembly のままで、
    生成された `NativeMethods.<module>.g.cs` は `partial class` で同じ型に入る。
+   → **M7b で機構を作った（2026-09-06）。ただし「dnn が分離できた」ではなく
+   「分離する機構が働くことを確かめた」である。** spec の `profile`（既定 `standard`）
+   が `dnn` なら、生成器は宣言を別クラス `NativeMethodsDnn`・別 assembly
+   `CvUnity.Interop.Dnn`・別出力先 `Runtime/Interop.Dnn/` へ出す（規約は
+   [所有権と versioning](./abi-ownership-and-versioning.md) §4 が正本）。Unity 側にも
+   `CvUnity.Interop.Dnn`（`defineConstraints: ["OCVU_PROFILE_DNN"]`）と、その到達性
+   テストを持つ `CvUnity.Tests.Shared.Dnn` を作り、define を実際に立てて Unity 自身に
+   問うた —— 両 assembly が実際にコンパイルされ（`Library/ScriptAssemblies/` に両方の
+   `.dll` が現れた）、define を外すとどちらも消えることを EditMode の
+   `ProfileGatingTests`（4 件）で確かめた。**証明したのは「機構が働くこと」であって
+   「dnn で働くこと」ではない** —— `bindings/spec/dnn.json` はまだ無く、非 `standard`
+   profile を宣言する module は現時点で 1 つも無いので、`CvUnity.Interop.Dnn` と
+   `CvUnity.Tests.Shared.Dnn` はどちらも中身が空の assembly のままである。
 3. **OpenCV の版を跨げるようにする。** 構成ハッシュには tag が入るので、tag を変えれば
    古い artifact は使われなくなる（tag は M1 から入っている。M3 Task 1 が足したのは
    `Platform` である）。**しかしこれは「2 つの版が同時に成立する」
@@ -2055,7 +2080,9 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
    - **大きさ（ライセンスより先に効く）。** **実測（2026-08-30、PyPI の
      `nvidia-cudnn-cu12` 9.25.1.1）: 1 platform あたり 698〜772 MB**（win_amd64 698.4 /
      manylinux x86_64 716.4 / aarch64 772.1）。`tools/pack-upm-tarball.ps1` の上限は
-     **512 MB** で、全部入りは **3 platform 時点の実測で 9.6 MB** である（**その後 platform が増えたが測り直していない**）。**1 platform 分だけで既に上限を超える** ——
+     **512 MB** で、全部入りは **69,565,901 バイト（66 MB。v0.3.0 の実物の release asset、
+     6 platform、2026-09-06 に実測し直した ——「3 platform 時点の実測で 9.6 MB」は
+     platform が増えて古くなっていた数字だった）**である。**1 platform 分だけで既に上限を超える** ——
      ライセンスが解決しても、いまの形では配れない。同梱するのか、利用者側での導入を
      前提にするのかを決める必要がある。**ORT + NVIDIA execution provider の経路
      （根拠 1 で残ったほう）も同じ問いに突き当たる。**
@@ -2103,6 +2130,21 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 - **`test-unity-player` はこのマシンで、Player の後始末段階（`Stop-UnityTestPlayers` 内の `Get-CimInstance` 呼び出し）がハングする既知の欠陥を持つ。** テスト自体は完走し結果 XML も書かれるが、レーン全体が無音で固まる（`CLAUDE.md` が書く「Unity のレーンではクラッシュもハングも赤いテストにならない」という形そのもの）。M7a の変更が原因ではない（`git diff` でこの箇所に差分は無い）ので、この作業では直していない——本番の測定は、ハングしたプロセスを終了させたうえで `tools/assert-unity-results.ps1` を結果 XML に直接掛けて確認した（35 passed / exit 0）。
 - **`BenchmarkRunner` の `Report` ヘルパーが `BenchmarkRunner.cs` と `GraphicsBenchmarkRunner.cs` に複製されている。** このリポジトリは「本体はここにしか無い」を繰り返し記録しており、片方だけ直る壊れ方をする。M7a では直していない。
 - **M7 全体としては、条件 1・4・5 が未着手のまま残る。** dnn を opt-in profile として足す前提（C ABI / C# の module 分離）にも、CUDA / cuDNN の再配布確認にも、この計画は触れていない。
+
+### M7b の判定（2026-09-06。**完了条件 5 件のうち 1 件を扱う**）
+
+**M7b が担当するのは完了条件 4（C ABI と C# の module 分離）だけである**（M7a の節が担当割りを説明している）。実装は `.superpowers/sdd/2026-09-05-m7b-module-separation/`（Task 1〜5）。実測はすべてこのマシン（Windows 10.0.22631、X64、Unity 6000.3.16f1、2026-09-06）。
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 4 | `dnn` を足す前に、C ABI と C# の module 分離が済んでいること（上の決定 1〜2） | **満たした。ただし「機構が通っている」であって「dnn を分離した」ではない。** native 側は `native/modules.cmake` の `OCVU_MODULES` が module 単位でソースを選べる形になり、`tools/verify-exported-symbols.ps1` が配布 binary の export 面を spec と完全一致で照合する（3 platform とも `ocvu_` の export 53 本が spec の 53 本と一致。CI で実測）。C# 側は spec の `profile` が非 `standard` の module を別 assembly（`CvUnity.Interop.Dnn` / `NativeMethodsDnn` / `Runtime/Interop.Dnn/`）へ出す生成器の分岐と、それを Unity に問う EditMode の `ProfileGatingTests`（4 件）を作った——define（`OCVU_PROFILE_DNN`）を立てて両 assembly（`CvUnity.Interop.Dnn` と、その到達性テストを持つ `CvUnity.Tests.Shared.Dnn`）が実際にコンパイルされ、外すと両方消えることを Unity 自身に実測した。**dnn の spec も実装もまだ無い** —— `bindings/spec/dnn.json` は存在せず、非 `standard` profile を宣言する module は現時点で 0 個で、`CvUnity.Interop.Dnn` / `CvUnity.Tests.Shared.Dnn` はどちらも中身が空である。決定の詳細は上の「決定: native bridge を module 単位に分ける」1・2、規約は [所有権と versioning](./abi-ownership-and-versioning.md) §4 |
+
+**穴を隠さず書く。**
+
+- **CMake target は 1 つのままである。** `native/CMakeLists.txt` が同じソースを `opencv_unity_native`（`OCVU_BUILDING_DLL`）と `ocvu_static`（L1 テスト用、`OCVU_STATIC`）へ 2 回コンパイルするため、CMake OBJECT ライブラリでは両方を賄えない —— 分けなかったのは実装漏れではない。
+- **`-DOCVU_MODULES=...` は CMake キャッシュに sticky である。** 一度絞ると、`-UOCVU_MODULES` で明示的に外すかビルド木を作り直すまで既定へ戻らない。configure 時の `message`（既定でないときは `WARNING`）で状態を毎回可視化しているが、ローカルの速いレーンはこれを捕まえない —— 実物 binary の公開面を見るのは `ci-native.yml` だけである。
+- **native の module 選択と C# の profile は別の軸で、互いを自動では決めない。** ある module を `OCVU_MODULES` に足しても、対応する spec の `profile` を書き換えない限り、その宣言は `standard` の assembly に出続ける。
+- **M7 全体としては、条件 1・5 が未着手のまま残る**（条件 2・3 は M7a、条件 4 は本節が閉じた。残る 2 件はどちらも M7c の担当である）。
 
 ---
 

@@ -727,6 +727,52 @@ Haar / HOG（**OpenCV 5 で contrib へ移った**ので、この構成では出
 
 ---
 
+## 4. profile
+
+**既定 profile は `standard` である。** `bindings/spec/*.json` が `profile` を
+書かなければ `standard` になり、いままでどおり `Runtime/Interop` の
+`NativeMethods` に出る。
+
+**`standard` 以外は別 assembly・別クラスへ出る。**
+
+| profile | assembly | クラス | 出力先 |
+| --- | --- | --- | --- |
+| `standard` | `CvUnity.Interop` | `NativeMethods` | `Runtime/Interop/` |
+| `dnn` | `CvUnity.Interop.Dnn` | `NativeMethodsDnn` | `Runtime/Interop.Dnn/` |
+
+**`partial class` は assembly を跨げない**ので、同じ型にはできない —— 別クラス・
+別 assembly にしているのはこのためである。
+
+**profile の値は `bindings/spec/schema.json` の `enum`（`["standard", "dnn"]`）で
+閉じてある。** 開くと綴り間違いが新しい profile になり、その module の宣言が
+どこからも参照されない assembly へ静かに消える。
+
+**`OCVU_ABI_VERSION` は profile で分けない。** 単一の整数のままにする決定は
+§2 が正本で、profile の導入はそれを変えない —— **profile が変えるのは
+「どの宣言がコンパイルされるか」であって、「境界の契約が何版か」ではない。**
+
+**native 側の実体は `native/modules.cmake` である。** `OCVU_MODULES` に
+渡す module の一覧（既定は `OCVU_ALL_MODULES` の全 9 module）が、その
+binary に入る関数を決める。**外せない module が 2 つある**（`infra` と
+`core`）—— 他の全 module が使うので、外そうとすると configure の時点で
+`FATAL_ERROR` になる（`OCVU_REQUIRED_MODULES`）。
+
+**native の module 選択（`OCVU_MODULES`）と C# の profile（spec の `profile`）は
+別の軸で、互いを決めない。** 前者は「この binary にどの module の関数を含めるか」、
+後者は「その関数の C# 宣言をどの assembly に出すか」を決める —— ある module を
+`OCVU_MODULES` に足しても、その spec の `profile` を書き換えない限り宣言は
+`standard` の assembly に出続ける。
+
+**この機構は実証されているだけで、まだ使われていない。**
+`bindings/spec/dnn.json` はまだ無く、`profile: "dnn"` を宣言する module は
+現時点で 1 つも無い。`CvUnity.Interop.Dnn` と、その到達性テストを持つ
+`CvUnity.Tests.Shared.Dnn` は、`OCVU_PROFILE_DNN` を立てれば実際に
+コンパイルされ、外せば消えることを Unity 自身に問うて確かめてある
+（`ProfileGatingTests`）が、どちらも中身が空の assembly のままである。
+**「機構が働く」ことと「dnn で働く」ことは別で、後者は未実証である。**
+
+---
+
 ## 参照
 
 - `CLAUDE.md` — 「アーキテクチャの中核」の不変条件。この文書はその具体化である
