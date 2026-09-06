@@ -213,6 +213,51 @@ roadmap が調べた上流の事実（2026-08-30）が、そのまま設計制�
 
 ---
 
+### D8. 到達性テストは profile ごとに別 assembly へ出す
+
+**(a) の完了後に (b)/(c) を見直して見つけた欠陥への決定である（2026-09-06）。**
+
+`ReachabilityEmitter` は `specs.SelectMany(s => s.Functions)` で**全 spec を
+平らに畳み**、`using CvUnity.Interop;` を固定で書き、`NativeMethods.<fn>(...)` を
+1 ファイルに並べる（`bindings/generator/Ocvu.Generator/ReachabilityEmitter.cs:53,72,84`。
+いずれも実測）。
+
+**(b) が profile を導入し、(c) が `dnn.json` を足した瞬間にこれが壊れる。**
+dnn の宣言は `CvUnity.Interop.Dnn` assembly の
+`internal static partial class NativeMethodsDnn` に出るのに、到達性テストが属する
+`CvUnity.Tests.Shared` はその assembly を参照しておらず、
+`Runtime/Interop/AssemblyInfo.cs` の `InternalsVisibleTo` も届かない。
+**生成された `.g.cs` がコンパイルを通らず、EditMode / Standalone / Web の
+3 レーンが同時に落ちる**（うち 2 本は必須チェックである）。
+
+**決定: 非既定 profile の到達性テストは、その profile 専用の test assembly へ出す。**
+
+| | 既定 profile | 非既定 profile |
+| --- | --- | --- |
+| 生成物 | `Assets/Tests/Shared/AbiReachabilityChecks.g.cs` | `Assets/Tests/Shared.<Profile>/AbiReachabilityChecks.<Profile>.g.cs` |
+| assembly | `CvUnity.Tests.Shared` | `CvUnity.Tests.Shared.<Profile>`（`defineConstraints: ["OCVU_PROFILE_<PROFILE>"]`） |
+| 参照 | `CvUnity.Interop` | `CvUnity.Interop.<Profile>` と `CvUnity.Tests.Shared` |
+
+**`#if` で 1 ファイルに同居させない。** そちらだと `CvUnity.Tests.Shared` が
+`CvUnity.Interop.Dnn` を参照することになり、**define が立っていないとき
+参照先の assembly がそもそもコンパイルされない。** Unity がその参照を黙って
+落とすのか、参照解決の誤りとして扱うのかを**このリポジトリはまだ測っていない。**
+測っていないものに 3 レーンを賭けない。
+
+**これは D5（profile は asmdef 制約で表す）をテスト側へそのまま延長した形である。**
+
+**`InternalsVisibleTo` は profile 側にも要る。** (b) Task 4 Step 6 は
+「`CvUnity.Interop.Dnn` に `InternalsVisibleTo` を出さない」と決めているが、
+**到達性テスト宛の 1 本だけは例外である** —— 既定 profile 側が同じ例外を既に
+持っており（`Runtime/Interop/AssemblyInfo.cs` の末尾。「公開 API 経由では、
+どの entry point が呼ばれたかを spec から機械的に導けない」）、
+**理由は profile が変わっても変わらない。** 新しい例外を作るのではなく、
+既にある例外を同じ理由で profile 側にも置く。
+
+**間違っていた場合のコスト**: assembly が 1 つ増え、EditMode / PlayMode の
+入口を 1 組足すことになる。逆に**この決定をしないと、(c) の Task 3 で
+`generate` を走らせた瞬間に Unity の全レーンが落ち、(b) は既に merge 済みである。**
+
 ## 5. 明示的な非ゴール
 
 **3 計画のどれにも入らないもの。** 「まだやっていない」ではなく「やらないと決めた」である。

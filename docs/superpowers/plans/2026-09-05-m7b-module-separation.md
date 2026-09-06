@@ -10,6 +10,23 @@
 
 **Spec:** [`2026-09-05-m7-profiles-and-performance.md`](./2026-09-05-m7-profiles-and-performance.md)
 
+---
+
+## (a) 完了後の見直し（2026-09-06）
+
+**(a)（`2026-09-05-m7a-low-copy-and-benchmarks.md`）が完了したので、
+この計画の前提を実測で洗い直した。** 変えたのは 2 点である。
+
+| # | 崩れていた前提 | 直した場所 |
+| --- | --- | --- |
+| 1 | **到達性テストの生成器が profile を知らない。** Task 3 は `CsPInvokeEmitter` と `Program.cs` を分岐させるが、`ReachabilityEmitter` を触らない —— (c) が `dnn.json` を足した瞬間に Unity の 3 レーンが落ちる | **Task 3 に Step 4b を足した**。決定は spec の **D8** |
+| 2 | **L3 の件数が 181 だった。** (a) が `AllocationTests` を足して 185 になった | Task 2 Step 3 の期待値。**数を写す形をやめ、着手時に測った値からの差分で書く** |
+
+**変えなかったもの**: (b) が (a) の成果物（`RenderTextureConverter` /
+`measure-package-size.ps1` / `CiVisibilityTests`）に触る箇所は無い。
+`$ToolsTestScriptsFast` は (a) が 4 → 5 にしたが、この計画は**本数を写していない**
+ので影響が無い（Task 1 Step 6）。
+
 ## Global Constraints
 
 **spec の §3 を逐語で引く。全タスクの要件に暗黙に含まれる。**
@@ -43,6 +60,8 @@
 | `bindings/generator/Ocvu.Generator/SpecModel.cs` | 変更 | `ModuleSpec.Profile` を読む |
 | `bindings/generator/Ocvu.Generator/CsPInvokeEmitter.cs` | 変更 | profile ごとに namespace・クラス名を変える |
 | `bindings/generator/Ocvu.Generator/Program.cs` | 変更 | profile ごとに出力先ディレクトリを変える |
+| `bindings/generator/Ocvu.Generator/ReachabilityEmitter.cs` | 変更 | **profile ごとに別ファイル・別クラスへ出す**（spec の D8）。いまは全 spec を平らに畳んで 1 ファイルに書いている |
+| `tests/UnityProject/Assets/Tests/Shared.Dnn/CvUnity.Tests.Shared.Dnn.asmdef` | 新規 | 非既定 profile の到達性テストが入る assembly。`defineConstraints` で切る |
 | `bindings/generator/Ocvu.Generator.Tests/ProfileTests.cs` | 新規 | 合成した spec で、profile が出力先とクラス名を変えることを見る |
 | `Packages/.../Runtime/Interop/CvUnity.Interop.asmdef` | 変更 | 参照は変えない（既定 profile はここ） |
 | `docs/abi-ownership-and-versioning.md` | 変更 | profile の規約を書く |
@@ -456,7 +475,10 @@ pwsh -NoProfile -File tools/verify-exported-symbols.ps1 -LibraryPath build/windo
 pwsh -NoProfile -File tools/dev.ps1 test
 ```
 
-期待: exit 0（L1 215 件、L3 181 + 106 件）。
+期待: exit 0。**件数は着手前に測った値から 1 件も動かない** ——
+この Task は作り替えであって、テストを足しも減らしもしないからである。
+**数をここに写さない**（正本は `CLAUDE.md` の `test-native` / `test-managed` の行で、
+(a) が L3 を 181 → 185 にしたときこの行が古くなった）。
 
 - [ ] **Step 4: 「外せる」ことを実証する**
 
@@ -518,6 +540,8 @@ OCVU_MODULES を infra/core/imgproc に絞ると、他 6 module の関数が
 - Modify: `bindings/generator/Ocvu.Generator/SpecModel.cs`
 - Modify: `bindings/generator/Ocvu.Generator/CsPInvokeEmitter.cs`
 - Modify: `bindings/generator/Ocvu.Generator/Program.cs`
+- Modify: `bindings/generator/Ocvu.Generator/ReachabilityEmitter.cs`
+- Create: `tests/UnityProject/Assets/Tests/Shared.Dnn/CvUnity.Tests.Shared.Dnn.asmdef`
 - Create: `bindings/generator/Ocvu.Generator.Tests/ProfileTests.cs`
 - Modify: `tools/tests/BindingGenerator.Tests.ps1`
 
@@ -529,6 +553,10 @@ OCVU_MODULES を infra/core/imgproc に絞ると、他 6 module の関数が
     namespace `CvUnity.Interop.<Pascal(profile)>`、クラス `NativeMethods<Pascal(profile)>` を出す
   - `Program.cs` は profile が `"standard"` 以外なら
     `Runtime/Interop.<Pascal(profile)>/NativeMethods.<Pascal(module)>.g.cs` へ書く
+  - `ReachabilityEmitter.Emit(specs, profile)` と `OutputPathFor(profile)`。
+    **非既定 profile は `Assets/Tests/Shared.<Pascal>/AbiReachabilityChecks.<Pascal>.g.cs` へ、
+    `CvUnity.Tests.Shared.<Pascal>` assembly（`defineConstraints`）の中に出る**（Step 4b、spec の D8）。
+    **(c) はこれに乗る** —— 乗らないと `dnn.json` を足した瞬間に Unity の 3 レーンが落ちる
 
 **なぜ別クラスにするか**: **`partial class` は assembly を跨げない。**
 `NativeMethods` を別 assembly でも `partial` にすることはできないので、
@@ -708,6 +736,99 @@ pwsh -NoProfile -File tools/dev.ps1 test-managed
                               "Runtime", interopDir, $"NativeMethods.{pascal}.g.cs"),
                  CsPInvokeEmitter.Emit(spec)));
 ```
+
+- [ ] **Step 4b: `ReachabilityEmitter` を profile ごとに分ける**
+
+**この step は (a) 完了後の見直しで足した。決定は spec の D8 にある。**
+**番号を 4b にしてあるのは、Step 7 / Step 8 が互いを番号で参照しているためで、
+振り直すと参照が壊れる。**
+
+現状は**全 spec を平らに畳んで 1 ファイルに書いている**（実測）:
+
+```csharp
+// ReachabilityEmitter.cs:53
+var fns = specs.SelectMany(s => s.Functions)...
+// :72
+sb.AppendLine("using CvUnity.Interop;");
+```
+
+**このままだと (c) が `dnn.json` を足した瞬間に、
+`NativeMethods.ocvu_net_read(...)` という存在しない呼び出しが
+`CvUnity.Tests.Shared` に書き出され、EditMode / Standalone / Web が
+同時にコンパイルできなくなる。**
+
+`Emit` を profile ごとに 1 回呼ぶ形に変える:
+
+```csharp
+    /// <summary>
+    /// **profile ごとに 1 ファイル出す。** 既定 profile は今までどおり
+    /// AbiReachabilityChecks.g.cs へ、非既定は
+    /// Assets/Tests/Shared.<Profile>/AbiReachabilityChecks.<Profile>.g.cs へ。
+    ///
+    /// **1 ファイルに #if で同居させない。** そちらだと CvUnity.Tests.Shared が
+    /// CvUnity.Interop.Dnn を参照することになり、define が立っていないとき
+    /// 参照先がコンパイルされない。**Unity がその参照を黙って落とすかは
+    /// 測っていない**（spec の D8）。
+    /// </summary>
+    public static string Emit(IReadOnlyList<ModuleSpec> specs, string profile)
+```
+
+**名前は Pascal 化した profile 名を後ろに繋げる**（`dnn` なら `Dnn`）。
+**山括弧に見える書き方をしない** —— C# のジェネリクスと読み違えられる:
+
+| | 既定 profile | `dnn` profile |
+| --- | --- | --- |
+| using | `using CvUnity.Interop;` | `using CvUnity.Interop.Dnn;` |
+| クラス | `AbiReachabilityChecks` | `AbiReachabilityChecksDnn` |
+| 呼ぶ先 | `NativeMethods` | `NativeMethodsDnn` |
+
+**`OutputPath` という既存の定数を消したり付け替えたりしない。**
+**4 つの consumer がある**（実測）—— `ApiMapEmitter.cs:107` がこの値を
+`docs/api-map.md` の本文へ書き込み、`ApiMapEmitterTests.cs` が 4 箇所で
+assert している。**付け替えると生成物の中身が変わり、
+`verify-generated` が無関係な差分で落ちる。**
+
+```csharp
+    /// 既定 profile の出力先。**この定数の値は変えない**（ApiMapEmitter が
+    /// docs/api-map.md へ書き込んでおり、そのテストが 4 箇所で見ている）。
+    public const string OutputPath = /* いまの値のまま */;
+
+    /// profile ごとの出力先。既定 profile では OutputPath をそのまま返す。
+    public static string OutputPathFor(string profile) =>
+        profile == "standard" ? OutputPath : /* Shared.<Pascal>/... */;
+```
+
+`Program.cs` は profile の集合を spec から導いて回す。**一覧を書かない**:
+
+```csharp
+foreach (var profile in specs.Select(s => s.Profile).Distinct().OrderBy(p => p))
+{
+    outputs.Add((Path.Combine(repoRoot, ReachabilityEmitter.OutputPathFor(profile)),
+                 ReachabilityEmitter.Emit(specs, profile)));
+}
+```
+
+**`--list-outputs` にも自動で載る**（Step 8 が見ている「消えるべき生成物」の
+検出も、そのまま効く）。
+
+**profile 側の `AssemblyInfo.cs` に `InternalsVisibleTo` が 1 本要る。**
+Step 6 は「`CvUnity.Interop.Dnn` には出さない」と決めるが、
+**到達性テスト宛の 1 本だけは例外である** —— 既定 profile 側が同じ例外を
+既に持っており（`Runtime/Interop/AssemblyInfo.cs` の末尾）、
+**理由は profile が変わっても変わらない。**
+
+```csharp
+// Packages/.../Runtime/Interop.Dnn/AssemblyInfo.cs
+// **到達性テストだけが例外である。** 理由は Runtime/Interop/AssemblyInfo.cs の
+// 末尾と同じで、公開 API 経由では「どの entry point が呼ばれたか」を
+// spec から機械的に導けない。**profile が変わっても、その理由は変わらない。**
+[assembly: InternalsVisibleTo("CvUnity.Tests.Shared.Dnn")]
+```
+
+**負の対照を取る。** 合成した spec（`profile: "test"` を 1 つ持つもの）で
+生成器を走らせ、**2 ファイル出ること**・**既定側のファイルに `test` profile の
+関数が 1 本も現れないこと**を `ProfileTests.cs` で見る。
+**「既定側が変わらない」だけを見ない** —— それは分岐が丸ごと死んでいても真になる。
 
 - [ ] **Step 5: テストが通り、生成物が 1 バイトも動かないことを確かめる**
 

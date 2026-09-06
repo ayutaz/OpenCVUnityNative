@@ -27,6 +27,22 @@
 
 **Depends on:** [`2026-09-05-m7b-module-separation.md`](./2026-09-05-m7b-module-separation.md) —— **こちらが完了するまで着手しない。**
 
+---
+
+## (a) 完了後の見直し（2026-09-06）
+
+**(a) が完了したので、この計画の前提を実測で洗い直した。** 変えたのは 3 点である。
+
+| # | 崩れていた前提 | 直した場所 |
+| --- | --- | --- |
+| 1 | **到達性テストの生成器が profile を知らない。** `dnn.json` を足した瞬間、存在しない `NativeMethods.ocvu_net_*` が `CvUnity.Tests.Shared` に書き出され、EditMode / Standalone / Web が同時に落ちる | **(b) 側で塞ぐ**（Task 3 Step 4b）。決定は spec の **D8**。この計画は File Structure と Task 3 で受ける |
+| 2 | **L3 の件数が 181 だった。** (a) が `AllocationTests` を足して 185 になった | Task 4 Step 4 と Task 5 Step 4。**数を写す形をやめ、差分で書く** |
+| 3 | **全部入り tarball の上限を (a) が機械に守らせた。** `release.yml` の `Assemble the release assets`（**必須チェック**）が `-MaxBytes 104857600` で落とす。実測 **66 MB** に対して余裕は **34 MB**、6 platform で割ると **1 platform あたり約 5.6 MB** しかない | **Task 1 に Step 4b を足した** —— 6 platform 分をビルドし終えた直後に見積もる。**Task 6 まで持ち越さない** |
+
+**3 が最も高い。** dnn と protobuf を 6 platform 分積んで上限を超えると、
+落ちるのは**この計画の最後の Task で、必須チェックの中である。**
+**そこまで進んでから配布形態を作り直すことになる。**
+
 ## Global Constraints
 
 **spec の §3 を逐語で引く。全タスクの要件に暗黙に含まれる。**
@@ -112,6 +128,8 @@ rows / cols / channels しか公開していない。**
 | `native/tests/test_dnn.cpp` | 新規 | L1 |
 | `native/tests/test_dnn_table_stability.cpp` | 新規 | L1。handle 表のスレッド安全性 |
 | `Packages/.../Runtime/Interop.Dnn/CvUnity.Interop.Dnn.asmdef` | 変更 | (b) が空で置いたものに `references` を足す |
+| `Packages/.../Runtime/Interop.Dnn/AssemblyInfo.cs` | 新規 | 到達性テスト宛の `InternalsVisibleTo` 1 本だけ（spec の D8） |
+| `tests/UnityProject/Assets/Tests/Shared.Dnn/**` | 新規 | dnn の到達性テスト（生成物）と、その asmdef。**(b) Task 3 Step 4b が機構を作る** |
 | `Packages/.../Runtime/Dnn/CvDnn.cs` + asmdef | 新規 | C# の公開 API |
 | `tests/Managed/CvUnity.Tests.Managed/DnnTests.cs` | 新規 | L3 |
 | `docs/api-reference.md` | 変更 | `CvDnn` を足す |
@@ -175,6 +193,40 @@ git push -u origin feat/m7-profiles-and-performance
 gh run list --workflow build-opencv.yml --limit 1
 gh run watch <id>
 ```
+
+- [ ] **Step 4b: 全部入り tarball が上限に収まるかを、ここで見積もる**
+
+**この step は (a) 完了後の見直しで足した。**
+
+(a) は `release.yml` の `Assemble the release assets`（**必須チェック**）に
+`measure-package-size.ps1 -MaxBytes 104857600` を配線した。**実測の余裕は薄い**:
+
+| | バイト |
+| --- | --- |
+| 現在の全部入り（v0.3.0 の実物） | 69,565,901（**66 MB**） |
+| 上限 | 104,857,600（100 MB） |
+| **余裕** | 約 35,000,000（**34 MB**） |
+| **6 platform で割ると** | **1 platform あたり約 5.6 MB** |
+
+**`dnn` は OpenCV の module としても、protobuf という新しい bundled 依存の
+分としても大きい。** 5.6 MB に収まる保証はどこにも無い。
+
+CI が 6 platform 分の OpenCV を出したら、**plugin をビルドする前に**
+`opencv_dnn` の静的ライブラリと protobuf のサイズを platform ごとに記録する。
+
+```
+# 例（実際のパスは復元したツリーの構成に合わせる）
+ls -l third_party/opencv/<new-hash>/**/libopencv_dnn.a
+```
+
+**ただしこの数字は上限そのものではない** —— 静的リンクは参照された object しか
+引かないので、**実際の増分は Task 3 Step 7 で plugin をビルドして測るまで
+分からない**（`CLAUDE.md` が 2 度実測している:「`COMPONENTS` に足すだけでは
+binary は 1 バイトも増えない」）。**ここで見るのは「桁として無理があるか」だけである。**
+
+**桁として無理があるなら、Task 6 まで進む前に配布形態を決め直すこと。**
+Task 6 Step 1 の (A)/(B) の議論をここへ前倒しする。**最後の Task で
+必須チェックが赤くなってから作り直すのが、いちばん高い。**
 
 - [ ] **Step 5: 落ちた検査を全部記録する**
 
@@ -782,6 +834,8 @@ pwsh -NoProfile -File tools/dev.ps1 test-asan
 git add bindings/spec/dnn.json bindings/generator/Ocvu.Generator/SpecModel.cs native/src/ocvu_dnn.cpp native/tests/test_dnn.cpp native/tests/test_module_linkage.cpp cmake/FindOpenCvUnityDeps.cmake native/include/opencv_unity_native.h docs/api-reference.md docs/abi-ownership-and-versioning.md
 # 生成物も一緒に
 git add native/include/ocvu/dnn.h Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/NativeMethods.Dnn.g.cs docs/api-map.md
+# 到達性テストは profile ごとに別ファイル・別 assembly へ出る（spec の D8。(b) Task 3 Step 4b）
+git add tests/UnityProject/Assets/Tests/Shared.Dnn/ Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/AssemblyInfo.cs
 git commit -m "feat(m7c): dnn の C ABI 4 本
 
 **(b) が作った profile の分岐が、実物で初めて働いた** —— spec に
@@ -937,7 +991,9 @@ using System.Runtime.CompilerServices;
 pwsh -NoProfile -File tools/dev.ps1 test-managed
 ```
 
-期待: `CvUnity.Tests.Managed` が 181 → **185**。
+期待: `CvUnity.Tests.Managed` が **+4**。**着手前に測った値からの差で見る** ——
+絶対の件数をここに写すと、別の計画が先に入った日にこの行だけが嘘になる
+（(a) が L3 を 181 → 185 にしたとき、実際にこの行が古くなった）。
 
 - [ ] **Step 5: Unity で profile が切れることを実証する**
 
@@ -1138,7 +1194,8 @@ public class DnnInferenceTests
 pwsh -NoProfile -File tools/dev.ps1 test-managed
 ```
 
-期待: `CvUnity.Tests.Managed` が 185 → **189**。
+期待: `CvUnity.Tests.Managed` が **さらに +4**（Task 4 の後の値から）。
+**絶対の件数を写さない。**
 
 - [ ] **Step 5: 負の対照を取る**
 
