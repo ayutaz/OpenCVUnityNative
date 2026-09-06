@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-graphics', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'test', 'clean')]
+    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-graphics', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'benchmark', 'test', 'clean')]
     [string]$Command = 'test',
 
     <#
@@ -1200,6 +1200,40 @@ function Test-UnityPlayer {
     }
 }
 
+<#
+    経路ごとの所要時間を測って artifacts/benchmarks/latest.json へ書く（M7a Task 4）。
+
+    **時間を判定しない。** ここが呼ぶのはいつもの test-unity-player /
+    test-unity-graphics で、それぞれの合否は assert-unity-results.ps1 が
+    いつもどおり見る。**このコマンドが追加するのは「測って公開する」だけ**
+    である（設計 D1）。
+
+    **Player と Graphics の 2 レーンにまたがる。** GPU に依らない経路
+    （texture2d_to_mat、mat_copy_from/to_pointer）は IL2CPP Player
+    （-nographics）で、GPU に依る経路（RenderTexture）は Graphics レーン
+    （-nographics を渡さない）でしか測れない —— 実測（Task 2/3）で
+    -nographics の下では RenderTexture の内容が読めないと分かっている。
+
+    **順に走らせる。同時に走らせないこと** —— tools/dev.ps1 のレーンは
+    相互排他で、後から始めたほうが先行の結果（artifacts/test-results/）を
+    消す。
+#>
+function Invoke-Benchmark {
+    # **Player のレーンを流用する。** 測定は実物の IL2CPP Player で
+    # 行う —— Editor の Mono で測った数字は、利用者が動かすものと違う。
+    Test-UnityPlayer
+
+    # GPU に依る経路は Player では測れないので、続けて Graphics レーンも走らせる。
+    Test-UnityGraphics
+
+    $playerXml   = Join-Path $ResultsDir 'unity-player.xml'
+    $graphicsXml = Join-Path $ResultsDir 'unity-graphics.xml'
+    $out = Join-Path $RepoRoot 'artifacts/benchmarks/latest.json'
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-benchmarks.ps1') `
+        -XmlPath @($playerXml, $graphicsXml) -OutPath $out
+    if ($LASTEXITCODE -ne 0) { throw 'benchmark の収集に失敗した' }
+}
+
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
 # (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
 function Test-ManagedProbe {
@@ -1248,6 +1282,7 @@ switch ($Command) {
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
     'test-unity-web' { Reset-Results; Test-UnityWeb }
     'test-unity-tarball' { Reset-Results; Test-UnityTarball }
+    'benchmark'    { Reset-Results; Invoke-Benchmark }
     'test'         { Reset-Results; Test-Tools; Test-Generated; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }

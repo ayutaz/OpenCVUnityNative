@@ -38,6 +38,8 @@ public class CiVisibilityTests
         "GraphicsTests.AsyncMatchesSync",
         "GraphicsTests.TakingTheMatTwiceIsRejected",
         "GraphicsTests.EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint",
+        // M7a Task 4: GPU に依る benchmark も同じ理由で Graphics カテゴリに乗る。
+        "GraphicsBenchmarkRunner.MeasureRenderTexturePaths",
     };
 
     [Test]
