@@ -54,10 +54,21 @@ public static class ReachabilityEmitter
         return $"tests/UnityProject/Assets/Tests/Shared.{suffix}/AbiReachabilityChecks.{suffix}.g.cs";
     }
 
-    // "dnn" -> "Dnn"。profile 名は schema の enum で閉じているので
-    // 先頭 1 文字は必ず存在する。
-    private static string Pascalize(string profile) =>
-        char.ToUpperInvariant(profile[0]) + profile[1..];
+    // "dnn" -> "Dnn"。**この前提は schema 経由の spec にしか成立しない。**
+    // ModuleSpec はテスト等から schema 検証を経ずに直接組み立てられるので、
+    // 空文字列が来ることがありうる —— そのまま profile[0] を読むと
+    // IndexOutOfRangeException という意味の分からない例外になるので、
+    // ここで明示的に拒む。
+    private static string Pascalize(string profile)
+    {
+        if (string.IsNullOrEmpty(profile))
+        {
+            throw new ArgumentException(
+                "profile が空文字列です。ModuleSpec.Profile は空であってはなりません。",
+                nameof(profile));
+        }
+        return char.ToUpperInvariant(profile[0]) + profile[1..];
+    }
 
     // 型ごとの無害な実引数。**結果は見ない。呼べることだけを見る。**
     // 引数はすべて native 側の入口の検査に捕まる値で、status を返して戻る。

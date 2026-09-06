@@ -92,23 +92,11 @@ public static class SpecModel
         return result;
     }
 
-    /// <summary>
-    /// spec を 1 ファイルだけ読む。<c>schema.json</c> は spec と同じ
-    /// ディレクトリではなく、リポジトリの正本
-    /// （<c>bindings/spec/schema.json</c>）から読む —— 合成した spec を
-    /// 一時ディレクトリへ単独で置いて検証したいテストのための入口である。
-    /// </summary>
-    /// <remarks>
-    /// **schema 検証は <see cref="Load"/> とまったく同じ経路を通る。**
-    /// 経路を分けると、<c>Load</c> だけに直した修正がこちらへ効かない
-    /// （逆もまた同様）ということが起こりうる。
-    /// </remarks>
-    public static ModuleSpec LoadFile(string path)
-    {
-        var schemaConstraints = SchemaConstraints.ReadFrom(FindRepoSchemaPath());
-        return LoadOneFile(path, schemaConstraints);
-    }
-
+    // **spec を 1 ファイルだけ読む本体。** Load(specDir) の foreach と、
+    // 合成 spec 1 件だけを検証したいテスト（SpecSchemaTests.cs の
+    // CopyRealSchemaInto パターン経由の Load）の両方がここを通る。
+    // 経路を分けると、片方だけに直した修正がもう片方へ効かないということが
+    // 起こりうる。
     private static ModuleSpec LoadOneFile(string file, SchemaConstraints schemaConstraints)
     {
         ModuleSpec? spec;

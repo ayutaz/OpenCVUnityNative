@@ -107,11 +107,20 @@ public class ReachabilityEmitterTests
     // **実物の spec で数が合うこと。** 手で書いた期待値ではなく、
     // spec 自身が数えた「呼べる関数」の本数と突き合わせる —— ABI が
     // 1 本増えれば期待値も勝手に増える。
+    //
+    // **profile で絞ってから数える。** 絞らずに全 spec を数えると、いまは
+    // 実物の spec が全部 "standard" なので通るが、非 standard な spec が
+    // 1 つ入った日に「到達性の本数が退行した」という誤った失敗を起こす ——
+    // 本当の原因は「この期待値が profile を知らなかった」ことなのに、
+    // その日のセッションには文脈が無い。
     [Fact]
     public void CountsEveryReachableFunctionOfTheRealSpec()
     {
         var specs = SpecModel.Load(Path.Combine(RepoRoot(), "bindings", "spec"));
-        var expected = specs.SelectMany(s => s.Functions).Count(f => f.IsReachable);
+        var expected = specs
+            .Where(s => s.Profile == "standard")
+            .SelectMany(s => s.Functions)
+            .Count(f => f.IsReachable);
 
         Assert.True(expected > 10, "spec が空だと 0 本になる");
         Assert.Contains($"return {expected};", ReachabilityEmitter.Emit(specs, "standard"));

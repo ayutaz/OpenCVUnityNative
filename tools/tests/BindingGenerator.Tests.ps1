@@ -296,7 +296,19 @@ if ($cmakeText -notmatch '(?ms)set\(OCVU_ALL_MODULES\s+(.*?)\)') {
 # Step 7 の壊し方 2 で分かった穴を塞ぐ。生成器は「出すべき物」を
 # --list-outputs で申告するが、**profile を変えると前の場所に古い物が残る。**
 # 残った物は「生成物である」と名乗ったまま、誰も再生成しない。
-$declaredForOrphanCheck = @(& dotnet run --project (Join-Path $repoRoot 'bindings/generator/Ocvu.Generator') -- --list-outputs)
+#
+# **上の $declared とまったく同じ呼び方をする。** --repo-root を渡さないと
+# 生成器は自分の cwd を repo root と見なす —— $repoRoot はこの script が
+# どこから呼ばれても同じ場所を指すために $PSScriptRoot から導いてあるのに、
+# ここだけそれを迂回すると cwd 次第で全 9 ファイルが「申告に無い」と
+# 誤判定される（本当の原因は「一覧が空」なのに、報告は「orphan が 9 件」と
+# 見当違いを指す）。フィルタと非空の確認も揃える。
+$listArgsForOrphanCheck = @('run', '--project', (Join-Path $repoRoot 'bindings/generator/Ocvu.Generator'),
+                            '--', '--repo-root', $repoRoot, '--list-outputs')
+$declaredForOrphanCheck = @(& dotnet @listArgsForOrphanCheck | Where-Object { $_ -match '\S' } | ForEach-Object { $_.Trim() })
+Assert-That ($declaredForOrphanCheck.Count -gt 0) `
+    'the generator declares its outputs for the orphan scan (0 件は「違反なし」ではない)'
+
 $interopRoot = Join-Path $repoRoot 'Packages/com.ayutaz.opencv-unity-native/Runtime'
 $onDisk = @(
     Get-ChildItem -LiteralPath $interopRoot -Recurse -Filter '*.g.cs' -ErrorAction SilentlyContinue |
@@ -317,6 +329,84 @@ if ($onDisk.Count -eq 0) {
     } else {
         Write-Host "PASS: 残留した生成物は無い（$($onDisk.Count) 件）"
     }
+}
+
+# --------------------------------------------------------------------------
+# **レビュー fix round 1、Minor 1: Program.cs の profile 分岐そのものを運転する。**
+#
+# CsPInvokeEmitter / ReachabilityEmitter が profile で分岐することは
+# Ocvu.Generator.Tests（ProfileTests.cs）が見ているが、それを実際に
+# 呼び出す側の配線 —— Program.cs の interopDir 算出と、profile ごとに
+# ループして出力先を積む部分 —— は Task 3 の Step 7 が手で 1 回壊して
+# 確かめただけで、常設のレーンには乗っていなかった。この機構は
+# plan (c)（dnn profile の追加）が実際に来るまで一度も動かないかもしれない
+# 条件付きの将来のためのものなので、「そのときになれば誰か気づくだろう」に
+# 賭けない。
+#
+# 合成した spec 木（standard 1 つ・非 standard 1 つ）を一時ディレクトリに
+# 作り、--repo-root にそこを指定して --list-outputs だけを呼ぶ
+# （Program.cs は listOutputs のとき書き込みの手前で continue するので、
+# 何も書き込まれない副作用の無い呼び方である）。
+$profileOrchestrationTmp = Join-Path ([System.IO.Path]::GetTempPath()) `
+    ('ocvu-profile-orchestration-' + [System.Guid]::NewGuid().ToString('N'))
+$specDirTmp = Join-Path $profileOrchestrationTmp 'bindings/spec'
+New-Item -ItemType Directory -Path $specDirTmp -Force | Out-Null
+try {
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'bindings/spec/schema.json') `
+        -Destination (Join-Path $specDirTmp 'schema.json')
+
+    Set-Content -LiteralPath (Join-Path $specDirTmp 'probe.json') -NoNewline -Value @'
+{
+  "module": "probe",
+  "functions": [
+    {
+      "name": "ocvu_probe_thing",
+      "summary": "profile 分岐の配線を運転するためだけの合成 spec（standard 側）。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": []
+    }
+  ]
+}
+'@
+
+    Set-Content -LiteralPath (Join-Path $specDirTmp 'dnnprobe.json') -NoNewline -Value @'
+{
+  "module": "dnnprobe",
+  "profile": "dnn",
+  "functions": [
+    {
+      "name": "ocvu_dnnprobe_thing",
+      "summary": "profile 分岐の配線を運転するためだけの合成 spec（非 standard 側）。",
+      "returns": "ocvu_status",
+      "csReturns": "int",
+      "wrapInTryBarrier": true,
+      "params": []
+    }
+  ]
+}
+'@
+
+    $listArgsForOrchestration = @('run', '--project', (Join-Path $repoRoot 'bindings/generator/Ocvu.Generator'),
+                                   '--', '--repo-root', $profileOrchestrationTmp, '--list-outputs')
+    $orchestrationOutputs = @(
+        & dotnet @listArgsForOrchestration | Where-Object { $_ -match '\S' } | ForEach-Object { $_.Trim() }
+    )
+
+    Assert-That ($orchestrationOutputs.Count -gt 0) `
+        'the profile-orchestration scan produced output (0 件は空振り)'
+    Assert-That ($orchestrationOutputs -contains 'Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.Probe.g.cs') `
+        'Program.cs still routes a standard-profile module under Runtime/Interop/'
+    Assert-That ($orchestrationOutputs -contains 'Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/NativeMethods.Dnnprobe.g.cs') `
+        'Program.cs routes a non-standard-profile module under Runtime/Interop.Dnn/'
+    Assert-That ($orchestrationOutputs -contains 'tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs') `
+        'Program.cs still emits the standard-profile reachability file'
+    Assert-That ($orchestrationOutputs -contains 'tests/UnityProject/Assets/Tests/Shared.Dnn/AbiReachabilityChecks.Dnn.g.cs') `
+        'Program.cs emits a separate reachability file for the non-standard profile'
+}
+finally {
+    Remove-Item -LiteralPath $profileOrchestrationTmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if ($script:failures.Count -gt 0) {

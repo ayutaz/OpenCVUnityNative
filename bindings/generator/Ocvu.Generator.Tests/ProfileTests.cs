@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace Ocvu.Generator.Tests;
@@ -116,6 +117,41 @@ public class ProfileTests
         Assert.DoesNotContain("ocvu_probe_thing", testText);
     }
 
+    // --- レビュー Minor 3: 空文字列の profile ---
+    //
+    // Pascalize は「profile 名は schema の enum で閉じている」ことを前提に
+    // profile[0] を直接インデックスしていたが、ModuleSpec はここまでの
+    // テストがまさにやっているとおり schema 検証を経ずに直接組み立てられる。
+    // 空文字列を渡すと IndexOutOfRangeException という、原因の分からない
+    // 例外になっていた。
+    [Fact]
+    public void AnEmptyProfileFailsWithAClearMessageRatherThanAnIndexError()
+    {
+        var spec = new ModuleSpec("probe", new[]
+        {
+            new FunctionSpec("ocvu_probe_thing", "空 profile を試す。", "ocvu_status", "int", true,
+                Array.Empty<ParamSpec>()),
+        })
+        {
+            Profile = "",
+        };
+
+        var ex1 = Assert.Throws<ArgumentException>(() => CsPInvokeEmitter.Emit(spec));
+        Assert.Contains("profile", ex1.Message);
+
+        var specs = new[] { spec };
+        var ex2 = Assert.Throws<ArgumentException>(() => ReachabilityEmitter.Emit(specs, ""));
+        Assert.Contains("profile", ex2.Message);
+
+        var ex3 = Assert.Throws<ArgumentException>(() => ReachabilityEmitter.OutputPathFor(""));
+        Assert.Contains("profile", ex3.Message);
+    }
+
+    // **SpecModel.Load(tmpDir) を使う。専用の 1 ファイル入口は足さない。**
+    // SpecSchemaTests.cs が既に同じ形（CopyRealSchemaInto + 一時ディレクトリ）
+    // で合成 spec を検証しており、それで用は足りる —— 生産コードに新しい
+    // 公開 API（cwd から repo root を歩いて探す、という Program.cs が
+    // --repo-root で意図的に避けている依存）を足す理由が無い。
     private static ModuleSpec LoadSynthetic(string profile)
     {
         var profileLine = profile is null ? "" : $"\"profile\": \"{profile}\",";
@@ -136,10 +172,35 @@ public class ProfileTests
         }
         """;
 
-        var path = Path.Combine(
-            Path.GetTempPath(), Guid.NewGuid().ToString() + ".json");
-        File.WriteAllText(path, json);
-        try { return SpecModel.LoadFile(path); }
-        finally { File.Delete(path); }
+        var tmp = Path.Combine(Path.GetTempPath(), "ocvu-spec-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            CopyRealSchemaInto(tmp);
+            File.WriteAllText(Path.Combine(tmp, "probe.json"), json);
+            return SpecModel.Load(tmp).Single();
+        }
+        finally { Directory.Delete(tmp, recursive: true); }
+    }
+
+    // SpecSchemaTests.cs の同名メソッドと同じ形。SpecModel.Load は spec と
+    // 同じディレクトリに schema.json があることを要求するため、合成 spec を
+    // 単独で検証したいテストは実物の schema.json をそこへ複製する。
+    private static void CopyRealSchemaInto(string tmpDir)
+    {
+        File.Copy(
+            Path.Combine(RepoRoot(), "bindings", "spec", "schema.json"),
+            Path.Combine(tmpDir, "schema.json"));
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "bindings", "spec")))
+        {
+            dir = dir.Parent;
+        }
+        Assert.NotNull(dir);
+        return dir!.FullName;
     }
 }

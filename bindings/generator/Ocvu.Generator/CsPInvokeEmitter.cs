@@ -44,8 +44,19 @@ public static class CsPInvokeEmitter
         return sb.ToString();
     }
 
-    // "dnn" -> "Dnn"。profile 名は schema の enum で閉じているので先頭 1 文字は
-    // 必ず存在する（空文字列にはなり得ない）。
-    private static string Pascalize(string profile) =>
-        char.ToUpperInvariant(profile[0]) + profile[1..];
+    // "dnn" -> "Dnn"。**この前提は schema 経由の spec にしか成立しない。**
+    // ModuleSpec はテスト等から schema 検証を経ずに直接組み立てられるので、
+    // 空文字列が来ることがありうる —— そのまま profile[0] を読むと
+    // IndexOutOfRangeException という意味の分からない例外になるので、
+    // ここで明示的に拒む。
+    private static string Pascalize(string profile)
+    {
+        if (string.IsNullOrEmpty(profile))
+        {
+            throw new ArgumentException(
+                "profile が空文字列です。ModuleSpec.Profile は空であってはなりません。",
+                nameof(profile));
+        }
+        return char.ToUpperInvariant(profile[0]) + profile[1..];
+    }
 }
