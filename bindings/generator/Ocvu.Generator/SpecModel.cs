@@ -116,25 +116,6 @@ public static class SpecModel
         return spec;
     }
 
-    // **リポジトリの正本を、cwd から歩いて見つける。** テスト側の各 RepoRoot()
-    // ヘルパーと同じ探し方 —— LoadFile は合成 spec を任意の一時ディレクトリへ
-    // 置いた状態で呼ばれるので、その隣に schema.json は無い。
-    private static string FindRepoSchemaPath()
-    {
-        var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (dir is not null
-            && !File.Exists(Path.Combine(dir.FullName, "bindings", "spec", "schema.json")))
-        {
-            dir = dir.Parent;
-        }
-        if (dir is null)
-        {
-            throw new SpecFormatException(
-                "bindings/spec/schema.json が見つかりません（repo root を特定できません）");
-        }
-        return Path.Combine(dir.FullName, "bindings", "spec", "schema.json");
-    }
-
     /// <summary>
     /// <c>cType</c> ごとに、spec が書いてよい <c>csType</c> の集合。
     /// </summary>
