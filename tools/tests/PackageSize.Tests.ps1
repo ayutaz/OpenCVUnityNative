@@ -36,6 +36,20 @@ try {
         Write-Host 'PASS: 上限内は通る'
     }
 
+    # **0 バイトの package を通してはならない。**
+    # measure-package-size.ps1 にはこの分岐があったが、**どの入力も
+    # 一度も到達していなかった**（上限超過・上限内・不在の 3 件だけを
+    # 運転していた）。分岐が在ることは、その分岐が働くことではない。
+    $zero = Join-Path $work 'zero.tgz'
+    [System.IO.File]::WriteAllBytes($zero, (New-Object byte[] 0))
+    & pwsh -NoProfile -File $script -TarballPath $zero -MaxBytes 4096 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host 'FAIL: 0 バイトの package が通った'
+        $failures++
+    } else {
+        Write-Host 'PASS: 0 バイトの package は落ちる'
+    }
+
     # **存在しないファイルは、0 バイトとして通してはならない。**
     & pwsh -NoProfile -File $script -TarballPath (Join-Path $work 'nope.tgz') -MaxBytes 4096 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
