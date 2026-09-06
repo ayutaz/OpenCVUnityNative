@@ -8,6 +8,11 @@
 include(${CMAKE_CURRENT_SOURCE_DIR}/modules.cmake)
 
 # 呼ぶ側が絞れる。既定は全部。
+#
+# **`-DOCVU_MODULES=...` は sticky である。** 一度キャッシュへ書き込まれると、
+# 以降このビルド木を再 configure しても `if(NOT DEFINED ...)` は真にならず、
+# 既定には戻らない —— `-UOCVU_MODULES` で明示的に外すか、ビルド木を
+# 作り直すまで残り続ける（Step 4c で実際にこれを踏んだ）。
 if(NOT DEFINED OCVU_MODULES)
     set(OCVU_MODULES ${OCVU_ALL_MODULES})
 endif()
@@ -23,6 +28,21 @@ foreach(required ${OCVU_REQUIRED_MODULES})
     endif()
 endforeach()
 
+# **sticky な状態を見える形にする。** 黙っていると、誰も -D を渡していない
+# つもりの configure でも前回の -D が生き残ったままになりうる。
+# ローカルの速いレーンはこれを捕まえない —— 実物 binary の公開面を見るのは
+# ci-native.yml だけで、L1/L3 の合成テストは module を絞っても変わらず通る。
+# だからここで毎回、実際に効いている一覧を明示する。
+if("${OCVU_MODULES}" STREQUAL "${OCVU_ALL_MODULES}")
+    message(STATUS "OCVU_MODULES: ${OCVU_MODULES}（既定）")
+else()
+    message(WARNING
+        "OCVU_MODULES が既定から絞られています: ${OCVU_MODULES}\n"
+        "この binary は一部 module の関数をエクスポートしません。"
+        "既定に戻すには -UOCVU_MODULES で再 configure するか、"
+        "このビルド木自体を作り直すこと。")
+endif()
+
 set(OCVU_SOURCES "")
 foreach(mod ${OCVU_MODULES})
     if(NOT DEFINED OCVU_MODULE_${mod})
@@ -33,6 +53,16 @@ foreach(mod ${OCVU_MODULES})
     list(APPEND OCVU_SOURCES ${OCVU_MODULE_${mod}})
 endforeach()
 
+# **この分岐は現状、実証されていない（到達させたことがない）。**
+# 上の OCVU_REQUIRED_MODULES の検査が infra/core の存在を必ず強制しており、
+# その 2 つは modules.cmake で常に非空のソースを持つので、今の構成では
+# ここへ来る入力を作れない。削らずに残してあるのは、この不変条件
+# （組み立てた一覧は非空）を将来の変更が破りうるからである ——
+# 例えば OCVU_REQUIRED_MODULES を空にできるようにしたり、module の
+# ソース一覧が空になり得る形に変えたりすると、このガードが初めて
+# 実際に効くようになる。上の 2 つの FATAL_ERROR（未知の module /
+# 必須 module 欠落）は Step 4 で実際に踏んで確認済みだが、これは
+# 踏んでいない —— 実証済みのものと未実証のものを混同しないこと。
 if(OCVU_SOURCES STREQUAL "")
     message(FATAL_ERROR "OCVU_SOURCES が空。modules.cmake の読み込みが効いていない")
 endif()
