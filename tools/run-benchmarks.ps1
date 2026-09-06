@@ -52,11 +52,25 @@ $lines = @()
 foreach ($path in $XmlPath) {
     [xml]$xml = Get-Content -LiteralPath $path -Raw
     $texts = @($xml.SelectNodes('//output') | ForEach-Object { $_.InnerText })
-    $lines += @($texts -split "`n" | Where-Object { $_ -match 'OCVU_BENCH:' })
+    $fileLines = @($texts -split "`n" | Where-Object { $_ -match 'OCVU_BENCH:' })
+
+    # **下限は XML ごとに見る。** 2 つの XML を連結してから 0 件かどうかを
+    # 見ていた版は、片方の benchmark 本体が丸ごと消えても（メソッド名を
+    # 変える／[Category("Graphics")] を外して該当レーンから消す、いずれも
+    # 実測）もう片方の行が残るので `$lines.Count -eq 0` に一度も当たらず、
+    # 静かに通っていた。**空だったファイルを名指しで落とす。**
+    if ($fileLines.Count -eq 0) {
+        Write-Error "OCVU_BENCH の行が 1 本も無い: $path。このレーンの benchmark 本体が走っていないか、名前が変わった"
+        exit 1
+    }
+
+    $lines += $fileLines
 }
 
 # **0 件を「速かった」と読まない。** 1 本も拾えなかったなら、
 # Player/Graphics が走らなかったか、名前が変わったかである。
+# （上のファイル単位の検査が先に落とすはずだが、$XmlPath が空配列の
+# 呼び出しを構造的に塞ぐため、ここにも残す。）
 if ($lines.Count -eq 0) {
     Write-Error 'OCVU_BENCH の行が 1 本も無い。Player/Graphics が走っていないか、名前が変わった'
     exit 1
@@ -67,6 +81,21 @@ foreach ($line in $lines) {
     if ($line -match 'OCVU_BENCH:\s*([a-z0-9_]+)=(\d+)') {
         $results[$Matches[1]] = [long]$Matches[2]
     }
+}
+
+# **0 マイクロ秒を publish しない。** 0 は「速かった」ではなく
+# 「測定が効いていない」と区別がつかない。`BenchmarkRunner.Report`
+# （test-unity-player レーンの繰り返し計測）は既にこれを自分で assert
+# しているが、`MeasureFirstPInvoke`（温めない単発測定）はそれを通らない
+# ので値が 0 になる余地が現実にある（実測で 1 µs を公開しており、桁として
+# 0 に近い）。**判定は controller（このスクリプト）の裁定に置く** ——
+# テスト側に Assert.Greater を足すと、必須チェック Unity Standalone (Linux)
+# にフレークを持ち込む（単発測定は温まっていないので 0 と出る回があり得る）。
+# ここで一括して名指しし、0 の entry があれば exit 1 にする。
+$zeroKeys = @($results.Keys | Where-Object { $results[$_] -eq 0 })
+if ($zeroKeys.Count -gt 0) {
+    Write-Error "0 マイクロ秒の entry がある（測定が効いていない）: $($zeroKeys -join ', ')"
+    exit 1
 }
 
 # **測った環境を必ず併記する**（設計 §6）。数字だけ残すと、
