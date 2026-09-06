@@ -5,29 +5,37 @@
 # テストを SHARED にリンクすると、DLL がエクスポートしていない内部シンボル
 # (ocvu::set_last_error など) に到達できず link エラーになる。
 # よってテストは STATIC 側へリンクする。
-set(OCVU_SOURCES
-    src/ocvu_version.cpp
-    src/ocvu_error.cpp
-    src/ocvu_status.cpp
-    src/ocvu_debug.cpp
-    src/ocvu_opencv_info.cpp
-    src/ocvu_mat_table.cpp
-    src/ocvu_mat.cpp
-    src/ocvu_mat_buffer.cpp
-    src/ocvu_imgproc.cpp
-    src/ocvu_imgcodecs.cpp
-    src/ocvu_objdetect.cpp
-    src/ocvu_features.cpp
-    src/ocvu_geometry.cpp
-    src/ocvu_calibration.cpp
-    src/ocvu_pose.cpp
-    src/ocvu_aruco.cpp
-    src/ocvu_imgproc_ops.cpp
-    src/ocvu_imgproc_shape.cpp
-    src/ocvu_core_ops.cpp
-    src/ocvu_matching.cpp
-    src/ocvu_stereo.cpp
-)
+include(${CMAKE_CURRENT_SOURCE_DIR}/modules.cmake)
+
+# 呼ぶ側が絞れる。既定は全部。
+if(NOT DEFINED OCVU_MODULES)
+    set(OCVU_MODULES ${OCVU_ALL_MODULES})
+endif()
+
+# **外せない module を黙って足さない。** 落とす ——
+# 「infra を外したのに動いた」は、外したつもりで外れていないということである。
+foreach(required ${OCVU_REQUIRED_MODULES})
+    list(FIND OCVU_MODULES ${required} _idx)
+    if(_idx EQUAL -1)
+        message(FATAL_ERROR
+            "OCVU_MODULES に必須の module '${required}' が無い。"
+            "infra と core は他の全 module が使うので外せない")
+    endif()
+endforeach()
+
+set(OCVU_SOURCES "")
+foreach(mod ${OCVU_MODULES})
+    if(NOT DEFINED OCVU_MODULE_${mod})
+        message(FATAL_ERROR
+            "module '${mod}' が modules.cmake に無い。"
+            "bindings/spec/${mod}.json を足したなら modules.cmake にも足すこと")
+    endif()
+    list(APPEND OCVU_SOURCES ${OCVU_MODULE_${mod}})
+endforeach()
+
+if(OCVU_SOURCES STREQUAL "")
+    message(FATAL_ERROR "OCVU_SOURCES が空。modules.cmake の読み込みが効いていない")
+endif()
 
 # **iOS だけ静的ライブラリにする。**
 #
