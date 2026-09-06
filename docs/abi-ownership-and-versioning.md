@@ -763,13 +763,66 @@ binary に入る関数を決める。**外せない module が 2 つある**（`
 `OCVU_MODULES` に足しても、その spec の `profile` を書き換えない限り宣言は
 `standard` の assembly に出続ける。
 
-**この機構は実証されているだけで、まだ使われていない。**
-`bindings/spec/dnn.json` はまだ無く、`profile: "dnn"` を宣言する module は
-現時点で 1 つも無い。`CvUnity.Interop.Dnn` と、その到達性テストを持つ
-`CvUnity.Tests.Shared.Dnn` は、`OCVU_PROFILE_DNN` を立てれば実際に
-コンパイルされ、外せば消えることを Unity 自身に問うて確かめてある
-（`ProfileGatingTests`）が、どちらも中身が空の assembly のままである。
-**「機構が働く」ことと「dnn で働く」ことは別で、後者は未実証である。**
+### 非既定 profile は `LibraryName` を自分で持つ
+
+**`[DllImport(LibraryName, ...)]` の `LibraryName` は、手書きの
+`Runtime/Interop/NativeMethods.cs` にある `internal const` である。**
+既定 profile の生成物は同じ型（`CvUnity.Interop.NativeMethods`）の
+`partial` なので、それがそのまま見える。**非既定 profile は別 assembly・
+別型なので見えない** —— `CvUnity.Interop.Dnn` の asmdef は
+`references: []` で、`Runtime/Interop/AssemblyInfo.cs` は
+`InternalsVisibleTo` を意図的に出していない。
+
+**だから生成器が、非既定 profile のクラスへ `LibraryName` を
+platform の `#if` 分岐ごと複製する。** 値だけを写すと、静的リンクする
+platform（iOS / WebGL）で `"__Internal"` にならず、Player の中で最初の
+呼び出しが落ちる —— M6 で既定 profile 側が実際に踏んだ壊れ方である。
+
+**`Runtime/Interop/AssemblyInfo.cs` が書いた予言は、ここで的中した。**
+同ファイルは「profile 側が `Interop` の何かを見たくなったら、それは
+**そちらを別の場所へ切り出す合図である**」と書いている。**合図は実際に
+出た。** それでも切り出さず、**機械の監視つきの複製で答えた**：
+
+- **切り出すと `LibraryName` を `public` にするか、profile ごとに
+  `InternalsVisibleTo` を並べるかのどちらかになる。** 前者は実装詳細の
+  ために package の公開 API を恒久的に広げることであり、後者は
+  このリポジトリが繰り返し拒んできた「列挙で守る」形である
+- 切り出し先は共有 assembly になるので、`CvUnity.Interop.asmdef` ——
+  **6 platform に配っている既定の assembly** —— を触ることになる
+- **写しが 2 つになる危険は、機械が持つ。** `Ocvu.Generator.Tests` の
+  `ProfileTests` が、手書き側の `#if` ブロックと生成器側のそれを読み比べる
+  （どちらかが抽出できなければ落とす —— 読めなかったことを「一致」と
+  読まない）
+
+**切り出しは M7c の判断である。** `bindings/spec/dnn.json` が入って
+本物の 2 つ目の利用者ができ、レビューを一巡させられるときに決める。
+
+### いま実証されていること、いないこと
+
+**`bindings/spec/dnn.json` はまだ無く、`profile: "dnn"` を宣言する module は
+現時点で 1 つも無い。** `CvUnity.Interop.Dnn` と `CvUnity.Tests.Shared.Dnn` は、
+リポジトリに commit された状態では中身が空の assembly である。
+
+実証されているのは次の 3 つで、**どれも実物を動かして測った**:
+
+1. **`defineConstraints` が効く。** `OCVU_PROFILE_DNN` を立てれば 2 つの
+   assembly は実際にコンパイルされ、外せば消える —— Unity 自身に問うている
+   （`ProfileGatingTests`）
+2. **非既定 profile の生成物がコンパイルできる。** 合成した
+   `profile: "dnn"` の spec から `dev.ps1 generate` で**生成した**
+   `NativeMethods.Dnnprobe.g.cs` と `AbiReachabilityChecks.Dnn.g.cs` を、
+   define を立てた Unity が実際にコンパイルした（2026-09-06 に実測。
+   `Library/ScriptAssemblies/` に `CvUnity.Interop.Dnn.dll` と
+   `CvUnity.Tests.Shared.Dnn.dll` が現れた）。**この 1 つは 2026-09-06 まで
+   実証されていなかった** —— それまで Unity がコンパイルしたのは手書きの
+   probe で、**生成物は誰もコンパイルしていなかった。**その穴を通って
+   `LibraryName` の欠陥（上記）が入り、最終レビューが見つけた
+3. 上の (2) の常設版が速いレーンに在る（`BindingGenerator.Tests.ps1` が
+   合成 spec から生成して `dotnet build` に掛ける）。**Unity は要らない**
+
+**まだ実証されていないのは「dnn で働く」ことである** —— 上の実証は
+どれも合成した probe module によるもので、本物の `dnn` の spec も
+実装も無い。**「機構が働く」ことと「dnn で働く」ことは別である。**
 
 ---
 

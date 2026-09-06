@@ -93,6 +93,17 @@ namespace CvUnity.Interop
         // になった。**ビルドもリンクも通り、Player も起動する** ——
         // 壊れるのは実際に呼んだ瞬間だけで、**ブラウザで動かすまで
         // 誰も気づかない。**
+        // **この #if ブロックには写しがある。**
+        //
+        // 非既定 profile（`CvUnity.Interop.Dnn` など）は別 assembly・別型なので
+        // ここが見えない。生成器が同じ 5 行をそのクラスへ複製するので、
+        // **片方だけ直すと、profile 側の binding だけが違うライブラリ名を指す**
+        // ——既定 profile は緑のままである。
+        //
+        // 写しの正本は `bindings/generator/Ocvu.Generator/CsPInvokeEmitter.cs` の
+        // `LibraryNameBlock` で、2 つが一致することは `Ocvu.Generator.Tests` の
+        // `ProfileTests` が読み比べる。**ここを直したらあちらも直す。**
+        // 複製で答えた理由は `docs/abi-ownership-and-versioning.md` §4 にある。
 #if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR
         internal const string LibraryName = "__Internal";
 #else
