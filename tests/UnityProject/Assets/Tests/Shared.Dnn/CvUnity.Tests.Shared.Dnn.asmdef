@@ -1,0 +1,16 @@
+{
+    "name": "CvUnity.Tests.Shared.Dnn",
+    "rootNamespace": "",
+    "references": [
+        "CvUnity.Interop.Dnn",
+        "CvUnity.Tests.Shared"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "autoReferenced": true,
+    "defineConstraints": [
+        "OCVU_PROFILE_DNN"
+    ],
+    "noEngineReferences": false
+}
