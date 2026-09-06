@@ -1229,8 +1229,13 @@ function Invoke-Benchmark {
     $playerXml   = Join-Path $ResultsDir 'unity-player.xml'
     $graphicsXml = Join-Path $ResultsDir 'unity-graphics.xml'
     $out = Join-Path $RepoRoot 'artifacts/benchmarks/latest.json'
+
+    # **';' で繋いだ 1 文字列で渡す。** 配列（@($playerXml, $graphicsXml)）を
+    # 外部プロセス呼び出しの引数にすると、子プロセス側は 1 個目しか -XmlPath に
+    # 束ねず、2 個目以降を「対応する named parameter が無い」として拒否する
+    # （実測。assert-unity-results.ps1 の -RequireTest と同じ罠、同じ直し方）。
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-benchmarks.ps1') `
-        -XmlPath @($playerXml, $graphicsXml) -OutPath $out
+        -XmlPath ($playerXml + ';' + $graphicsXml) -OutPath $out
     if ($LASTEXITCODE -ne 0) { throw 'benchmark の収集に失敗した' }
 }
 

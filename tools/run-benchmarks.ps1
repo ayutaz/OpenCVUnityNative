@@ -16,6 +16,13 @@ param(
     # Unity の -testResults が書いた結果 XML。複数可 —— GPU に依らない経路は
     # unity-player.xml（test-unity-player）、GPU に依る経路は
     # unity-graphics.xml（test-unity-graphics）に分かれている。
+    #
+    # **';' 区切りの 1 文字列も受ける。** tools/assert-unity-results.ps1 と
+    # 同じ理由: `pwsh -NoProfile -File` で外部プロセスとして呼ぶと、
+    # PowerShell の配列は「同じ -XmlPath の下に複数値」としては渡らない
+    # ——子プロセス側は 1 個目しか -XmlPath に束ねず、2 個目以降を
+    # 「対応する named parameter が無い positional 引数」として拒否する
+    # （実測: dev.ps1 の Invoke-Benchmark と同じ呼び方で試して確認した）。
     [Parameter(Mandatory = $true)][string[]]$XmlPath,
     [Parameter(Mandatory = $true)][string]$OutPath
 )
@@ -23,6 +30,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+# 呼ぶ側の作法に依存しない形にする（';' 区切りの 1 文字列でも、配列でも）。
+$XmlPath = @($XmlPath | ForEach-Object { $_ -split ';' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+if ($XmlPath.Count -eq 0) {
+    Write-Error '-XmlPath に値がありません。'
+    exit 1
+}
 
 # **存在しない XML は黙って飛ばさず落とす。** 「片方しか無かったので
 # 半分だけ書いた」を成功にしない —— どのレーンが飛んだのかを名指しする。
