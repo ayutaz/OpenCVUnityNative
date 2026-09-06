@@ -541,7 +541,6 @@ OCVU_MODULES を infra/core/imgproc に絞ると、他 6 module の関数が
 - Modify: `bindings/generator/Ocvu.Generator/CsPInvokeEmitter.cs`
 - Modify: `bindings/generator/Ocvu.Generator/Program.cs`
 - Modify: `bindings/generator/Ocvu.Generator/ReachabilityEmitter.cs`
-- Create: `tests/UnityProject/Assets/Tests/Shared.Dnn/CvUnity.Tests.Shared.Dnn.asmdef`
 - Create: `bindings/generator/Ocvu.Generator.Tests/ProfileTests.cs`
 - Modify: `tools/tests/BindingGenerator.Tests.ps1`
 
@@ -811,19 +810,11 @@ foreach (var profile in specs.Select(s => s.Profile).Distinct().OrderBy(p => p))
 **`--list-outputs` にも自動で載る**（Step 8 が見ている「消えるべき生成物」の
 検出も、そのまま効く）。
 
-**profile 側の `AssemblyInfo.cs` に `InternalsVisibleTo` が 1 本要る。**
-Step 6 は「`CvUnity.Interop.Dnn` には出さない」と決めるが、
-**到達性テスト宛の 1 本だけは例外である** —— 既定 profile 側が同じ例外を
-既に持っており（`Runtime/Interop/AssemblyInfo.cs` の末尾）、
-**理由は profile が変わっても変わらない。**
-
-```csharp
-// Packages/.../Runtime/Interop.Dnn/AssemblyInfo.cs
-// **到達性テストだけが例外である。** 理由は Runtime/Interop/AssemblyInfo.cs の
-// 末尾と同じで、公開 API 経由では「どの entry point が呼ばれたか」を
-// spec から機械的に導けない。**profile が変わっても、その理由は変わらない。**
-[assembly: InternalsVisibleTo("CvUnity.Tests.Shared.Dnn")]
-```
+> **この Step が触るのは生成器だけである。** 受け皿になる Unity の assembly
+> （`CvUnity.Tests.Shared.Dnn` の asmdef と、profile 側の `InternalsVisibleTo`）は
+> **Task 4 が置く** —— この時点ではまだ dnn の spec が無いので、
+> ここで asmdef を置くと「存在しない assembly を参照する空の assembly」になる。
+> **着手前の走査で決めた**（ledger の Ruling 1）。
 
 **負の対照を取る。** 合成した spec（`profile: "test"` を 1 つ持つもの）で
 生成器を走らせ、**2 ファイル出ること**・**既定側のファイルに `test` profile の
@@ -970,6 +961,8 @@ internal のままにする —— AssemblyInfo.cs が「P/Invoke 宣言は実�
 
 **Files:**
 - Create: `Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/CvUnity.Interop.Dnn.asmdef`（**中身は空でよい**）
+- Create: `Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/AssemblyInfo.cs`（**到達性テスト宛の 1 本だけ**。Step 6）
+- Create: `tests/UnityProject/Assets/Tests/Shared.Dnn/CvUnity.Tests.Shared.Dnn.asmdef`（Step 3b）
 - Modify: `Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/AssemblyInfo.cs`
 - Create: `tests/UnityProject/Assets/Tests/EditMode/ProfileGatingTests.cs`
 
@@ -1106,6 +1099,46 @@ pwsh -NoProfile -File tools/dev.ps1 test-unity-editmode
 `./tools/dev.ps1 generate` を実行すると生成される。**手で書かない。**
 ```
 
+- [ ] **Step 3b: 到達性テストの受け皿になる assembly を置く**
+
+**Task 3 Step 4b が作った生成器の分岐は、出力先の assembly が無いと働かない。**
+決定は spec の **D8** にある。
+
+`tests/UnityProject/Assets/Tests/Shared.Dnn/CvUnity.Tests.Shared.Dnn.asmdef`:
+
+```json
+{
+    "name": "CvUnity.Tests.Shared.Dnn",
+    "rootNamespace": "",
+    "references": [
+        "CvUnity.Interop.Dnn",
+        "CvUnity.Tests.Shared"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "autoReferenced": true,
+    "defineConstraints": [
+        "OCVU_PROFILE_DNN"
+    ],
+    "noEngineReferences": false
+}
+```
+
+**`includePlatforms` を空にする**（= 全 platform）。`CvUnity.Tests.Shared` と
+同じで、**WebGL の Player にもコンパイルされる必要がある** ——
+到達性を確かめられるのは Player だけで、Web もその Player の 1 つである。
+
+**`defineConstraints` で切る。`#if` で `CvUnity.Tests.Shared` に同居させない**
+（spec の D8）—— 同居させると `CvUnity.Tests.Shared` が
+`CvUnity.Interop.Dnn` を参照することになり、define が立っていないとき
+**参照先の assembly がそもそもコンパイルされない。** Unity がその参照を
+黙って落とすかを、**このリポジトリはまだ測っていない。**
+
+**いまは中身が空である**（`bindings/spec/dnn.json` がまだ無いので、生成器は
+何も書き出さない）。**空のままでよい** —— `defineConstraints` が満たされないので、
+この assembly は既定のビルドではそもそもコンパイルされない。
+
 - [ ] **Step 4: テストが通ることを確かめる**
 
 ```
@@ -1158,10 +1191,27 @@ pwsh -NoProfile -File tools/dev.ps1 test-unity-editmode
 // opt-in profile を知っていたら、切り離せていない。
 ```
 
+**例外が 1 つある: 到達性テスト宛の 1 本。**
+`Packages/.../Runtime/Interop.Dnn/AssemblyInfo.cs` を新しく置く:
+
+```csharp
+using System.Runtime.CompilerServices;
+
+// **到達性テストだけが例外である。** 理由は Runtime/Interop/AssemblyInfo.cs の
+// 末尾にあるものと同じで、公開 API 経由では「どの entry point が呼ばれたか」を
+// spec から機械的に導けない。**profile が変わっても、その理由は変わらない。**
+//
+// **新しい例外を作っているのではなく、既にある例外を同じ理由で profile 側にも
+// 置いている。** 上の「Dnn には InternalsVisibleTo を出さない」は
+// CvUnity.Dnn / CvUnity.Runtime / CvUnity.Tests.Managed の 3 つについての
+// 決定であって、この 1 本は含まない。
+[assembly: InternalsVisibleTo("CvUnity.Tests.Shared.Dnn")]
+```
+
 - [ ] **Step 7: コミット**
 
 ```bash
-git add Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/ Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/AssemblyInfo.cs tests/UnityProject/Assets/Tests/EditMode/ProfileGatingTests.cs
+git add Packages/com.ayutaz.opencv-unity-native/Runtime/Interop.Dnn/ Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/AssemblyInfo.cs tests/UnityProject/Assets/Tests/EditMode/ProfileGatingTests.cs tests/UnityProject/Assets/Tests/Shared.Dnn/
 git commit -m "feat(m7b): profile を切る asmdef と、それを Unity に問う検査
 
 **自分で asmdef をパースしない。** Unity の CompilationPipeline に問う ——
