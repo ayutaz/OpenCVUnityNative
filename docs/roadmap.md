@@ -736,7 +736,7 @@ M5 の module 拡張で `objdetect` / `features` / `geometry` / `calib`、そし
 | 6 | macOS で Unity に読み込ませたことがない | 「iOS のビルドに macOS runner が要るので M4 で自然に埋まる」と書いていたが、**埋まらなかった。** macOS runner は plugin をビルドするだけで Unity を起動しない | **未解消。2026-08-31 に 4 回試して「CI では閉じない」と確定した**（game-ci は macOS を支えず、Hub で直接入れる経路は Editor が 14 分で入るのにライセンスで止まる）。詳細は下の「担当が無かった制約」 |
 | 7 | Windows の IL2CPP を CI で回していない | 「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった —— **そこで実際に投げて根拠を作った** | **未解消。2026-08-31 に「CI で回さない」と結論した** —— `windows-2022` で EditMode は 33 件通ったが、`Standalone` は `ToolchainNotFoundException` で落ちた（game-ci の Windows コンテナに MSVC が無い）。**根拠は実測であって他人の issue ではない。** これは「まだ調べていない穴」ではなく**意図して CI の外に置いたもの**である |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決めた: arm64 のみ**（Android は arm64-v8a、iOS は実機の arm64）。**穴は塞いでいない —— 塞がないと決めた。** 増やすと platform が 2 つ増え、OpenCV のビルドも配布物も同じだけ増える（**数を写さない** —— 正本は `tools/dev.ps1` の `$AllPlatformBinaries` で、触る場所は `add-a-platform` skill にある） |
-| 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
+| 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7a で着手し、部分的に解消（2026-09-06）。** 割り当ては L3 が機械で保証し（ポインタ経路 0 バイト）、時間は測って公開したが**assert していない**。**`RenderTexture` / `AsyncGPUReadback` の経路は Editor（Mono）の `test-unity-graphics` でしか実行しておらず、そのレーンは CI に配線していない** —— IL2CPP の Player でこの経路が動くかは未実証のままである。**native texture pointer は評価のみで実装していない**（やらないと決めた）。判定と根拠は下の「M7a の判定」節 |
 | 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
 
 ### #1 を最優先に置く理由
@@ -2085,6 +2085,24 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 - **`dnn` を足す前に、C ABI と C# の module 分離が済んでいること**（上の 1〜2）
 - **CUDA / cuDNN を同梱するなら、再配布条件の確認が済んでいること**（上の 5）。
   確認できないなら**同梱しない**と決めて記録する
+
+### M7a の判定（2026-09-06。**完了条件 5 件のうち 2 件を扱う**）
+
+**M7 は 3 つの計画に分けてある**（`docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md`。M5 で「生成の仕組みと module 追加を同時にやると切り分けられない」と判断したのと同じ理由）。**M7a が担当するのは完了条件 2（低コピー経路の評価）と 3（benchmark の公開）だけである** —— 条件 1（profile ごとの native artifact 等）は M7c、条件 4（C ABI / C# の module 分離）は M7b、条件 5（CUDA / cuDNN の再配布確認）は M7c が担当する。**したがってこの節が閉じても M7 全体は完了しない** —— 残る 3 件が閉じるまで、M7 の判定は「未完了」のままである。
+
+実装は `.superpowers/sdd/2026-09-05-m7a-low-copy-and-benchmarks/`（Task 1〜6）。実測はすべてこのマシン（Windows 10.0.22631、X64、Unity 6000.3.16f1、2026-09-05〜09-06）。詳細な数字と読み方は [性能](./performance.md) が正本で、ここには写さない。
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | **満たした。ただし実証の範囲は限定的である。** `RenderTextureConverter.ToMat`（同期）と `RequestMat`（`AsyncGPUReadback` を使う非同期）はどちらも実装し、実測した——`-nographics` の下では `RenderTexture.Create()` が true を返すのに読んだ画素が `205,205,205` になる（作れたが読めない）という落とし穴を実際に踏み、上下反転だけを行う `FillFlipped` を GPU 非依存の純粋関数として切り出して既存レーンで検証できる形にした。**残る 2 つの経路（`ToMat` / `RequestMat` そのもの）は Editor（Mono、グラフィックス有効）の `test-unity-graphics` でしか実行したことがない** —— このレーンは CI に配線しておらず、赤くても merge を止めない（`tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が「CI から見えないテスト」として名指しで固定している）。**`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない** —— `test-unity-player` は `-nographics` で走るため `supportsAsyncGPUReadback` が `false` になる。**native texture pointer は評価のみで、実装していない**（やらないと決めた—— `GetNativeTexturePtr()` を CPU から読むにはレンダースレッドからグラフィックス API を呼ぶ必要があり、6 platform 分の分岐を持つ新しい subsystem になる。得られるはずのものと再評価の条件は [性能](./performance.md) にある） |
+| 3 | package size、startup time、frame time、allocation の benchmark を公開 | **満たした。ただし性質が 2 つに分かれる。** package size（`PackageSize.Tests.ps1`）と allocation（L3 の `AllocationTests`）は**機械が assert し、CI が守り続ける**——ポインタ経路は 0 バイト、`byte[]` 経路はそれ以上であることを毎回確かめ、tarball が上限を超えれば落ちる。**frame time（境界のコピーと `RenderTexture`）と startup time は、公開したが assert していない**（設計 D1: 共有 CI ランナー上で時間を assert すると必ずフレークになる）。**startup time にはさらに留保がある** —— `BenchmarkRunner.MeasureFirstPInvoke` が実測した 1 µs は、同じ Player 実行内で他の PlayMode テストが先に P/Invoke を呼んでいる可能性が高く、**native ライブラリの真の初回ロードを捉えていない**（測れるものを測っただけで、測れていないものを測れたことにはしていない）。**`RenderTexture` の 2 経路は run をまたぐと大小が入れ替わることを実測した**（run A: sync 2562 / async 2841、run B: sync 1756 / async 1643）——「非同期のほうが速い／遅い」はどちらも主張できず、**時間を assert しない設計判断の裏づけになっている** |
+
+**穴を隠さず書く。**
+
+- **M7a は roadmap の差別化の穴 #9（「低コピー連携」を測っていない）を「部分的に解消」にした。** 「解消済み」としなかった理由は、上の 2 経路のうち `RenderTexture` / `AsyncGPUReadback` が実機で動く実行形態（IL2CPP Player）で 1 度も検証されておらず、`test-unity-graphics` が CI に配線されていないため——**満たしたことと実証されたことは同じではない**（`milestone-complete` skill）。
+- **`test-unity-player` はこのマシンで、Player の後始末段階（`Stop-UnityTestPlayers` 内の `Get-CimInstance` 呼び出し）がハングする既知の欠陥を持つ。** テスト自体は完走し結果 XML も書かれるが、レーン全体が無音で固まる（`CLAUDE.md` が書く「Unity のレーンではクラッシュもハングも赤いテストにならない」という形そのもの）。M7a の変更が原因ではない（`git diff` でこの箇所に差分は無い）ので、この作業では直していない——本番の測定は、ハングしたプロセスを終了させたうえで `tools/assert-unity-results.ps1` を結果 XML に直接掛けて確認した（35 passed / exit 0）。
+- **`BenchmarkRunner` の `Report` ヘルパーが `BenchmarkRunner.cs` と `GraphicsBenchmarkRunner.cs` に複製されている。** このリポジトリは「本体はここにしか無い」を繰り返し記録しており、片方だけ直る壊れ方をする。M7a では直していない。
+- **M7 全体としては、条件 1・4・5 が未着手のまま残る。** dnn を opt-in profile として足す前提（C ABI / C# の module 分離）にも、CUDA / cuDNN の再配布確認にも、この計画は触れていない。
 
 ---
 

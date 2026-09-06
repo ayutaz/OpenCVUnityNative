@@ -24,6 +24,11 @@
   - `OCVU_ABI_VERSION` を bump する変更としない変更
   - API allowlist（M2 で確定し、M3.5 の `imencode` / `imdecode` と M5 の module 拡張が加わった。**本数は同文書 §3 の冒頭が数えます**）と、まだ作らないもの
   - roadmap の M2 完了条件を書き換えた経緯（`wrap` を廃し copy に置き換えた件）
+- [性能](./performance.md)
+  - **M7a（2026-09-06）。** `Texture2D` / `RenderTexture` と `CvMat` の間の低コピー経路の評価と、`./tools/dev.ps1 benchmark` / `test-unity-graphics` が測った実測値
+  - **時間は公開するが assert しない。** `RenderTexture` の同期・非同期 2 経路は run をまたぐと大小が入れ替わることを実例で示す
+  - native texture pointer は評価のみで実装しない決定と、その理由・再評価の条件
+  - `RenderTexture` の経路が `-nographics` で読めない実測と、`test-unity-graphics` が CI に配線されていないこと
 - [Unity 向け OpenCV 統合の競合調査と初期計画](./unity-opencv-integration-research-and-plan.md)
   - OpenCV 5.x / 4.x の状況（2026-08-25 時点。**§3 と §4.6 は 2026-08-29 に取り直し、§4.6 の配布と OpenUPM、§8.3 の `imgcodecs` は M3.5（2026-08-30）で更新した** —— 5.0 の目玉が DNN エンジンの書き直しであること、競合の現況、OpenUPM という配布経路）
   - OpenCV for Unity、OpenCV-plus-Unity、OpenCvSharp、Emgu CV の比較

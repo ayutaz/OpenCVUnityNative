@@ -80,6 +80,32 @@ public class BenchmarkRunner
         yield return null;
     }
 
+    /// <summary>
+    /// **Player が起きてから最初の P/Invoke が返るまで。**
+    ///
+    /// native ライブラリの読み込みと、その中の静的初期化がここに乗る……はずだが、
+    /// **この assembly には他の PlayMode テスト（`PlayerSmokeTests` など）が
+    /// 同じ P/Invoke を先に呼ぶものが複数在り、NUnit の実行順序はこの
+    /// テストメソッドがそれより先に走ることを保証しない。** したがって
+    /// この数字が「native ライブラリの真の初回ロード」を捉えているとは
+    /// 主張しない —— 捉えているのは「このメソッドにとっての初回呼び出し」
+    /// までである。**測れるものを測っただけであり、測れていないものを
+    /// 測れたことにはしない**（docs/performance.md に同じ注記がある）。
+    /// </summary>
+    [UnityTest]
+    public IEnumerator MeasureFirstPInvoke()
+    {
+        var sw = Stopwatch.StartNew();
+        int version = CvNative.AbiVersion;
+        sw.Stop();
+
+        Assert.Greater(version, 0, "ABI version が取れていない");
+
+        long micros = sw.ElapsedTicks * 1_000_000L / Stopwatch.Frequency;
+        TestContext.WriteLine($"OCVU_BENCH: first_pinvoke={micros}");
+        yield return null;
+    }
+
     private static void Report(string name, Action action)
     {
         // 温める。初回は JIT / IL2CPP の初期化と資源確保が乗る。
