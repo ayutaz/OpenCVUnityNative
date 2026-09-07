@@ -176,6 +176,7 @@ $ToolsTestScriptsSlow = @(
     'OpenCvRestore.Tests.ps1'
     'VerifyArtifactLinkage.Tests.ps1'
     'PackageRelease.Tests.ps1'
+    'NonStandardProfileCompile.Tests.ps1'
 )
 
 function Invoke-ToolsTestList {
