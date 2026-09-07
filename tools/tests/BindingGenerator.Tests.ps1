@@ -41,10 +41,53 @@ function Assert-That([bool]$condition, [string]$what) {
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $dev = Join-Path $repoRoot 'tools/dev.ps1'
 
-function Test-GeneratedTreeVerifies {
-    & pwsh -NoProfile -File $dev verify-generated 2>&1 | Out-Null
+# **この 1 関数だけ、$LASTEXITCODE の取り扱いを固めてある。**
+#
+# `$LASTEXITCODE` は、直前の native コマンドが**起動すらできなかった**
+# ときには更新されない —— 前に別の native コマンドが残した値がそのまま
+# 見える。ファイルの他の場所にある `& pwsh ... ; Assert-That ($LASTEXITCODE -eq 0) ...`
+# は全部この同じ形を共有しているが、**あえて直さない**: そちらが古い値を
+# 読んでも「本来 FAIL すべき assertion が誤って PASS する」だけで、木の
+# 状態は変わらない（次に人が気づける）。**ここだけは違う** —— 誤って
+# 「検証できた」と読むと mtime を進めてしまい、このガード全体の存在理由
+# である「静かな事故を作らない」（中身が戻っていないのに戻ったふりを
+# する）を、判定を守るはずのこの関数自身が再現することになる。だから
+# ここだけ、呼ぶ前に `$LASTEXITCODE` を明示的に消し、呼んだ後も残っていない
+# （＝更新されなかった）なら「未検証」として false を返す。起動失敗を
+# 検出する側も汎用の下請け（`Test-ProcessExitedZero`）に切り出してあるので、
+# 合成した「存在しない実行ファイル」で単体に確かめられる。
+function Test-ProcessExitedZero {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+    $global:LASTEXITCODE = $null
+    try {
+        & $FilePath @ArgumentList 2>&1 | Out-Null
+    }
+    catch {
+        # 実行ファイルの解決自体が失敗すると、PowerShell はここへ来る
+        # （$LASTEXITCODE は更新されないまま）。
+        return $false
+    }
+    if ($null -eq $LASTEXITCODE) { return $false }
     return $LASTEXITCODE -eq 0
 }
+
+function Test-GeneratedTreeVerifies {
+    return Test-ProcessExitedZero -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', $dev, 'verify-generated')
+}
+
+# **壊して、落ちることを見る（このガード自身。prove-a-check-works）。**
+# `$LASTEXITCODE` を「0（成功）」で意図的に汚してから、実在しない
+# 実行ファイル名を渡す —— 起動が失敗する経路を安全に再現できる
+# （pwsh 自体を PATH から外すような、ファイル全体を巻き添えにする
+# 手段は取らない）。汚した値をそのまま読めば「検証できた」と誤判定する
+# はずなので、それが起きないことを確かめる。
+$global:LASTEXITCODE = 0
+$launchFailureVerified = Test-ProcessExitedZero -FilePath 'ocvu-nonexistent-command-abcxyz' -ArgumentList @()
+Assert-That (-not $launchFailureVerified) `
+    'a process that fails to launch is NOT verified, even when a stale exit code of 0 was left lying around (静かな事故を作らない)'
 
 # --- 生成物が spec と一致していること ---
 & pwsh -NoProfile -File $dev verify-generated | Out-Null
@@ -103,6 +146,20 @@ finally {
         (Get-Item -LiteralPath $header).LastWriteTime = $backupWriteTime
     }
 }
+
+# **`Test-ProcessExitedZero` の起動失敗を、実際のサイトと同じ形で運転する。**
+# 各サイトはどれも `if ($verified) { mtime を戻す }` という形をしている。
+# 上ですでに「起動が失敗すると $false を返す」ことは確かめたので、ここでは
+# その $false を実物のヘッダに対して同じ if に通し、**この分岐に入らない
+# こと（＝ mtime に触れないこと）**を直接見る。$launchFailureVerified は
+# 既に $false と分かっている値なので、この if は絶対に実行されない
+# はずだが、それこそが確かめたいことである。
+$headerTimeBeforeLaunchFailureProbe = (Get-Item -LiteralPath $header).LastWriteTime
+if ($launchFailureVerified) {
+    (Get-Item -LiteralPath $header).LastWriteTime = Get-Date
+}
+Assert-That (((Get-Item -LiteralPath $header).LastWriteTime) -eq $headerTimeBeforeLaunchFailureProbe) `
+    'gating a real restore on a launch-failure verdict leaves its timestamp untouched'
 
 # --- 生成物に「生成物である」と書いてあること ---
 Assert-That ((Get-Content -LiteralPath $header -Raw) -match 'このファイルは生成物である') `
