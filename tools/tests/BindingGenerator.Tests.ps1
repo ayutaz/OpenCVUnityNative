@@ -9,10 +9,42 @@ function Assert-That([bool]$condition, [string]$what) {
     else { Write-Host "  FAIL  $what" -ForegroundColor Red; $script:failures += $what }
 }
 
+# --------------------------------------------------------------------------
+# **復元は「中身」だけでなく「更新日時」も戻す（M7b）。**
+#
+# このファイルの負の対照は、生成物を書き換えて `verify-generated` が
+# 落ちることを見たあと、バイト単位で元へ戻す。**バイト単位で元へ戻しても
+# `LastWriteTime` は新しいまま**で、CMake が configure し直した `.vcxproj`
+# を MSBuild が見ると、その依存先ヘッダの mtime が新しいというだけで
+# 依存する翻訳単位を再コンパイル対象と判定する。実測: `dev.ps1 test-tools`
+# （このファイルを含む）の直後に `dev.ps1 test-native` を単体で走らせると、
+# native が温まっていれば 9 秒のところが 56 秒に伸びた
+# （`native/src/*.cpp` が 20 本超、全部再コンパイルされたため）。
+#
+# **危険なのは「中身が戻っていないのに mtime だけ戻すこと」である。** それは
+# 壊れた復元を隠す —— ビルドシステムがもう「変更されていない」と見なす
+# ので、誰も再ビルドしないまま古い内容の生成物がそのまま残る。これは
+# slow lane へ逃がすより悪い、静かな事故である。
+#
+# **「戻したつもりの中身」を自分自身と比べても意味が無い。** 最初の実装は
+# 「$backup を書き込み、読み直して $backup と比べる」形だったが、これは
+# 同語反復である —— 呼び出し側が渡す変数を取り違えても（例えば api-map 用の
+# backup をヘッダへ書いてしまっても）、書いた値と読み直した値は常に一致する。
+# **判定は自分の外に置く**: `verify-generated` は spec から独立に再生成した
+# 内容と比べるので、「本当に元の生成物と一致しているか」の第三者の審判になる。
+# だから mtime を戻すのは、その直後の `verify-generated` が成功したときだけに
+# し、失敗したら mtime には触れない（下の「戻したら通ること」の
+# assertion が、その判定をそのまま兼ねる）。
+
 # $PSScriptRoot はこのファイルの置かれたディレクトリ（tools/tests）なので、
 # 2 段上がると repo root になる。既存の tools/tests/*.Tests.ps1 と同じ導出。
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $dev = Join-Path $repoRoot 'tools/dev.ps1'
+
+function Test-GeneratedTreeVerifies {
+    & pwsh -NoProfile -File $dev verify-generated 2>&1 | Out-Null
+    return $LASTEXITCODE -eq 0
+}
 
 # --- 生成物が spec と一致していること ---
 & pwsh -NoProfile -File $dev verify-generated | Out-Null
@@ -21,6 +53,7 @@ Assert-That ($LASTEXITCODE -eq 0) 'the generated bindings match the spec'
 # --- **生成物を手で変えたら落ちること。** これが無いと検査が働いた証拠が無い ---
 $header = Join-Path $repoRoot 'native/include/ocvu/infra.h'
 $backup = Get-Content -LiteralPath $header -Raw
+$backupWriteTime = (Get-Item -LiteralPath $header).LastWriteTime
 try {
     Add-Content -LiteralPath $header -Value '/* 手で足した行 */'
     & pwsh -NoProfile -File $dev verify-generated 2>&1 | Out-Null
@@ -28,9 +61,48 @@ try {
 }
 finally { Set-Content -LiteralPath $header -Value $backup -NoNewline }
 
-# --- 戻したら通ること（後始末が効いていることの確認） ---
-& pwsh -NoProfile -File $dev verify-generated | Out-Null
-Assert-That ($LASTEXITCODE -eq 0) 'restoring the generated file makes the check pass again'
+# --- 戻したら通ること（後始末が効いていることの確認）。mtime はここが緑のときだけ戻す ---
+$headerRestoreVerified = Test-GeneratedTreeVerifies
+Assert-That $headerRestoreVerified 'restoring the generated file makes the check pass again'
+if ($headerRestoreVerified) {
+    (Get-Item -LiteralPath $header).LastWriteTime = $backupWriteTime
+}
+
+# --------------------------------------------------------------------------
+# **壊して、落ちることを見る（このガード自身。prove-a-check-works）。**
+#
+# 上のガードが実際に「中身が戻っていない」ことを検出し、mtime に触れずに
+# 済ませることを、実物のヘッダで確かめる。合成ファイルでは
+# `verify-generated` の審判を借りられない（spec と比べる対象が実在の
+# 生成物でなければならない）ので、ここでは実物を使い、最後に必ず
+# 正しい内容へ戻す。
+$brokenRestoreWriteTime = $null
+try {
+    # 意図的に**間違った**内容で「復元」する —— 例えば呼び出し側が
+    # 変数を取り違えたときに実際に起きる形。
+    Set-Content -LiteralPath $header -Value 'この内容は spec からの再生成と一致しない' -NoNewline
+    $brokenRestoreWriteTime = (Get-Item -LiteralPath $header).LastWriteTime
+
+    $wrongRestoreVerified = Test-GeneratedTreeVerifies
+    Assert-That (-not $wrongRestoreVerified) `
+        'a restore that leaves the WRONG content still fails verify-generated (ガードが検出できる形であることの確認)'
+
+    # ここが本題: verify-generated が失敗と判定した以上、mtime には
+    # 一切触れない（意図的に何もしない —— 触れないことそのものが主張）。
+    $afterWrongRestoreTime = (Get-Item -LiteralPath $header).LastWriteTime
+    Assert-That ($afterWrongRestoreTime -eq $brokenRestoreWriteTime) `
+        'a failed restore leaves the timestamp untouched (mtime だけ戻して中身の違いを隠さない)'
+}
+finally {
+    # 本当に元へ戻す。
+    Set-Content -LiteralPath $header -Value $backup -NoNewline
+    $reallyRestoredVerified = Test-GeneratedTreeVerifies
+    Assert-That $reallyRestoredVerified `
+        'the header is genuinely back to its original content after the negative control'
+    if ($reallyRestoredVerified) {
+        (Get-Item -LiteralPath $header).LastWriteTime = $backupWriteTime
+    }
+}
 
 # --- 生成物に「生成物である」と書いてあること ---
 Assert-That ((Get-Content -LiteralPath $header -Raw) -match 'このファイルは生成物である') `
@@ -42,6 +114,7 @@ Assert-That ((Get-Content -LiteralPath $header -Raw) -match 'このファイル�
 # 陳腐化に戻るが、「生成物である」と書いてあるぶん質が悪い。名指しで見る。
 $apiMap = Join-Path $repoRoot 'docs/api-map.md'
 $apiMapBackup = Get-Content -LiteralPath $apiMap -Raw
+$apiMapBackupWriteTime = (Get-Item -LiteralPath $apiMap).LastWriteTime
 try {
     Add-Content -LiteralPath $apiMap -Value '手で足した行'
     & pwsh -NoProfile -File $dev verify-generated 2>&1 | Out-Null
@@ -49,8 +122,11 @@ try {
 }
 finally { Set-Content -LiteralPath $apiMap -Value $apiMapBackup -NoNewline }
 
-& pwsh -NoProfile -File $dev verify-generated | Out-Null
-Assert-That ($LASTEXITCODE -eq 0) 'restoring docs/api-map.md makes the check pass again'
+$apiMapRestoreVerified = Test-GeneratedTreeVerifies
+Assert-That $apiMapRestoreVerified 'restoring docs/api-map.md makes the check pass again'
+if ($apiMapRestoreVerified) {
+    (Get-Item -LiteralPath $apiMap).LastWriteTime = $apiMapBackupWriteTime
+}
 
 # --- **名指しをやめる。** 上の 4 件は infra.h と api-map.md を名前で守るが、
 # 生成物は当時 10 個あり、残る 8 個は誰も見ていなかった（**いまは 20 個ある** ——
@@ -88,11 +164,17 @@ Assert-That ($unwired.Count -eq 0) `
 
 # **逆向き 2: 申告された一覧の全部が、実際に --check の比較対象であること。**
 # 全部を同時に壊して、報告に 1 つ残らず出ることを見る（1 回の実行で済む）。
+#
+# **ここが M7b の主因だった。** `$declared` は 20 ファイル（生成物全部）——
+# 一度に全部の mtime を動かすので、直後の native ビルドへの影響もここが
+# 最大だった。
 $backups = @{}
+$backupTimes = @{}
 try {
     foreach ($rel in $declared) {
         $full = Join-Path $repoRoot $rel
         $backups[$full] = Get-Content -LiteralPath $full -Raw
+        $backupTimes[$full] = (Get-Item -LiteralPath $full).LastWriteTime
         Add-Content -LiteralPath $full -Value '手で足した行'
     }
     $report = (& pwsh -NoProfile -File $dev verify-generated 2>&1) -join "`n"
@@ -109,8 +191,19 @@ finally {
     }
 }
 
-& pwsh -NoProfile -File $dev verify-generated | Out-Null
-Assert-That ($LASTEXITCODE -eq 0) 'restoring every generated file makes the check pass again'
+# **mtime を戻すのは、この検査が緑のときだけ。** 個々のファイルを
+# 自分の書いた値と読み比べても同語反復にしかならないので（上の
+# コメント参照）、判定は spec からの再生成と比べる `verify-generated`
+# に一本化する —— これが失敗すれば、20 ファイルのうち 1 つでも
+# 元へ戻っていないということであり、そのときは 1 つも mtime を戻さない
+# （どれが壊れているか分からない以上、安全側に倒す）。
+$allRestoreVerified = Test-GeneratedTreeVerifies
+Assert-That $allRestoreVerified 'restoring every generated file makes the check pass again'
+if ($allRestoreVerified) {
+    foreach ($full in $backupTimes.Keys) {
+        (Get-Item -LiteralPath $full).LastWriteTime = $backupTimes[$full]
+    }
+}
 
 # --- **実装 -> spec の逆向き。** spec -> 実装は L1 のリンクと L3 の P/Invoke が
 # 見ているが、逆は誰も見ていなかった: extern "C" で ocvu_ を実装して spec に
