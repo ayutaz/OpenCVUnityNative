@@ -377,7 +377,26 @@
         # 与えないものを「気づかず有効」のままにしない（計画書 §8.2）。
         '-DWITH_ITT=OFF'
         '-DBUILD_ITT=OFF'
-        '-DWITH_PROTOBUF=OFF'
+
+        # protobuf は 2026-09-08 まで OFF だった —— dnn が Modules に無かったので、
+        # このブロックの他の項目と同じ判断で「この project に何ら価値を与えない」
+        # optional 依存として切っていた。**dnn を足した時点でその前提が失効した**:
+        # ONNX モデルは protobuf でシリアライズされているので、dnn にとって
+        # protobuf はもう optional ではない。消さずにここへ書き換えるのは、
+        # 同じ誤解が別の場所（tools/verify-opencv-artifact.ps1 の denylist）にも
+        # 在ることを次に読む人が確かめられるようにするためである。
+        #
+        # OFF のままだと OpenCV は OPENCV_DNN_EXTERNAL_PROTOBUF=1 のフォールバック
+        # 経路へ落ち、protoc が生成するはずの opencv-onnx.pb.h が無いままコンパイル
+        # しようとして落ちる（実測、run 34211332431、6 platform 全滅、約 4 分で失敗）:
+        #   fatal error: opencv-onnx.pb.h: No such file or directory
+        #
+        # BUILD_PROTOBUF=ON も明示する。上の BUILD_ZLIB / BUILD_PNG / BUILD_JPEG と
+        # 同じ理由 —— システムの protobuf に依存すると、ビルドしたランナーに何が
+        # 入っているかで成果物が変わり、再現性が崩れる。バンドル版を明示的に選ぶ。
+        '-DWITH_PROTOBUF=ON'
+        '-DBUILD_PROTOBUF=ON'
+
         '-DWITH_EIGEN=OFF'
         '-DWITH_OPENCL=OFF'
         '-DWITH_CUDA=OFF'
