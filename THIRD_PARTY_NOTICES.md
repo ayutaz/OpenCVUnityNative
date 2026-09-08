@@ -925,8 +925,8 @@ serializes them.
 That was correct when last checked, and stopped being correct the moment
 `dnn` entered `Modules` (2026-09-08) — TFLite import is part of `dnn`.**
 Confirmed by actually restoring a build that has `dnn` (run `34215362804`,
-`./tools/opencv.ps1 restore`, hash `c21fe00b8952`) and searching its
-`opencv_dnn500.lib`, not by inference from compiler flags.
+`./tools/opencv.ps1 restore`) and searching its `opencv_dnn500.lib`, not by
+inference from compiler flags.
 
 **A methodology correction, recorded so the next search doesn't repeat it:**
 the two earlier "zero matches" results for this component used patterns
@@ -1177,8 +1177,8 @@ section too.
 
 - **dlpack** (Apache License 2.0) —
   `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）dlpack-LICENSE`. Searched
-  the restored `dnn`-enabled tree (run `34215362804`, hash `c21fe00b8952`)
-  for the bare identifiers `DLTensor`, `DLDevice`, `DLDataType`,
+  the restored `dnn`-enabled tree (run `34215362804`) for the bare
+  identifiers `DLTensor`, `DLDevice`, `DLDataType`,
   `DLManagedTensor`, `dlpack` (case-insensitive, no `::` — see the
   methodology note above) across every `.lib` in
   `x64/vc17/staticlib/`; zero matches, all patterns, all files.
