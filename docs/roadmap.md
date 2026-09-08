@@ -2106,6 +2106,22 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 
    したがって CUDA backend は完了条件に含めない。
 
+**この決定は解除された（gate lift、2026-09-08、リポジトリ所有者の依頼）。**
+`docs/superpowers/plans/2026-09-05-m7c-dnn-profile.md` が着手の前提として掲げていた
+2 つ —— (1) module 分離が済んでいること、(2) 利用者の要望か上流の安定を示す新しい
+事実が出ていること —— のうち、(1) は `### M7b の判定` が 2026-09-06 に満たした。
+(2) は、2026-09-08 にリポジトリ所有者から「M7 の残作業を進めてほしい」という
+明示的な依頼があったことで満たした —— **このとき、上で挙げた 5.1 での作り直し
+リスクをリポジトリ所有者に提示し、それを承知のうえでの依頼である。**
+
+**元の決定を支えていた根拠は、これによって否定されてはいない。** 旧エンジンの
+削除、`enum EngineType` の再番号、`OPENCV_FORCE_DNN_ENGINE` の意味変化という上流の
+実測はいまも成立したままで、**上流の安定を示す新しい証拠は出ていない。** 変わった
+のはただ 1 点 —— **リポジトリ所有者が、その作り直しの費用を承知のうえで受け入れる
+と判断したこと**である。**したがって、5.0 の DNN API に対して作るコードは、5.1 が
+来たときに作り直しが要ると見込んでよい。** 後でこれに驚く読み手が出るなら、この文を
+ここに見つけられるようにしてある。
+
 **まだ決めていないこと**（M5 / M7 で決める）
 
 - **`OCVU_ABI_VERSION` は単一の整数のまま**である（正本は
@@ -2113,8 +2129,42 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
   module 分離がこの決定に影響しうるなら、**正本のほうに留保を書く**
 - dnn を**別 package**（`…-dnn`）で配るか、同じ package の optional profile にするか。
   **全部入り tarball を配る正にしたのは M3.5 の決着**なので、dnn を足すことは
-  **「中身を足す」ではなく「形を変える」**ことになりうる
+  **「中身を足す」ではなく「形を変える」**ことになりうる。**2026-09-08 に、隣接する
+  問い（native binary を profile ごとに分けるか）だけ決まった —— 分けない、と決めた。
+  この問いそのものはまだ決めていない。** 詳細と選択肢は下の「dnn の配布の形」
 - GPU backend を持つ版の platform matrix（CUDA の版 × OS）。現在の platform × 1 構成が何倍になるか（**platform 数をここに書かない。正本は `tools/opencv-config.psd1` の `Toolchains`**）。**「CUDA / cuDNN は同梱しない」と決めている間（上の決定 5）、この問いに答える対象が無い** —— 決定が再評価されて同梱する方向に変われば、この行がまた意味を持つので、消さずに残してある
+
+**dnn の配布の形**（2 つの問いのうち 1 つだけ決まった。2026-09-08）
+
+**決まった: native binary を profile ごとに分けない。1 つの binary を配り、gate は
+C# 側が持つ。** 好みではなく構造上の理由による —— `Packages/com.ayutaz.opencv-unity-native/Runtime/Interop/NativeMethods.cs`
+は iOS と WebGL で `DllImport("__Internal")` を選ぶ（`#if (UNITY_IOS || UNITY_WEBGL) && !UNITY_EDITOR`）。
+この 2 platform では plugin が Player の binary へ静的にリンクされ、**切り替える
+対象のライブラリ名がそもそも存在しない。** したがって native binary を 2 本配り
+`DllImport` に選ばせるという形は、6 platform のうち 2 つで成立しない。**費用も
+記録しておく** —— dnn のコードは、profile を一度も有効にしない利用者にも配られる
+ことになる。
+
+**まだ決めていない: 全部入り tarball が 1 つの artifact のままかどうか。** 誰も
+測っていない数 —— `dnn` と protobuf を積んだときの platform あたりの増分 ——
+に懸かっている。全部入りは現在 **69,565,901 バイト（66 MB。6 platform、v0.3.0 の
+公開済み asset、2026-09-06 実測 —— 上の「決定: native bridge を module 単位に
+分ける」5 に同じ実測がある）**で、`.github/workflows/release.yml` は必須チェックの
+中で **100 MB** の上限を課しており、残りはおよそ **34 MB**（6 platform で割ると
+1 platform あたり約 5.6 MB。`docs/superpowers/plans/2026-09-05-m7c-dnn-profile.md`
+の見直し表にある試算）。**この増分を測るまで決定は据え置く。** 測ったときに比較する
+選択肢は 3 つ:
+
+1. **上限を上げる。** 倍増を捕まえるために約 1.5 倍で意図的に設定した余裕
+   （`tools/pack-upm-tarball.ps1` の行）を弱めることになる
+2. **別の `-dnn` tarball を配る。** 「配る正は全部入り 1 tarball」という M3.5 の
+   決着を覆すことになり、利用者は 2 つの package の版を揃える必要が生じる
+3. **dnn を全部入りに入れない。** `pack-upm-tarball.ps1` の上限に縛られない経路へ
+   持ち出すことになる —— これは上の「決定: native bridge を module 単位に分ける」5 が
+   CUDA / cuDNN について名指しした**まさにその形**である。**したがって、あの決定が
+   「まだ確認していない」と明記した再配布可否の確認が、dnn 自身の配布物についても
+   未解決のまま戻ってくる**（`### CUDA / cuDNN 同梱の判定` の「穴を隠さず書く」
+   1 つ目の箇条）
 
 **差別化としての位置づけは変えない。** 競合が書き直し前のエンジンを載せている点は
 [競合調査](./unity-opencv-integration-research-and-plan.md) §3 / §4.6 のとおりで、
@@ -2123,7 +2173,9 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 
 **完了条件**
 
-- profile ごとの native artifact、manifest、third-party notices
+- profile ごとの native artifact、manifest、third-party notices（**2026-09-08: 「artifact」は
+  profile ごとに分かれた binary を意味しない** —— native binary は分けないと決めた。上の
+  「dnn の配布の形」参照）
 - RenderTexture / native texture pointer / AsyncGPUReadback を使う低コピー経路の評価
 - package size、startup time、frame time、allocation の benchmark を公開
 - **`dnn` を足す前に、C ABI と C# の module 分離が済んでいること**（上の 1〜2）
