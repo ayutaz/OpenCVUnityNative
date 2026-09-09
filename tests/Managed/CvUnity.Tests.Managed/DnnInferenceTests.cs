@@ -106,37 +106,66 @@ public class DnnInferenceTests
     }
 
     /// <summary>
-    /// **Task 3 が直した defect の再発防止。** <c>ocvu_dnn_net_forward</c> が
-    /// 返す Mat は元々 net 内部バッファへの浅いコピーで、同じ net に対する
-    /// 2 回目の forward が 1 回目の出力を黙って書き換えていた。修正は
-    /// <c>.clone()</c> を足すことだったが、それを実物のモデルで確かめたのは
-    /// ここが最初である。
+    /// <c>ocvu_dnn_net_forward</c> は net の内部バッファではなく独立したコピーを
+    /// 返す契約（docs/api-reference.md、spec の summary）を、実物のモデルで
+    /// 確かめる。2 回の forward には別々の入力を使う —— 同じ blob を 2 回渡すと
+    /// （defect があってもなくても）1 回目と 2 回目の値が一致してしまい、
+    /// 何も検証できない（最初の実装がまさにこれだった）。
+    /// <para>
+    /// <b>この negative control は取れなかった（prove-a-check-works）。</b>
+    /// Task 3 の <c>.clone()</c>（native/src/ocvu_dnn.cpp）を一時的に外し、
+    /// このネットワーク（Identity 1 ノード）でも 2 層の Relu（learned weight
+    /// を持たない別モデルで検証）でもこのテストを走らせたが、**どちらも
+    /// このテストは緑のままだった** —— 外した状態と戻した状態とで結果が
+    /// 変わらない。<c>*output_mat = result;</c>（cv::Mat の代入は shallow だが
+    /// 参照カウントを共有する）によって mat_table 側の Slot が result の
+    /// データを生かし続けるため、2 回目の forward が同じ内部バッファへ
+    /// <c>cv::Mat::create()</c> で書こうとしても参照が生きている間は
+    /// 再割り当てが起きる、という経路を疑っているが未確認である。
+    /// **したがってこのテストは、想定した defect を実際に再現させて
+    /// 潰したことの証明にはなっていない** —— 契約どおりの結果を実物の
+    /// モデルで確認した positive な回帰検査ではあるが、`.clone()` を
+    /// 消しても今のところこのテストは検知できない。同じ形の負の対照が
+    /// 取れないことがある、という M6 の教訓（CLAUDE.md
+    /// 「prove-a-check-works」の節）をここでも踏んだ。
+    /// </para>
     /// </summary>
     [Fact]
-    public void CallingForwardTwiceDoesNotRewriteTheFirstOutput()
+    public void CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput()
     {
         using var net = CvDnn.ReadOnnx(TinyModel());
-        using var src = CvMat.Create(ModelSize, ModelSize, CvMatType.Bgr24);
-        using var blob = CvMat.Create(1, 1, CvMatType.Response32);
+        using var srcA = CvMat.Create(ModelSize, ModelSize, CvMatType.Bgr24);
+        using var srcB = CvMat.Create(ModelSize, ModelSize, CvMatType.Bgr24);
+        FillWithConstant(srcA, 10);
+        FillWithConstant(srcB, 200);
+
+        using var blobA = CvMat.Create(1, 1, CvMatType.Response32);
+        using var blobB = CvMat.Create(1, 1, CvMatType.Response32);
         using var firstOutput = CvMat.Create(1, 1, CvMatType.Response32);
         using var secondOutput = CvMat.Create(1, 1, CvMatType.Response32);
 
-        CvDnn.BlobFromImage(
-            src, blob, scale: 1.0, width: ModelSize, height: ModelSize,
-            mean: new[] { 0.0, 0.0, 0.0 }, swapRb: false, crop: false);
+        var mean = new[] { 0.0, 0.0, 0.0 };
+        CvDnn.BlobFromImage(srcA, blobA, scale: 1.0, width: ModelSize, height: ModelSize,
+            mean: mean, swapRb: false, crop: false);
+        CvDnn.BlobFromImage(srcB, blobB, scale: 1.0, width: ModelSize, height: ModelSize,
+            mean: mean, swapRb: false, crop: false);
 
-        CvDnn.Forward(net, blob, firstOutput);
-
-        var beforeSecondForward = ReadAll(firstOutput);
+        CvDnn.Forward(net, blobA, firstOutput);
+        var afterFirstForward = ReadAll(firstOutput);
 
         // **同じ net で 2 回目の forward を呼ぶ。** 別の handle
         // (secondOutput) に書かせるが、defect が再発していれば
         // net が内部で持つバッファ経由で firstOutput まで書き換わる。
-        CvDnn.Forward(net, blob, secondOutput);
-
+        CvDnn.Forward(net, blobB, secondOutput);
         var afterSecondForward = ReadAll(firstOutput);
 
-        Assert.Equal(beforeSecondForward, afterSecondForward);
+        Assert.Equal(afterFirstForward, afterSecondForward);
+
+        // **前提の健全性チェック。** srcA と srcB が実際に異なる結果を
+        // 生んでいなければ、上の Assert.Equal は defect の有無に関わらず
+        // 常に真になり、何も検証したことにならない。
+        var secondOutputBytes = ReadAll(secondOutput);
+        Assert.NotEqual(afterFirstForward, secondOutputBytes);
     }
 
     /// <summary>32FC1（4 byte/pixel、1 channel）の Mat を丸ごと byte[] に読み出す。</summary>
@@ -147,5 +176,15 @@ public class DnnInferenceTests
         var buffer = new byte[stride * mat.Rows];
         mat.CopyTo(buffer, stride);
         return buffer;
+    }
+
+    /// <summary>8UC3（Bgr24）の Mat を、全画素・全チャンネルが同じ値になるよう埋める。</summary>
+    private static void FillWithConstant(CvMat mat, byte value)
+    {
+        const int channels = 3;
+        long stride = mat.Cols * channels;
+        var buffer = new byte[stride * mat.Rows];
+        for (int i = 0; i < buffer.Length; i++) { buffer[i] = value; }
+        mat.CopyFrom(buffer, stride);
     }
 }
