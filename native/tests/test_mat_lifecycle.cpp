@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <opencv2/core.hpp>
+
+#include "ocvu_mat_table.h"
 #include "opencv_unity_native.h"
 
 TEST(MatLifecycle, CreateProducesAUsableHandle) {
@@ -135,4 +138,37 @@ TEST(MatLifecycle, AnUnknownMatTypeIsRejected) {
     EXPECT_EQ(ocvu_mat_create(2, 3, 64, &h), OCVU_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(ocvu_mat_create(2, 3, -1, &h), OCVU_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(h, OCVU_MAT_HANDLE_NONE) << "断ったのに out_handle を書いている";
+}
+
+// **2 次元より多い次元を持つ Mat が table に入りうる**（`ocvu_dnn_blob_from_image`
+// が実際にそういう Mat を作る。レビュー指摘、Important 1）。この ABI の
+// `ocvu_mat_info` は rows / cols / channels / step しか持たず、2 次元を
+// 前提にしている。
+//
+// **`ocvu_mat_create` はこの経路を通らない**（rows/cols しか受けないので
+// 3 次元以上を作れない）ので、ここでは table を直接使って合成する ——
+// `native/tests/test_dnn_table_stability.cpp` が `net_table` に対して
+// 行っているのと同じ、内部 table への直接アクセスによる white-box テストで
+// ある。
+//
+// **壊れ方の実測**: この検査を足す前は、OpenCV が dims > 2 のとき
+// `rows = cols = -1` を返すのをそのまま素通しし、`ocvu_mat_get_info` は
+// `OCVU_STATUS_OK` で `rows = -1` / `total_bytes` が負の値を書いていた ——
+// 「読めない」ではなく「間違った値を自信満々で返す」形だった。
+TEST(MatLifecycle, GetInfoRejectsMatsWithMoreThanTwoDimensions) {
+    const int sizes[3] = {2, 3, 4};
+    cv::Mat blob(3, sizes, CV_32FC1);
+    ASSERT_EQ(blob.dims, 3);
+
+    const ocvu_mat_handle h = ::ocvu::mat_table_acquire(blob);
+    ASSERT_NE(h, OCVU_MAT_HANDLE_NONE);
+
+    ocvu_mat_info info{};
+    // わざと汚しておく —— 失敗経路で書き換えていないことを見分けるため
+    // （imgcodecs の `out_required_size` と同じ考え方）。
+    info.rows = 12345;
+    EXPECT_EQ(ocvu_mat_get_info(h, &info), OCVU_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(info.rows, 12345) << "拒んだのに out_info を書き換えている";
+
+    EXPECT_EQ(ocvu_mat_release(h), OCVU_STATUS_OK);
 }

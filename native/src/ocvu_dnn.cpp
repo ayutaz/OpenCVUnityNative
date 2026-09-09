@@ -27,7 +27,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 #include "ocvu_dnn_table.h"
 #include "ocvu_error.h"
@@ -48,8 +47,15 @@ extern "C" ocvu_status ocvu_dnn_net_read_onnx(const uint8_t* data, int32_t lengt
     // OPENCV_ERROR を返したいので、ここで自分で捕まえる
     // （ocvu_stereo.cpp / ocvu_calibration.cpp と同じ作法）。
     try {
-        std::vector<uint8_t> buffer(data, data + length);
-        auto net = std::make_unique<cv::dnn::Net>(cv::dnn::readNetFromONNX(buffer));
+        // **byte 列を複製しない。** cv::dnn::readNetFromONNX には
+        // (const char*, size_t) を直接受ける overload があるので、
+        // std::vector へコピーしてから渡す理由が無い。100 MB 級のモデルでは
+        // このコピーだけで一時的にピークメモリが倍になる —— モバイルで
+        // 効いてくる（レビュー指摘、M3）。data は呼び出しの内側でのみ
+        // 読む借用で、readNetFromONNX はこの呼び出しが戻る前に内容を
+        // 消費し終える。
+        auto net = std::make_unique<cv::dnn::Net>(
+            cv::dnn::readNetFromONNX(reinterpret_cast<const char*>(data), static_cast<size_t>(length)));
         if (net->empty()) {
             return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR,
                                           "ocvu_dnn_net_read_onnx: ONNX が空のネットワークになった");
@@ -73,16 +79,22 @@ extern "C" ocvu_status ocvu_dnn_net_release(ocvu_net_handle net) {
     OCVU_TRY_END
 }
 
-extern "C" ocvu_status ocvu_dnn_blob_from_image(ocvu_mat_handle src, ocvu_mat_handle dst, double scale, int32_t width, int32_t height, const double* mean, int32_t swap_rb, int32_t crop) {
+extern "C" ocvu_status ocvu_dnn_blob_from_image(ocvu_mat_handle src, ocvu_mat_handle dst, double scale, int32_t width, int32_t height, double mean_b, double mean_g, double mean_r, int32_t swap_rb, int32_t crop) {
     OCVU_TRY_BEGIN
-    if (mean == nullptr) {
-        return ::ocvu::set_last_error(OCVU_STATUS_NULL_POINTER,
-                                      "ocvu_dnn_blob_from_image: mean is NULL");
-    }
-    // **width / height は buffer の長さではなく、native（cv::dnn::blobFromImage）が
-    // その寸法でメモリを確保する引数である。** cv::cornerSubPix の win_size で
-    // 踏んだのと同じ形なので上限を置く（add-abi-function skill の
-    // 「buffer ではないのに上限が要る引数」）。
+    // **mean は配列ではなく 3 個の scalar である（レビュー指摘、Critical 1）。**
+    // 配列 + 長さの形だと、呼ぶ側が短い配列を渡した場合に境界の外を読む
+    // ことが「表現できて」しまい、それを防ぐのは検査でしかない。3 個の
+    // scalar にすれば、その誤りは型として存在しない
+    // （docs/abi-ownership-and-versioning.md §1 が借用 handle を禁じたのと
+    // 同じ考え方 —— 規約で禁じるのではなく、表現できなくする）。
+    // NULL を心配する必要も無くなった。
+    //
+    // **検証の順序は spec の summary に明記してある: width / height の範囲 ->
+    // src の handle -> dst の handle。** width / height は buffer の長さでは
+    // なく、native（cv::dnn::blobFromImage）がその寸法でメモリを確保する
+    // 引数である。cv::cornerSubPix の win_size で踏んだのと同じ形なので
+    // 上限を置く（add-abi-function skill の「buffer ではないのに上限が
+    // 要る引数」）。
     if (width < 1 || width > OCVU_DNN_MAX_BLOB_DIM ||
         height < 1 || height > OCVU_DNN_MAX_BLOB_DIM) {
         return ::ocvu::set_last_error(
@@ -105,7 +117,7 @@ extern "C" ocvu_status ocvu_dnn_blob_from_image(ocvu_mat_handle src, ocvu_mat_ha
     // （ocvu_stereo.cpp / ocvu_calibration.cpp と同じ作法）。
     cv::Mat result;
     try {
-        const cv::Scalar mean_scalar(mean[0], mean[1], mean[2]);
+        const cv::Scalar mean_scalar(mean_b, mean_g, mean_r);
         result = cv::dnn::blobFromImage(*src_mat, scale, cv::Size(width, height),
                                         mean_scalar, swap_rb != 0, crop != 0);
     } catch (const cv::Exception& e) {
@@ -157,7 +169,17 @@ extern "C" ocvu_status ocvu_dnn_net_forward(ocvu_net_handle net, ocvu_mat_handle
                                           "ocvu_dnn_net_forward: forward() produced a degenerate shape");
         }
         const int rows = static_cast<int>(raw.total() / static_cast<size_t>(last_dim));
-        result = raw.reshape(1, rows);
+        // **`.clone()` が要る（レビュー指摘、Important 2）。** `Net::forward()`
+        // が返す Mat はネットワーク内部のバッファへの浅いコピーで、
+        // `reshape` もヘッダだけを作り直す浅い操作である。`.clone()` を
+        // 省くと `*output_mat` は net が所有するメモリを指したままになり、
+        // 同じ net で 2 回目の forward を呼ぶと 1 回目の出力が黙って
+        // 書き換わる —— この ABI の他のすべての関数が新しく確保した
+        // メモリを返しているのに、ここだけが例外になってしまう。
+        // **未確認事項**: この所有権の挙動は OpenCV のヘッダには明記が
+        // 無く、実装から推測している。実物の ONNX モデルで forward を
+        // 2 回呼んで検証するのは、まだ無いので後続タスクの担当である。
+        result = raw.reshape(1, rows).clone();
     } catch (const cv::Exception& e) {
         return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());
     }

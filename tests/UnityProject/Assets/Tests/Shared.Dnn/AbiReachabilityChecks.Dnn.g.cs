@@ -25,7 +25,7 @@ public static class AbiReachabilityChecksDnn
     {
         NativeMethodsDnn.ocvu_dnn_net_read_onnx(null, 0, out _);
         NativeMethodsDnn.ocvu_dnn_net_release(0UL);
-        NativeMethodsDnn.ocvu_dnn_blob_from_image(0UL, 0UL, 0.0, 0, 0, default, 0, 0);
+        NativeMethodsDnn.ocvu_dnn_blob_from_image(0UL, 0UL, 0.0, 0, 0, 0.0, 0.0, 0.0, 0, 0);
         NativeMethodsDnn.ocvu_dnn_net_forward(0UL, 0UL, 0UL);
         return 4;
     }

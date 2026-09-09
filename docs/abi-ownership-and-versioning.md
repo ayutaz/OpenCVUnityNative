@@ -307,15 +307,27 @@ M7 節）ので、5.1 で意味が変わる数字を境界の外へ出さない�
 **`ocvu_dnn_blob_from_image` の出力は潰さない。** `cv::dnn::Net::setInput` が
 要求するのは 4 次元の NCHW そのものなので、`ocvu_dnn_net_forward` へ渡すまで
 形を保つ。`cv::Mat` は内部で 2 次元より多い次元を表現できるので、この
-handle へ 4 次元の値を割り当てること自体は合法である —— ただし
-`ocvu_mat_get_info` のような 2 次元前提の関数へこの handle を渡した結果は
-未定義とする。**4 次元を 2 次元へ潰す決定は、推論の出力側だけに掛かる。**
+handle へ 4 次元の値を割り当てること自体は合法である。**4 次元を 2 次元へ
+潰す決定は、推論の出力側だけに掛かる。**
+
+**~~ただし `ocvu_mat_get_info` のような 2 次元前提の関数へこの handle を
+渡した結果は未定義とする。~~ この文はレビューで否定された（Important 1）。**
+「未定義」ではなく**定義されているが間違っていた** —— `ocvu_mat_get_info`
+は dims > 2 のとき OpenCV が返す `rows = cols = -1` をそのまま
+`OCVU_STATUS_OK` で通し、`total_bytes` まで負の値になっていた。C# から
+到達可能な状態だったので、いまは `ocvu_mat_get_info` 自身が
+`OCVU_STATUS_INVALID_ARGUMENT` で断る（§3.14、`native/src/ocvu_mat.cpp`）。
+消さずに残してあるのは、「境界の外側は未定義でよい」という言い回しが
+他のどこかで同じ誤りを隠していないか、次に読む人が確かめられるように
+するためである。
 
 **ファイルパスは受けない。** 理由は §1.6 と同じ（Windows の文字コード、
 Android の StreamingAssets）。
 
-**ABI version は上げていない。** 新しい module と新しい handle 型を足しただけ
-なので `OCVU_ABI_VERSION` は 1 のままである（§2「bump しない変更」）。
+**ABI version は上げていない。** 新しい module と新しい handle 型
+（`ocvu_net_handle`）を足しただけなので `OCVU_ABI_VERSION` は 1 のままである
+—— この判断の一般原則（「新しい関数を足す」「新しい status を末尾に足す」は
+bump しない）は §2「bump しない変更」が正本として持つ。
 
 ## 2. C ABI の versioning と後方互換
 
@@ -363,6 +375,12 @@ native library と C# は同じ UPM パッケージで同時に配布される�
 - `OCVU_STATUS_LIST` の**末尾**に新しい status code を足す
 - 実装の内部変更で、観測できる挙動が変わらないもの
 - コメント・文書
+
+**実例（3 つ目、1 つ目の具体化）**: M7c で `ocvu_net_handle` という新しい
+handle 型と `dnn` module の 4 関数を足したが、`OCVU_ABI_VERSION` は 1 の
+ままである。既存の型・関数・status は 1 つも変えていない —— 「新しい関数を
+足す」の一種であって、新しい所有権モデルでもない（`ocvu_mat_handle` と
+同じ世代番号つき handle table を再利用している）。詳細は §1.7。
 
 **実例（2 つ目）**: `OCVU_STATUS_NOT_FOUND` は M5 で `OCVU_STATUS_LIST` の末尾に足した
 status で、bump しなかった。`ocvu_qr_decode` が「QR コードが写っていない」ことを
@@ -787,10 +805,45 @@ P/Invoke 宣言だけが別 assembly（`CvUnity.Interop.Dnn` の `NativeMethodsD
 `enum EngineType` の値が総入れ替えになった（§2 冒頭の引用）ので、5.1 で
 意味が変わる数字を境界の外へ出さない。
 
-**`mean` は長さを渡さない固定 3 要素（B, G, R）の配列である。** `width` /
-`height` は buffer の長さではなく `cv::dnn::blobFromImage` がその寸法で
-メモリを確保する引数なので、`OCVU_DNN_MAX_BLOB_DIM`（4096）という上限を
-新設した —— `cv::cornerSubPix` の `win_size` で踏んだのと同じ形である。
+**`mean` は配列ではなく 3 個の scalar（`mean_b` / `mean_g` / `mean_r`）である
+（レビューで直した。Critical 1）。** 当初は「長さを渡さない固定 3 要素の
+配列」として出していたが、それは**長さの検証を一切持たない buffer**という
+形で、呼ぶ側が短い配列を渡せば境界の外を読めてしまう —— 防いでいたのは
+検査ではなく summary の文章だけだった。3 個の scalar に変えたことで、
+その誤りは**表現できなくなった**（§1 が借用 handle を禁じたのと同じ
+「規約で禁じるのではなく表現できなくする」考え方）。NULL を心配する必要も
+消えた。`width` / `height` は buffer の長さではなく `cv::dnn::blobFromImage`
+がその寸法でメモリを確保する引数なので、`OCVU_DNN_MAX_BLOB_DIM`（4096）と
+いう上限を新設した —— `cv::cornerSubPix` の `win_size` で踏んだのと同じ形
+である。
+
+**`ocvu_dnn_blob_from_image` の検証順序は width/height → src の handle →
+dst の handle で固定してあり、spec の summary と L1
+（`Dnn.BlobFromImageChecksDimensionsBeforeHandles`）の両方がそれを記録する**
+（レビュー指摘 M1）。文書だけでは、順序を変える将来の変更が気づかれずに
+入りうる。
+
+**`ocvu_dnn_net_forward` の出力は `.clone()` している（レビューで直した。
+Important 2）。** `cv::dnn::Net::forward()` が返す `Mat` はネットワーク内部の
+バッファへの浅いコピーで、決定 A の `reshape` もヘッダだけを作り直す浅い
+操作である。`.clone()` を省くと `*output_mat` は net が所有するメモリを
+指したままになり、同じ net で 2 回目の forward を呼ぶと 1 回目の出力が
+黙って書き換わる —— この ABI の他のすべての関数が新しく確保したメモリを
+返す契約と矛盾する。**この所有権の挙動は OpenCV のヘッダに明記が無く、
+実装から推測している。** 実物の ONNX モデルで forward を 2 回呼んで
+確かめるのは、まだ無いので後続タスクの担当である。
+
+**`ocvu_mat_get_info` が dims > 2 の Mat を拒むようになった（レビューで
+直した。Important 1）。** `ocvu_dnn_blob_from_image` が作る Mat は dims == 4
+でありうるが、`ocvu_mat_info` は rows / cols / channels / step という
+2 次元の語彙しか持たない。直す前は、dims > 2 のとき OpenCV が返す
+`rows = cols = -1` をそのまま `OCVU_STATUS_OK` で通しており、
+`total_bytes` まで負の値になっていた —— 「読めない」ではなく「間違った値を
+自信満々で返す」形で、C# から到達可能だった。いまは
+`OCVU_STATUS_INVALID_ARGUMENT` を返す（`native/tests/test_mat_lifecycle.cpp`
+の `GetInfoRejectsMatsWithMoreThanTwoDimensions`）。**この検査は dnn 固有の
+module には置いていない** —— `ocvu_mat_get_info` は `core` module の関数で
+あり、2 次元より多い Mat を作りうる関数が増えるたびに効く。
 
 **COMPONENTS への追加は Task 2 が先に行った。** `native/src/ocvu_dnn_table.cpp`
 の `std::unique_ptr<cv::dnn::Net>` の破棄に `cv::dnn::Net` の定義が要るため、

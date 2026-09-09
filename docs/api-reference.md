@@ -458,18 +458,27 @@ blob（NCHW）だが、この ABI の `Mat` は `rows` / `cols` / `channels` / `
 しか公開していない。`ocvu_dnn_net_forward` は最後の次元を列数として残りを
 すべて行数へ畳み込む —— **分類モデルの典型的な `(1, N)` はそのまま `1 × N` に
 なるが、検出モデルのような 4 次元の出力では N と C の区別が失われる。**
-この ABI が受け取れるのは分類モデルの `1 × N` の出力だけである。
+この ABI が受け取れるのは分類モデルの `1 × N` の出力だけである。**戻り値は
+net の内部バッファから独立したコピーであり**、同じ net で続けて forward を
+呼んでも書き換わらない（`.clone()` している）。handle の検証は net →
+input → output の順で行い、解放済みの net も他の無効な handle と同じ
+`OCVU_STATUS_INVALID_HANDLE` になる。
 
 **`ocvu_dnn_blob_from_image` の出力は潰さない。** `cv::dnn::Net::setInput` が
 要求するのは 4 次元の NCHW そのものなので、`ocvu_dnn_net_forward` へ渡すまで
-形を保つ。この handle を `ocvu_mat_get_info` のような 2 次元前提の関数へ渡した
-結果は未定義である。
+形を保つ。この handle を `ocvu_mat_get_info` のような 2 次元前提の関数へ渡すと
+`OCVU_STATUS_INVALID_ARGUMENT` で拒まれる（`ocvu_mat_get_info` は dims > 2 の
+Mat を断る）。
 
-**`mean` は固定 3 要素（B, G, R の順）を読む。** 長さを渡す引数は無く、NULL は
-`OCVU_STATUS_NULL_POINTER` になる。`width` / `height` は `OCVU_DNN_MAX_BLOB_DIM`
-（4096）以下でなければならない —— buffer の長さではなく、native がその寸法で
-メモリを確保する引数だからである（`ocvu_orb_detect` の `max_features` などと
-同じ形の上限）。
+**`mean_b` / `mean_g` / `mean_r` は配列ではなく 3 個の scalar である。**
+各チャンネルから引く値をこの順（B, G, R）で渡す固定契約で、配列 + 長さの
+形にしていない —— 短い配列を渡して境界の外を読む、という誤りをそもそも
+表現できなくするためである。NULL を心配する必要も無い。**検証の順序は
+width / height の範囲 → src の handle → dst の handle で固定してある**
+（範囲外の width と無効な handle を同時に渡すと `OCVU_STATUS_INVALID_ARGUMENT`
+になる）。`width` / `height` は `OCVU_DNN_MAX_BLOB_DIM`（4096）以下でなければ
+ならない —— buffer の長さではなく、native がその寸法でメモリを確保する
+引数だからである（`ocvu_orb_detect` の `max_features` などと同じ形の上限）。
 
 **有効な ONNX を読み込ませて推論する経路は、ここではまだ実証していない。**
 壊れた入力に対する振る舞い（NULL、負または 0 の長さ、無効な handle、
