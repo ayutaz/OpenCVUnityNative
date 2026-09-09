@@ -33,4 +33,11 @@
     <ProjectReference Include="..\CvUnity.Runtime.Shim\CvUnity.Runtime.Shim.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- DnnInferenceTests.cs が読む実物の ONNX。生成スクリプト（tiny.onnx.py）は
+         .cs でも既知の拡張子でもないので、既定の glob には含まれず、明示しない
+         限りコピーもされない。 -->
+    <None Include="TestModels\**\*.onnx" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
