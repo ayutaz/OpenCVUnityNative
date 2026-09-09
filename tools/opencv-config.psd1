@@ -126,6 +126,48 @@
             # 配布先の下限を固定する。指定しないとビルドマシンの OS 版に
             # 引きずられ、同じ構成ハッシュで別物ができる。
             '-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0'
+            <#
+                **libpng の ARM NEON 最適化を切る（M7c、dnn の arm64 リンク失敗の調査で発見）。**
+
+                `dnn` を Modules に足すと、OpenCV は 3rdparty/mlas を
+                `add_subdirectory` する。mlas は「plain ASM 言語が使えるか」を
+                `_MLAS_REQUIRES_ASM`（x86_64 / x86 / arm64 / loongarch64 で真）で
+                判定し、使えなければ自分から `return()` して大人しく無効化する
+                （x86_64 の Windows / Linux は実際にこの経路を通り、
+                `DNN MLAS: NO (no ASM compiler available for ...)` になる）。
+
+                共通の `CMakeArgs` にある `-DCMAKE_ASM_COMPILER=NOTFOUND` は
+                「plain ASM を使えなくする」ための唯一のこちら側の入力
+                （mlas 自身の `check_language(ASM)` はこの pin を尊重する no-op
+                になる）。**ところが arm64 の 3 platform（Android / macOS / iOS）
+                だけ、mlas の判定に届く前に別の 3rdparty が先に plain ASM を
+                本物にしてしまい、この pin が意味を持たなくなる。**
+
+                その 3rdparty は **libpng** である
+                （`3rdparty/libpng/CMakeLists.txt` の `PNG_ARM_NEON` 分岐、
+                既定値は arm64 で `"on"`）: `NOT PNG_ARM_NEON STREQUAL "off"` の
+                とき `enable_language(ASM)` を呼び、`arm/filter_neon.S` を
+                足す。libjpeg-turbo（先に疑ったが、ログの並びを読み直すと
+                `add_subdirectory(simd)` は `SIMD extensions:` の行より前に
+                完了しており的外れだった）や carotene / kleidicv
+                （在るが `enable_language` の呼び出しが見当たらない）ではなく、
+                こちらが実測で確認できた唯一の候補である。
+
+                `-DPNG_ARM_NEON=off` にすると、この `enable_language(ASM)` が
+                呼ばれなくなり（`arm/arm_init.c` 等の intrinsics 実装も含めて
+                NEON 最適化そのものが丸ごと無効になる）、mlas の判定が
+                x86_64 と同じ「plain ASM が無い」経路を取れるようになるはず、
+                という仮説にもとづく。**代償は明確: PNG の NEON デコード
+                高速化を、Android / macOS / iOS の 3 platform で失う。**
+                OpenCV 全体の `WITH_SIMD`（core/imgproc）や libjpeg-turbo の
+                JPEG SIMD には触れない——PNG だけに絞った変更である。
+
+                **x64 には要らない**（そもそも `-DCMAKE_ASM_COMPILER=NOTFOUND`
+                が効いており、mlas は既に無効）。web-wasm にも要らない
+                （dnn の `add_subdirectory(mlas)` 自体が `EMSCRIPTEN` で
+                skip される）。arm64 の 3 platform にだけ置く。
+            #>
+            '-DPNG_ARM_NEON=off'
         )
         'linux-x64' = @(
             # 共有ライブラリへ静的ライブラリを取り込むため。
@@ -155,6 +197,11 @@
             '-DANDROID_STL=c++_static'
             # 共有ライブラリへ静的ライブラリを取り込むため（linux と同じ）。
             '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
+            # libpng の ARM NEON を切る。理由は macos-arm64 のコメントを参照
+            # ——dnn/mlas が要求する「plain ASM が無い」状態を、libpng の
+            # enable_language(ASM) が arm64 で壊してしまうため。代償は PNG の
+            # NEON デコード高速化を失うこと。
+            '-DPNG_ARM_NEON=off'
             <#
                 **16 KB page size の flag はここに書かない。**
 
@@ -178,6 +225,11 @@
             # bitcode は Xcode 14 で廃止された。明示的に切らないと古い CMake が
             # 有効化しようとする。
             '-DCMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE=NO'
+            # libpng の ARM NEON を切る。理由は macos-arm64 のコメントを参照
+            # ——dnn/mlas が要求する「plain ASM が無い」状態を、libpng の
+            # enable_language(ASM) が arm64 で壊してしまうため。代償は PNG の
+            # NEON デコード高速化を失うこと。
+            '-DPNG_ARM_NEON=off'
         )
 
         <#
