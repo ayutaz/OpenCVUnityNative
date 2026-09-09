@@ -1018,6 +1018,35 @@ platform（iOS / WebGL）で `"__Internal"` にならず、Player の中で最�
   モデルを使う L3 に委ねてある（`docs/api-reference.md` の dnn 節にも明記）
 - 利用者向けの C# 公開 API（`CvUnity.Dnn.CvDnn`）はまだ無い
 
+**Task 4 で実証されたこと**（2026-09-09、`tools/dev.ps1 test-managed` と
+`tools/dev.ps1 test-unity-editmode` の実測。上の 1 番目と 3 番目を閉じた）:
+
+- **利用者向けの C# 公開 API ができた**（`CvUnity.Dnn.CvDnn` / `CvNet`、
+  `Runtime/Dnn/CvDnn.cs`）。`CvUnity.Interop.Dnn` と同じ
+  `defineConstraints`（`OCVU_PROFILE_DNN`）を持つ別 assembly
+  `CvUnity.Dnn` に出る（`docs/api-reference.md` §2.17）
+- **これが `CvUnity.Interop`/`CvUnity.Core` の外から `CvMat.Handle` を読む
+  最初の消費者だった。** `Runtime/Core/` にはそれまで `AssemblyInfo.cs` が
+  無く（内部でしか `.Handle` を読んでいなかったため）、`CvUnity.Dnn` を
+  追加しただけでは Unity の中でコンパイルが通らない —— これは
+  `dev.ps1 test-managed`（shim が全部を 1 つの assembly にまとめてしまう）
+  では**見えない**穴で、Step 5 の「define を立てて Unity に本当にコンパイル
+  させる」手順で初めて表面化した。`Runtime/Core/AssemblyInfo.cs` を新設し
+  `[assembly: InternalsVisibleTo("CvUnity.Dnn")]` を足して塞いだ
+- **Unity が実物の `NativeMethodsDnn` / `CvDnn` / `AbiReachabilityChecksDnn` を
+  実際にコンパイルした**（本物の `bindings/spec/dnn.json` に対して、Unity
+  6000.3.16f1 で実測。`OCVU_PROFILE_DNN` を立てて `Library/ScriptAssemblies/`
+  に `CvUnity.Interop.Dnn.dll` / `CvUnity.Dnn.dll` / `CvUnity.Tests.Shared.Dnn.dll`
+  が現れることを確認し、立てていない既定の状態では 3 つとも現れないことも
+  同じ日に確認した——`ProfileGatingTests`（`tests/UnityProject/Assets/Tests/EditMode/`）
+  が両方向を機械的に見る。前者は手動の一回性の確認、後者は毎回の EditMode
+  実行が見る）
+- L3（`DnnTests.cs`）が壊れた入力・二重解放・null/空 byte 列を固定した
+  （185 → 189、+4）
+
+**まだ実証されていないこと**（Task 4 の範囲外）は、上の「有効な ONNX を
+読み込んで実際に推論すること」だけが残る——**Task 5 の担当である。**
+
 ---
 
 ## 参照

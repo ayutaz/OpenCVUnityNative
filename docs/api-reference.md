@@ -18,7 +18,9 @@ M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB
 features / geometry / カメラ校正」と §2.8〜§2.11 にある。**M7c で `dnn` を
 4 本足した** —— C ABI は §1「dnn」にあるが、`"profile": "dnn"` を宣言する
 初めての module なので C# の宣言だけが別 assembly（`CvUnity.Interop.Dnn`）へ
-出る（利用者向けの `CvUnity.Dnn.CvDnn` は別のマイルストーンで足す）。**詳しい経緯は
+出る。**利用者向けの `CvUnity.Dnn.CvDnn` / `CvNet` も同じ M7c で足した**
+（Task 4。§2.17）—— こちらも `CvUnity.Interop.Dnn` と同じ `defineConstraints`
+で切ってある別 assembly（`CvUnity.Dnn`）である。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
 M5 の追加は §3.6〜§3.9）を、所有権契約そのものは同 §1・§1.7 を、profile の
 仕組みは同 §4 を参照。
@@ -435,8 +437,8 @@ SIFT は `create(200)` で 240 個）。**`capacity` を `max_features` と同�
 `native/include/ocvu/dnn.h` に出るが、C# の宣言は `CvUnity.Interop` の
 `NativeMethods` ではなく `CvUnity.Interop.Dnn` の `NativeMethodsDnn` という
 **別の assembly** に出る（`docs/abi-ownership-and-versioning.md` §4）。
-利用者側の公開 API（`CvUnity.Dnn.CvDnn`）は別のマイルストーンで追加する
-（現時点ではまだ無い）。
+**利用者側の公開 API（`CvUnity.Dnn.CvDnn` / `CvNet`）は M7c Task 4 で足した**
+—— §2.17 にある。
 
 | 関数 | 何をするか |
 | --- | --- |
@@ -482,8 +484,10 @@ width / height の範囲 → src の handle → dst の handle で固定して�
 
 **有効な ONNX を読み込ませて推論する経路は、ここではまだ実証していない。**
 壊れた入力に対する振る舞い（NULL、負または 0 の長さ、無効な handle、
-異常な blob の寸法）は L1（`native/tests/test_dnn.cpp`）が固定している。
-実物の小さなモデルを使った正常系は、別のマイルストーンで L3 が見る。
+異常な blob の寸法）は L1（`native/tests/test_dnn.cpp`）と、公開 API の
+壊れた入力・寿命・所有権（`tests/Managed/CvUnity.Tests.Managed/DnnTests.cs`。
+§2.17）が固定している。実物の小さなモデルを使った正常系は、後続のタスクが
+L3 に足す。
 
 ### この allowlist に含まれないもの
 
@@ -502,9 +506,12 @@ C# としての契約は §2.1 の `CopyFrom(IntPtr, …)` / `CopyTo(IntPtr, …
 ## 2. C# 公開 API
 
 対象アセンブリ: `CvUnity.Core`（`Runtime/Core/`、`UnityEngine` 非参照）、
-`CvUnity.UnityIntegration`（`Runtime/UnityIntegration/`、`UnityEngine` 参照）。
-`CvUnity.Interop`（`Runtime/Interop/`）は P/Invoke 宣言のみを持ち、公開型は無い
-（`NativeMethods` は `internal`）。
+`CvUnity.UnityIntegration`（`Runtime/UnityIntegration/`、`UnityEngine` 参照）、
+`CvUnity.Dnn`（`Runtime/Dnn/`、`UnityEngine` 非参照。`dnn` profile の
+`defineConstraints` つきで、`OCVU_PROFILE_DNN` が無いプロジェクトではコンパイル
+されない）。`CvUnity.Interop`（`Runtime/Interop/`）と `CvUnity.Interop.Dnn`
+（`Runtime/Interop.Dnn/`）は P/Invoke 宣言のみを持ち、公開型は無い
+（`NativeMethods` / `NativeMethodsDnn` はどちらも `internal`）。
 
 ### 2.1 `CvUnity.CvMat`
 
@@ -947,6 +954,38 @@ CPU から読むには GPU → CPU の転送が要る。
 （実測。詳細は [性能](./performance.md)）。この経路を検証するローカル専用の
 `test-unity-graphics` レーンは `-nographics` を付けずに走り、**CI には
 配線していない。**
+
+### 2.17 `CvUnity.Dnn.CvDnn` / `CvNet`（M7c で追加、`dnn` profile）
+
+`CvUnity.Dnn` アセンブリ（`Runtime/Dnn/`）。**opt-in profile である** ——
+`CvUnity.Interop.Dnn` と同じ `defineConstraints`（`OCVU_PROFILE_DNN`）で
+切ってあり、`OCVU_PROFILE_DNN` が無いプロジェクトではコンパイルされない。
+**片方だけを切ると壊れる** —— `CvUnity.Interop.Dnn` だけを切って `CvUnity.Dnn`
+を残すと、参照先を失って利用者のプロジェクトがコンパイルエラーになる
+（`docs/abi-ownership-and-versioning.md` §4）。
+
+`CvNet`（`sealed class`、`IDisposable`）: native が所有する `ocvu_net_handle` を
+包む。**寿命の契約は `CvMat`（§2.1）と同じ** —— handle は常に native 側の
+ものであり、二度目以降の `Dispose()` は no-op（`ocvu_dnn_net_release` は
+解放済み handle に `OCVU_STATUS_INVALID_HANDLE` を返すだけで落ちない。
+C# 側はその戻り値を見ない）。
+
+| メンバ | 内容 |
+| --- | --- |
+| `void Dispose()` | `ocvu_dnn_net_release` を呼ぶ。二度目以降は no-op |
+
+`CvDnn`（`static class`）:
+
+| メンバ | 内容 |
+| --- | --- |
+| `static CvNet ReadOnnx(byte[] data)` | `ocvu_dnn_net_read_onnx` を呼ぶ。`data` が `null` なら `ArgumentNullException`、空なら `ArgumentException`。読めない byte 列は `CvNativeException`（`Status == CvStatus.OpenCvError`） |
+| `static void BlobFromImage(CvMat src, CvMat dst, double scale, int width, int height, double[] mean, bool swapRb, bool crop)` | `ocvu_dnn_blob_from_image` を呼ぶ。`mean` は **B, G, R の順で 3 要素**でなければならない（native は 3 個の scalar を受け取る固定契約で、配列ではないので長さを取り違える余地が無い）。長さが違えば `ArgumentException` |
+| `static void Forward(CvNet net, CvMat input, CvMat output)` | `ocvu_dnn_net_forward` を呼ぶ。`output` は net の内部バッファから独立したコピーで、同じ `net` で続けて呼んでも書き換わらない |
+
+**正常系（実物の ONNX モデルを読んで実際に推論する経路）は、この commit ではまだ
+実証していない。** `DnnTests.cs`（`tests/Managed/CvUnity.Tests.Managed/`）が見るのは
+壊れた入力・寿命・所有権だけで、有効な ONNX を手で組むのは現実的でないため
+正常系は別のタスクが実物の小さなモデルを使って L3 に足す。
 
 ## 3. 対象外（この文書に書かないもの）
 
