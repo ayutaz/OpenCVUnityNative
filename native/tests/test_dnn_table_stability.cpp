@@ -7,6 +7,14 @@
 // **ローカル 3 回と直前 3 回の CI が緑で、1 度だけ落ちた。**
 // フレークとして再実行していたら残っていた。だからここでは
 // **確率に頼らず、伸びを強制してから古いポインタを触る。**
+//
+// **「4096 個足せば再配置されるだろう」に頼らない。** これが成立していたのは
+// この table を使うのがこのファイルだけだったからで、Task 3 が
+// native/tests/test_dnn.cpp から同じ net_table を使い始めた時点で崩れる
+// 前提になった（native/tests/test_mat_table_stability.cpp の
+// ResolvedPointerSurvivesTableGrowth と同じ形。あちらの comment も
+// 同じ理由で「足りるだろう」を拒んでいる）。容量（要素数ではない）を
+// 前後で測り、実際に増えたことまで確かめる。
 #include <gtest/gtest.h>
 #include <memory>
 #include <thread>
@@ -20,11 +28,20 @@ TEST(DnnTableStability, APointerStaysValidWhileTheTableGrows) {
     cv::dnn::Net* resolved = ocvu::net_table_get(first);
     ASSERT_NE(resolved, nullptr);
 
+    const size_t capacity_before = ocvu::net_table_slot_capacity();
+
     // 表を大きく伸ばす。**vector<Slot> が値を持っていれば、ここで再配置が起きる。**
     std::vector<ocvu_net_handle> others;
     for (int i = 0; i < 4096; ++i) {
         others.push_back(ocvu::net_table_add(std::make_unique<cv::dnn::Net>()));
     }
+
+    const size_t capacity_after = ocvu::net_table_slot_capacity();
+    ASSERT_GT(capacity_after, capacity_before)
+        << "table の内部配列が 1 度も再配置されなかったので、この test は"
+           "何も検証していない（容量 " << capacity_before << " のまま）。"
+           "確保する数を増やすか、他のテストが free list をこの回だけ"
+           "偶然使い切っていないか確かめること。";
 
     // **先に解決したポインタがまだ生きていること。**
     EXPECT_EQ(ocvu::net_table_get(first), resolved);

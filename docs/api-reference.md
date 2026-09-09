@@ -15,9 +15,13 @@
 §2.13、core の基本演算が §2.14、特徴点マッチングとステレオが §2.15 にある。**`WebCamTexture` 連携は
 M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
 推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
-features / geometry / カメラ校正」と §2.8〜§2.11 にある。**詳しい経緯は
+features / geometry / カメラ校正」と §2.8〜§2.11 にある。**M7c で `dnn` を
+4 本足した** —— C ABI は §1「dnn」にあるが、`"profile": "dnn"` を宣言する
+初めての module なので C# の宣言だけが別 assembly（`CvUnity.Interop.Dnn`）へ
+出る（利用者向けの `CvUnity.Dnn.CvDnn` は別のマイルストーンで足す）。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
-M5 の追加は §3.6〜§3.9）を、所有権契約そのものは同 §1 を参照。
+M5 の追加は §3.6〜§3.9）を、所有権契約そのものは同 §1・§1.7 を、profile の
+仕組みは同 §4 を参照。
 
 対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
 6000.3.16f1 の 1 版だけ**）。**対応 platform は最新の公開版のもの**（**一覧をここに写さない** ——
@@ -423,6 +427,54 @@ SIFT は `create(200)` で 240 個）。**`capacity` を `max_features` と同�
 `num_disparities` が 16 の倍数であること・`block_size` が 5 以上の奇数であることを
 強制するのは `StereoBM` だけで、`StereoSGBM` はどちらも検査しない（実測）——
 **この ABI が自分で決めた、OpenCV より厳しい契約である**（呼ぶ側にとって単純になる）。
+
+### dnn（M7c で追加、`dnn` profile）
+
+**この 4 本は既定 profile ではない。** spec（`bindings/spec/dnn.json`）が
+`"profile": "dnn"` を宣言しているため、C ヘッダは他と同じ
+`native/include/ocvu/dnn.h` に出るが、C# の宣言は `CvUnity.Interop` の
+`NativeMethods` ではなく `CvUnity.Interop.Dnn` の `NativeMethodsDnn` という
+**別の assembly** に出る（`docs/abi-ownership-and-versioning.md` §4）。
+利用者側の公開 API（`CvUnity.Dnn.CvDnn`）は別のマイルストーンで追加する
+（現時点ではまだ無い）。
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_dnn_net_read_onnx` | メモリ上の ONNX の byte 列からネットワークを読み、`ocvu_net_handle` を返す。ファイルパスは受け取らない |
+| `ocvu_dnn_net_release` | `ocvu_net_handle` を解放する |
+| `ocvu_dnn_blob_from_image` | `Mat` を推論の入力（4 次元の blob）にする |
+| `ocvu_dnn_net_forward` | 推論を 1 回走らせ、結果を 2 次元の `Mat` に書く |
+
+**`ocvu_net_handle` は `ocvu_mat_handle` と同じ所有権の形である。** native が
+常に所有し、`ocvu_dnn_net_release` で解放するまで生きる。新しい所有権モデルは
+増えていない（`docs/abi-ownership-and-versioning.md` §1.7）。
+
+**engine / backend を選ぶ引数も定数も出していない。** OpenCV 5.1 で
+`enum EngineType` の値が総入れ替えになったため、5.1 で意味が変わる数字を
+境界の外へ出さない判断である（`docs/roadmap.md` の M7 節）。
+
+**推論の出力は 2 次元に潰す。** `cv::dnn::Net::forward()` が返すのは 4 次元の
+blob（NCHW）だが、この ABI の `Mat` は `rows` / `cols` / `channels` / `step`
+しか公開していない。`ocvu_dnn_net_forward` は最後の次元を列数として残りを
+すべて行数へ畳み込む —— **分類モデルの典型的な `(1, N)` はそのまま `1 × N` に
+なるが、検出モデルのような 4 次元の出力では N と C の区別が失われる。**
+この ABI が受け取れるのは分類モデルの `1 × N` の出力だけである。
+
+**`ocvu_dnn_blob_from_image` の出力は潰さない。** `cv::dnn::Net::setInput` が
+要求するのは 4 次元の NCHW そのものなので、`ocvu_dnn_net_forward` へ渡すまで
+形を保つ。この handle を `ocvu_mat_get_info` のような 2 次元前提の関数へ渡した
+結果は未定義である。
+
+**`mean` は固定 3 要素（B, G, R の順）を読む。** 長さを渡す引数は無く、NULL は
+`OCVU_STATUS_NULL_POINTER` になる。`width` / `height` は `OCVU_DNN_MAX_BLOB_DIM`
+（4096）以下でなければならない —— buffer の長さではなく、native がその寸法で
+メモリを確保する引数だからである（`ocvu_orb_detect` の `max_features` などと
+同じ形の上限）。
+
+**有効な ONNX を読み込ませて推論する経路は、ここではまだ実証していない。**
+壊れた入力に対する振る舞い（NULL、負または 0 の長さ、無効な handle、
+異常な blob の寸法）は L1（`native/tests/test_dnn.cpp`）が固定している。
+実物の小さなモデルを使った正常系は、別のマイルストーンで L3 が見る。
 
 ### この allowlist に含まれないもの
 

@@ -79,6 +79,12 @@ cv::dnn::Net* net_table_get(ocvu_net_handle handle) {
     return slot.net.get();
 }
 
+size_t net_table_slot_capacity() {
+    Table& t = table();
+    std::lock_guard<std::mutex> lock(t.mutex);
+    return t.slots.capacity();
+}
+
 bool net_table_remove(ocvu_net_handle handle) {
     if (handle == 0) { return false; }
 

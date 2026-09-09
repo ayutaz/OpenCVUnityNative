@@ -182,6 +182,10 @@ public static class SpecModel
             ["uint8_t*"] = new[] { "byte[]", "System.IntPtr" },
             ["const char*"] = new[] { "byte[]", "System.IntPtr" },
             ["char*"] = new[] { "byte[]", "System.IntPtr" },
+            // 読み込んだニューラルネットワークの handle（dnn profile、M7c）。
+            // ocvu_mat_handle / ocvu_mat_handle* とまったく同じ形である。
+            ["ocvu_net_handle"] = new[] { "ulong" },
+            ["ocvu_net_handle*"] = new[] { "out ulong" },
         };
 
     private static void RequireTheCsTypeMatchesTheCType(
