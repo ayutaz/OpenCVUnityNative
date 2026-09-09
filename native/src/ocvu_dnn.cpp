@@ -177,8 +177,16 @@ extern "C" ocvu_status ocvu_dnn_net_forward(ocvu_net_handle net, ocvu_mat_handle
         // 書き換わる —— この ABI の他のすべての関数が新しく確保した
         // メモリを返しているのに、ここだけが例外になってしまう。
         // **未確認事項**: この所有権の挙動は OpenCV のヘッダには明記が
-        // 無く、実装から推測している。実物の ONNX モデルで forward を
-        // 2 回呼んで検証するのは、まだ無いので後続タスクの担当である。
+        // 無く、実装から推測している。M7c Task 5
+        // （tests/Managed/CvUnity.Tests.Managed/DnnInferenceTests.cs の
+        // CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput）
+        // が実物の ONNX で forward を 2 回呼ぶ形の負の対照を試みたが、
+        // .clone() を外しても検知できなかった —— 「net が内部バッファを
+        // 使い回す」という前提そのものが、この規模のモデルでは再現しない
+        // 可能性が高い（詳細は同テストの docstring）。したがって
+        // .clone() が必要だと示す再現テストはまだ無いが、`*output_mat` が
+        // 独立したメモリを持つという契約を成立させているのは .clone() の
+        // 一行だけなので、消してはならない。
         result = raw.reshape(1, rows).clone();
     } catch (const cv::Exception& e) {
         return ::ocvu::set_last_error(OCVU_STATUS_OPENCV_ERROR, e.what());

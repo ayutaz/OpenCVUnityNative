@@ -482,12 +482,18 @@ width / height の範囲 → src の handle → dst の handle で固定して�
 ならない —— buffer の長さではなく、native がその寸法でメモリを確保する
 引数だからである（`ocvu_orb_detect` の `max_features` などと同じ形の上限）。
 
-**有効な ONNX を読み込ませて推論する経路は、ここではまだ実証していない。**
-壊れた入力に対する振る舞い（NULL、負または 0 の長さ、無効な handle、
-異常な blob の寸法）は L1（`native/tests/test_dnn.cpp`）と、公開 API の
-壊れた入力・寿命・所有権（`tests/Managed/CvUnity.Tests.Managed/DnnTests.cs`。
-§2.17）が固定している。実物の小さなモデルを使った正常系は、後続のタスクが
-L3 に足す。
+**有効な ONNX を読み込ませて推論する経路は、L3 で実物のモデルを使って
+実証している。** 壊れた入力に対する振る舞い（NULL、負または 0 の長さ、
+無効な handle、異常な blob の寸法）は L1（`native/tests/test_dnn.cpp`）と、
+公開 API の壊れた入力・寿命・所有権（`tests/Managed/CvUnity.Tests.Managed/DnnTests.cs`。
+§2.17）が固定し、正常系（読み込み → blob 化 → forward の往復）は
+自作の Identity 1 ノード ONNX（`tests/Managed/CvUnity.Tests.Managed/TestModels/tiny.onnx`。
+生成スクリプトはその隣の `tiny.onnx.py`）を使う `DnnInferenceTests.cs` が
+`tests/Managed/CvUnity.Tests.Managed/` で見ている。**ただし、これが実証する
+のは境界が往復することであって、下で述べる「戻り値が独立したコピーである」
+こと（`.clone()` の効果）そのものではない** —— そちらの経緯は次段落と
+`CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput` の
+docstring を見ること。
 
 ### この allowlist に含まれないもの
 
@@ -982,10 +988,17 @@ C# 側はその戻り値を見ない）。
 | `static void BlobFromImage(CvMat src, CvMat dst, double scale, int width, int height, double[] mean, bool swapRb, bool crop)` | `ocvu_dnn_blob_from_image` を呼ぶ。`mean` は **B, G, R の順で 3 要素**でなければならない（native は 3 個の scalar を受け取る固定契約で、配列ではないので長さを取り違える余地が無い）。長さが違えば `ArgumentException` |
 | `static void Forward(CvNet net, CvMat input, CvMat output)` | `ocvu_dnn_net_forward` を呼ぶ。`output` は net の内部バッファから独立したコピーで、同じ `net` で続けて呼んでも書き換わらない |
 
-**正常系（実物の ONNX モデルを読んで実際に推論する経路）は、この commit ではまだ
-実証していない。** `DnnTests.cs`（`tests/Managed/CvUnity.Tests.Managed/`）が見るのは
-壊れた入力・寿命・所有権だけで、有効な ONNX を手で組むのは現実的でないため
-正常系は別のタスクが実物の小さなモデルを使って L3 に足す。
+**正常系（実物の ONNX モデルを読んで実際に推論する経路）は L3 で実証している。**
+`DnnTests.cs`（`tests/Managed/CvUnity.Tests.Managed/`）が見るのは壊れた
+入力・寿命・所有権だけだが（有効な ONNX を手で組むのは現実的でないため）、
+自作の Identity 1 ノード ONNX（`TestModels/tiny.onnx`。生成スクリプトは
+`TestModels/tiny.onnx.py`）を使う `DnnInferenceTests.cs` が読み込み → blob
+化 → forward の往復を実物のモデルで確かめている。**実証しているのは
+境界が往復することであって、`output` が独立したコピーであること
+（上の行、`.clone()` の効果）を再現テストとして証明したわけではない** ——
+`.clone()` を外して再現を試みたが、この規模のモデルでは検知できなかった
+（`CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput` の
+docstring 参照）。
 
 ## 3. 対象外（この文書に書かないもの）
 
