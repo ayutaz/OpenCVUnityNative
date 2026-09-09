@@ -81,6 +81,14 @@ enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
 typedef uint64_t ocvu_mat_handle;
 #define OCVU_MAT_HANDLE_NONE ((ocvu_mat_handle)0)
 
+/**
+ * 読み込んだニューラルネットワークの handle。
+ *
+ * **native が所有する。** ocvu_dnn_net_release で解放するまで生きる。
+ * ocvu_mat_handle と同じ規約で、0 は常に無効である。
+ */
+typedef uint64_t ocvu_net_handle;
+
 /*
  * ABI に出す Mat の型。
  *
