@@ -2,7 +2,6 @@
     "name": "CvUnity.Dnn",
     "rootNamespace": "CvUnity.Dnn",
     "references": [
-        "CvUnity.Interop",
         "CvUnity.Interop.Dnn",
         "CvUnity.Core"
     ],
