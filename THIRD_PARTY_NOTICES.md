@@ -928,6 +928,19 @@ Confirmed by actually restoring a build that has `dnn` (run `34215362804`,
 `./tools/opencv.ps1 restore`) and searching its `opencv_dnn500.lib`, not by
 inference from compiler flags.
 
+**Confirmed on two platforms, deliberately chosen for two different
+name-mangling schemes** — Windows/MSVC (above) and Linux/Itanium
+(`lib/libopencv_dnn.a` from the same run `34215362804`: `flatbuffers` → 164
+matches, `dlpack` → 0 matches, and 0 matches for `dlpack` across every `.a`
+in that tree). That second data point matters more than a second platform
+would on its own, because the methodology defect described below is
+specific to which mangling scheme a toolchain uses — confirming the same
+classification under both schemes is what makes it trustworthy, not merely
+having checked twice. **The remaining four platforms (macOS, iOS, Android,
+Web) were not individually inspected.** They are inferred from building the
+same `Modules` list from the same OpenCV source tree, not from grepping
+their own `.a` files — record that as inference, not as a third data point.
+
 **A methodology correction, recorded so the next search doesn't repeat it:**
 the two earlier "zero matches" results for this component used patterns
 containing `::`, e.g. `flatbuffers::`, mirroring how the identifier reads in
@@ -1181,7 +1194,12 @@ section too.
   identifiers `DLTensor`, `DLDevice`, `DLDataType`,
   `DLManagedTensor`, `dlpack` (case-insensitive, no `::` — see the
   methodology note above) across every `.lib` in
-  `x64/vc17/staticlib/`; zero matches, all patterns, all files.
+  `x64/vc17/staticlib/`; zero matches, all patterns, all files. Confirmed a
+  second time on the Linux artifact from the same run (`dlpack`, zero
+  matches across every `.a` in that tree) — same two-mangling-scheme
+  reasoning as the `flatbuffers` entry above. The other four platforms were
+  not individually inspected; they are inferred from the same `Modules`
+  list and source tree.
 
 **Both components were attributed to OpenCV modules (`dnn`, `gapi`) that
 were not in this configuration's `Modules` list. That premise is now false
