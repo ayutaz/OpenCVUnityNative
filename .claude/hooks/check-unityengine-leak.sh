@@ -12,9 +12,13 @@
 #
 # **対象フォルダの一覧を写さない。正本から読む。**
 # 正本は tests/Managed/CvUnity.Runtime.Shim/CvUnity.Runtime.Shim.csproj の
-# <Compile> 要素の Include である —— shim がコンパイルするフォルダが、そのまま
-# 「UnityEngine を参照してはならない」フォルダの定義だからである。
-# **「行」ではなく「要素」を見る。** 理由は下の抽出のところに書いてある。
+# <Compile> 要素のうち、**Include が $(OcvuPackageRuntime) を根に持つもの**
+# である —— shim がコンパイルするフォルダが、そのまま「UnityEngine を
+# 参照してはならない」フォルダの定義だからである。
+# **「csproj の <Compile> を全部読む」ではない。** リテラルの相対パスで
+# 同じフォルダを指す書き方は対象外で、そのフォルダは検査されない。
+# 何を除いているかと、その理由は下の抽出のところに書いてある。
+# **「行」ではなく「要素」を、合計ではなく要素ごとに見る。** そこも同じ。
 #
 # 写していた頃の壊れ方（実測、2026-09-10）: M7c が profile の分離で
 # Runtime/Interop.Dnn と Runtime/Dnn を足し、shim の csproj は 4 フォルダを
@@ -72,6 +76,15 @@ fi
 # --------------------------------------------------------------------------
 # csproj から「shim がコンパイルするフォルダ」を読む。
 #
+# **読むのは <Compile> 要素のうち、Include が $(OcvuPackageRuntime) を根に
+# 持つものだけである。** これは「csproj の <Compile> を全部読む」より狭い。
+# **除いているもの**: リテラルの相対パスで同じフォルダを指す書き方
+# （<Compile Include="..\..\..\Packages\...\Runtime\Cuda\**\*.cs" />）は
+# 下の grep -F で落ち、そのフォルダはこの hook の対象にならない。
+# **意図してそうしてある**（プロパティ経由が現在の唯一の書き方で、
+# リテラル解決はこの hook の仕事ではない）が、**書き方を変えるなら
+# ここも変える必要がある。** 網羅していると読ませないために明記しておく。
+#
 # **要素単位で切る。行単位で読まない。** 改行を空白に潰してから '<' で切ると、
 # 1 行に複数の要素が並んでいても、属性が次の行にあっても、1 要素 1 行になる。
 # XML コメントは範囲指定で落とす（'<' で切ると開始が `!--` で始まる行になり、
@@ -92,51 +105,85 @@ compile_elements=""
         grep -F '$(OcvuPackageRuntime)'
 )
 
-# **1 つの Include に ';' 区切りで複数のパスを書ける**（MSBuild の仕様）。
-# 以前は行ごとに貪欲な .* で 1 つだけ取っており、実測: 4 フォルダを
-# 2 行（1 行 2 パス）で書いた csproj から **2 つしか読めなかった。**
-# 引用符は二重・単重の両方を受ける（MSBuild はどちらも許す）。
-inc_dq=$(printf '%s\n' "$compile_elements" | sed -n 's/.*[Ii]nclude="\([^"]*\)".*/\1/p')
-inc_sq=$(printf '%s\n' "$compile_elements" | sed -n "s/.*[Ii]nclude='\([^']*\)'.*/\1/p")
-include_paths=$(printf '%s\n%s\n' "$inc_dq" "$inc_sq" | tr ';' '\n' | grep '[^[:space:]]' || true)
-
-# $(OcvuPackageRuntime)\Interop\**\*.cs -> Interop
-folders=$(
-    printf '%s\n' "$include_paths" |
-        sed -n 's/^[[:space:]]*$(OcvuPackageRuntime)[\\/]\([^\\/]*\)[\\/].*/\1/p'
-)
-
 # **黙って素通ししない。** 読めないまま通すと、この hook は何も見なくなり、
 # しかも指摘が出ないので気づけない（check-platform-list-drift.sh と同じ判断）。
 #
-# **ただし「N 件以上読めたか」で守ってはいけない。** 以前は `-lt 2` で守って
-# いたが、4 フォルダのうち 2 つしか読めない上記の欠陥は **2 件読めているので
-# この門を素通りした** —— **欠けた一覧が、揃った一覧と同じ顔をする**という、
-# この hook がそもそも無くそうとした形そのものである。
+# **そして、合計で守らない。要素ごとに守る。**
+# ここは 2 度作り直している。1 度目は「N 件以上読めたか」（`-lt 2`）で、
+# **4 フォルダのうち 2 つしか読めない誤読を、2 件読めているという理由で
+# 通した。** 2 度目は合計 3 本（要素数・パス数・フォルダ数）の突き合わせで、
+# **合計は釣り合わせられた** —— 実測: 3 パスを持つ要素 1 つと、
+# `Include =` に空白があって 1 つも読めない要素 1 つを並べると
+# 要素 2 / パス 3 / フォルダ 3 で 3 本とも成立し、**Runtime/Dnn が黙って
+# 無防備になった。** 閾値より 1 段難しいだけで、形は同じである ——
+# **誤った読みが門を満たす。**
 #
-# だから閾値ではなく**読みの整合**を見る。3 つとも満たして初めて信用する:
+# **合計は集約であり、情報は要素の側にある。** だから
+# **「変数を根に持つ <Compile> 1 つにつき、その要素の Include から
+# フォルダがちょうど同じ数だけ取れたか」**を要素ごとに見る。
+# **この 1 本が、以前の合計 3 本のうち 2 本を吸収した** ——
+# 「パスを 1 つ落とした」も「要素ごと落とした」も、要素の中で見れば
+# 同じ 1 つの不一致になる。残したのは下限（要素が 1 つも無ければ
+# 読めていない）だけで、そちらは要素ごとの検査では原理的に代替できない
+# （要素が 0 個なら、要素ごとの検査は空虚に真になる）。
 #
-#   (a) 変数を参照する <Compile> が 1 つ以上ある —— 0 なら読めていない
-#   (b) 変数を名指しした Include のパス 1 つにつき、フォルダがちょうど 1 つ
-#       取れた —— 取り出せないパスの形があれば数が合わない
-#   (c) フォルダ数が要素数以上 —— Include ごと読み落とした要素があれば
-#       (b) は成立したまま (c) が落ちる（読めない引用符など）
-#
-# **(b) と (c) は対である。** 片方だけでは、それぞれ「パスを 1 つ落とした」
-# 「要素ごと落とした」を見逃す。
+# **Include の書き方は MSBuild に合わせる**: 引用符は二重・単重の両方、
+# `=` の前後の空白、そして **1 つの Include に ';' 区切りで複数のパス**。
+# **Remove= / Update= は Include を持たないので、変数を名指ししていれば
+# ここで声を上げて止まる。** それは意図した振る舞いである（対象フォルダを
+# 減らす操作を、黙って無視するより止めたい）—— 実際に使うなら、この抽出を
+# 拡張すること。**解析器の欠陥ではない。**
 elem_count=$(printf '%s\n' "$compile_elements" | grep -c '[^[:space:]]' || true)
-path_ref_count=$(printf '%s\n' "$include_paths" | grep -cF '$(OcvuPackageRuntime)' || true)
-folder_count=$(printf '%s\n' "$folders" | grep -c '[^[:space:]]' || true)
+folders=""
+bad_element=""
+bad_detail=""
 
-if [ "$elem_count" -lt 1 ] ||
-    [ "$folder_count" -ne "$path_ref_count" ] ||
-    [ "$folder_count" -lt "$elem_count" ]; then
-    detail="<Compile> 要素 ${elem_count} / 変数を名指ししたパス ${path_ref_count} / 取り出せたフォルダ ${folder_count}"
+# here-doc を done に付けると、代入がサブシェルに閉じ込められない
+# （check-platform-list-drift.sh と同じ形）。
+while IFS= read -r elem; do
+    [ -n "$elem" ] || continue
+    [ -z "$bad_element" ] || continue
+
+    e_paths=$(
+        {
+            printf '%s\n' "$elem" |
+                sed -n 's/.*[Ii]nclude[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p'
+            printf '%s\n' "$elem" |
+                sed -n "s/.*[Ii]nclude[[:space:]]*=[[:space:]]*'\([^']*\)'.*/\1/p"
+        } | tr ';' '\n' | grep '[^[:space:]]' || true
+    )
+    e_refs=$(printf '%s\n' "$e_paths" | grep -cF '$(OcvuPackageRuntime)' || true)
+    e_folders=$(
+        printf '%s\n' "$e_paths" |
+            sed -n 's/^[[:space:]]*$(OcvuPackageRuntime)[\\/]\([^\\/]*\)[\\/].*/\1/p'
+    )
+    e_count=$(printf '%s\n' "$e_folders" | grep -c '[^[:space:]]' || true)
+
+    if [ "$e_refs" -lt 1 ] || [ "$e_count" -ne "$e_refs" ]; then
+        bad_element=$(printf '%s' "$elem" | cut -c1-160)
+        bad_detail="変数を根に持つパス ${e_refs} / 取り出せたフォルダ ${e_count}"
+        continue
+    fi
+
+    folders=$(printf '%s\n%s' "$folders" "$e_folders")
+done <<ELEMENTS
+$compile_elements
+ELEMENTS
+
+folders=$(printf '%s\n' "$folders" | grep '[^[:space:]]' || true)
+
+if [ "$elem_count" -lt 1 ] || [ -n "$bad_element" ]; then
+    if [ "$elem_count" -lt 1 ]; then
+        # $( を二重引用符の中に置くとコマンド置換になる。単引用符で括る。
+        detail='$(OcvuPackageRuntime) を根に持つ <Compile> が 1 つも見つかりませんでした'
+    else
+        detail="この <Compile> からフォルダを取り出せませんでした（${bad_detail}）: ${bad_element}"
+    fi
     jq -n --arg src "$shim_csproj" --arg detail "$detail" '{
       systemMessage: "UnityEngine 非依存フォルダの正本を読めませんでした",
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: ($src + " の <Compile Include> を読み取れませんでした（" + $detail + "）。書き方が変わった可能性があります。check-unityengine-leak.sh の抽出を直してください（読めない間、この hook は UnityEngine の混入を検出しません）。**数が減ったまま黙って通すことはしません** —— 欠けた一覧は、揃った一覧と同じ顔をするからです。")
+        additionalContext: ($src + " を読み取れませんでした。" + $detail + "\n\n書き方が変わった可能性があります。check-unityengine-leak.sh の抽出を直してください（読めない間、この hook は UnityEngine の混入を検出しません）。**要素ごとに見て、1 つでも読めなければ止めます** —— 合計だけを見ていた頃は、読めない要素と多めに読めた要素が釣り合って素通りしました。")
       }
     }'
     exit 0
