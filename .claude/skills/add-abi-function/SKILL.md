@@ -49,6 +49,22 @@ ABI 関数を 1 本足す作業は 5〜7 ファイルにまたがる。順序を
 **`false` を選ぶのは最後の手段である**: IL2CPP の stripping が消せるのは
 呼ばれない宣言なので、**呼ばない宣言は消えても誰も気づかない。**
 
+**profile 付きの module では `reachable: true` だけでは同じ穴が開く。**
+既定 profile の到達性クラスは `AbiSurfaceTests.cs` / `AbiSurfacePlayerTests.cs` /
+`WebSmokeRunner.cs` の 3 箇所から呼ばれるが、**profile 版は呼び出し元を自分で
+作らなければならない。** M7c は `AbiReachabilityChecksDnn.CallEveryEntryPoint()` を
+生成したのに**呼び出し元が 1 つも無いまま**レビューまで気づかれなかった ——
+**生成されたのに 1 度も呼ばれない = stripping の対象そのもの**で、「検査が無い」
+より悪い（roadmap の `### M7c の判定`）。閉じた形は
+`tests/UnityProject/Assets/Tests/PlayMode/AbiSurfaceDnnPlayerTests.cs`
+（`#if OCVU_PROFILE_DNN` で自分を守り、PlayMode の asmdef に
+`CvUnity.Tests.Shared.<Profile>` への参照を足す）である。
+
+**そしてその確認は手動である。** `OCVU_PROFILE_DNN` を立てる workflow も
+`dev.ps1` のレーンも**存在しない**（2026-09-10 に `.github/` と `tools/` を
+grep して 0 件）。**手で define を立てて `test-unity-player` を 1 回走らせ、
+日付つきで記録すること** —— **CI は自動では再検証しない。**
+
 **`reachable: true` が証明するのは「宣言が stripping を生き延びた」ことだけである。**
 生成される到達性テストは全引数を `0` / `0UL` / `0.0` / `null` / `out _` で渡し、
 status を捨てる —— **値が正しいかは見ていないし、配列の marshalling
@@ -60,6 +76,11 @@ status を捨てる —— **値が正しいかは見ていないし、配列の
 > **Unity の中で値まで見る検査を
 > `tests/UnityProject/Assets/Tests/Shared/AbiSurfaceChecks.cs` に足し、
 > EditMode と PlayMode の両入口に配線する。**
+>
+> **profile 付きの module なら、共有本体も入口も profile 側にある** ——
+> `tests/UnityProject/Assets/Tests/Shared.<Profile>/` と
+> `AbiSurface<Profile>PlayerTests.cs` である。**既定 profile の入口に足しても
+> コンパイルされない**（`defineConstraints` で切れている）。
 
 **目視で確かめない。C# の入口名で機械的に突き合わせること。**
 2026-09 の API 拡張で 26 本を足したとき、**4 本（`Canny` / `InsertChannel` /
@@ -70,11 +91,54 @@ status を捨てる —— **値が正しいかは見ていないし、配列の
 配線の漏れ自体は `EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint` が
 名指しで落とす（`prove-a-check-works` skill の §5）。
 
-**逆向きの検査が見ているのは `native/src/**/*.cpp` だけである。**
-`tools/tests/BindingGenerator.Tests.ps1` は、そこにある
-`extern "C"` の `ocvu_*` を全部拾って spec に無いものを落とす。
-**他所に定義を置くと網に入らない** —— 「一覧を持つ場所」がこれで 1 つ増えた。
-`native/src` の外に ABI の実装を置くなら、この検査の走査範囲も一緒に広げること。
+**逆向きの検査は 2 本ある。ソースを読む方と、binary を読む方である。**
+
+1. **ソースを読む（ローカル・速い）。** `tools/tests/BindingGenerator.Tests.ps1` が
+   `native/src/**/*.cpp` の `extern "C"` の `ocvu_*` を全部拾い、spec に無いものを
+   落とす。**見ているのはそのディレクトリだけ**なので、**他所に定義を置くと網に
+   入らない** —— 「一覧を持つ場所」がこれで 1 つ増えた。`native/src` の外に ABI の
+   実装を置くなら、この検査の走査範囲も一緒に広げること。
+2. **binary を読む（CI のみ・実物）。** `tools/verify-exported-symbols.ps1`（M7b）が
+   **出来上がった binary の export 面**を spec と過不足なく照合する ——
+   spec にあるのに export されていない関数も、export されているのに spec に無い
+   関数も落ちる。走るのは `ci-native.yml` の desktop 3 job（開発用の binary）と
+   `release.yml`（**配る package に置かれた実物**）で、**後者は最終レビューで
+   足すまで配る経路に 1 度も掛かっていなかった**（docstring は「配布 binary の
+   公開面」と主張していた。`prove-a-check-works` skill の §2 を参照）。
+   `native/modules.cmake` の `OCVU_MODULES` を絞ると、外した module の関数が
+   実際にここで「不足」として捕まる。
+
+**この 2 本は代替にならない。** 1 は実装漏れを編集直後に捕まえるが binary を
+見ておらず、2 は実物を見るが CI でしか走らない。
+
+### profile を持つ module に足すとき（M7b で機構、M7c で実物）
+
+**spec の `profile` は既定が `standard` で、そこが違うと生成物の行き先・クラス名・
+assembly がまとめて変わる。** 現在それに当たるのは `bindings/spec/dnn.json`
+（`"profile": "dnn"`）だけだが、**module 名も profile 名もここに写さない** ——
+正本は spec のファイル自身と `docs/abi-ownership-and-versioning.md` §4 である。
+
+| | 既定（`standard`） | 非既定（例: `dnn`） |
+| --- | --- | --- |
+| C# の出力先 | `Runtime/Interop/` | `Runtime/Interop.<Profile>/` |
+| クラス名 | `NativeMethods` | `NativeMethods<Profile>` |
+| assembly | `CvUnity.Interop` | `CvUnity.Interop.<Profile>`（`defineConstraints` で切れる） |
+| 到達性テスト | `Tests/Shared/AbiReachabilityChecks.g.cs` | `Tests/Shared.<Profile>/AbiReachabilityChecks.<Profile>.g.cs` |
+| 呼び出し元 | 既にある 3 箇所 | **自分で作る**（上の `reachable` の節） |
+
+**`LibraryName` は生成器が `#if` 分岐ごと複製する。** 手書きの
+`Runtime/Interop/NativeMethods.cs` にある `internal const` は**別 assembly・別型
+からは見えない**ので、複製しないと生成物が `CS0103` でコンパイルできない ——
+**M7b はこの穴を通して欠陥を 1 件入れた**（検査が見ていたのは出力の文字列と
+パスだけで、**生成物を 1 度もコンパイルしていなかった**）。写しが 2 つある形は
+`Ocvu.Generator.Tests` の `ProfileTests` が読み比べて守っている。
+
+**native 側は profile で分かれない。** `native/modules.cmake` の
+`OCVU_ALL_MODULES` には profile 付きの module も入っており、**配る binary には
+その関数が必ず入っている。** 切っているのは C# の assembly だけである ——
+**「binary に入っている」と「C# 側がコンパイルする」は別**で、これは M3.5 で
+踏んだ「OpenCV に入っている」と「このプラグインがリンクしている」の
+取り違えと同じ形が 1 段上の層で再現したものである。
 
 ### 生成物を増やすなら、先頭 5 行で名乗らせる
 
@@ -93,6 +157,15 @@ emitter を足して新しい生成物を出すときは、**その出力の先�
 **どちらも一覧を持たない。名乗りだけを見る。** 一覧にすると新しい生成物が
 静かに漏れる —— M5 でその形を踏んだ（生成物 10 個のうち名指しで守られていたのは
 2 個だけで、**到達性テストの配線を外しても検査は全部 PASS した**）。
+
+**この設計が働いた実例が 2 つある。** M5 の module 追加（`objdetect` / `features`）で
+生成物が 4 つ増えたときと、**M7c で `dnn` の生成物 3 つ**
+（`native/include/ocvu/dnn.h` / `Runtime/Interop.Dnn/NativeMethods.Dnn.g.cs` /
+`Tests/Shared.Dnn/AbiReachabilityChecks.Dnn.g.cs`）が増えたとき ——
+**どちらも hook を 1 行も触っていないのに検知範囲に入った。**
+**対照的に、一覧を写していた `check-unityengine-leak.sh` は M7c で守備範囲が
+2 → 4 フォルダになったのに 2 のままで、2 つのフォルダを素通ししていた**
+（2026-09-10 に正本から読む形へ直した）。
 
 **名乗らない生成物は、どちらの網にも入らない。** これが現在の限界である。
 
@@ -133,6 +206,12 @@ OpenCV を作り直す（実測: `calib` を足したとき `4785d98e9aad` → `
   `calib` は `stereo` を引き、**4 platform とも最初のビルドがここで落ちた。**
   **これは検査が働いた例であって、回避すべき障害ではない** —— 引き込まれたものを
   確かめてから明示的に足す。
+  **ただし allowlist が見ているのは、artifact の中に独立したライブラリとして
+  現れる依存だけである。** 別のライブラリの中へ静的に取り込まれた third-party は、
+  allowlist にもライセンスディレクトリにも現れない —— M7c の `dnn` で実測した:
+  `protobuf` は捕まったが、**MLAS と ONNX Runtime は `libopencv_dnn.a` の一部
+  なので、allowlist には何も見えなかった**（roadmap の `### M7c の判定`）。
+  **「allowlist が緑だから新しい third-party は無い」とは言えない。**
 - **`THIRD_PARTY_NOTICES.md` の module 列挙**（配布物に同梱される法的通知文書）
 - **`README.md` の「which OpenCV modules this plugin links」**
 - **`tools/tests/OpenCvConfig.Tests.ps1` の module 検査**（spec と両方向に突き合わせる）
@@ -216,12 +295,20 @@ C# の XML doc・API 対応表の「内容」列に同時に出る** —— 3 �
 直前にも当たるので、`Regex.IsMatch` だけでは末尾の改行を通してしまう
 （`prove-a-check-works` skill に実例がある）。
 
-**module ごとにファイルが分かれている。** **module 名をここに写さない** ——
+**module ごとにファイルが分かれている。** **module 名も数もここに写さない** ——
 `ls bindings/spec/*.json` が正本である（写すと module を 1 つ足すたびに
-この行だけが嘘になる。実際 6 -> 9 になった）。既存のどれにも入らないなら新しい
-`<module>.json` を作る —— そのとき生成されるヘッダも `native/include/ocvu/<module>.h`
-として増え、`native/include/opencv_unity_native.h` の `#include` 一覧に手で 1 行足す
-必要がある（**その 1 行だけは生成物ではない**）。
+この行だけが嘘になる。**実際に何度も増えている**）。既存のどれにも入らないなら
+新しい `<module>.json` を作る —— **そのとき手で書く箇所が 2 つある。どちらも
+生成物ではない:**
+
+1. **`native/include/opencv_unity_native.h` の `#include` に 1 行。**
+   生成されるヘッダが `native/include/ocvu/<module>.h` として増えるが、
+   それを取り込む行だけは生成されない。
+2. **`native/modules.cmake` に 2 行** —— `set(OCVU_MODULE_<module> src/....cpp)` と、
+   `OCVU_ALL_MODULES` への追加。**足さないと 2 箇所が落ちる**:
+   `native/CMakeLists.txt` が `module '<module>' が modules.cmake に無い` で
+   `FATAL_ERROR`（configure が進まない）、`tools/tests/BindingGenerator.Tests.ps1` が
+   `OCVU_ALL_MODULES` と spec のファイル名の一致を要求して速いレーンで落ちる。
 
 **生成される C# のファイル名は module 名が大文字である**（`NativeMethods.Objdetect.g.cs`）。
 Windows は大文字小文字を区別しないので小文字で `git add` しても通ってしまうが、
@@ -237,8 +324,16 @@ status の唯一の定義元で、列挙子と実行時テーブルの両方が�
 ### 3. 実装する
 
 `native/src/` の適切な `.cpp` に書き、新規ファイルなら
-`native/CMakeLists.txt` の `OCVU_SOURCES` に足す。SHARED と STATIC の両方の
-ターゲットがこのリストを共有しているので、1 箇所で済む。
+**`native/modules.cmake` の `OCVU_MODULE_<module>` に足す。**
+**M7b で `OCVU_SOURCES` は手で書く一覧ではなくなった** —— `native/CMakeLists.txt`
+は `OCVU_MODULES` を走査して `OCVU_MODULE_<module>` を連結するだけで、
+**そこに一覧は無い。** SHARED と STATIC の両方のターゲットが組み立て結果を
+共有するので、足すのは 1 箇所で済む。
+
+**どの module に置くかは「どの module の一部か」ではなく「どれを外したら
+一緒に消えるべきか」で決める**（`native/modules.cmake` の冒頭がその規則を
+書いている）。実例: `src/ocvu_calibration.cpp` は `objdetect` / `calib` /
+`imgproc` の 3 module に関数を出すが、**最も外せない `calib` に置いてある。**
 
 **本体は例外バリアで囲む:**
 
@@ -495,18 +590,23 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 `generate` を通しても、名前を書くまで速いレーンが赤いままである
 （2026-09-05 に実測。26 本を足す作業で踏んだ）。
 
-**生成物も一緒にコミットする。** `native/include/ocvu/*.h`、
-`Runtime/Interop/NativeMethods.<module>.g.cs`（**`.meta` も**）、
-`tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs`、
-`docs/api-map.md` は git が追跡している。spec だけ入れて生成物を入れないと、
-**CI の `dev.ps1 test` が全 platform で落ちる。**
+**生成物も一緒にコミットする。** **パスを覚えず、生成器に申告させること** ——
+`dotnet run --project bindings/generator/Ocvu.Generator -- --repo-root . --list-outputs`
+が自分の出力を全部挙げる（`tools/tests/BindingGenerator.Tests.ps1` が
+同じ一覧を使っている）。既定 profile なら
+`native/include/ocvu/*.h`、`Runtime/Interop/NativeMethods.<module>.g.cs`、
+`tests/UnityProject/Assets/Tests/Shared/AbiReachabilityChecks.g.cs`、`docs/api-map.md`
+だが、**非既定 profile では出力先が変わる**（`Runtime/Interop.<Profile>/` と
+`tests/UnityProject/Assets/Tests/Shared.<Profile>/`）。いずれも git が追跡しており、
+**`.meta` も同じ数だけ要る**（生成器は `.meta` を作らない）。spec だけ入れて
+生成物を入れないと、**CI の `dev.ps1 test` が全 platform で落ちる。**
 
 ## よくある取りこぼし
 
 | 症状 | 原因 |
 | --- | --- |
 | `StatusCodeSyncTests` が赤い | `OCVU_STATUS_LIST` に足したが `CvStatus.cs` に足していない |
-| リンクエラー（テストのみ） | 新規 `.cpp` を `OCVU_SOURCES` に足していない |
+| リンクエラー（テストのみ） | 新規 `.cpp` を **`native/modules.cmake` の `OCVU_MODULE_<module>`** に足していない（**M7b より前は `native/CMakeLists.txt` の `OCVU_SOURCES` だった。そこにもう一覧は無い**） |
 | L1 は緑だが L3 で `EntryPointNotFoundException` | spec に書いて生成したが `.cpp` に定義がない、または名前が違う |
 | `dev.ps1 test` が「生成物が spec と食い違っています」で落ちる | spec を直して `dev.ps1 generate` を実行していない（生成物をコミットするところまでが 1 手である）か、生成物を手で編集した |
 | `BindingGenerator.Tests.ps1` の「every extern C ocvu_* in native/src is declared in the spec」が落ちる | 実装だけ書いて spec に書いていない。**逆向きの網はここだけが持つ** |
@@ -524,7 +624,9 @@ Windows の CI でも出ないので、**リークするコードは PR を出�
 **`add-a-platform` skill を使うこと。** ABI 関数の話ではないが、同じファイル群を
 触るのでここから指す。
 
-直す場所は **少なくとも 17 箇所**ある（**数はあちらが持つ。ここに写さない**）。`.meta` のキー名・ファイル名の衝突・
+直す場所の一覧は `add-a-platform` にある（**数はあちらが持つ。ここに写さない** ——
+**以前はここで「少なくとも 17 箇所」と数を書いており、まさに「写さない」と
+書いた同じ文が写していた**）。`.meta` のキー名・ファイル名の衝突・
 クロスでの `find_package` の閉じ込め・静的ライブラリの依存の束ねなど、
 **ビルドが通ってから CI で 8 回落ちた**罠がそこにまとまっている。
 
