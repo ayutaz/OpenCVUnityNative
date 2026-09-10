@@ -7,8 +7,10 @@ using NUnit.Framework;
 /// 台帳として名指しで固定する（M7a Task 2 のレビュー指摘）。
 ///
 /// **`Graphics` と `!Graphics` は補集合なので、実行時の和集合は常に完全である。**
-/// `test-unity-editmode` が `-testCategory '!Graphics'`、`test-unity-graphics`
-/// が `-testCategory 'Graphics'` で走る限り、振り分け自体に穴は無い。
+/// `test-unity-editmode` と `test-unity-tarball` が `-testCategory '!Graphics'`、
+/// `test-unity-graphics` が `-testCategory 'Graphics'` で走る限り、振り分け
+/// 自体に穴は無い（`!Graphics` 側が 2 レーンに増えても、補集合の性質は
+/// 変わらない）。
 ///
 /// **本当の穴は「一方のレーン（graphics）が CI に配線されていない」ことである。**
 /// `test-unity-graphics` はローカル専用で、`ci-unity.yml` からは呼ばれない。
@@ -24,9 +26,9 @@ using NUnit.Framework;
 /// **走査するのはこの assembly（EditMode）だけである。** 他の test
 /// assembly に `[Category("Graphics")]` が付いても、ここは気づかない ——
 /// **それでこの検査の目的は満たされる。** カテゴリで振り分けているのは
-/// EditMode のレーンだけで（`test-unity-editmode` が `!Graphics`、
-/// `test-unity-graphics` が `Graphics`）、PlayMode / Standalone のレーンは
-/// `-testCategory` を渡さない。つまり **他所でカテゴリを付けても、その
+/// EditMode のレーンだけで（`test-unity-editmode` と `test-unity-tarball` が
+/// `!Graphics`、`test-unity-graphics` が `Graphics`）、PlayMode / Standalone
+/// のレーンは `-testCategory` を渡さない。つまり **他所でカテゴリを付けても、その
 /// テストは CI から消えない。** 消えるのはここに在るものだけなので、
 /// 台帳もここだけを見る。**振り分けの前提が変われば、この段は嘘になる。**
 ///
