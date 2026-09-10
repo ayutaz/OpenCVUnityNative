@@ -859,11 +859,23 @@ function Test-UnityTarball {
 
         $results = Join-Path $ResultsDir 'unity-tarball.xml'
         $log     = Join-Path $ResultsDir 'unity-tarball.log'
+        # -testCategory '!Graphics' は GraphicsTests（M7a Task 2）を除外する。
+        # このレーンも -testPlatform EditMode で走るので、Test-UnityEditMode の
+        # 上の docstring と同じ理由が当てはまる: -nographics の下では
+        # graphicsDeviceType が Null になり、GL.Clear / ReadPixels が実際には
+        # 描画しないまま 205,205,205 を返す（実測、2026-09-05）。**GPU に依る
+        # 検査は test-unity-graphics に分けてある** —— ここで除外しないと、
+        # GraphicsTests を足しただけでこのレーンが恒久的に赤くなる。
+        # この抜けは M7a の 57212dc で EditMode / Graphics の 2 レーンには
+        # 足したが、このレーンには足し忘れた形で入った。CI からは見えない
+        # レーンなので（CLAUDE.md: test-unity-tarball はどの workflow からも
+        # 走らない）、誰も気づかないまま残っていた。
         $unityArgs = @(
             '-projectPath', $project,
             '-runTests', '-testPlatform', 'EditMode',
             '-testResults', $results, '-logFile', $log,
-            '-batchmode', '-nographics'
+            '-batchmode', '-nographics',
+            '-testCategory', '!Graphics'
         )
         <#
             タイムアウトを付ける。CLAUDE.md の不変条件「テストは必ずタイムアウト
