@@ -736,7 +736,7 @@ M5 の module 拡張で `objdetect` / `features` / `geometry` / `calib`、そし
 | 6 | macOS で Unity に読み込ませたことがない | 「iOS のビルドに macOS runner が要るので M4 で自然に埋まる」と書いていたが、**埋まらなかった。** macOS runner は plugin をビルドするだけで Unity を起動しない | **未解消。2026-08-31 に 4 回試して「CI では閉じない」と確定した**（game-ci は macOS を支えず、Hub で直接入れる経路は Editor が 14 分で入るのにライセンスで止まる）。詳細は下の「担当が無かった制約」 |
 | 7 | Windows の IL2CPP を CI で回していない | 「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった —— **そこで実際に投げて根拠を作った** | **未解消。2026-08-31 に「CI で回さない」と結論した** —— `windows-2022` で EditMode は 33 件通ったが、`Standalone` は `ToolchainNotFoundException` で落ちた（game-ci の Windows コンテナに MSVC が無い）。**根拠は実測であって他人の issue ではない。** これは「まだ調べていない穴」ではなく**意図して CI の外に置いたもの**である |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決めた: arm64 のみ**（Android は arm64-v8a、iOS は実機の arm64）。**穴は塞いでいない —— 塞がないと決めた。** 増やすと platform が 2 つ増え、OpenCV のビルドも配布物も同じだけ増える（**数を写さない** —— 正本は `tools/dev.ps1` の `$AllPlatformBinaries` で、触る場所は `add-a-platform` skill にある） |
-| 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7**（既存） |
+| 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7a で着手し、部分的に解消（2026-09-06）。** 割り当ては L3 が機械で保証し（ポインタ経路 0 バイト）、時間は測って公開したが**assert していない**。**`RenderTexture` / `AsyncGPUReadback` の経路は Editor（Mono）の `test-unity-graphics` でしか実行しておらず、そのレーンは CI に配線していない** —— IL2CPP の Player でこの経路が動くかは未実証のままである。**native texture pointer は評価のみで実装していない**（やらないと決めた）。判定と根拠は下の「M7a の判定」節 |
 | 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
 
 ### #1 を最優先に置く理由
@@ -2019,12 +2019,37 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
    `bindings/spec/*.json` のファイル名である）、
    `opencv_unity_native.h` に残ったのは型・status・定数だけである。**ただし分けたのは
    ヘッダであって CMake target ではない** —— まだ 1 つの target が全 module を作る。
+   → **M7b で、target ではなく「その target に何を入れるか」を分けた（2026-09-06）。**
+   `native/modules.cmake` の `OCVU_MODULES` が `OCVU_SOURCES` に組み込む module を選び、
+   除いた module の関数は binary から消える —— `tools/verify-exported-symbols.ps1` が
+   配布 binary の export 面と spec の完全一致を CI で見ており（3 platform とも `ocvu_`
+   の export 53 本が spec の 53 本と一致）、`OCVU_MODULES` を意図的に絞ると外した
+   module の関数が実際に export 面から消えることも確認済みである。**target はいまも
+   1 つのままで、これは実装漏れではなく分けられないからである** —— `native/CMakeLists.txt`
+   は同じソースを 2 回コンパイルする（配布物の `opencv_unity_native` に
+   `OCVU_BUILDING_DLL`、L1 テストが DLL の非公開な内部シンボルへ届くための
+   `ocvu_static` に `OCVU_STATIC` を PUBLIC）。CMake の OBJECT ライブラリは 1 回しか
+   コンパイルできないので、この 2 target を 1 つの OBJECT で賄うことはできない。
    `OCVU_ABI_VERSION` を単一の整数のままにする判断とその留保は
    [所有権と versioning](./abi-ownership-and-versioning.md) §2 に書いた（**正本はあちら**）。
+   profile と module 一覧の規約は同文書 §4 に書いた。
 2. **C# 側も別 assembly にする。** `Runtime/Core` / `Runtime/Interop` の分離
    （`UnityEngine` を参照しない）と同じ理由で、**dnn が入らないビルドで参照が壊れない**形にする。
    → **M5 では手を付けていない。** `Runtime/Interop` は 1 つの assembly のままで、
    生成された `NativeMethods.<module>.g.cs` は `partial class` で同じ型に入る。
+   → **M7b で機構を作った（2026-09-06）。ただし「dnn が分離できた」ではなく
+   「分離する機構が働くことを確かめた」である。** spec の `profile`（既定 `standard`）
+   が `dnn` なら、生成器は宣言を別クラス `NativeMethodsDnn`・別 assembly
+   `CvUnity.Interop.Dnn`・別出力先 `Runtime/Interop.Dnn/` へ出す（規約は
+   [所有権と versioning](./abi-ownership-and-versioning.md) §4 が正本）。Unity 側にも
+   `CvUnity.Interop.Dnn`（`defineConstraints: ["OCVU_PROFILE_DNN"]`）と、その到達性
+   テストを持つ `CvUnity.Tests.Shared.Dnn` を作り、define を実際に立てて Unity 自身に
+   問うた —— 両 assembly が実際にコンパイルされ（`Library/ScriptAssemblies/` に両方の
+   `.dll` が現れた）、define を外すとどちらも消えることを EditMode の
+   `ProfileGatingTests`（4 件）で確かめた。**証明したのは「機構が働くこと」であって
+   「dnn で働くこと」ではない** —— `bindings/spec/dnn.json` はまだ無く、非 `standard`
+   profile を宣言する module は現時点で 1 つも無いので、`CvUnity.Interop.Dnn` と
+   `CvUnity.Tests.Shared.Dnn` はどちらも中身が空の assembly のままである。
 3. **OpenCV の版を跨げるようにする。** 構成ハッシュには tag が入るので、tag を変えれば
    古い artifact は使われなくなる（tag は M1 から入っている。M3 Task 1 が足したのは
    `Platform` である）。**しかしこれは「2 つの版が同時に成立する」
@@ -2055,12 +2080,31 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
    - **大きさ（ライセンスより先に効く）。** **実測（2026-08-30、PyPI の
      `nvidia-cudnn-cu12` 9.25.1.1）: 1 platform あたり 698〜772 MB**（win_amd64 698.4 /
      manylinux x86_64 716.4 / aarch64 772.1）。`tools/pack-upm-tarball.ps1` の上限は
-     **512 MB** で、全部入りは **3 platform 時点の実測で 9.6 MB** である（**その後 platform が増えたが測り直していない**）。**1 platform 分だけで既に上限を超える** ——
+     **512 MB** で、全部入りは **69,565,901 バイト（66 MB。v0.3.0 の実物の release asset、
+     6 platform、2026-09-06 に実測し直した ——「3 platform 時点の実測で 9.6 MB」は
+     platform が増えて古くなっていた数字だった）**である。**1 platform 分だけで既に上限を超える** ——
      ライセンスが解決しても、いまの形では配れない。同梱するのか、利用者側での導入を
      前提にするのかを決める必要がある。**ORT + NVIDIA execution provider の経路
      （根拠 1 で残ったほう）も同じ問いに突き当たる。**
 
-   確かめるまで、CUDA backend を完了条件に入れない。
+   → **決定した（2026-09-06）: CUDA / cuDNN は同梱しない。** 決め手は大きさであって
+   ライセンスではない —— 上の再配布可否はいまも確かめていないままである（この文は
+   弱めない。読んだ、許可が取れた、という事実は無い）。決められた理由は、ライセンスの
+   答えを待たずとも、上で実測した 1 platform 分の大きさだけで `tools/pack-upm-tarball.ps1`
+   の上限を単独で超えており、全部入り tarball という**いまの配布形態**には収まらないと
+   分かるからである。**この決定が縛るのは「同梱」だけである。** 利用者が自分の環境へ
+   CUDA / cuDNN を別途導入してこのプラグインと組み合わせること、あるいは native artifact
+   をいまの全部入り tarball とは別の経路（`pack-upm-tarball.ps1` の上限に縛られない、
+   大きな optional download 等）で配ることは、この決定の対象外であり、**どちらも
+   再配布可否の確認をまだ経ていない**。配布の形自体を変えるかどうかは、下の
+   「まだ決めていないこと」の 2 番目（dnn を別 package にするか）にかかっている。
+
+   **再評価の条件は 1 つだけである**: 配布形態が変わり、CUDA / cuDNN を同梱しても
+   配布物の上限に収まるようになったとき。そのとき、**大きさによる決着は失効し、
+   読んでいない再配布条件の確認が再び必要になる。** それまでは、この決定を再検討する
+   理由は無い。
+
+   したがって CUDA backend は完了条件に含めない。
 
 **まだ決めていないこと**（M5 / M7 で決める）
 
@@ -2070,7 +2114,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 - dnn を**別 package**（`…-dnn`）で配るか、同じ package の optional profile にするか。
   **全部入り tarball を配る正にしたのは M3.5 の決着**なので、dnn を足すことは
   **「中身を足す」ではなく「形を変える」**ことになりうる
-- GPU backend を持つ版の platform matrix（CUDA の版 × OS）。現在の platform × 1 構成が何倍になるか（**platform 数をここに書かない。正本は `tools/opencv-config.psd1` の `Toolchains`**）
+- GPU backend を持つ版の platform matrix（CUDA の版 × OS）。現在の platform × 1 構成が何倍になるか（**platform 数をここに書かない。正本は `tools/opencv-config.psd1` の `Toolchains`**）。**「CUDA / cuDNN は同梱しない」と決めている間（上の決定 5）、この問いに答える対象が無い** —— 決定が再評価されて同梱する方向に変われば、この行がまた意味を持つので、消さずに残してある
 
 **差別化としての位置づけは変えない。** 競合が書き直し前のエンジンを載せている点は
 [競合調査](./unity-opencv-integration-research-and-plan.md) §3 / §4.6 のとおりで、
@@ -2085,6 +2129,56 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
 - **`dnn` を足す前に、C ABI と C# の module 分離が済んでいること**（上の 1〜2）
 - **CUDA / cuDNN を同梱するなら、再配布条件の確認が済んでいること**（上の 5）。
   確認できないなら**同梱しない**と決めて記録する
+
+### M7a の判定（2026-09-06。**完了条件 5 件のうち 2 件を扱う**）
+
+**M7 は当初 3 つの計画に分ける想定だった**（`docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md`。M5 で「生成の仕組みと module 追加を同時にやると切り分けられない」と判断したのと同じ理由）—— **実際に実行されたのは M7a と M7b の 2 計画で、条件 5 は計画を経ないドキュメント上の決定として閉じた**。**M7a が担当するのは完了条件 2（低コピー経路の評価）と 3（benchmark の公開）だけである** —— 条件 1（profile ごとの native artifact 等）はまだどの計画の担当にもなっておらず、条件 4（C ABI / C# の module 分離）は M7b、条件 5（CUDA / cuDNN の再配布確認）は `### CUDA / cuDNN 同梱の判定` が担当する。**この節はその 2 件だけの判定であって、M7 全体の判定ではない** —— 条件 1・4・5 がそれぞれ何本閉じているかは、この節ではなく担当する計画・節自身の判定にある（条件 4 は `### M7b の判定`、条件 5 は `### CUDA / cuDNN 同梱の判定`、条件 1 は dnn を実際に足す計画自身の判定 —— 執筆時点でまだ無い）。ここに残数を書かないのは、担当する計画が閉じるたびにその数だけがこの節に取り残されて古くなるからである。
+
+実装は `.superpowers/sdd/2026-09-05-m7a-low-copy-and-benchmarks/`（Task 1〜6）。実測はすべてこのマシン（Windows 10.0.22631、X64、Unity 6000.3.16f1、2026-09-05〜09-06）。詳細な数字と読み方は [性能](./performance.md) が正本で、ここには写さない。
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | **満たした。ただし実証の範囲は限定的である。** `RenderTextureConverter.ToMat`（同期）と `RequestMat`（`AsyncGPUReadback` を使う非同期）はどちらも実装し、実測した——`-nographics` の下では `RenderTexture.Create()` が true を返すのに読んだ画素が `205,205,205` になる（作れたが読めない）という落とし穴を実際に踏み、上下反転だけを行う `FillFlipped` を GPU 非依存の純粋関数として切り出して既存レーンで検証できる形にした。**残る 2 つの経路（`ToMat` / `RequestMat` そのもの）は Editor（Mono、グラフィックス有効）の `test-unity-graphics` でしか実行したことがない** —— このレーンは CI に配線しておらず、赤くても merge を止めない（`tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が「CI から見えないテスト」として名指しで固定している）。**`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない** —— `test-unity-player` は `-nographics` で走るため `supportsAsyncGPUReadback` が `false` になる。**native texture pointer は評価のみで、実装していない**（やらないと決めた—— `GetNativeTexturePtr()` を CPU から読むにはレンダースレッドからグラフィックス API を呼ぶ必要があり、6 platform 分の分岐を持つ新しい subsystem になる。得られるはずのものと再評価の条件は [性能](./performance.md) にある） |
+| 3 | package size、startup time、frame time、allocation の benchmark を公開 | **満たした。ただし性質が 2 つに分かれる。** package size（`PackageSize.Tests.ps1`）と allocation（L3 の `AllocationTests`）は**機械が assert し、CI が守り続ける**——ポインタ経路は 0 バイト、`byte[]` 経路はそれ以上であることを毎回確かめ、tarball が上限を超えれば落ちる。**frame time（境界のコピーと `RenderTexture`）と startup time は、公開したが assert していない**（設計 D1: 共有 CI ランナー上で時間を assert すると必ずフレークになる）。**startup time にはさらに留保がある** —— `BenchmarkRunner.MeasureFirstPInvoke` が実測した 1 µs は、同じ Player 実行内で他の PlayMode テストが先に P/Invoke を呼んでいる可能性が高く、**native ライブラリの真の初回ロードを捉えていない**（測れるものを測っただけで、測れていないものを測れたことにはしていない）。**`RenderTexture` の 2 経路は run をまたぐと大小が入れ替わることを実測した**（run A: sync 2562 / async 2841、run B: sync 1756 / async 1643）——「非同期のほうが速い／遅い」はどちらも主張できず、**時間を assert しない設計判断の裏づけになっている** |
+
+**穴を隠さず書く。**
+
+- **M7a は roadmap の差別化の穴 #9（「低コピー連携」を測っていない）を「部分的に解消」にした。** 「解消済み」としなかった理由は、上の 2 経路のうち `RenderTexture` / `AsyncGPUReadback` が実機で動く実行形態（IL2CPP Player）で 1 度も検証されておらず、`test-unity-graphics` が CI に配線されていないため——**満たしたことと実証されたことは同じではない**（`milestone-complete` skill）。
+- **`test-unity-player` はこのマシンで、Player の後始末段階（`Stop-UnityTestPlayers` 内の `Get-CimInstance` 呼び出し）がハングする既知の欠陥を持つ。** テスト自体は完走し結果 XML も書かれるが、レーン全体が無音で固まる（`CLAUDE.md` が書く「Unity のレーンではクラッシュもハングも赤いテストにならない」という形そのもの）。M7a の変更が原因ではない（`git diff` でこの箇所に差分は無い）ので、この作業では直していない——本番の測定は、ハングしたプロセスを終了させたうえで `tools/assert-unity-results.ps1` を結果 XML に直接掛けて確認した（35 passed / exit 0）。
+- **`BenchmarkRunner` の `Report` ヘルパーが `BenchmarkRunner.cs` と `GraphicsBenchmarkRunner.cs` に複製されている。** このリポジトリは「本体はここにしか無い」を繰り返し記録しており、片方だけ直る壊れ方をする。M7a では直していない。
+- **この計画（M7a）が触れているのは条件 2・3 だけである。** dnn を opt-in profile として足す前提（C ABI / C# の module 分離、条件 4）にも、CUDA / cuDNN の再配布確認（条件 5）にも、条件 1（profile ごとの native artifact 等）にも触れていない。**それぞれの現在の状態は、この節ではなく担当する計画自身の判定にある**（条件 4 は `### M7b の判定`、条件 5 は `### CUDA / cuDNN 同梱の判定`、条件 1 は dnn を実際に足す計画自身の判定 —— 執筆時点でまだ無い）。
+
+### M7b の判定（2026-09-06。**完了条件 5 件のうち 1 件を扱う**）
+
+**M7b が担当するのは完了条件 4（C ABI と C# の module 分離）だけである**（M7a の節が担当割りを説明している）。実装は `.superpowers/sdd/2026-09-05-m7b-module-separation/`（Task 1〜5）。実測はすべてこのマシン（Windows 10.0.22631、X64、Unity 6000.3.16f1、2026-09-06）。
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 4 | `dnn` を足す前に、C ABI と C# の module 分離が済んでいること（上の決定 1〜2） | **満たした。ただし「機構が通っている」であって「dnn を分離した」ではない。** native 側は `native/modules.cmake` の `OCVU_MODULES` が module 単位でソースを選べる形になり、`tools/verify-exported-symbols.ps1` が binary の export 面を spec と完全一致で照合する（desktop 3 platform とも `ocvu_` の export 53 本が spec の 53 本と一致。`ci-native.yml` で実測。**配る経路（`release.yml`）にも配線してあるが、そちらの実測はこの PR の CI が初回である**）。C# 側は spec の `profile` が非 `standard` の module を別 assembly（`CvUnity.Interop.Dnn` / `NativeMethodsDnn` / `Runtime/Interop.Dnn/`）へ出す生成器の分岐と、それを Unity に問う EditMode の `ProfileGatingTests` を作った——define（`OCVU_PROFILE_DNN`）を立てて両 assembly（`CvUnity.Interop.Dnn` と、その到達性テストを持つ `CvUnity.Tests.Shared.Dnn`）が実際にコンパイルされ、外すと両方消えることを Unity 自身に実測した。**さらに、合成した `profile: "dnn"` の spec から生成した実物のファイル 2 つ（`NativeMethods.Dnnprobe.g.cs` と `AbiReachabilityChecks.Dnn.g.cs`）が、define を立てた Unity で実際にコンパイルされることまで実測した**（2026-09-06。`Library/ScriptAssemblies/` に両 dll が現れた）—— **この一段は最終レビューで足した。** それまで確かめられていたのは「`defineConstraints` が**手書きの**コードを切る」ことまでで、**生成物を誰もコンパイルしていなかった**（その穴を通って欠陥が 1 件入っていた。下の「穴を隠さず書く」を参照）。**dnn の spec も実装もまだ無い** —— `bindings/spec/dnn.json` は存在せず、非 `standard` profile を宣言する module は現時点で 0 個で、`CvUnity.Interop.Dnn` / `CvUnity.Tests.Shared.Dnn` はどちらも commit された状態では中身が空である。決定の詳細は上の「決定: native bridge を module 単位に分ける」1・2、規約は [所有権と versioning](./abi-ownership-and-versioning.md) §4 |
+
+**穴を隠さず書く。**
+
+- **CMake target は 1 つのままである。** `modules.cmake` が組み立てるのは**ソースの一覧**であって、コンパイル済みの中間物ではない。`native/CMakeLists.txt` は同じソースを `opencv_unity_native`（`OCVU_BUILDING_DLL`）と `ocvu_static`（L1 テスト用、`OCVU_STATIC` を PUBLIC で持つ）へ **2 回コンパイルする**ので、1 度だけコンパイルして両方へ配る形は取れない —— 分けなかったのは実装漏れではない。
+- **`-DOCVU_MODULES=...` は CMake キャッシュに sticky である。** 一度絞ると、`-UOCVU_MODULES` で明示的に外すかビルド木を作り直すまで既定へ戻らない。configure 時の `message`（既定でないときは `WARNING`）で状態を毎回可視化しているが、ローカルの速いレーンはこれを捕まえない —— 実物 binary の公開面を見るのは CI（`ci-native.yml` と `release.yml`）だけである。
+- **非既定 profile の生成物は、2026-09-06 までコンパイルできなかった。** `[DllImport(LibraryName, ...)]` の `LibraryName` は手書きの `Runtime/Interop/NativeMethods.cs` にある `internal const` で、既定 profile はそれと同じ型の `partial` だから見えていた。**非既定 profile は別 assembly・別型なので見えず、CS0103 になる。** 最終レビューが合成 spec から生成してコンパイルし、実測して見つけた。**この branch の検査はどれも捕まえなかった** —— `ProfileTests` は出力の**文字列**、`BindingGenerator.Tests.ps1` は `--list-outputs` が返す**パス**、Task 4 の Unity 側の正の対照は**手書きの probe** を見ており、**生成物をコンパイルする経路が 1 本も無かった。** 直した形（生成器が `LibraryName` を `#if` 分岐ごと複製し、写し 2 つを `ProfileTests` が読み比べる）と、切り出さなかった理由は [所有権と versioning](./abi-ownership-and-versioning.md) §4 にある。
+- **`ProfileGatingTests` が自動で見られるのは「切れている」方向だけである。** define を立てれば現れることは、define を変えて Unity をもう一度走らせないと確かめられない —— 1 回の EditMode 実行では原理的に届かないので、**正の方向は人が手で確かめる**（手順と最後の実測日は同テストの docstring にある）。綴り間違いだけは機械が塞いである（asmdef が実際に綴っている値と、テストが使う定数を突き合わせる）。
+- **native の module 選択と C# の profile は別の軸で、互いを自動では決めない。** ある module を `OCVU_MODULES` に足しても、対応する spec の `profile` を書き換えない限り、その宣言は `standard` の assembly に出続ける。
+- **この節が閉じたのは条件 4 だけである。** 条件 2・3 の状態は `### M7a の判定`、条件 5 の状態は `### CUDA / cuDNN 同梱の判定`、条件 1 の状態は dnn を実際に足す計画自身の判定にある —— 執筆時点でまだ無い。**ここに残数を書かないのは、`### M7a の判定` が「残る 3 件」と書いて M7b がそれを 1 件消した瞬間に古くなったのと同じ壊れ方を、この節自身が再生産しないようにするためである。**
+
+### CUDA / cuDNN 同梱の判定（2026-09-06。**完了条件 5 件のうち 1 件を扱う**）
+
+**この節が担当するのは完了条件 5（CUDA / cuDNN の再配布確認）だけである。** 条件 2・3 の状態は `### M7a の判定`、条件 4 の状態は `### M7b の判定` にある。**条件 1（profile ごとの native artifact、manifest、third-party notices）はこの節が触れていない** —— dnn を実際に足す計画（roadmap の判断待ち）が担当する。実装は伴わない —— 上の「決定: native bridge を module 単位に分ける」5 に決定を書き加えた、文書のみの変更である。
+
+| # | 完了条件 | 判定 |
+| --- | --- | --- |
+| 5 | CUDA / cuDNN を同梱するなら、再配布条件の確認が済んでいること（上の 5）。確認できないなら**同梱しない**と決めて記録する | **満たした。** 上の「決定: native bridge を module 単位に分ける」5 で **CUDA / cuDNN は同梱しないと決定した**。決め手は大きさである —— 1 platform 分の cuDNN の実測値が `tools/pack-upm-tarball.ps1` の上限を単独で超えるため、**再配布条件（ライセンス）を確認するまでもなく**、いまの配布形態（全部入り 1 tarball）には収まらないと分かる。**ライセンス条項はいまも読んでいない** —— この判定は「読んで問題無いと分かった」からではなく「読まなくても大きさだけで結論が出た」からで、条件が求める 2 つの経路（確認が済んでいる／確認できないので同梱しないと決める）のうち後者を選んだ形である |
+
+**穴を隠さず書く。**
+
+- **この決定が縛るのは「同梱」だけである。** 利用者が自分の環境へ CUDA / cuDNN を別途導入してこのプラグインと組み合わせて使うこと、あるいは native artifact をいまの全部入り tarball とは別の経路（`tools/pack-upm-tarball.ps1` の上限に縛られない配布形態）で配ることには、この決定は及ばない。**そちらを選ぶ日が来たら、読んでいない再配布条件の確認がそのまま未解決で戻ってくる** —— 大きさが理由の決定は、大きさの制約が外れた瞬間に理由を失う。再評価の条件は決定本文（上の「決定: native bridge を module 単位に分ける」5）に書いてある。
+- **「CUDA / cuDNN のライセンスは確認済み」と読んではいけない。** 確認したのは大きさだけで、ライセンス条項は今回も「確かめていない」側のままである。
+- **この節が閉じたのは条件 5 だけである。** 条件 1 の状態はそれを担当する計画自身の判定にある。
+- **判定節どうしの相互参照は散文であり、何も検査していない。** `ci-lint.yml` の documentation link check が見るのは通常の markdown リンク記法（角括弧の直後に丸括弧でリンク先を書く形）だけで、見出し名を backtick で引用しただけの参照（`M7c 自身の判定` のような文言）は対象外——実際、この節を新設した際に `### M7a の判定` と `### M7b の判定` の末尾がそれぞれ「条件 1・5 は M7c 自身の判定」と書いたまま古くなっているのを見つけて手で直した（本節を書いたコミットの直後）。**この警告を書いたその branch の中で、さらに 1 件（`### M7a の判定` 冒頭段落、末尾 2 箇所とは別の 3 箇所目）を見逃した** —— 人が 2 人がかりで洗ってなお取りこぼした実例であり、「原理的に壊れやすい」という一般論ではなく、この branch で実際に起きたことである。**次に判定節を足す・条件を閉じる人は、既存の判定節にある名指しの参照を自分で洗って直す必要があり、それを見落としても機械は気づかない。**
 
 ---
 

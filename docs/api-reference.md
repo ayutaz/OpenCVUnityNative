@@ -860,6 +860,33 @@ SIFT の浮動小数の記述子には `L2`。**組み合わせを誤ると例�
 `StereoSGBM` はどちらも検査しない（実測）—— **呼ぶ側にとって単純になるよう、
 この package が両方に同じ制限をかけている。**
 
+### 2.16 `CvUnity.Unity.RenderTextureConverter`（M7a で追加）
+
+`static class`（`CvUnity.UnityIntegration` アセンブリ）。`RenderTexture` から
+`CvMat` を作る。**新しい C ABI 関数は使わない** —— `CvMat.CopyFrom(IntPtr, long, long)`
+の上に立つ純粋な C# である。`TextureConverter` との決定的な違いは
+`RenderTexture` に `GetRawTextureData` が無いことで、中身は GPU 側にあり
+CPU から読むには GPU → CPU の転送が要る。
+
+| メンバ | 内容 |
+| --- | --- |
+| `static CvMat ToMat(RenderTexture source)` | `source` を新しい `CvMat`（`CvMatType.Bgra32`）に写す。**GPU の転送が済むまで戻らない** —— 毎フレーム呼ぶとフレーム時間に直接乗るので、毎フレームの用途では `RequestMat` を使うこと。`source` が `null` なら `ArgumentNullException` |
+| `static MatRequest RequestMat(RenderTexture source)` | `source` の読み出しを GPU に依頼し、**待たずに戻る**。完了は `MatRequest.IsDone` で見る。`source` が `null` なら `ArgumentNullException` |
+| `MatRequest.IsDone` / `HasError` | 転送が終わったか / エラーで終わったか |
+| `MatRequest.TakeMat()` | 読み出した内容を新しい `CvMat`（`Bgra32`、上下反転済み）にして返す。**2 度目の呼び出しは必ず失敗する**（`InvalidOperationException`）—— Unity の `NativeArray` は次の readback で無効になるので、2 度目に取れた「ように見える」状態は解放済みメモリを読んでいる可能性がある |
+
+**上下を反転する。** `WebCamTextureConverter` と同じ規約に揃えてあり、
+反転のぶんだけ写しを 1 回増やす（`TextureConverter.ToMat` が写しを増やさないのと対照的）。
+反転を無くすには native 側で反転する ABI 関数を足すか反転しないことを選ぶ
+必要があるが、**どちらも採っていない** —— 前者は公開 ABI を増やし、後者は
+`WebCamTextureConverter` と規約が割れる。
+
+**`-nographics` では動かない。** `RenderTexture.Create()` は true を返すが、
+`ReadPixels` / readback が返す画素は描画結果ではなく `205,205,205` になる
+（実測。詳細は [性能](./performance.md)）。この経路を検証するローカル専用の
+`test-unity-graphics` レーンは `-nographics` を付けずに走り、**CI には
+配線していない。**
+
 ## 3. 対象外（この文書に書かないもの）
 
 `Mat` の部分参照（ROI）、型変換・算術演算、**`imgcodecs` のファイルパス
@@ -868,7 +895,9 @@ SIFT の浮動小数の記述子には `L2`。**組み合わせを誤ると例�
 **`knnMatch` / `radiusMatch`**、**FLANN ベースの照合**、**輪郭の階層**、
 **`connectedComponents` / `remap` / `equalizeHist` / `calcHist`**、**描画関数**、
 **Haar / HOG**（`CascadeClassifier` / `HOGDescriptor`。**OpenCV 5 で contrib へ
-移ったので、この構成では出せない** —— 2026-09-05 に実測）—
+移ったので、この構成では出せない** —— 2026-09-05 に実測）、
+**`Texture.GetNativeTexturePtr()` を使う経路**（M7a で評価だけを行い、
+実装しないと決めた。理由と再評価の条件は [性能](./performance.md) にある）—
 **大半は** `docs/abi-ownership-and-versioning.md` §3 が「まだ作らないもの」として明記
 しており、この API リファレンスにも存在しない。契約が固まり実装されたマイルストーンで、
 この文書に追記する形にする。

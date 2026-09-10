@@ -285,6 +285,53 @@ jobs:
               exit 1
           }
 
+      # **配る binary の公開面も、配る経路で確かめる。**
+      #
+      # M7b が足した verify-exported-symbols.ps1 は ci-native からしか
+      # 呼ばれていなかった —— つまり当たっていたのは `dev.ps1 test` が作る
+      # **開発用の binary** で、実際に配る物には 1 度も掛かっていなかった。
+      # **これは上の移植性の検査が M3 で踏んだ形とまったく同じである**
+      # （文書は「配布 binary の公開面」と書いていた）。
+      #
+      # 見るのは build/ の下ではなく、**package に置かれた実物**である ——
+      # tarball に入るのはそちらで、そこまでの経路（dev.ps1 build のコピー）が
+      # 壊れていれば、build/ を見る検査は通ってしまう。
+      #
+      # **desktop 3 platform だけで意味を持つ。** 読み方（dumpbin / nm）は
+      # 共有ライブラリの export 表に対するもので、iOS と Web の成果物は
+      # 静的ライブラリなので「export 面」という概念が違う（そちらは
+      # verify-static-bundle.ps1 が別に見る）。**Android は共有ライブラリだが、
+      # host（x86_64 の ubuntu）の nm が arm64 の ELF を読めるかを
+      # 確かめていない** —— 確かめていないものを緑にしないため、明示的に
+      # skip と書く。**未知の platform は落とす**（検査するかしないかを
+      # 決めるまで進めない）。
+      - name: Verify the exported surface matches the spec
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+          $platform = '${{ matrix.platform }}'
+          if ($platform -in @('windows-x64', 'macos-arm64', 'linux-x64')) {
+              # **1 個であるべき。** この job は 1 platform 分しかビルドしない
+              # ので、複数見つかったら前の実行の置き去りか、ビルドの配置が
+              # 変わったかである。Select-Object -First 1 で無言に選ぶのは
+              # 「見ていない」のと変わらない。
+              $pluginRoot = 'Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins'
+              $bins = @(Get-ChildItem -Path $pluginRoot -Recurse -Include `
+                  'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so')
+              if ($bins.Count -ne 1) {
+                  Write-Error "配る binary が $($bins.Count) 個見つかりました（1 個であるべき）: $($bins.FullName -join ', ')"
+                  exit 1
+              }
+              ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
+              if ($LASTEXITCODE -ne 0) { exit 1 }
+          } elseif ($platform -in @('android-arm64', 'ios-arm64', 'web-wasm')) {
+              Write-Host "==> skipped on ${platform} (iOS / Web は静的ライブラリ、Android は host の nm で読めるかを確かめていない)"
+          } else {
+              Write-Error "unknown platform '${platform}': 公開面を検査するかどうかが決まっていない。tools/verify-exported-symbols.ps1 を掛けるか、ここに明示的な除外を足すこと。"
+              exit 1
+          }
+
       - name: Build the release bundle
         shell: pwsh
         run: ./tools/package-release.ps1 -OutputDir release-out -Platform ${{ matrix.platform }}
@@ -380,7 +427,27 @@ jobs:
         shell: pwsh
         run: ./tools/pack-upm-tarball.ps1 -OutputDir all-in-one -AllPlatforms
 
-      # 全部入りの checksums.txt。3 platform 分の binary が 1 つの表に載る。
+      # package の大きさは決定的である —— 同じ入力から同じ tarball ができ、
+      # CI ランナーの負荷に左右されない。時間と違ってここは assert してよい。
+      #
+      # 上限 100 MB は、実測（v0.3.0、全部入り 69,565,901 バイト = 66 MB）の
+      # 約 1.5 倍。倍増を捕まえる —— デバッグシンボルの同梱や platform の
+      # binary の重複といった「何かが大きく壊れた」形は倍以上になる。
+      # 関数を足したときの通常の増分は数百 KB〜数 MB なので、34 MB の余裕は
+      # 何回分ものリリースに相当する。
+      #
+      # `pack-upm-tarball.ps1` の既定 512 MB は 1 桁以上緩く、CLAUDE.md 自身が
+      # 「誰も確かめられない」と書いている。同じ誤りを繰り返さないため、
+      # ここは合成した入力で毎回発火を確かめる（tools/tests/PackageSize.Tests.ps1）。
+      - name: Measure the all-in-one package size
+        shell: pwsh
+        run: |
+          ./tools/measure-package-size.ps1 `
+            -TarballPath all-in-one/com.ayutaz.opencv-unity-native.tgz `
+            -MaxBytes 104857600
+
+      # 全部入りの checksums.txt。全 platform 分の binary が 1 つの表に載る
+      # （数を写さない。正本は `tools/dev.ps1` の `$AllPlatformBinaries` である）。
       #
       # **SBOM と build-manifest は作らない。** どちらも復元済みの OpenCV
       # artifact（= その job の platform のもの）から作るので、ここには元が
@@ -390,9 +457,10 @@ jobs:
         run: ./tools/package-release.ps1 -OutputDir all-in-one -ChecksumsOnly
 
       # Release asset の名前は Release 全体で一意でなければならない。
-      # package-release.ps1 は 3 platform とも同じ名前
+      # package-release.ps1 は全 platform とも同じ名前
       # （checksums.txt / sbom.spdx.json / build-manifest.json /
-      # THIRD_PARTY_NOTICES.md）で出すので、そのまま渡すと衝突する。
+      # THIRD_PARTY_NOTICES.md、数を写さない。正本は `tools/dev.ps1` の
+      # `$AllPlatformBinaries` である）で出すので、そのまま渡すと衝突する。
       # platform 名を頭に付けてから上げる。tarball は
       # pack-upm-tarball.ps1 が既に platform 名を含めているのでそのまま。
       - name: Stage the assets under unique names

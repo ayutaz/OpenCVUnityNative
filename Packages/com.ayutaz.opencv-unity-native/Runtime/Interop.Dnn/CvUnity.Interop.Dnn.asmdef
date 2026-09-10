@@ -1,0 +1,12 @@
+{
+    "name": "CvUnity.Interop.Dnn",
+    "rootNamespace": "CvUnity.Interop.Dnn",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "noEngineReferences": true,
+    "defineConstraints": [
+        "OCVU_PROFILE_DNN"
+    ]
+}

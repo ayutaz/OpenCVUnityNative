@@ -25,6 +25,7 @@ internal sealed class SchemaConstraints
     public required IReadOnlyList<string> ReturnsEnum { get; init; }
     public required IReadOnlyList<string> CsReturnsEnum { get; init; }
     public required IReadOnlyList<string> DirectionEnum { get; init; }
+    public required IReadOnlyList<string> ProfileEnum { get; init; }
 
     public static SchemaConstraints ReadFrom(string schemaPath)
     {
@@ -61,6 +62,7 @@ internal sealed class SchemaConstraints
                 CsReturnsEnum = ExtractEnum(root, "properties.functions.items.properties.csReturns"),
                 DirectionEnum = ExtractEnum(
                     root, "properties.functions.items.properties.params.items.properties.direction"),
+                ProfileEnum = ExtractEnum(root, "properties.profile"),
             };
         }
     }

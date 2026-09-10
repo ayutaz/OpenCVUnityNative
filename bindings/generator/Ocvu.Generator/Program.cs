@@ -23,15 +23,33 @@ foreach (var spec in specs)
     outputs.Add((Path.Combine(repoRoot, "native", "include", "ocvu", $"{spec.Module}.h"),
                  CHeaderEmitter.Emit(spec)));
     var pascal = char.ToUpperInvariant(spec.Module[0]) + spec.Module[1..];
+
+    // **standard 以外は別ディレクトリへ出す。** partial class は assembly を
+    // 跨げないので、profile ごとに別 assembly（別ディレクトリの asmdef）へ
+    // 分かれる（CsPInvokeEmitter が出す namespace / クラス名と対応する）。
+    var interopDir = spec.Profile == "standard"
+        ? "Interop"
+        : "Interop." + char.ToUpperInvariant(spec.Profile[0]) + spec.Profile[1..];
     outputs.Add((Path.Combine(repoRoot, "Packages", "com.ayutaz.opencv-unity-native",
-                              "Runtime", "Interop", $"NativeMethods.{pascal}.g.cs"),
+                              "Runtime", interopDir, $"NativeMethods.{pascal}.g.cs"),
                  CsPInvokeEmitter.Emit(spec)));
 }
 
-// **module ごとではなく 1 ファイル。** 全 entry point を横断して 1 回ずつ
-// 呼ぶので、module に分けると「全部呼んだ」を 1 箇所で数えられなくなる。
-outputs.Add((Path.Combine(repoRoot, ReachabilityEmitter.OutputPath),
-             ReachabilityEmitter.Emit(specs)));
+// **module ごとではなく profile ごとに 1 ファイル。** 全 entry point を
+// 横断して 1 回ずつ呼ぶので、module に分けると「全部呼んだ」を 1 箇所で
+// 数えられなくなる —— この理由は profile の内側でも変わらず成立する。
+//
+// **profile をまたいでは 1 ファイルにしない。** partial class は assembly を
+// 跨げないので、非既定 profile の宣言は別 assembly（別クラス）に出る。
+// 1 ファイルへ #if で同居させると、CvUnity.Tests.Shared が
+// CvUnity.Interop.Dnn を参照することになり、define が立っていないとき
+// 参照先の assembly がそもそもコンパイルされていない状態になる
+// （Unity がその参照をどう扱うかは測っていない）。
+foreach (var profile in specs.Select(s => s.Profile).Distinct().OrderBy(p => p, StringComparer.Ordinal))
+{
+    outputs.Add((Path.Combine(repoRoot, ReachabilityEmitter.OutputPathFor(profile)),
+                 ReachabilityEmitter.Emit(specs, profile)));
+}
 
 // **文書も生成物にする。** 手で書いた対応表は関数を足すと必ず古くなる
 // （M3.5 では docs/api-reference.md の冒頭の数えと末尾の一覧が同時に

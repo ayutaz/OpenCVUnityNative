@@ -990,6 +990,102 @@ if ($markerName) {
 }
 
 
+# --- ci-unity の EditMode レーンが、ローカルの -testCategory 除外と一致すること ---
+#
+# tools/dev.ps1 の Test-UnityEditMode は GraphicsTests / GraphicsBenchmarkRunner
+# （M7a Task 2、GPU に依る検査）を -testCategory '!Graphics' で除外する。
+# -nographics の下では graphicsDeviceType が Null になり、GL.Clear の直後の
+# ReadPixels が実際には描画しないまま 205,205,205 を返す（実測、2026-09-05）。
+# GraphicsChecks.AGraphicsDeviceIsPresent は GPU が無ければ skip ではなく
+# fail する設計なので、この除外を欠いたまま Unity を起動すると本物の欠陥として
+# 落ちる。
+#
+# ci-unity.yml は「CI はローカルと同一のコマンドを呼ぶ」の意図的な例外
+# （game-ci が Unity を起動し、tools/dev.ps1 ではない）なので、この 2 つの
+# 引数は自然には揃わない —— 実際、customParameters を 1 本も渡していない版が
+# しばらく残っていた。**`!Graphics` という文字列をここに書いて workflow と
+# 突き合わせない。** 文字列を 2 度書くと、次に除外対象を変えたときに片方だけ
+# 直して緑のまま残る（このリポジトリが何度も踏んだ形）。両側から読み取って
+# 比較する。
+#
+# **どちらかが読み取れないなら「一致した」と読まない。** 空振りで PASS に
+# なる形を避けるため、抽出そのものを個別に assert し、比較は両方が読めた
+# ときにしか行わない —— 抽出の失敗は $failures に積まれるので exit code は
+# 変わらず 1 のままになる（PluginGatingTests の合図名と同じ形）。
+$devPs1Raw = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
+
+# Test-UnityGraphics にも '-testCategory' が在る（値は 'Graphics'、
+# -nographics を渡さない側）ので、関数本体を名前で切り出してから読む。
+# このファイルのトップレベル関数はすべて列 0 の '}' で閉じる規約
+# （tools/dev.ps1 の他の関数と同じ）なので、それを終端として使う。
+$editModeFnMatch = [regex]::Match($devPs1Raw, '(?ms)^function Test-UnityEditMode \{.*?^\}')
+Assert-That $editModeFnMatch.Success `
+    'tools/dev.ps1 から Test-UnityEditMode 関数を切り出せる (切り出せなければ以下は空振りする)'
+
+$localCategory = $null
+if ($editModeFnMatch.Success) {
+    $localCatMatch = [regex]::Match($editModeFnMatch.Value, "'-testCategory',\s*'(?<cat>[^']+)'")
+    Assert-That $localCatMatch.Success `
+        "Test-UnityEditMode から -testCategory の値を読み取れる (読み取れなければ以下は空振りする)"
+    if ($localCatMatch.Success) { $localCategory = $localCatMatch.Groups['cat'].Value }
+}
+
+# ci-unity.yml 側。**単純な「customParameters: の行を探す」では足りない** ——
+# matrix の 2 つの lane（リテラル文字列）に加えて、customParameters を実際に
+# action へ渡す with: の 1 行（`${{ matrix.customParameters }}`）も同じ
+# `customParameters:` で始まる。後者を「非空の値」として拾うと、比較対象が
+# 消えてもこの行自体は常に非空なので検査が空振りする（実測: 最初の版は
+# ここで `saw 2` になった）。**リテラル文字列（`'...'`）だけを対象にする**
+# ことで、`${{ }}` の参照行を構造的に除外する。
+$unityWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-unity.yml') -Raw
+$ciLiteralLines = @(($unityWorkflowText -split "`r?`n") | Where-Object {
+    $_ -match "^\s*customParameters:\s*'(?<val>[^']*)'\s*`$"
+})
+Assert-That ($ciLiteralLines.Count -eq 2) `
+    "ci-unity.yml declares customParameters as a literal string on both matrix lanes (saw $($ciLiteralLines.Count); $($ciLiteralLines -join ' | '))"
+
+# 2 つのリテラルのうち、非空なのが EditMode 側のはず
+# （Standalone は '' を明示している——上の requireTest / requireOutput と
+# 同じ「非空を探す」形）。空文字だけになると assert-unity-results.ps1 の
+# 照合と同じで「要求したことになっているが何も要求していない」になるので、
+# 非空を要求する。
+$ciCategoryLines = @($ciLiteralLines | Where-Object { $_ -notmatch "customParameters:\s*''\s*`$" })
+Assert-That ($ciCategoryLines.Count -eq 1) `
+    "ci-unity.yml declares exactly one non-empty customParameters lane (saw $($ciCategoryLines.Count))"
+
+$ciCategory = $null
+if ($ciCategoryLines.Count -eq 1) {
+    $ciCatMatch = [regex]::Match($ciCategoryLines[0], '-testCategory\s+(?<cat>\S+)')
+    Assert-That $ciCatMatch.Success `
+        "ci-unity.yml's customParameters carries a -testCategory value (saw: $($ciCategoryLines[0].Trim()))"
+    if ($ciCatMatch.Success) { $ciCategory = $ciCatMatch.Groups['cat'].Value.Trim("'", '"') }
+}
+
+# **比較そのものは、両方が読めたときにしか行わない。** 上の 2 つの抽出
+# assertion がすでに失敗を記録しているので、ここで無理に比較して
+# 「$null -eq $null」のような偶然の一致を PASS と報告する必要は無い。
+if ($null -ne $localCategory -and $null -ne $ciCategory) {
+    Assert-That ($localCategory -eq $ciCategory) `
+        "ci-unity.yml's EditMode -testCategory ('$ciCategory') matches tools/dev.ps1's Test-UnityEditMode ('$localCategory')"
+}
+
+# **matrix の宣言だけでは足りない。** 上のリテラル判定は
+# `customParameters: '-testCategory !Graphics'` が matrix 側に「宣言されて
+# いること」を見るが、それが実際に `game-ci/unity-test-runner` の `with:` へ
+# 渡っているかは別に見ていない。渡す `with:` 側の行（`customParameters:
+# ${{ matrix.customParameters }}`）を消しても matrix の宣言はそのまま残るので
+# 上の検査は緑のままだが、action には何も渡らず、EditMode の除外が効かなく
+# なる。壊れ方は GPU の有無に依存する — GPU が無ければ `AGraphicsDeviceIsPresent`
+# が本物の欠陥として落ちて気づけるが、GPU が在れば緑のまま `docs/performance.md`
+# / `docs/roadmap.md` の「CI で 1 度も実行されていない」という前提が黙って嘘に
+# なる。だから `with:` 側の参照がちょうど 1 本在ることを別に assert する。
+$ciRefLines = @(($unityWorkflowText -split "`r?`n") | Where-Object {
+    $_ -match '^\s*customParameters:\s*\$\{\{\s*matrix\.customParameters\s*\}\}\s*$'
+})
+Assert-That ($ciRefLines.Count -eq 1) `
+    "ci-unity.yml passes matrix.customParameters to the test runner exactly once (saw $($ciRefLines.Count))"
+
+
 # --- コンテナで走る job に sudo を残さない ---
 #
 # コンテナは root で走るので sudo は入っていない。`sudo apt-get ...` を
@@ -1455,6 +1551,52 @@ foreach ($job in $releaseBuilders) {
             "$($job.Workflow) job '$($job.Name)' decides for every matrix platform whether to verify portability (未決定: $($unhandled -join ', '))"
         Assert-That ($unknown.Count -eq 0) `
             "$($job.Workflow) job '$($job.Name)' does not branch on a platform the matrix never produces (余分: $($unknown -join ', '))"
+    }
+
+    # --- 同じ形を、配布 binary の公開面の検査にも当てる ---
+    #
+    # **verify-exported-symbols.ps1 は、まったく同じ穴を開けていた。**
+    # M7b が足したときの配線先は ci-native だけで、当たっていたのは
+    # `dev.ps1 test` が作る開発用の binary である。文書は「配布 binary の
+    # 公開面」と書いていた —— **これは verify-plugin-portability.ps1 が
+    # M3 で踏んだ形と 1 対 1 に対応する。** 同じ検査を同じ強さで掛ける。
+    $exportSteps = @()
+    foreach ($step in $job.Steps) {
+        $cmds = @($step | Where-Object { $_ -notmatch '^\s*#' })
+        if (@($cmds | Where-Object {
+                $_ -match '^\s*(run:\s*)?(&\s+)?\./tools/verify-exported-symbols\.ps1(\s|$)'
+            }).Count -gt 0) {
+            $exportSteps += , $step
+        }
+    }
+
+    Assert-That ($exportSteps.Count -eq 1) `
+        "$($job.Workflow) job '$($job.Name)' builds the shipped plugin and runs verify-exported-symbols.ps1 in exactly one step (saw $($exportSteps.Count))"
+    if ($exportSteps.Count -ne 1) { continue }
+
+    $exportStep = $exportSteps[0]
+
+    Assert-That (@($exportStep | Where-Object {
+        $_ -match '^(      -\s+|        )if:\s*\S'
+    }).Count -eq 0) `
+        "$($job.Workflow) job '$($job.Name)' guards the exported-surface check inside the script, not with a step-level if:"
+
+    $exportBranchPlatforms = @()
+    foreach ($line in ($exportStep | Where-Object { $_ -match '\$platform\s+-(eq|ne|in|notin)\b' })) {
+        foreach ($m in [regex]::Matches($line, "'(?<p>[A-Za-z0-9_.-]+)'")) {
+            $exportBranchPlatforms += $m.Groups['p'].Value
+        }
+    }
+    Assert-That ($exportBranchPlatforms.Count -gt 0) `
+        "$($job.Workflow) job '$($job.Name)' branches the exported-surface check on the platform (読めなければ下の突き合わせは空振りする)"
+
+    if ($matrixPlatforms.Count -gt 0 -and $exportBranchPlatforms.Count -gt 0) {
+        $exportUnhandled = @($matrixPlatforms | Where-Object { $_ -notin $exportBranchPlatforms } | Sort-Object -Unique)
+        $exportUnknown = @($exportBranchPlatforms | Where-Object { $_ -notin $matrixPlatforms } | Sort-Object -Unique)
+        Assert-That ($exportUnhandled.Count -eq 0) `
+            "$($job.Workflow) job '$($job.Name)' decides for every matrix platform whether to verify the exported surface (未決定: $($exportUnhandled -join ', '))"
+        Assert-That ($exportUnknown.Count -eq 0) `
+            "$($job.Workflow) job '$($job.Name)' does not branch the exported-surface check on a platform the matrix never produces (余分: $($exportUnknown -join ', '))"
     }
 }
 

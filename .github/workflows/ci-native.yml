@@ -79,6 +79,23 @@ jobs:
         shell: pwsh
         run: ./tools/dev.ps1 test
 
+      # **M7b Task 1。** 配布する binary のエクスポート面が bindings/spec と
+      # 完全一致することを実物に対して見る。tools/tests/ExportedSymbols.Tests.ps1
+      # (dev.ps1 test に乗っている) は合成入力で分岐を検査するだけなので、
+      # 実物の binary に当てるのはここが唯一の場所である。
+      - name: Verify the exported surface matches the spec
+        shell: pwsh
+        run: |
+          # **1 個であるべき。** build/ に複数 preset の binary が同居していたら
+          # Select-Object -First 1 は「たまたま最初に見つかったもの」を
+          # 無言で選ぶ——それは「見ていない」のと変わらない。数を確かめてから使う。
+          $bins = @(Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so')
+          if ($bins.Count -ne 1) {
+              Write-Error "native plugin の binary が $($bins.Count) 個見つかりました（1 個であるべき）: $($bins.FullName -join ', ')"
+              exit 1
+          }
+          ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
+
       # ローカルループから外した重いツールテスト。ここが唯一の実行場所なので、
       # 落とすと構成ハッシュと allowlist 検証の回帰テストが誰にも見られなくなる。
       # VerifyOpenCvArtifact はケースごとに pwsh を起動するため単体で 1 分規模、
@@ -156,6 +173,21 @@ jobs:
       - name: Run all fast lanes
         shell: pwsh
         run: ./tools/dev.ps1 test
+
+      # **M7b Task 1。** 配布する binary のエクスポート面が bindings/spec と
+      # 完全一致することを実物に対して見る（Windows job と同じ理由）。
+      - name: Verify the exported surface matches the spec
+        shell: pwsh
+        run: |
+          # **1 個であるべき。** build/ に複数 preset の binary が同居していたら
+          # Select-Object -First 1 は「たまたま最初に見つかったもの」を
+          # 無言で選ぶ——それは「見ていない」のと変わらない。数を確かめてから使う。
+          $bins = @(Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so')
+          if ($bins.Count -ne 1) {
+              Write-Error "native plugin の binary が $($bins.Count) 個見つかりました（1 個であるべき）: $($bins.FullName -join ', ')"
+              exit 1
+          }
+          ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
 
       # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
       # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
@@ -250,6 +282,21 @@ jobs:
       - name: Run all fast lanes
         shell: pwsh
         run: ./tools/dev.ps1 test
+
+      # **M7b Task 1。** 配布する binary のエクスポート面が bindings/spec と
+      # 完全一致することを実物に対して見る（Windows job と同じ理由）。
+      - name: Verify the exported surface matches the spec
+        shell: pwsh
+        run: |
+          # **1 個であるべき。** build/ に複数 preset の binary が同居していたら
+          # Select-Object -First 1 は「たまたま最初に見つかったもの」を
+          # 無言で選ぶ——それは「見ていない」のと変わらない。数を確かめてから使う。
+          $bins = @(Get-ChildItem -Path build -Recurse -Include 'opencv_unity_native.dll','libopencv_unity_native.dylib','libopencv_unity_native.so')
+          if ($bins.Count -ne 1) {
+              Write-Error "native plugin の binary が $($bins.Count) 個見つかりました（1 個であるべき）: $($bins.FullName -join ', ')"
+              exit 1
+          }
+          ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
 
       # Task 5 が足した macOS / Linux の linkage 検証は、このレーンからしか
       # 呼ばれない。ここに無いと「書かれているがどこからも走らない検査」に
@@ -363,6 +410,14 @@ jobs:
       - name: Build the native plugin
         shell: pwsh
         run: ./tools/dev.ps1 build -Platform ${{ matrix.platform }}
+
+      # **M7b Task 1: この job には tools/verify-exported-symbols.ps1 を
+      # 配線しない。** Android の .so は host の nm で読めるが、iOS と Web は
+      # 静的ライブラリで「エクスポート」という概念自体が違う（ar archive の
+      # 中の object は動的リンカのエクスポート表を持たない。実際に検査したいのは
+      # 静的リンク後 —— アプリの実行ファイルに組み込まれた時点 —— の解決なので、
+      # このレーンの `.a` に対しては意味を成さない）。desktop 3 job（Windows /
+      # macOS / Linux）だけが対象である。
 
       # **配る形になっていること。** Android は 16 KB page size、iOS は
       # 静的ライブラリであること。どちらも「ビルドできた ≠ 動く」の距離を

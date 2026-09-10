@@ -263,6 +263,32 @@ jobs:
             # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
             # 'present: 50' にも当たる。
             requireOutput: 'native plugins present: 6 ['
+            # **`tools/dev.ps1` の `Test-UnityEditMode` と同じ除外を CI にも渡す。**
+            #
+            # ローカルは `-batchmode -nographics -testCategory '!Graphics'` で
+            # 起動する（`GraphicsTests` / `GraphicsBenchmarkRunner` を除外する）。
+            # この workflow は customParameters を 1 つも渡していなかったので、
+            # ここだけ除外が効かず `[Category("Graphics")]` のテストがそのまま
+            # 実行されていた。
+            #
+            # **`-nographics` の下では GPU に依る検査が本物の欠陥として落ちる。**
+            # 実測（2026-09-05、Unity 6000.3.16f1）: `-nographics` では
+            # `SystemInfo.graphicsDeviceType` が `Null` になり、
+            # `RenderTexture.Create()` は true を返すのに `GL.Clear(10,20,30)` の
+            # 直後の `ReadPixels` が書いた色ではなく 205,205,205 を返す。
+            # `GraphicsChecks.AGraphicsDeviceIsPresent` は GPU が無ければ
+            # **skip ではなく fail する**設計なので、この除外が無いと
+            # 必須チェック "Unity EditMode (Linux)" が GPU の有無にかかわらず
+            # 危うい: GPU が無ければ赤くなって merge を止め、GPU が在っても
+            # `docs/performance.md` / `docs/roadmap.md` に書いた「この経路は
+            # test-unity-graphics 経由でしか走っていない」という前提が崩れる。
+            # `game-ci/unity-test-runner` の `customParameters` は
+            # `-testCategory !Graphics` をそのまま Unity Editor の起動コマンドへ
+            # 展開する（コンテナ側の `run_tests.sh` が `$CUSTOM_PARAMETERS` を
+            # 展開する行。展開は bash の非対話シェルなので `!` は履歴展開の
+            # 対象にならず、そのまま 1 トークンとして渡る——引用符で囲むと逆に
+            # 引用符ごと 1 トークンになり `!Graphics` に一致しなくなる）。
+            customParameters: '-testCategory !Graphics'
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
@@ -275,6 +301,13 @@ jobs:
             # Linux の IL2CPP Player を作るので、その道具が入ったイメージが要る。
             # base では IL2CPP のビルドができない。
             imageFlavour: linux-il2cpp
+            # **このレーンには渡さない。** `GraphicsTests` / `GraphicsBenchmarkRunner`
+            # が載っている `CvUnity.Tests.EditMode` asmdef は
+            # `"includePlatforms": ["Editor"]` なので、そもそも Standalone の
+            # Player には 1 行もコンパイルされず、除外するテストが存在しない。
+            # 空文字を渡すのは requireTest / requireOutput と同じ理由（渡し忘れと
+            # 意図的な空を区別できる形にする）。
+            customParameters: ''
 
     steps:
       - name: Checkout
@@ -477,6 +510,10 @@ jobs:
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           # 既定の checkName は lane 間で衝突するので分ける。
           checkName: ${{ matrix.lane }} results
+          # EditMode だけ `!Graphics` を除外する（matrix 側のコメント参照）。
+          # Standalone は空文字——渡さないのではなく、渡すものが無いことを
+          # 明示する。
+          customParameters: ${{ matrix.customParameters }}
 
       # **game-ci が緑でも、ここで独立に判定する。**
       #

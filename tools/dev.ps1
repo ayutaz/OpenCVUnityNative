@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'test', 'clean')]
+    [ValidateSet('build', 'generate', 'verify-generated', 'test-native', 'test-asan', 'test-managed', 'test-managed-probe', 'test-tools', 'test-tools-slow', 'test-unity-editmode', 'test-unity-graphics', 'test-unity-player', 'test-unity-web', 'test-unity-tarball', 'benchmark', 'test', 'clean')]
     [string]$Command = 'test',
 
     <#
@@ -166,6 +166,9 @@ $ToolsTestScriptsFast = @(
     'ConfigInvalidation.Tests.ps1'
     'BindingGenerator.Tests.ps1'
     'EmscriptenVersion.Tests.ps1'
+    'PackageSize.Tests.ps1'
+    'ExportedSymbols.Tests.ps1'
+    'Benchmarks.Tests.ps1'
 )
 
 $ToolsTestScriptsSlow = @(
@@ -173,6 +176,7 @@ $ToolsTestScriptsSlow = @(
     'OpenCvRestore.Tests.ps1'
     'VerifyArtifactLinkage.Tests.ps1'
     'PackageRelease.Tests.ps1'
+    'NonStandardProfileCompile.Tests.ps1'
 )
 
 function Invoke-ToolsTestList {
@@ -584,11 +588,19 @@ function Test-UnityEditMode {
 
 
     # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
+    #
+    # -testCategory '!Graphics' は GraphicsTests（M7a Task 2）を除外する。
+    # -nographics の下では graphicsDeviceType が Null になり、GL.Clear /
+    # ReadPixels が実際には描画しないまま 205,205,205 を返す（実測、
+    # 2026-09-05）。**GPU に依る検査は test-unity-graphics に分けてある**
+    # —— ここで除外しないと、GraphicsTests を足しただけでこのレーンが
+    # 恒久的に赤くなる。
     $unityArgs = @(
         '-projectPath', $project,
         '-runTests', '-testPlatform', 'EditMode',
         '-testResults', $results, '-logFile', $log,
-        '-batchmode', '-nographics'
+        '-batchmode', '-nographics',
+        '-testCategory', '!Graphics'
     )
     $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
     $exit = $proc.ExitCode
@@ -612,6 +624,52 @@ function Test-UnityEditMode {
             -ResultsPath $results -Lane 'editmode' -LogPath $log `
             -RequireTest ($script:GatingTestNames -join ';')
     } 'assert the editmode results'
+}
+
+
+<#
+    RenderTexture -> CvMat の同期経路のうち、**GPU に依る部分**を検証する
+    （M7a Task 2）。`Test-UnityEditMode` を写したもので、違いは 2 つだけ:
+    `-nographics` を渡さないことと、`GraphicsTests`（`[Category("Graphics")]`）
+    だけを対象にすることである。
+
+    **CI には配線しない**（controller の裁定）。game-ci の Linux コンテナに
+    グラフィックス装置が在るかは未確認で、投げてみるまで分からない。
+#>
+function Test-UnityGraphics {
+    Build-Native
+
+    $unity   = Get-UnityEditorPath
+    $project = Join-Path $RepoRoot 'tests/UnityProject'
+    New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
+    $results = Join-Path $ResultsDir 'unity-graphics.xml'
+    $log     = Join-Path $ResultsDir 'unity-graphics.log'
+
+    Sync-AllPlatformsMarker -ProjectPath $project
+
+    # **-nographics を渡さない。** これが GPU に依る検査を成立させる唯一の
+    # 違いである（実測: -nographics だと graphicsDeviceType が Null になり
+    # ReadPixels が 205,205,205 を返す）。
+    $unityArgs = @(
+        '-projectPath', $project,
+        '-runTests', '-testPlatform', 'EditMode',
+        '-testResults', $results, '-logFile', $log,
+        '-batchmode',
+        '-testCategory', 'Graphics'
+    )
+    $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
+    $exit = $proc.ExitCode
+
+    if ($exit -ne 0) {
+        Write-DevFailure "Unity Graphics が exit $exit で終了しました。`nログ: $log"
+    }
+
+    # 判定は既存と同じ script を通す（tools/assert-unity-results.ps1）。
+    Invoke-Checked {
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'assert-unity-results.ps1') `
+            -ResultsPath $results -Lane 'graphics' -LogPath $log `
+            -RequireTest 'GraphicsTests.AGraphicsDeviceIsPresent'
+    } 'assert the graphics results'
 }
 
 
@@ -1146,6 +1204,45 @@ function Test-UnityPlayer {
     }
 }
 
+<#
+    経路ごとの所要時間を測って artifacts/benchmarks/latest.json へ書く（M7a Task 4）。
+
+    **時間を判定しない。** ここが呼ぶのはいつもの test-unity-player /
+    test-unity-graphics で、それぞれの合否は assert-unity-results.ps1 が
+    いつもどおり見る。**このコマンドが追加するのは「測って公開する」だけ**
+    である（設計 D1）。
+
+    **Player と Graphics の 2 レーンにまたがる。** GPU に依らない経路
+    （texture2d_to_mat、mat_copy_from/to_pointer）は IL2CPP Player
+    （-nographics）で、GPU に依る経路（RenderTexture）は Graphics レーン
+    （-nographics を渡さない）でしか測れない —— 実測（Task 2/3）で
+    -nographics の下では RenderTexture の内容が読めないと分かっている。
+
+    **順に走らせる。同時に走らせないこと** —— tools/dev.ps1 のレーンは
+    相互排他で、後から始めたほうが先行の結果（artifacts/test-results/）を
+    消す。
+#>
+function Invoke-Benchmark {
+    # **Player のレーンを流用する。** 測定は実物の IL2CPP Player で
+    # 行う —— Editor の Mono で測った数字は、利用者が動かすものと違う。
+    Test-UnityPlayer
+
+    # GPU に依る経路は Player では測れないので、続けて Graphics レーンも走らせる。
+    Test-UnityGraphics
+
+    $playerXml   = Join-Path $ResultsDir 'unity-player.xml'
+    $graphicsXml = Join-Path $ResultsDir 'unity-graphics.xml'
+    $out = Join-Path $RepoRoot 'artifacts/benchmarks/latest.json'
+
+    # **';' で繋いだ 1 文字列で渡す。** 配列（@($playerXml, $graphicsXml)）を
+    # 外部プロセス呼び出しの引数にすると、子プロセス側は 1 個目しか -XmlPath に
+    # 束ねず、2 個目以降を「対応する named parameter が無い」として拒否する
+    # （実測。assert-unity-results.ps1 の -RequireTest と同じ罠、同じ直し方）。
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-benchmarks.ps1') `
+        -XmlPath ($playerXml + ';' + $graphicsXml) -OutPath $out
+    if ($LASTEXITCODE -ne 0) { throw 'benchmark の収集に失敗した' }
+}
+
 # CI 専用。L3 が本当にクラッシュ・ハング耐性を持つかを実証する
 # (tools/run-managed-probe.ps1 参照)。数分かかるので test には含めない。
 function Test-ManagedProbe {
@@ -1190,9 +1287,11 @@ switch ($Command) {
     'test-tools'   { Test-Tools }
     'test-tools-slow' { Test-ToolsSlow }
     'test-unity-editmode' { Reset-Results; Test-UnityEditMode }
+    'test-unity-graphics' { Reset-Results; Test-UnityGraphics }
     'test-unity-player' { Reset-Results; Test-UnityPlayer }
     'test-unity-web' { Reset-Results; Test-UnityWeb }
     'test-unity-tarball' { Reset-Results; Test-UnityTarball }
+    'benchmark'    { Reset-Results; Invoke-Benchmark }
     'test'         { Reset-Results; Test-Tools; Test-Generated; Test-Native; Test-Managed }
     'clean'        { Remove-Item -Recurse -Force (Join-Path $RepoRoot 'build') -ErrorAction SilentlyContinue }
 }
