@@ -124,7 +124,7 @@ jobs:
 
       - name: Set up Emscripten
         if: matrix.platform == 'web-wasm'
-        uses: mymindstorm/setup-emsdk@v14
+        uses: mymindstorm/setup-emsdk@v16
         with:
           version: ${{ steps.emver.outputs.version }}
 
