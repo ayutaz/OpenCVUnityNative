@@ -379,18 +379,18 @@ eight of them green. (An earlier version of this paragraph said it had never run
 a schedule. That was wrong for over a week, and nothing goes red when a statement
 like that stops being true.)
 
-**Almost every lane that runs on a pull request blocks a merge.** Twenty-one checks are
+**Almost every lane that runs on a pull request blocks a merge.** Twenty-four checks are
 required: the contract, P/Invoke and sanitizer jobs across the three desktop platforms, the
-Android and iOS cross-builds, the four lint jobs, both CodeQL analyses, both Unity lanes,
-and the six release jobs that build and assemble the distributable for those five platforms.
-Nine are deliberately not required. Five build the per-platform plugins the Unity lanes
+Android, iOS and Web/Wasm cross-builds, the four lint jobs, both CodeQL analyses, both
+Unity lanes, the browser end-to-end test, and the seven release jobs that build and
+assemble the distributable for all six platforms.
+Six are deliberately not required. Five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which
-is what stops the merge. Three cover Web/Wasm — its cross-build, its browser end-to-end
-test and its release packaging — and **have not been promoted, so a red Web lane does
-not currently stop a merge**. The stated reason used to be that they were too new; as of
-2026-09-10 that no longer holds — all three have passed on five consecutive pull
-requests, and the two that also run on `main` have passed on its last six runs.
-**Promotion is an open decision, not a pending measurement.** A skipped required check
+is what stops the merge. The three Web/Wasm checks — its cross-build, its browser
+end-to-end test and its release packaging — **were promoted on 2026-09-10**, after
+passing on five consecutive pull requests and, for the two that also run on `main`, its
+last six runs. A red Web lane now stops a merge like any other.
+**Promotion follows evidence, but somebody has to go and look at it.** A skipped required check
 counts as passing, so depending on one without that guard would let a broken build
 through. A lane is only made required once it has been reliably green — but the failure
 mode seen twice here was the opposite of impatience: **a lane was added and left
@@ -419,7 +419,7 @@ Apache License 2.0 for this repository's own source. That does not by itself det
 
 Which of those then reach the plugin **you** redistribute depends on which OpenCV
 modules this plugin links, and that has changed several times. It now links `core`,
-`imgproc`, `imgcodecs`, `objdetect`, `features`, `geometry`, `calib` and `stereo`; before
+`imgproc`, `imgcodecs`, `objdetect`, `features`, `geometry`, `calib`, `stereo` and `dnn`; before
 `imgcodecs` it linked only `core` and `imgproc`. Static linking pulls in only what is referenced, so until the functions that
 call into a module are written, none of that module's code reaches the shipped library.
 Writing them is what pulls it in — on Windows the debug library grew from 8,831,488 to
