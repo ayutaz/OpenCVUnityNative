@@ -179,6 +179,29 @@ exactly what CI exercises — an EditMode test refuses to go green unless it see
 all. Current counts and sizes are in the [roadmap](docs/roadmap.md); they move with
 every release, so they are not repeated here.
 
+### Optional profiles: dnn
+
+The native binary always contains OpenCV's `dnn` module (ONNX loading, blob
+conversion, and forward inference) — it is not split into a separate binary,
+because two of the six platforms (iOS, WebGL) resolve `DllImport("__Internal")`
+by symbol name, not by library name, so there is no name to switch on. What is
+optional is the **C# side**: the `dnn` API (`CvDnn`, in the `CvUnity.Dnn`
+assembly) only compiles into your project if you add the Scripting Define
+Symbol `OCVU_PROFILE_DNN` under **Project Settings → Player → Other Settings →
+Scripting Define Symbols** for the platforms you target. Leave it unset and
+that code — and the P/Invoke declarations it depends on — is not part of your
+build.
+
+This could not be automated with `package.json`'s `versionDefines`: that
+mechanism fires a define when a given *package* is present, but `dnn` lives
+inside this same package rather than a separate one, so there is nothing
+whose presence to key off. The define is therefore something you set
+yourself, not something the package sets for you.
+
+`dnn` has not been run on a real device (the same gap the mobile platforms
+have generally — see the [roadmap](docs/roadmap.md)), and inference speed has
+not been measured.
+
 ### How releases are made
 
 Tagging `v*` builds every platform, verifies the linkage of what was built,

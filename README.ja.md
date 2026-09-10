@@ -116,6 +116,25 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 
 全部入りの tarball を使い捨てのプロジェクトに導入して EditMode を走らせると通ります（このマシンでの実測）。**CI は全 platform の binary を置いた状態で同じ EditMode 群を走らせる**ので、これらの検査が存在する理由である「複数 platform が同居する場合」を、CI がまさに実際に確かめています —— EditMode のテストが、全部揃っているのを見るまで緑になりません。現在の件数やサイズは[ロードマップ](docs/roadmap.md)にあります（リリースのたびに動くので、ここには写しません）。
 
+### 追加 profile: dnn
+
+native binary には OpenCV の `dnn` module（ONNX の読み込み、blob 化、forward 推論）が
+**常に**入っています —— profile ごとに別 binary へ分けてはいません。理由は、6 platform
+のうち iOS と WebGL の 2 つが `DllImport("__Internal")` を**シンボル名**で解決し、
+**ライブラリ名**では解決しないため、切り替える対象の名前がそもそも存在しないからです。
+**任意にできるのは C# 側だけです。** `dnn` の API（`CvDnn`、`CvUnity.Dnn` assembly）は、
+利用側のプロジェクトの **Project Settings → Player → Other Settings → Scripting Define
+Symbols** に `OCVU_PROFILE_DNN` を対象 platform 分足したときだけコンパイルされます。
+立てなければ、そのコードと、それが依存する P/Invoke 宣言はビルドに入りません。
+
+これは `package.json` の `versionDefines` では自動化できませんでした —— あの機構は
+「ある**パッケージ**が入っていれば define を立てる」もので、`dnn` は別パッケージではなく
+**同じパッケージの中**にあるため、存在の有無を条件にできる対象がありません。したがって
+この define は、パッケージ側が立てるものではなく、**利用者が自分で立てるもの**です。
+
+`dnn` は実機で動かしたことがありません（モバイル platform 全般が抱える穴と同じ形です。
+詳細は[ロードマップ](docs/roadmap.md)）。推論の速さも測っていません。
+
 ### リリースの作り方
 
 `v*` の tag を打つと、全 platform をビルドし、ビルドしたものの linkage を検証し、Linux のライブラリが「支える最も古い環境」より新しい glibc や libstdc++ を要求していないかを確かめ、全 platform のプラグイン木を 1 つのパッケージへ重ね、すべてをパッケージ化して、**下書き**のリリースを作ります。glibc の検査はビルド済み `.so` の中の version レコードを読むもので、ライブラリを読み込むわけではありません —— **binary が host に何を要求しているかについての主張**であって、そこで動く証明ではありません。
