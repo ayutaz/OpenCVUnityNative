@@ -390,9 +390,9 @@ is what stops the merge. The three Web/Wasm checks — its cross-build, its brow
 end-to-end test and its release packaging — **were promoted on 2026-09-10**, after
 passing on all eleven pull requests merged since #63 and, for the two that also run on
 `main`, its last six runs. A red Web lane now stops a merge like any other. The other
-three unrequired checks are the aggregate `CodeQL` check, whose two per-language
-analyses are required individually, and the two Unity result-publishing jobs, which are
-skipped on pull requests.
+four are the aggregate `CodeQL` check, whose two per-language analyses are required
+individually; the two Unity result-publishing jobs, which are skipped on pull requests;
+and `Publish the release`, described at the end of this section.
 **Promotion follows evidence, but somebody has to go and look at it.** A skipped required check
 counts as passing, so depending on one without that guard would let a broken build
 through. A lane is only made required once it has been reliably green — but the failure
