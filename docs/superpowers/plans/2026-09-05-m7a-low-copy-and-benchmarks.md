@@ -2,6 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **この計画は実行済みである（2026-09-06、`be5615f`）。完了条件 2・3 を満たした。**
+> **以下は着手前の記録として読むこと。** 判定と、そこで記録した穴
+> （`RenderTexture` の経路が CI に配線されていないこと、`test-unity-player` が
+> このマシンで後始末段階からハングすること）は `docs/roadmap.md` の
+> `M7a の判定` にある。**M7 の 4 つの計画には、すべて同じ趣旨の枠を置いてある。**
+
 **Goal:** Unity のテクスチャと `CvMat` の間の低コピー経路を実測で評価し、割り当て・package size を機械が守る形で assert し、時間は公開だけする benchmark レーンを作る。
 
 **Architecture:** 測定は 2 層に分ける。**決定的な量（割り当てバイト数）は L3（素の .NET）で `GC.GetAllocatedBytesForCurrentThread()` を使って assert し、CI が落とす。** Unity 側（Texture2D / RenderTexture）は正しさを assert し、時間は機械可読な 1 行として吐いて `tools/` のスクリプトが読んで**公開する**。native texture pointer は D4 の決定に従い、実装せず評価だけを記録する。

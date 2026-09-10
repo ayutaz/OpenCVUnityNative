@@ -218,7 +218,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docs/superpowers/plans/2026-08-26-m2-windows-vertical-slice.md` — M2 の実装計画（タスク単位、TDD 手順つき）
 - `docs/superpowers/plans/2026-08-28-m3-desktop-three-platforms.md` — M3 の実装計画（タスク単位、TDD 手順つき）
 - `docs/superpowers/plans/2026-08-30-m3.5-distribution-shape.md` — M3.5 の実装計画（タスク単位、TDD 手順つき）
-- **M4 以降の計画をここに並べない。** M4 / M5（続きの 4 本）/ M6 / M7（4 本）/ 2026-09 の API 拡張（6 本）まで含めた一覧は `docs/README.md` の「実装計画」が持ち、状態注記もそちらにある（**この 5 行を伸ばすと 2 箇所が同時に古くなる。実際この一覧は M3.5 で止まったまま 4 マイルストーン分置いていかれた**）。着手時に開く計画は上の「実装に着手するとき」2 が名指しする
+- **M4 以降の計画をここに並べない。** M4 / M5（本体 1 本と続きの 3 本）/ M6 / M7（4 本）/ 2026-09 の API 拡張（6 本）まで含めた一覧は `docs/README.md` の「実装計画」が持ち、状態注記もそちらにある（**この 5 行を伸ばすと 2 箇所が同時に古くなる。実際この一覧は M3.5 で止まったまま 4 マイルストーン分置いていかれた**）。着手時に開く計画は上の「実装に着手するとき」2 が名指しする
 - `docs/openupm-registration.md` — OpenUPM へ出した登録定義と手順。**2026-08-30 に提出し、受理された**（openupm/openupm PR #6843）
 - `docs/abi-ownership-and-versioning.md` — `Mat` と Unity メモリの所有権契約、`OCVU_ABI_VERSION` の versioning 規約、**リンクしている 9 module の** API allowlist の正本
 - `docs/unity-opencv-integration-research-and-plan.md` — 競合調査、アーキテクチャ、ライセンス方針、命名方針
@@ -475,6 +475,21 @@ CodeQL まで見る。それでも次は緑のまま通過する。
 - **必須でないレーンが赤いこと。** どのレーンがそれに当たるかはここには
   書かない —— 上の「機構として強制されていること」の表が唯一の記載場所で、
   正本はさらにその先の GitHub 側の設定である
+- **`OCVU_PROFILE_DNN` を立てた Unity。** **どの workflow も、どの `dev.ps1` の
+  レーンも、この define を立てない**（2026-09-10 に `.github/` と `tools/` を
+  grep して 0 件）。したがって **`CvUnity.Interop.Dnn` / `CvUnity.Dnn` が Unity の
+  中で実際にコンパイルされ、IL2CPP の stripping が dnn の P/Invoke 宣言を
+  消さないことは、人が手で 1 回確かめたきりである** —— 次に dnn の ABI が
+  変わっても自動では再検証されない（M7c）。**「dnn は CI が見ていない」と
+  丸めないこと。** CI が実際に見ているものは 4 つある: L1 の GoogleTest、
+  L3（`DnnInferenceTests` が実物の DLL を P/Invoke で叩く）、netstandard2.1 の
+  shim が `Runtime/Interop.Dnn` と `Runtime/Dnn` を**常に**コンパイルすること
+  （define を見ない。`CvUnity.Runtime.Shim.csproj` にそう書いてある）、そして
+  `tools/tests/NonStandardProfileCompile.Tests.ps1` が非既定 profile の生成物を
+  `dotnet build` に通すこと（`test-tools-slow` → `ci-native` の desktop 3 job。
+  **ただし通しているのは合成した `dnnprobe` spec の出力であって、実物の
+  `NativeMethods.Dnn.g.cs` ではない**）。**穴は「Unity と IL2CPP の側」に
+  限られており、そこは丸ごと空いている。**
 - **macOS 上の Unity の挙動**（CI の macOS job は plugin をビルドするが Unity を
   起動しない）。**2026-08-31 に 4 回試して「CI では埋まらない」と確定した** ——
   game-ci は macOS を支えず（`darwin-platform is not supported`）、Unity Hub で
