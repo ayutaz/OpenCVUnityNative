@@ -172,3 +172,9 @@ backend の話になり、M7 の CUDA に関する決定（同梱しない）に
   可能性が高く、真の初回ロード時間ではない
 - **IL2CPP Player での `RenderTexture` の経路。** `RenderTextureConverter.ToMat` /
   `RequestMat` は Editor（Mono）の `test-unity-graphics` でしか実行されたことがない
+- **`dnn` の推論（M7c、2026-09-10）。** `./tools/dev.ps1 benchmark` の対象に `dnn` の
+  項目は無く、`OCVU_BENCH:` 行を `ocvu_dnn_net_forward` から出したことも無い。
+  **モデルの読み込み・blob 化・forward のいずれについても、このリポジトリは
+  数字を 1 つも持っていない** —— 実機で動かしたことが無いこと（上の 1 つ目）と
+  合わせて、`dnn` は「作ってあるが、速さは分からない」状態である
+  （roadmap の `### M7c の判定`）

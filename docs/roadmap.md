@@ -75,7 +75,7 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | `release.yml` | tag / **pull request**（空撃ち） / `workflow_dispatch` | **全部入りの UPM tarball（配る正）** と platform ごとの tarball、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**staging した数を数え**、全部入りが名前で並んでいることも見る（**件数は platform が増えれば増えるので、実数は `CLAUDE.md` の workflow 表が持つ**）。**pull request でも走るようにしたのは M4 の後**で、tag でしか走らなかった間に欠陥が 3 件たまったためである（うち 1 件は「tag を打つと Release が 1 件も作られない」）。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した。** それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— job を `assemble`（条件なし）と `publish`（job 単位で tag に限る）に割って直した。**実績は 2 つ**: run 33286928144 は条件を最後の step に降ろしただけの形（レビューで取り消した）、run 33289128197 が**いまの 2 job 構成**である。どちらも Release は作られていない。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
 | `ci-lint.yml` | push(main) / PR / 手動 | actionlint / shellcheck / PSScriptAnalyzer / 文書の相対リンク検査の 4 job。**静的に読めば分かる誤りを、CI を 1 周（10〜20 分）回して確かめていた**のを埋める | M3 後 |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C# の静的解析。sanitizer が「実際に踏んだ経路」を見るのに対し、CodeQL は経路を実行せずに探すので**重なっていない** | M3 後 |
-| `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**schedule での実行実績はまだ無い**（下記） | M3 後 |
+| `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**2026-08-29 から schedule で毎日走っている**（下記） | M3 後 |
 
 **M3 の後に足したもの**（マイルストーンの完了条件ではなく、CI/CD の監査で出た穴を塞ぐもの）
 
@@ -84,15 +84,27 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 - `.github/dependabot.yml` — `actions/*` と `tests/Managed` の NuGet を週 1 で追う。可変タグで固定しているので、**上流が変われば何もしていないのに壊れる**。その変化を差分として見える形にする
 - `SECURITY.md` / `CONTRIBUTING.md` — OSS として欠けていた。前者は非公開の脆弱性報告先とこの境界で何が範囲内か、後者は貢献の手順と**CI が見ないもの**を明示する
 
-**`nightly.yml` は schedule でまだ 1 度も走っていない。** 手動起動が 2 回あるだけで、
+**`nightly.yml` は schedule で毎日走っている。** 最初の手動起動は 2 回で、
 1 回目（run 33230097557、2026-08-29 02:54Z）は 4 job 中 3 job が
 `API rate limit exceeded for installation` で失敗し、原因を直したあとの
 2 回目（run 33233610215、同 04:21Z）が 4 job とも success だった
 （上表のとおり 3 job 定義に対して実行は 4 件になる。数え方が違うだけで、
 どちらの数字も同じ run のものである）。
+
+**その後 cron の経路も動いた**（2026-09-10 に `gh run list --workflow nightly.yml
+--event schedule` で実測）—— **2026-08-29 から毎日、13 回**。うち 3 回
+（2026-08-31 / 09-01 / 09-02）が failure で、**直近 8 回（09-03〜09-10）は
+すべて success** である。
+
+**リポジトリ内でこの件数を書いてあるのは、ここと `README.md` / `README.ja.md` のnightly の段落の 3 箇所だけである。** README の 2 つは利用者向けで、ここを指すわけにいかないので**日付つきの記録として**書いてある（必須チェックの本数とまったく同じ扱いで、`CLAUDE.md` がその例外を 1 箇所に書いている）。**「ここ 1 箇所に限る」と書いていたが、それは同じ branch の中で既に偽だった** ——**排他を主張する文は、主張した本人がいちばん破りやすい。**
+
 **「workflow ファイルが存在する」は「CI で実行された」ではない** ——
-M2 の条件 7 をその基準で未達と判定した以上、こちらにも同じ基準を当てる。
-cron の経路そのものが動いたことは、まだ確かめられていない。
+M2 の条件 7 をその基準で未達と判定した以上、こちらにも同じ基準を当てた。
+**この項目は、その基準を当てたまま解消した側の例である** ——
+**逆向きの陳腐化に注意すること。** 「まだ動いていない」と書いた記述は、
+動き始めた日から嘘になるのに、**赤くならない**（穴が埋まっても誰も知らせない）。
+実際この 1 文は 2026-09-10 まで 4 箇所に残り、**毎日走っている検査を
+「存在しない」ことにしていた。**
 
 **上の表は「何が走るか」だけを書いている。「何が merge を止めるか」は
 ここには書かない。** 走ることと止めることは別で、しかも止める側は GitHub の
@@ -709,7 +721,9 @@ v0.1.1 の Linux binary が上限に収まっているのは、Linux のビル�
 
 **結論を先に書く。OpenCV 5 を土台にしている Unity 向けパッケージは、商用・OSS とも
 本案以外に見つからない。** ただし本案が公開している API は `core` / `imgproc` /
-`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` / `stereo` に留まる（**本数は [所有権と versioning](./abi-ownership-and-versioning.md) §3 の冒頭が数える** —— ここに写すと 1 本増えた日にこの行だけが嘘になる）（M3.5 で `imgcodecs`、
+`imgcodecs` / `objdetect` / `features` / `geometry` / `calib` / `stereo` と、
+opt-in profile の `dnn`（M7c）に留まる（**module 名も本数も写さない正本は
+`bindings/spec/*.json` のファイル名と [所有権と versioning](./abi-ownership-and-versioning.md) §3 の冒頭である** —— ここに写すと 1 本増えた日にこの行だけが嘘になる）（M3.5 で `imgcodecs`、
 M5 の module 拡張で `objdetect` / `features` / `geometry` / `calib`、そして
 **2026-09 の API 拡張で姿勢・ArUco・imgproc の実用関数・core の基本演算・
 記述子マッチング・ステレオ視差**が加わった。**本数を数える正本は
@@ -730,14 +744,14 @@ M5 の module 拡張で `objdetect` / `features` / `geometry` / `calib`、そし
 | --- | --- | --- | --- |
 | 1 | ~~**1 つの package に 1 platform 分の binary しか入らない**~~ **M3.5 で解消** | Unity は同じ package ID を 1 つしか導入できない。「エディタは Windows、実機は Android」が表現できなかった | **M3.5 完了**。全部入り tarball（`com.ayutaz.opencv-unity-native.tgz`）が配る正になり、Desktop 3 platform が同居した状態で `test-unity-tarball` が 16 passed |
 | 2 | ~~画像を encode / decode できない~~ **M3.5 で解消** | 比較した競合はいずれも画像の入出力を持つ（そちらはファイル経路まで含む）。**ここに「モジュールはリンク済みで、足りないのは ABI 関数だけ」と書いていたのは誤りで、実際は `imgcodecs` をリンクしていなかった**（下記 M5 節） | **M3.5 完了**（M5 から前倒し）。component を足し、`ocvu_imencode` / `ocvu_imdecode` を出した |
-| 3 | ~~**OpenUPM に載っていない**~~ **解消済み（2026-08-30）** | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **(a) 版番号なしの asset 名・(b) 容量の検査・(c) 登録申請のすべてが済んだ。** openupm/openupm PR #6843 が自動マージされ、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信している（[登録の記録](./openupm-registration.md)）。**配信されている版は v0.2.0 のままである** —— 登録と、新しい版が届くことは別 |
+| 3 | ~~**OpenUPM に載っていない**~~ **解消済み（2026-08-30）** | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **(a) 版番号なしの asset 名・(b) 容量の検査・(c) 登録申請のすべてが済んだ。** openupm/openupm PR #6843 が自動マージされ、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信している（[登録の記録](./openupm-registration.md)）。**配信されている版は `0.3.0` である**（2026-09-04 に確認。下の「配布 その 5」）—— 登録と、新しい版が届くことは別で、`0.2.0` から `0.3.0` へ切り替わるのに公開の約 4 時間を要した |
 | 4 | 検証している Unity が 1 版だけ | **M3.5 でその 1 版を 6000.0.82f1 → 6000.3.16f1 に載せ替えた**（6000.0 LTS の通常サポートが 2026-10 に終わるため。6.3 LTS は 2027-12 まで）。**版が 1 つしかないこと自体は変わっていない** | **M3.5 完了**（載せ替えのみ。複数版の検証は担当なし） |
 | 5 | ~~カメラ映像を受け取れない~~ **M4 で解消** | `WebCamTextureConverter`（3 overload）が `WebCamTexture` から `CvMat` を作る。**新しい C ABI 関数は 1 本も増えていない** —— 既存の上に立つ純 C# である | **解消済み（2026-08-30）** |
 | 6 | macOS で Unity に読み込ませたことがない | 「iOS のビルドに macOS runner が要るので M4 で自然に埋まる」と書いていたが、**埋まらなかった。** macOS runner は plugin をビルドするだけで Unity を起動しない | **未解消。2026-08-31 に 4 回試して「CI では閉じない」と確定した**（game-ci は macOS を支えず、Hub で直接入れる経路は Editor が 14 分で入るのにライセンスで止まる）。詳細は下の「担当が無かった制約」 |
 | 7 | Windows の IL2CPP を CI で回していない | 「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった —— **そこで実際に投げて根拠を作った** | **未解消。2026-08-31 に「CI で回さない」と結論した** —— `windows-2022` で EditMode は 33 件通ったが、`Standalone` は `ToolchainNotFoundException` で落ちた（game-ci の Windows コンテナに MSVC が無い）。**根拠は実測であって他人の issue ではない。** これは「まだ調べていない穴」ではなく**意図して CI の外に置いたもの**である |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決めた: arm64 のみ**（Android は arm64-v8a、iOS は実機の arm64）。**穴は塞いでいない —— 塞がないと決めた。** 増やすと platform が 2 つ増え、OpenCV のビルドも配布物も同じだけ増える（**数を写さない** —— 正本は `tools/dev.ps1` の `$AllPlatformBinaries` で、触る場所は `add-a-platform` skill にある） |
 | 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7a で着手し、部分的に解消（2026-09-06）。** 割り当ては L3 が機械で保証し（ポインタ経路 0 バイト）、時間は測って公開したが**assert していない**。**`RenderTexture` / `AsyncGPUReadback` の経路は Editor（Mono）の `test-unity-graphics` でしか実行しておらず、そのレーンは CI に配線していない** —— IL2CPP の Player でこの経路が動くかは未実証のままである。**native texture pointer は評価のみで実装していない**（やらないと決めた）。判定と根拠は下の「M7a の判定」節 |
-| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7**（位置づけと、そこから出た module 分離の決定は下記） |
+| 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7c で部分的に解消（2026-09-10）。** ONNX をメモリから読んで forward を 1 回走らせる C ABI 4 本を、opt-in profile（`OCVU_PROFILE_DNN`）として出した。**ただし実機で 1 度も動かしておらず、推論の速さも測っていない**（`### M7c の判定`）。位置づけと、そこから出た module 分離の決定は下記 |
 
 ### #1 を最優先に置く理由
 
@@ -1873,9 +1887,14 @@ Emscripten は既定で C++ 例外を無効にするので、`throw` は残る�
   `NativeMethods.cs` が持つ 1 つの定数なので、そこの条件を 1 つ増やして済んだ。
   **その 1 行が抜けていたのが M6 の欠陥 #1 で、ビルドもリンクも Player の起動も
   通り、呼んだ瞬間に落ちた。**
-- **依存 allowlist が新しい依存を捕まえる。** `calib` を足したとき、推移的に引かれた
+- **依存 allowlist が捕まえるのは、artifact の中に独立したライブラリとして現れる依存だけである。**
+  `calib` を足したとき、推移的に引かれた
   `stereo` で 4 platform とも最初のビルドが落ちた（2026-09-02）。**Emscripten でも
   同じ検査が働く** —— 落ちたら、引き込まれたものを確かめてから明示的に足す。
+  **ただし限界がある**（M7c で実測）—— 別のライブラリの中へ静的に取り込まれた
+  third-party は allowlist に何も見えない。`dnn` が引き込む MLAS / ONNX Runtime は
+  `libopencv_dnn.a` の一部になっており、`protobuf` は捕まったのにこの 2 つは
+  捕まらなかった（`### M7c の判定`）。
 - **`OCVU_ABI_VERSION` は 1 のままである。** M5 は移設であって追加ではなく、
   module を足しても版は動いていない。
 
@@ -1885,6 +1904,10 @@ Emscripten は既定で C++ 例外を無効にするので、`throw` は残る�
 さらに積む形になった** —— Web を足しても届かなければ差別化にならない、という
 懸念は**まだ消えていない。後払いの期限が来ただけである** ——
 **次にやることは配ることである**（「配布 その 5」）。
+
+→ **2026-09-04 に v0.3.0 として配った**（「配布 その 5」）。M4 / M5 / M6 の成果は
+これで届き、この懸念は解消した。**同じ形は M7 で戻ってきている** —— **M7 の成果
+（`dnn` を含む）はまだどの公開版にも入っていない。**
 
 ---
 
@@ -1900,8 +1923,12 @@ DNN / contrib / 動画 codec / videoio が opt-in profile として追加でき�
 根拠と、それでも前倒ししない理由は
 [競合調査](./unity-opencv-integration-research-and-plan.md) §3 / §4.6 にある
 （要約すると、競合はすべて書き直し前のエンジンを載せている一方、Unity 利用者に
-とっては推論エンジンが OpenCV だけではない）。**前倒しの判断は利用例が集まってから
-行う。**
+とっては推論エンジンが OpenCV だけではない）。~~**前倒しの判断は利用例が集まってから
+行う。**~~ → **前倒しはしなかったが、M7 の中で M7c として実際に出した（2026-09-10）。**
+着手の根拠は「利用例が集まったこと」でも「上流が安定したこと」でもなく、
+**リポジトリ所有者が 5.1 での作り直しの費用を承知のうえで受け入れると判断したこと**
+である（下の「この決定は解除された」）。**この節が挙げる上流の実測は、いまも
+そのまま成立している。**
 
 **低コピー経路の実測もここが担当である**（穴 #9）。掲げている主張を支える実測が
 まだ無い、という穴である。
@@ -2023,7 +2050,9 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
    `native/modules.cmake` の `OCVU_MODULES` が `OCVU_SOURCES` に組み込む module を選び、
    除いた module の関数は binary から消える —— `tools/verify-exported-symbols.ps1` が
    配布 binary の export 面と spec の完全一致を CI で見ており（3 platform とも `ocvu_`
-   の export 53 本が spec の 53 本と一致）、`OCVU_MODULES` を意図的に絞ると外した
+   の export が spec の関数一覧と過不足なく一致した。**本数をここに写さない** ——
+   検査の性質は数に依らないし、正本は `docs/api-map.md` の冒頭である）、
+   `OCVU_MODULES` を意図的に絞ると外した
    module の関数が実際に export 面から消えることも確認済みである。**target はいまも
    1 つのままで、これは実装漏れではなく分けられないからである** —— `native/CMakeLists.txt`
    は同じソースを 2 回コンパイルする（配布物の `opencv_unity_native` に
@@ -2047,9 +2076,15 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
    問うた —— 両 assembly が実際にコンパイルされ（`Library/ScriptAssemblies/` に両方の
    `.dll` が現れた）、define を外すとどちらも消えることを EditMode の
    `ProfileGatingTests`（4 件）で確かめた。**証明したのは「機構が働くこと」であって
-   「dnn で働くこと」ではない** —— `bindings/spec/dnn.json` はまだ無く、非 `standard`
+   「dnn で働くこと」ではない** —— **~~`bindings/spec/dnn.json` はまだ無く、非 `standard`
    profile を宣言する module は現時点で 1 つも無いので、`CvUnity.Interop.Dnn` と
-   `CvUnity.Tests.Shared.Dnn` はどちらも中身が空の assembly のままである。
+   `CvUnity.Tests.Shared.Dnn` はどちらも中身が空の assembly のままである。~~**
+   → **M7c で本物の `dnn` が入った（2026-09-08〜10、`e1b0930`）。** `bindings/spec/dnn.json`
+   が `"profile": "dnn"` を宣言し、C ABI 4 本が `NativeMethodsDnn` と `CvUnity.Dnn.CvDnn`
+   まで通っている —— **両 assembly はもう空ではない**（`### M7c の判定`）。
+   **取り消し線の 2 文を消さずに残してあるのは、同じ「まだ無い」という前提が別の場所に
+   残っていないかを次に読む人が確かめられるようにするためである**（[所有権と versioning](./abi-ownership-and-versioning.md)
+   §4 が同じ形で処理している）。
 3. **OpenCV の版を跨げるようにする。** 構成ハッシュには tag が入るので、tag を変えれば
    古い artifact は使われなくなる（tag は M1 から入っている。M3 Task 1 が足したのは
    `Platform` である）。**しかしこれは「2 つの版が同時に成立する」
@@ -2064,13 +2099,23 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
      `tools/tests/OpenCvConfig.Tests.ps1`
 
    **つまり「確認」ではなく、config に軸を 1 本増やす設計作業である。**
-4. **`dnn` を allowlist に足すのは、上の 1〜3 が済んでから。** 現在の `Modules` は
-   `core / imgproc / imgcodecs / objdetect / features / calib` で **dnn は入っていない**。足すと OpenCV 側の
-   ビルド時間と成果物サイズが変わる。**あわせて `THIRD_PARTY_NOTICES.md` の作業が要る** ——
+4. **`dnn` を allowlist に足すのは、上の 1〜3 が済んでから。** ~~現在の `Modules` に
+   **dnn は入っていない**。~~ 足すと OpenCV 側のビルド時間と成果物サイズが変わる。
+   **あわせて `THIRD_PARTY_NOTICES.md` の作業が要る** ——
    同文書が明文で指示している: *"If a future `Modules` list adds `dnn` or `gapi`, re-run these
    searches — they will very likely start matching, and these two need to move up into the
    reproduced sections above."* dlpack と flatbuffers はいま「ライセンスディレクトリにあるが
    リンクされていない」側に分類されており、**`dnn` を足すとその分類が崩れる**（protobuf も入る）。
+
+   → **M7c で足した（2026-09-08）。** `tools/opencv-config.psd1` の `Modules` に `dnn` が
+   入っている（**一覧をここに写さない。正本は同ファイルである**）—— 構成ハッシュが変わり、
+   全 platform 分の OpenCV を作り直した。**予告した notice の作業も実際に起きた**:
+   `protobuf` が新しく入り、**`flatbuffers` は「あるがリンクされていない」側から
+   リンク済みの側へ移った**（`dnn` の TFLite importer が読む側で使う。実物の
+   `opencv_dnn` を Windows / Linux の 2 つの名前修飾で grep して確かめてある）。
+   **`dlpack` は移らなかった** —— どの `.a` にも 1 件も現れないので、いまも
+   「あるがリンクされていない」側にある。**予告は「2 つとも崩れる」だったが、
+   実際に崩れたのは 1 つだけである。**
 5. **CUDA / cuDNN を同梱するなら、2 つの前提条件を先に潰す。** どちらも技術判断ではない。
 
    - **再配布の可否（未確認）。** 「本体が Apache-2.0」と「binary 内の全依存が Apache-2.0」は
@@ -2244,7 +2289,7 @@ CI 自身での確認は `.superpowers/sdd/2026-09-05-m7c-dnn-profile/task-6-rep
 
 ### M7a の判定（2026-09-06。**完了条件 5 件のうち 2 件を扱う**）
 
-**M7 は当初 3 つの計画に分ける想定だった**（`docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md`。M5 で「生成の仕組みと module 追加を同時にやると切り分けられない」と判断したのと同じ理由）—— **実際に実行されたのは M7a と M7b の 2 計画で、条件 5 は計画を経ないドキュメント上の決定として閉じた**。**M7a が担当するのは完了条件 2（低コピー経路の評価）と 3（benchmark の公開）だけである** —— 条件 1（profile ごとの native artifact 等）は当時まだどの計画の担当にもなっておらず、条件 4（C ABI / C# の module 分離）は M7b、条件 5（CUDA / cuDNN の再配布確認）は `### CUDA / cuDNN 同梱の判定` が担当する。**この節はその 2 件だけの判定であって、M7 全体の判定ではない** —— 条件 1・4・5 がそれぞれ何本閉じているかは、この節ではなく担当する計画・節自身の判定にある（条件 4 は `### M7b の判定`、条件 5 は `### CUDA / cuDNN 同梱の判定`、条件 1 は `### M7c の判定`）。ここに残数を書かないのは、担当する計画が閉じるたびにその数だけがこの節に取り残されて古くなるからである。
+**M7 は当初 3 つの計画に分ける想定だった**（`docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md`。M5 で「生成の仕組みと module 追加を同時にやると切り分けられない」と判断したのと同じ理由）—— **3 つとも実行され（M7a / M7b は `be5615f`、M7c は `e1b0930`）、条件 5 だけが計画を経ないドキュメント上の決定として閉じた**（**この文はこの節を書いた 2026-09-06 の時点では「実行されたのは 2 計画」だった。M7c が 2026-09-10 に実行されて古くなり、直した** —— 判定節どうしの散文の参照が腐る、というこの branch が繰り返し踏んだ形の 4 例目である）。**M7a が担当するのは完了条件 2（低コピー経路の評価）と 3（benchmark の公開）だけである** —— 条件 1（profile ごとの native artifact 等）は当時まだどの計画の担当にもなっておらず、条件 4（C ABI / C# の module 分離）は M7b、条件 5（CUDA / cuDNN の再配布確認）は `### CUDA / cuDNN 同梱の判定` が担当する。**この節はその 2 件だけの判定であって、M7 全体の判定ではない** —— 条件 1・4・5 がそれぞれ何本閉じているかは、この節ではなく担当する計画・節自身の判定にある（条件 4 は `### M7b の判定`、条件 5 は `### CUDA / cuDNN 同梱の判定`、条件 1 は `### M7c の判定`）。ここに残数を書かないのは、担当する計画が閉じるたびにその数だけがこの節に取り残されて古くなるからである。
 
 実装は `.superpowers/sdd/2026-09-05-m7a-low-copy-and-benchmarks/`（Task 1〜6）。実測はすべてこのマシン（Windows 10.0.22631、X64、Unity 6000.3.16f1、2026-09-05〜09-06）。詳細な数字と読み方は [性能](./performance.md) が正本で、ここには写さない。
 
@@ -2266,7 +2311,7 @@ CI 自身での確認は `.superpowers/sdd/2026-09-05-m7c-dnn-profile/task-6-rep
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 4 | `dnn` を足す前に、C ABI と C# の module 分離が済んでいること（上の決定 1〜2） | **満たした。ただし「機構が通っている」であって「dnn を分離した」ではない。** native 側は `native/modules.cmake` の `OCVU_MODULES` が module 単位でソースを選べる形になり、`tools/verify-exported-symbols.ps1` が binary の export 面を spec と完全一致で照合する（desktop 3 platform とも `ocvu_` の export 53 本が spec の 53 本と一致。`ci-native.yml` で実測。**配る経路（`release.yml`）にも配線してあるが、そちらの実測はこの PR の CI が初回である**）。C# 側は spec の `profile` が非 `standard` の module を別 assembly（`CvUnity.Interop.Dnn` / `NativeMethodsDnn` / `Runtime/Interop.Dnn/`）へ出す生成器の分岐と、それを Unity に問う EditMode の `ProfileGatingTests` を作った——define（`OCVU_PROFILE_DNN`）を立てて両 assembly（`CvUnity.Interop.Dnn` と、その到達性テストを持つ `CvUnity.Tests.Shared.Dnn`）が実際にコンパイルされ、外すと両方消えることを Unity 自身に実測した。**さらに、合成した `profile: "dnn"` の spec から生成した実物のファイル 2 つ（`NativeMethods.Dnnprobe.g.cs` と `AbiReachabilityChecks.Dnn.g.cs`）が、define を立てた Unity で実際にコンパイルされることまで実測した**（2026-09-06。`Library/ScriptAssemblies/` に両 dll が現れた）—— **この一段は最終レビューで足した。** それまで確かめられていたのは「`defineConstraints` が**手書きの**コードを切る」ことまでで、**生成物を誰もコンパイルしていなかった**（その穴を通って欠陥が 1 件入っていた。下の「穴を隠さず書く」を参照）。**dnn の spec も実装もまだ無い** —— `bindings/spec/dnn.json` は存在せず、非 `standard` profile を宣言する module は現時点で 0 個で、`CvUnity.Interop.Dnn` / `CvUnity.Tests.Shared.Dnn` はどちらも commit された状態では中身が空である。決定の詳細は上の「決定: native bridge を module 単位に分ける」1・2、規約は [所有権と versioning](./abi-ownership-and-versioning.md) §4 |
+| 4 | `dnn` を足す前に、C ABI と C# の module 分離が済んでいること（上の決定 1〜2） | **満たした。ただし「機構が通っている」であって「dnn を分離した」ではない。** native 側は `native/modules.cmake` の `OCVU_MODULES` が module 単位でソースを選べる形になり、`tools/verify-exported-symbols.ps1` が binary の export 面を spec と完全一致で照合する（desktop 3 platform とも `ocvu_` の export が spec の関数一覧と過不足なく一致。当時は 53 本で、**その後 M7c の `dnn` が加わって増えた —— 本数の正本は `docs/api-map.md` の冒頭である**。`ci-native.yml` で実測。**配る経路（`release.yml`）にも配線してあるが、そちらの実測はこの PR の CI が初回である**）。C# 側は spec の `profile` が非 `standard` の module を別 assembly（`CvUnity.Interop.Dnn` / `NativeMethodsDnn` / `Runtime/Interop.Dnn/`）へ出す生成器の分岐と、それを Unity に問う EditMode の `ProfileGatingTests` を作った——define（`OCVU_PROFILE_DNN`）を立てて両 assembly（`CvUnity.Interop.Dnn` と、その到達性テストを持つ `CvUnity.Tests.Shared.Dnn`）が実際にコンパイルされ、外すと両方消えることを Unity 自身に実測した。**さらに、合成した `profile: "dnn"` の spec から生成した実物のファイル 2 つ（`NativeMethods.Dnnprobe.g.cs` と `AbiReachabilityChecks.Dnn.g.cs`）が、define を立てた Unity で実際にコンパイルされることまで実測した**（2026-09-06。`Library/ScriptAssemblies/` に両 dll が現れた）—— **この一段は最終レビューで足した。** それまで確かめられていたのは「`defineConstraints` が**手書きの**コードを切る」ことまでで、**生成物を誰もコンパイルしていなかった**（その穴を通って欠陥が 1 件入っていた。下の「穴を隠さず書く」を参照）。**dnn の spec も実装もまだ無い**（**2026-09-06 時点の話である。M7c が 2026-09-10 に `bindings/spec/dnn.json` と C ABI 4 本を入れたので、いまは在る —— `### M7c の判定`**）—— 当時は `bindings/spec/dnn.json` が存在せず、非 `standard` profile を宣言する module は 0 個で、`CvUnity.Interop.Dnn` / `CvUnity.Tests.Shared.Dnn` はどちらも commit された状態では中身が空だった。決定の詳細は上の「決定: native bridge を module 単位に分ける」1・2、規約は [所有権と versioning](./abi-ownership-and-versioning.md) §4 |
 
 **穴を隠さず書く。**
 
@@ -2314,6 +2359,85 @@ CI 自身での確認は `.superpowers/sdd/2026-09-05-m7c-dnn-profile/task-6-rep
 - **third-party のライセンス集合は platform ごとに実際に違うが、notices はそれを反映していない。** `clapack-lapack_LICENSE` は Linux / Windows / Android / Web には存在するが macOS / iOS には無い（`THIRD_PARTY_NOTICES.md` は 1 通の文書で全 platform を代表している）。
 - **`PNG_ARM_NEON=off` は取引であって、無条件の勝ちではない。** `cb250c2` で android-arm64 / ios-arm64 / macos-arm64 の 3 platform に限定して立てた。原因は上流 OpenCV 5.0.0 の vendoring 欠陥——`3rdparty/mlas/lib/compute.cpp` の `MlasGQASupported<MLAS_FP16>` が `MlasHGemmSupported()` を無条件に呼ぶが実体が vendor されておらず、macOS arm64 のリンクが `MlasHGemmSupported` 未定義で落ちる。その ASM 有効化の真因を辿ると `3rdparty/libpng/CMakeLists.txt` の ARM NEON 向け `enable_language(ASM)` に行き着き、`PNG_ARM_NEON=off` はこれを止める代わりに `arm/filter_neon.S` だけでなく同じ分岐にある `arm_init.c` / `filter_neon_intrinsics.c` / `palette_neon_intrinsics.c` も道連れにする——**PNG は arm64 3 platform で ARM 加速を丸ごと失う。** 上流には intrinsics だけ残す形（QNX 向け）があるが、このプロジェクトからは触れない。5.1 で上流が直せば見直す価値がある。
 - **dnn の到達性テストは、レビューまでどこからも呼ばれていなかった。** 生成物 `AbiReachabilityChecksDnn.CallEveryEntryPoint()`（`tests/UnityProject/Assets/Tests/Shared.Dnn/`）は spec の dnn 4 関数を 1 回ずつ呼ぶために存在するが、標準 profile の同じ仕組み（`AbiSurfaceTests.cs` / `AbiSurfacePlayerTests.cs` / `WebSmokeRunner.cs` の 3 箇所から呼ばれる）と違い、呼び出し元が 1 つも無かった。**呼ばれない宣言そのものが IL2CPP の stripping の対象になる**ので、この検査は「無い」以上に悪い状態だった——M4 が手書きの 19 本のうち 7 本で実際に踏んだのと同じ形の穴が、dnn の 4 本に開いたまま気づかれずにいた。レビューで指摘され、`tests/UnityProject/Assets/Tests/PlayMode/AbiSurfaceDnnPlayerTests.cs`（`#if OCVU_PROFILE_DNN` で自分を守る、`CvUnity.Tests.PlayMode` の asmdef に `CvUnity.Tests.Shared.Dnn` への参照を足した）を追加して閉じた。**手で 1 回、`OCVU_PROFILE_DNN` を立てて `test-unity-player` を実際に走らせ、stripping が dnn の 4 宣言を消していないことを確認した**（`ProfileGatingTests` が確立した「正の方向は人が手で確かめる」規約と同じ形。実測の日付と結果はこの節の下、または `tools/dev.ps1` 実行ログを参照）。**CI はどのレーンも `OCVU_PROFILE_DNN` を立てないので、この確認は一度きりであり、次に dnn の ABI が変わったときに自動では再検証されない。**
+
+### M7 の判定（2026-09-10。**5 件すべてを満たした**）
+
+**M7 はこのリポジトリで最後のマイルストーンである。** この文書の `## M` 見出しは
+M0 から M7 までで、M8 は無い。**帰結を先に書く: ここで「次のマイルストーンへ送る」
+と書いた留保は、行き先が存在しない。** 送るのではなく、担当が無いなら無いと書く
+（下の「満たしたが、実証していないこと」と「担当が無い」）。
+
+**判定が 1 節にまとまっていないのは、M7 だけである。** M0〜M6 は 1 つの節が
+その全条件を判定しているが、M7 は 3 つの計画と 1 つの文書上の決定に割れたため、
+**5 件の判定が 4 節に分かれている。** この節はその索引であって、判定の本文では
+ない —— **各条件の判定と根拠は担当する節にあり、ここには写さない**（写すと、
+どちらかが直された日にもう一方だけが古くなる）。
+
+| # | 完了条件 | 判定の本文 | 満たした | 実証した |
+| --- | --- | --- | --- | --- |
+| 1 | profile ごとの native artifact、manifest、third-party notices | `### M7c の判定`（2026-09-10） | はい | **いいえ** —— `dnn` を実機で動かしたことは 1 度も無く、推論の速さも測っていない |
+| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | `### M7a の判定`（2026-09-06） | はい | **部分的** —— `ToMat` / `RequestMat` の画素を運ぶ経路は Editor の `test-unity-graphics` でしか走っておらず、そのレーンは CI に配線されていない。native texture pointer は評価のみで実装していない |
+| 3 | package size、startup time、frame time、allocation の benchmark を公開 | `### M7a の判定`（2026-09-06） | はい | **半分** —— package size と allocation は機械が assert し CI が守る。frame time と startup time は公開するが assert しない（設計 D1）。startup time は「native ライブラリの真の初回ロード」を捉えていない |
+| 4 | `dnn` を足す前に、C ABI と C# の module 分離が済んでいること | `### M7b の判定`（2026-09-06） | はい | はい —— ただし当時証明したのは「機構が働くこと」で、`dnn` で働くことは条件 1 の側（M7c）が示した |
+| 5 | CUDA / cuDNN を同梱するなら、再配布条件の確認が済んでいること。確認できないなら**同梱しない**と決めて記録する | `### CUDA / cuDNN 同梱の判定`（2026-09-06） | はい | —— **ライセンス条項は読んでいない。** 条件が用意した 2 経路のうち「確認できないので同梱しないと決める」を選んだ形である |
+
+**「満たした」と「実証した」を同じ列に並べないのは、この 2 つが M7 では実際に
+食い違うからである。** 5 件とも「満たした」だが、そのうち **1 件は実機で 1 度も
+動かしておらず、2 件は CI が見ていない経路を含み、1 件は根拠となる文書を読んで
+いない。** 完了条件は「作ってあること」を問うており、「動くと確かめてあること」
+までは問うていない —— その差が M7 では M4 以来いちばん大きい。
+
+**満たしたが、実証していないこと**（本文は各判定節の「穴を隠さず書く」にある。
+**ここは索引であって、詳細を写さない**）
+
+- **`dnn` は実機で 1 度も動いていない。** M4 が残した「Android / iOS は CI が
+  ビルドするが誰も動かしたことがない」という穴が、そのまま `dnn` にも当てはまる。
+  Web は CI の browser E2E に任せており、手元では確かめていない
+- **`ocvu_dnn_net_forward` の `.clone()` を要ると示す再現テストが無い。**
+  外しても検知できず、しかも**確定させる経路がリポジトリの構成上存在しない**
+  （復元する OpenCV の木にヘッダと lib はあるが `Net::forward()` の実装ソースが無い）。
+  「負の対照が取れない」の 3 例目であり、これまでで最も弱い形である
+- **MLAS / ONNX Runtime は依存 allowlist から見えない。** allowlist が検査するのは
+  artifact の中の独立したライブラリで、`libopencv_dnn.a` に静的に取り込まれたものは
+  現れない。`protobuf` は捕まったが、この 2 つは捕まらない
+- **`WITH_CAROTENE` と `WITH_KLEIDICV` は既定 ON のまま監査していない。**
+  実際にリンクされていることは実測済みだが、ライセンス・再配布条件は確認していない
+- **third-party のライセンス集合は platform ごとに実際に違うのに、`THIRD_PARTY_NOTICES.md`
+  は 1 通で全 platform を代表している**（`clapack-lapack_LICENSE` は macOS / iOS に無い）
+- **CUDA / cuDNN の再配布条件は読んでいない。** 大きさだけで結論が出たので読まずに
+  済んだ、という形である —— **配布形態が変われば、この宿題はそのまま戻ってくる**
+- **`dnn` の到達性は人が手で 1 回確かめたきりである。** `OCVU_PROFILE_DNN` を立てる
+  workflow も `dev.ps1` のレーンも無いので、次に `dnn` の ABI が変わっても自動では
+  再検証されない
+
+**担当が無い。** 上の各項目は、M8 が無い以上「次のマイルストーンで拾う」ことが
+できない。**拾う予定は無い** —— 拾うなら、そのときに新しい計画を立てることになる。
+**実機の検証だけは手順書がある**（[実機での検証手順](./m4-device-verification.md)。
+ただし `dnn` の項は無い）。
+
+**M7 で新しく分かった、記録に値する形が 4 つある。**
+
+1. **1 つのマイルストーンを複数の判定節に割ると、節どうしの名指し参照が腐る。**
+   `ci-lint` の documentation link check は通常の markdown リンクしか見ないので、
+   見出しを backtick で引用しただけの参照は対象外である。**警告を書いたその branch の
+   中で、さらに 1 件を 2 人がかりで見落とした**（`### CUDA / cuDNN 同梱の判定`）。
+   だから 4 節とも「ここに残数を書かない」を明文にしてある
+2. **検査が当たっていた対象が、本番の物ではなく代用物だったことが 2 件。**
+   `verify-exported-symbols.ps1` は「配布 binary の公開面」を主張しながら
+   `ci-native` にしか配線されておらず、当たっていたのは開発用の binary だった
+   （`release.yml` にも配線して閉じた）。profile の gating を Unity に問う正の対照は
+   **手書きの probe** で満たされており、生成物を 1 度もコンパイルしていなかった ——
+   その穴を通って `[DllImport(LibraryName, ...)]` が CS0103 になる欠陥が入った
+3. **「binary に入っている」と「C# 側がコンパイルする」は別である。**
+   `dnn` の native 実装は既定の binary に必ず入っており、切っているのは C# の
+   assembly だけである。M3.5 で踏んだ「OpenCV に入っている」と「このプラグインが
+   リンクしている」の取り違えと同じ形が、1 段上の層で再現した
+4. **生成物が増えても検知範囲が自動で広がった実例。** M7c の新しい生成物 3 つは、
+   `check-generated-file-edit.sh` を 1 行も触らずに検知範囲へ入った（生成物が
+   先頭 5 行で名乗る規約を見る設計）。**対照的に、一覧を写していた
+   `check-unityengine-leak.sh` は M7c で守備範囲が 2 → 4 フォルダになったのに
+   2 のままで、2026-09-10 に正本から読む形へ直した**（実測: 直す前は
+   `Runtime/Interop.Dnn` と `Runtime/Dnn` が素通りした）
 
 ---
 
@@ -2611,6 +2735,9 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               |
                                                               v
                                                         M7 profiles
+                     （5 件すべて達成。判定は M7a / M7b / CUDA / M7c の 4 節に分かれ、
+                      索引は「M7 の判定」。M7 が最後のマイルストーンで、後続は無い。
+                      成果はまだどの公開版にも入っていない）
 ```
 
 **配布はマイルストーンではないが、マイルストーンの間に必ず挟まる。** M3 が v0.1.0 /

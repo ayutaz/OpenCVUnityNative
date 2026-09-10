@@ -174,24 +174,26 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 
 | 種別 | OpenCV for Unity | 本案（**この表は M3.5 時点の記録である**。その後 v0.3.0（2026-09-04）まで公開し、M4 / M5 / M6 の成果は届いている。**最新の公開版は `docs/roadmap.md` の「配布」の節が正本**） |
 | --- | --- | --- |
-| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | OpenCV としてビルドしているのは 6（`core` / `imgproc` / `imgcodecs` / `objdetect` / `features` / `calib`）。**プラグインがリンクしているのは 8 つ**（この 6 つに、依存として推移的に引かれる `geometry` と `stereo` を足したもの）で、C ABI に出ているのはさらにその一部である（**本数を数える正本は [API 対応表](./api-map.md) の冒頭**） |
+| モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | **数も一覧もここに写さない** —— OpenCV としてビルドしている module の正本は `tools/opencv-config.psd1` の `Modules`、プラグインがリンクしている module の正本は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` である（**写していた頃は実際に古くなった**: M7c が `dnn` を両方に足したのに、この行は「ビルド 6 / リンク 8」のままだった）。C ABI に出ているのはさらにその一部で、**本数を数える正本は [API 対応表](./api-map.md) の冒頭**である |
 | platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | **この行は M3.5 時点の記録**（Windows / macOS / Linux）。**その後 M4 で Android / iOS、M6 で Web が加わった** —— 現況は [ロードマップ](./roadmap.md) が持つ |
 | 配布 | Asset Store から 1 つ入れれば全 platform | **1 つの tarball に Desktop 3 platform 分**（M3.5 で解消。[ロードマップ](./roadmap.md)「差別化の穴」の 1 件目）。~~**モバイルはまだ入らない**（M4）~~ **2026-08-30 に入った** |
 | カメラ | `WebCamTexture` の補助クラス群、WebGPU 対応の非同期読み出し | 無し（`Texture2D` のみ） |
-| 推論 | OpenCV DNN と Unity Sentis を切り替える `MultiBackendDnn` | 無し |
+| 推論 | OpenCV DNN と Unity Sentis を切り替える `MultiBackendDnn` | **opt-in profile（`OCVU_PROFILE_DNN`）で ONNX の推論 1 経路**（M7c、2026-09-10）。メモリから ONNX を読み、blob 化して forward を 1 回走らせる。**実機・GPU・速度の実証は無い** |
 | サンプル | 多数 | 1 つ（`Samples~/BasicUsage`） |
 
 **推論について 1 点補足する。** Enox が Sentis との切り替えを用意しているのは、
 **Unity 利用者にとって推論エンジンは OpenCV だけではない**からである。したがって
 「OpenCV 5 の新しい DNN エンジンを載せれば勝てる」とは言えない。§3 に書いたとおり
 差になり**うる**が、Unity の中では Sentis が代替になる領域であり、そこへ投資するかは
-M7 で判断する。
+M7 で判断する。→ **M7c で載せた（2026-09-10）** —— ただし opt-in profile として最小限
+（ONNX の読み込み・blob 化・forward の 3 手）であり、**実機で 1 度も動かしておらず
+推論の速さも測っていない**。Sentis との比較ができる状態ではない。
 
 #### 配布経路: OpenUPM
 
 OSS の Unity パッケージは [OpenUPM](https://openupm.com/) 経由で探されることが多い。
-**本案はまだ登録していない**（申請には公開済みのリリースが 1 つ要るので、次の版のあとに
-なる）。**登録できる形にする作業は M3.5 で終わっている** —— 下記の 2 つの制約はどちらも
+**~~本案はまだ登録していない~~ 2026-08-30 に登録され、レジストリが配信している**
+（openupm/openupm PR #6843 が自動マージされた。[OpenUPM への登録](./openupm-registration.md)）。**登録できる形にする作業は M3.5 で終わっている** —— 下記の 2 つの制約はどちらも
 満たした。手順と残りの条件は [OpenUPM への登録](./openupm-registration.md) にある。
 
 登録の障害になると考えていたのは「binary を git の追跡外に置いている」点だが、

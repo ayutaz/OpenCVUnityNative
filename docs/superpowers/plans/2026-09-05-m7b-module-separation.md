@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **この計画は実行済みである（2026-09-06、`be5615f`）。完了条件 4 を満たした。**
+> **以下は着手前の記録として読むこと。** 本文にある「dnn の spec も実装もまだ無い」
+> 「非 `standard` profile を宣言する module は 0 個」といった記述は、**この計画の
+> 実行時点の状態**である —— **M7c が 2026-09-08〜10 に `bindings/spec/dnn.json` と
+> C ABI 4 本を入れたので、いまは在る**（`docs/roadmap.md` の `M7c の判定`）。
+> 隣の 2 つの計画（共有の仕様と (c)）にも同じ趣旨の枠を置いてある。
+
 **Goal:** `dnn` のような opt-in profile を後から足せるよう、native の CMake target と C# の assembly を module 単位に割り、**割っても配布する binary の公開面が 1 バイトも変わっていないこと**を機械が守る形にする。
 
 **Architecture:** 先に**安全網**を作る —— 配布する binary が実際にエクスポートしているシンボルを読み、`bindings/spec/*.json` の関数一覧と**完全一致**することを要求する検査を足す。この網があってはじめて、CMake の作り替えが「何も落としていない」と言える。そのうえで (1) ソース一覧を module ごとに割って `OCVU_MODULES` から組み立て、(2) spec に `profile` を持たせ、profile が既定でないものは別 assembly・別クラスへ出す、(3) その assembly を `defineConstraints` で切る。

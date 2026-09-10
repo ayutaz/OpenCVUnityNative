@@ -9,7 +9,7 @@ description: Use when adding, removing, or changing a target platform for the na
 plugin のクロスビルドが緑になってから **CI で 8 回落ちた。** 落ちたのは
 いずれもビルドではなく、**platform の集合を持っている別の場所**である。
 
-このリポジトリには「対象 platform の一覧」が **少なくとも 17 箇所**ある（**この数も古い** —— M6 で数え直したら足りず、CI が 5 往復して 9 件を出した）。名前で持つ所、
+このリポジトリには「対象 platform の一覧」が**下の表の行数だけ**ある（**数をここに書かない** —— **書いていた数は毎回古かった**。M6 で数え直したら足りず CI が 5 往復して 9 件を出し、M7 でさらに 2 つ増えた）。名前で持つ所、
 ファイルのパスで持つ所、Unity の `BuildTarget` で持つ所、YAML の matrix で
 持つ所があり、**語彙が違うので grep 1 回では揃わない。**
 
@@ -39,7 +39,7 @@ plugin のクロスビルドが緑になってから **CI で 8 回落ちた。*
 | 3 | `tools/opencv.ps1` | `[ValidateSet(...)]` と、toolchain ファイルへの対応表 |
 | 4 | `CMakePresets.json` | configure / build preset 各 2 構成。**クロスなら `toolchainFile` を指す** —— 指さないと host 向けにビルドされ、**成功したように見えて中身が別物になる** |
 | 5 | `cmake/FindOpenCvUnityDeps.cmake` | 配置が違うなら候補に足す。クロスなら `CMAKE_FIND_ROOT_PATH` |
-| 6 | `native/CMakeLists.txt` | ライブラリ種別（静的なら依存の束ね） |
+| 6 | `native/CMakeLists.txt` | ライブラリ種別（静的なら依存の束ね）と、**リンク後の後処理**（M7c で増えた —— `CMAKE_SYSTEM_NAME STREQUAL "Android"` のときだけ `llvm-strip --strip-unneeded` を掛ける。**新しい platform では strip の要否を決めること。ここは「未知は落とす」形になっていないので、決めなければ黙って strip されない**） |
 | 7 | `tools/verify-opencv-artifact.ps1` | インストール配置、third-party の allowlist、ライセンスファイルの一覧 |
 | 8 | `THIRD_PARTY_NOTICES.md` | 新しく引かれる third-party のライセンス**全文** |
 | 9 | `tools/dev.ps1` | `$script:AllPlatformBinaries`、`-Platform` の受理、`$NativeLibraryName`、`Copy-NativePluginForUnity` の出力先 |
@@ -51,6 +51,8 @@ plugin のクロスビルドが緑になってから **CI で 8 回落ちた。*
 | 15 | `.github/workflows/ci-native.yml` | ビルド job（クロスならテストは走らない） |
 | 16 | `.github/workflows/ci-unity.yml` | plugin matrix（全部入りの材料） |
 | 17 | `.github/workflows/release.yml` | matrix と **asset の数** |
+| 18 | `tools/verify-exported-symbols.ps1` の**配線**（M7b） | 掛けるか明示的に skip するかを、`ci-native.yml` と `release.yml` の**2 箇所**で決める。決めないと `release` が `unknown platform '...': 公開面を検査するかどうかが決まっていない` で落ちる |
+| 19 | `tools/measure-package-size.ps1` の上限（M7a） | 全部入り tarball の上限（`release.yml` の `-MaxBytes`）。**新しい platform の binary はここに収まらなければ配れない** —— M7c は実際にここで落ちた（`124101923 > 104857600`）|
 
 加えて `tools/tests/OpenCvConfig.Tests.ps1` と `tools/tests/PackageRelease.Tests.ps1`
 が、上のいくつかの一致と数を見ている。**そちらの数も一緒に増える。**
@@ -85,14 +87,17 @@ OpenUPM の API を叩いて初めて気づき、**3 platform のまま残って
 **外部リポジトリへの PR なので、人の確認を取ってから出すこと。**
 
 **M6 で 4 つ目が出た（2026-09-03）。同じファイルの中に振り分けが 2 つある形である。**
-`.github/workflows/release.yml` は「未知の platform は失敗させる」門を **2 箇所**持つ
-（linkage の検査と移植性の検査）。**M6 では後者にだけ web-wasm を足し、前者に
-足し忘れた** —— ローカルの全レーンは緑のまま、CI の `Package web-wasm` だけが落ち、
+`.github/workflows/release.yml` は「未知の platform は失敗させる」門を **3 箇所**持つ
+（linkage の検査・移植性の検査・**公開面の検査**。3 つ目は M7b の
+`verify-exported-symbols.ps1` が足した）。**M6 の時点では 2 箇所で、後者にだけ
+web-wasm を足し、前者に足し忘れた** —— ローカルの全レーンは緑のまま、CI の
+`Package web-wasm` だけが落ち、
 `Assemble` がそれに連鎖した。**`pack-upm-tarball.ps1` の switch、
 `PackageRelease.Tests.ps1` の 3 つ目の一覧に続く 3 度目である。**
 `tools/tests/OpenCvConfig.Tests.ps1` に検査を足してあり、**一覧を持たない** ——
 `unknown platform '` を持つ step を全部見つけ、正本から読んだ全 platform が
-それぞれに現れることだけを見る。
+それぞれに現れることだけを見る。**その設計が働いた実例が M7b である** ——
+3 つ目の門が増えたとき、検査側は 1 行も変えずに新しい門を見るようになった。
 
 **hook が見えない一覧が、まだ 3 つある。** `check-platform-list-drift.sh` は
 **binary の相対パス**で判定するので、次の形は構造的に見えない:
@@ -116,10 +121,13 @@ OpenUPM の API を叩いて初めて気づき、**3 platform のまま残って
 実装し、未知は既定で落とす」形は近くに `PLATFORM_LIST_OK:` と理由を書いて許す。
 **理由を書かせるのが目的**で、黙って除外できる形にはしていない。
 
-**数を信用しない。** この表の「17」も、次に platform を足す人にとっては古い。
+**数を信用しない。この skill から数を落としたのはそのためである** ——
+以前はここに「17 箇所」と書いてあり、**M7 で 2 つ増えたときも 17 のままだった**
+（表の行は増やしたのに、数だけが取り残された）。**表の行数が正本である。**
 `git grep -c -E '<既存の platform 名>'` で数え直すこと。**文書に書かれた数は、
 足したときに一緒に増えるとは限らない** —— roadmap は長らく「2 か所」と書いて
-いたが実際は 3 か所で、M4 で判明した。
+いたが実際は 3 か所で、M4 で判明した。**`add-abi-function` からこの数を写して
+いた記述も、同じ日に落とした。**
 
 ## 罠
 
@@ -233,6 +241,16 @@ Android の OpenCV は `libcpufeatures.a`（NDK 由来）を引く。
 `THIRD_PARTY_NOTICES.md` に**全文**を足す。名前を allowlist に足して
 緑に戻すだけで済ませない —— **利用者が読む文書は何も赤くならない。**
 
+**逆向きの限界がある: allowlist が見ているのは、artifact の中に独立した
+ライブラリとして現れる依存だけである。** 別のライブラリの中へ静的に取り込まれた
+third-party は、allowlist にもライセンスディレクトリにも**現れない。**
+M7c で実測した —— `dnn` が引き込むもののうち `protobuf` は捕まったが、
+**MLAS と ONNX Runtime は `libopencv_dnn.a` の一部なので、allowlist には
+何も見えなかった**（roadmap の `### M7c の判定`）。**「allowlist が緑だから
+新しい third-party は無い」とは言えない。** module を足す話として出たが、
+platform を足すときも同じ形で見落とす —— **新しい platform の artifact に
+何が入っているかは、allowlist の外側でも 1 度は自分で見ること。**
+
 ### 6. 「N 件」の一覧は置いていかれる
 
 3 platform 用に書かれた一覧が、5 platform になっても 3 件のまま残る。
@@ -260,6 +278,19 @@ M4 では `Plugin ios-arm64` がこれで落ち、**artifact は 20 分後に正
 **OpenCV は共有ライブラリを 1 つも作らないので何にも当たっていなかった。**
 当てたいのはこちらの `.so` なので、**toolchain ファイル側**に、しかも
 **NDK の toolchain を include した後に**追記する（先に書くと上書きされる）。
+
+**M7c が対になる半分を実測した。** 構成ハッシュ（`Get-OpenCvConfigHash`）は
+**`tools/opencv-config.psd1` の内容しか見ない。** したがって
+`cmake/toolchains/*.cmake` を変えてもハッシュは動かず、**復元済みの OpenCV
+artifact がそのまま使われて、書いた flag は OpenCV 側に効かない。**
+置き場所は目的で決まる:
+
+| 変えたいもの | 置き場所 | 帰結 |
+| --- | --- | --- |
+| **OpenCV** のビルド | `tools/opencv-config.psd1` | 構成ハッシュが変わり、**全 platform 分**を作り直す |
+| **こちらの** binary のコンパイル / リンク | `cmake/toolchains/<platform>.cmake` または `native/CMakeLists.txt` | ハッシュは動かない。復元済み artifact はそのまま使われる |
+
+**「flag をどこに書くか」は好みではなく、何を作り直すかの選択である。**
 
 ## OpenCV は CI にビルドさせる。手元で回さない
 

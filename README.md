@@ -4,7 +4,7 @@ OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible 
 
 [日本語](README.ja.md)
 
-> **Status: v0.3.0 is the newest published release (2026-09-04), and as this was written the repository and that release were in step** — what follows describes both. Whether the repository has since moved ahead is answered by the "配布" sections of the [roadmap](docs/roadmap.md), not here. It is the first release with six platforms — Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS arm64 and Web/WebGL — the first with a generated binding layer, and the first with camera calibration. Every platform is built, tested and packaged by CI; Unity itself exercises the plugin on Mono (EditMode), a real IL2CPP player, and a headless browser. **Some honest limits.** **Android and iOS have never been run on a device** — CI cross-compiles them and inspects the artifacts, but no phone has loaded these binaries. **Web has no PNG**: `imgcodecs` there decodes and encodes JPEG only (see below), and the browser it was driven in is one headless Chromium on Linux. **Unity has never been run on macOS at all**, though its plugin settings are verified by asking Unity itself on other systems. The public C ABI is deliberately narrow, because the point was getting ownership, stride, error handling, IL2CPP and platform gating right rather than covering surface area. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+> **Status: v0.3.0 is the newest published release (2026-09-04), and the repository is now well ahead of it.** Everything below describes the repository, not that release. **v0.3.0 is tag `03a4557`, which predates both the September API expansion and all of M7** — so the gap is not a short list of features, it is everything merged since. The one number that is generated at both ends: `docs/api-map.md` lists **27 public C ABI functions at v0.3.0 and 57 here**. On the C# side `CvAruco`, `CvCoreOps`, `CvStereo`, `CvDnn` and `RenderTextureConverter` do not exist at that tag at all, so setting `OCVU_PROFILE_DNN` against v0.3.0 defines a symbol with nothing behind it. **What has actually shipped is recorded in the "配布" sections of the [roadmap](docs/roadmap.md)** — that, not this paragraph, is the source of truth for it. It is the first release with six platforms — Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS arm64 and Web/WebGL — the first with a generated binding layer, and the first with camera calibration. Every platform is built, tested and packaged by CI; Unity itself exercises the plugin on Mono (EditMode), a real IL2CPP player, and a headless browser. **Some honest limits.** **Android and iOS have never been run on a device** — CI cross-compiles them and inspects the artifacts, but no phone has loaded these binaries. **Web has no PNG**: `imgcodecs` there decodes and encodes JPEG only (see below), and the browser it was driven in is one headless Chromium on Linux. **Unity has never been run on macOS at all**, though its plugin settings are verified by asking Unity itself on other systems. The public C ABI is deliberately narrow, because the point was getting ownership, stride, error handling, IL2CPP and platform gating right rather than covering surface area. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -18,7 +18,7 @@ A Unity-first integration of OpenCV 5, built around a narrow C ABI that this pro
 
 ## Non-goals
 
-Reimplementing OpenCV algorithms. Hand-wrapping the entire OpenCV API up front. Duplicating OpenCvSharp's managed API for compatibility. Shipping one large binary with every codec, DNN and GPU backend enabled — `imgcodecs` is linked, but only with PNG and JPEG; TIFF, WebP, OpenEXR, JPEG 2000 and the rest are off in the build, as are video I/O (FFmpeg, GStreamer), DNN and every GPU backend.
+Reimplementing OpenCV algorithms. Hand-wrapping the entire OpenCV API up front. Duplicating OpenCvSharp's managed API for compatibility. Shipping one large binary with every codec and GPU backend enabled — `imgcodecs` is linked, but only with PNG and JPEG; TIFF, WebP, OpenEXR, JPEG 2000 and the rest are off in the build, as are video I/O (FFmpeg, GStreamer) and every GPU backend. **`dnn` is the exception, and it is deliberate**: it is always in the native binary, and what you opt into is the C# side (see *Optional profiles: dnn* below).
 
 ## Platforms
 
@@ -55,6 +55,7 @@ fail to link on undefined ones. Neither extreme works, so the Web build has PNG 
 off. Every other platform has both.
 
 **PNG decoding lost its ARM acceleration on Android, iOS and macOS** (not just Web).
+**This is not in v0.3.0; it takes effect from the next release.**
 Working around an upstream OpenCV 5.0.0 defect required turning off `PNG_ARM_NEON` on
 those three arm64 platforms, which drops both the hand-written assembly kernel and the
 NEON intrinsics path — they share the same build switch. This affects every `CvCodecs`
@@ -188,6 +189,9 @@ every release, so they are not repeated here.
 
 ### Optional profiles: dnn
 
+**Not in v0.3.0 — this ships in the next release.** Setting `OCVU_PROFILE_DNN`
+against v0.3.0 defines a symbol with nothing behind it.
+
 The native binary always contains OpenCV's `dnn` module (ONNX loading, blob
 conversion, and forward inference) — it is not split into a separate binary,
 because two of the six platforms (iOS, WebGL) resolve `DllImport("__Internal")`
@@ -282,6 +286,12 @@ All local development after that goes through `tools/dev.ps1`:
 # Also asserts that Unity's bundled Emscripten matches tools/emscripten-versions.psd1.
 ./tools/dev.ps1 test-unity-web
 
+# The GPU-dependent RenderTexture paths (EditMode, graphics enabled) and the
+# benchmark lane that collects OCVU_BENCH: lines from the player and graphics
+# lanes. Neither runs in any workflow — see "What CI covers" below.
+./tools/dev.ps1 test-unity-graphics
+./tools/dev.ps1 benchmark
+
 # Install the UPM tarball into a throwaway Unity project and run its tests there.
 # Without -PluginSource this packs only this machine's own platform, and says so
 # rather than pretending to be the all-platform package. Pass the other platforms'
@@ -320,12 +330,26 @@ different: CI builds a real WebGL player and **runs it in a headless Chromium**,
 same checks EditMode and the IL2CPP player run also run in a browser. There is no
 sanitizer lane for Web (a cross-compiled sanitizer cannot run on the host).
 
-Two lanes are absent from that table because they run in no workflow at all.
+Four lanes are absent from that table because they run in no workflow at all.
 `test-unity-tarball` installs the UPM tarball into a throwaway project; it is local
 only, and the "installs and passes" result above was measured by hand.
 `test-unity-web` builds the WebGL player and drives it in a browser; CI covers the
 same ground in its own `Web browser E2E` job, which builds the player itself and
 calls the same two scripts directly rather than going through `dev.ps1`.
+`test-unity-graphics` and `benchmark` were added later and have no CI counterpart
+at all.
+
+**That last pair matters more than the first two, because nothing else covers the
+same ground.** `RenderTextureConverter.ToMat` and `RequestMat` are public API in
+the package (from the next release — see *Status*), and **the code path that
+actually moves pixels has never run in CI.** Both CI Unity lanes run with `-nographics`, where `RenderTexture`
+creation succeeds but the pixels read back are not the ones you drew — so the
+GPU path cannot be exercised there, and `test-unity-graphics`, which does exercise
+it, is local-only and does not block a merge. Argument validation *is* covered
+(`ToMat(null)` is rejected in both CI lanes); it is the GPU half that is not.
+`tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` pins the list of
+tests CI cannot see, so the list has to be edited deliberately rather than growing
+by accident.
 
 The Unity lanes run on Linux, and the Windows IL2CPP player is covered only by the
 local lane. **That is now a measured conclusion rather than an assumption.** An earlier
@@ -349,9 +373,11 @@ Beyond the table, every pull request also runs `actionlint`, `shellcheck`,
 `PSScriptAnalyzer` and a repository-relative link check, and CodeQL analyses the C++
 and C#. A nightly workflow re-checks the Linux artifact's glibc floor, runs the fast
 lanes on Windows and macOS, and confirms the pinned OpenCV artifacts have not
-expired — things that break while nobody is pushing. **The nightly workflow has not
-yet run on its schedule**; it has only been started by hand, once unsuccessfully
-(API rate limits) and once green.
+expired — things that break while nobody is pushing. **It has run on its schedule
+every day since 2026-08-29** — thirteen scheduled runs as of 2026-09-10, the last
+eight of them green. (An earlier version of this paragraph said it had never run on
+a schedule. That was wrong for over a week, and nothing goes red when a statement
+like that stops being true.)
 
 **Almost every lane that runs on a pull request blocks a merge.** Twenty-one checks are
 required: the contract, P/Invoke and sanitizer jobs across the three desktop platforms, the
@@ -360,11 +386,15 @@ and the six release jobs that build and assemble the distributable for those fiv
 Nine are deliberately not required. Five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which
 is what stops the merge. Three cover Web/Wasm — its cross-build, its browser end-to-end
-test and its release packaging — and are new enough that they have not yet earned
-promotion, so **a red Web lane does not currently stop a merge**. A skipped required check counts as passing, so depending on one
-without that guard would let a broken build through. A lane is only made required once it
-has been reliably green — twice before, promoting a lane too early left a gap where a red
-check could not stop a merge. Until 2026-08-29 the
+test and its release packaging — and **have not been promoted, so a red Web lane does
+not currently stop a merge**. The stated reason used to be that they were too new; as of
+2026-09-10 that no longer holds — all three have passed on five consecutive pull
+requests, and the two that also run on `main` have passed on its last six runs.
+**Promotion is an open decision, not a pending measurement.** A skipped required check
+counts as passing, so depending on one without that guard would let a broken build
+through. A lane is only made required once it has been reliably green — but the failure
+mode seen twice here was the opposite of impatience: **a lane was added and left
+un-required**, which is exactly the gap where a red check cannot stop a merge. Until 2026-08-29 the
 Unity, lint and CodeQL workflows ran on every pull request without being required,
 so they could be red and the change still merged; CI watching something and CI
 stopping something are different things, and only the second one is a gate. The
@@ -436,9 +466,15 @@ Design and research documents (in Japanese) live under `docs/`:
 - [M4 implementation plan](docs/superpowers/plans/2026-08-30-m4-mobile.md)
 - [M5 implementation plan](docs/superpowers/plans/2026-08-31-m5-binding-generator.md)
 - [M6 implementation plan](docs/superpowers/plans/2026-09-03-m6-web-wasm.md)
+- [M7 design](docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md) — the shared spec for the three M7 plans
+- [M7 (a) low-copy paths and benchmarks](docs/superpowers/plans/2026-09-05-m7a-low-copy-and-benchmarks.md)
+- [M7 (b) module separation](docs/superpowers/plans/2026-09-05-m7b-module-separation.md)
+- [M7 (c) dnn profile](docs/superpowers/plans/2026-09-05-m7c-dnn-profile.md)
 
-The plans that closed M5's remaining criterion live beside them; the
+The plans that closed M5's remaining criterion, and the six that expanded the API
+between M6 and M7, live beside them; the
 [documentation index](docs/README.md) lists all of them.
+- [Performance](docs/performance.md) — what was measured, and what deliberately was not
 - [Device verification checklist](docs/m4-device-verification.md) — what CI cannot close
 - [API reference](docs/api-reference.md)
 - [API map](docs/api-map.md) — generated from the binding spec

@@ -940,8 +940,10 @@ Haar / HOG（**OpenCV 5 で contrib へ移った**ので、この構成では出
 「どの宣言がコンパイルされるか」であって、「境界の契約が何版か」ではない。**
 
 **native 側の実体は `native/modules.cmake` である。** `OCVU_MODULES` に
-渡す module の一覧（既定は `OCVU_ALL_MODULES` の全 9 module）が、その
-binary に入る関数を決める。**外せない module が 2 つある**（`infra` と
+渡す module の一覧（既定は同ファイルの `OCVU_ALL_MODULES` の全部）が、その
+binary に入る関数を決める。**本数をここに写さない。正本は `OCVU_ALL_MODULES`
+そのものである** —— **写していた頃は実際に古くなった**（M7c で `dnn` が加わった
+のに「全 9 module」と書いたままだった）。**外せない module が 2 つある**（`infra` と
 `core`）—— 他の全 module が使うので、外そうとすると configure の時点で
 `FATAL_ERROR` になる（`OCVU_REQUIRED_MODULES`）。
 

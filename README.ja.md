@@ -4,7 +4,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 [English](README.md)
 
-> **現状: 公開済みの最新版は v0.3.0 です（2026-09-04）。これを書いた時点では、リポジトリと公開版は揃っています** —— 以下はその両方の説明です。その後リポジトリが先に進んだかどうかの正本は、[ロードマップ](docs/roadmap.md)の「配布」の節であって、ここではありません。 **6 platform を配る最初の版**であり（Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)）、**生成される binding 層とカメラ校正を含む最初の版**でもあります。どの platform も CI がビルド・テスト・パッケージ化し、Unity 自身が Mono（EditMode）・実物の IL2CPP Player・headless のブラウザでプラグインを動かしています。**正直な限界を先に書きます。** **Android と iOS は実機で一度も動かしていません** —— CI はクロスコンパイルして成果物を検査しますが、どの端末もこの binary を読み込んだことがありません。**Web には PNG がありません**（`imgcodecs` は JPEG のみ。下記）。動かしたブラウザも Linux の headless Chromium 1 つだけです。**macOS 上で Unity を起動したこともありません**（`.meta` の解釈は他の OS の Unity に問うて確認済みです）。**公開している C ABI は意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP・platform の振り分けを正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
+> **現状: 公開済みの最新版は v0.3.0 です（2026-09-04）。リポジトリはその先へ大きく進んでいます。** 以下はその公開版ではなく、リポジトリの説明です。**v0.3.0 は tag `03a4557` で、2026-09 の API 拡張よりも M7 よりも前の版です** —— 差は「いくつかの機能」ではなく、それ以降に入った全部です。両端とも生成物から取れる唯一の数字を挙げると、`docs/api-map.md` は **v0.3.0 で公開 C ABI 27 本、ここでは 57 本**と書いています。C# 側では `CvAruco` / `CvCoreOps` / `CvStereo` / `CvDnn` / `RenderTextureConverter` がその tag には存在しないので、v0.3.0 に対して `OCVU_PROFILE_DNN` を立ててもその先には何もありません。**実際に配られたものの正本は[ロードマップ](docs/roadmap.md)の「配布」の節であって、この段落ではありません。** **6 platform を配る最初の版**であり（Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)）、**生成される binding 層とカメラ校正を含む最初の版**でもあります。どの platform も CI がビルド・テスト・パッケージ化し、Unity 自身が Mono（EditMode）・実物の IL2CPP Player・headless のブラウザでプラグインを動かしています。**正直な限界を先に書きます。** **Android と iOS は実機で一度も動かしていません** —— CI はクロスコンパイルして成果物を検査しますが、どの端末もこの binary を読み込んだことがありません。**Web には PNG がありません**（`imgcodecs` は JPEG のみ。下記）。動かしたブラウザも Linux の headless Chromium 1 つだけです。**macOS 上で Unity を起動したこともありません**（`.meta` の解釈は他の OS の Unity に問うて確認済みです）。**公開している C ABI は意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP・platform の振り分けを正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
 
 ## これは何か
 
@@ -18,7 +18,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 ## やらないこと
 
-OpenCV のアルゴリズムを実装し直すこと。OpenCV の API 全面を先回りして手で包むこと。互換のために OpenCvSharp の managed API を複製すること。あらゆる codec・DNN・GPU backend を有効にした 1 つの大きな binary を配ること —— `imgcodecs` はリンクしていますが PNG と JPEG だけで、TIFF / WebP / OpenEXR / JPEG 2000 はビルドから外してあります。動画入出力（FFmpeg、GStreamer）、DNN、GPU backend も同様です。
+OpenCV のアルゴリズムを実装し直すこと。OpenCV の API 全面を先回りして手で包むこと。互換のために OpenCvSharp の managed API を複製すること。あらゆる codec・GPU backend を有効にした 1 つの大きな binary を配ること —— `imgcodecs` はリンクしていますが PNG と JPEG だけで、TIFF / WebP / OpenEXR / JPEG 2000 はビルドから外してあります。動画入出力（FFmpeg、GStreamer）と GPU backend も同様です。**`dnn` だけは意図的な例外です** —— native binary には常に入っており、任意にできるのは C# 側です（下の「追加 profile: dnn」）。
 
 ## 対応 platform
 
@@ -41,7 +41,7 @@ encode / decode の検査が PNG ではなく JPEG を使うので、**画素の
 どちらの極端も通らないので、Web のビルドでは PNG を外してあります。
 **他の 5 platform は PNG / JPEG の両方を扱えます。**
 
-**PNG のデコードは Android・iOS・macOS でも ARM 加速を失っています**（Web だけではありません）。上流の OpenCV 5.0.0 の欠陥を回避するため、この 3 つの arm64 platform で `PNG_ARM_NEON` を切る必要があり、これはアセンブリで書かれたカーネルと NEON intrinsics の経路を両方とも落とします —— 同じビルドスイッチを共有しているためです。`dnn` を使うかどうかに関わらず、これらの platform で `CvCodecs` を使う利用者全員に影響します。理由の詳細は[ロードマップ](docs/roadmap.md)にあります。
+**PNG のデコードは Android・iOS・macOS でも ARM 加速を失っています**（Web だけではありません）。**これは v0.3.0 には入っておらず、次の版から効きます。** 上流の OpenCV 5.0.0 の欠陥を回避するため、この 3 つの arm64 platform で `PNG_ARM_NEON` を切る必要があり、これはアセンブリで書かれたカーネルと NEON intrinsics の経路を両方とも落とします —— 同じビルドスイッチを共有しているためです。`dnn` を使うかどうかに関わらず、これらの platform で `CvCodecs` を使う利用者全員に影響します。理由の詳細は[ロードマップ](docs/roadmap.md)にあります。
 
 全体を通して Unity 6000.3 以降が必要です。
 
@@ -120,6 +120,9 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 
 ### 追加 profile: dnn
 
+**v0.3.0 には入っていません。次の版から配られます。** v0.3.0 に対して
+`OCVU_PROFILE_DNN` を立てても、その先には何もありません。
+
 native binary には OpenCV の `dnn` module（ONNX の読み込み、blob 化、forward 推論）が
 **常に**入っています —— profile ごとに別 binary へ分けてはいません。理由は、6 platform
 のうち iOS と WebGL の 2 つが `DllImport("__Internal")` を**シンボル名**で解決し、
@@ -195,6 +198,12 @@ Symbols** に `OCVU_PROFILE_DNN` を対象 platform 分足したときだけコ�
 # Unity 同梱の Emscripten が tools/emscripten-versions.psd1 と一致することも確かめます。
 ./tools/dev.ps1 test-unity-web
 
+# GPU に依る RenderTexture の経路（EditMode、グラフィックス有効）と、
+# Player / graphics の 2 レーンから OCVU_BENCH: 行を集める benchmark。
+# **どちらもどの workflow からも走りません**（下の「CI が見ているもの」）。
+./tools/dev.ps1 test-unity-graphics
+./tools/dev.ps1 benchmark
+
 # UPM tarball を使い捨ての Unity プロジェクトへ導入し、そこでテストを走らせる。
 # -PluginSource を渡さないとこのマシンの platform 分だけを固め、**そう述べます**
 # —— 全部入りのふりはしません。他 platform のプラグイン木（';' 区切り。
@@ -228,15 +237,17 @@ CI は Unity のレーン以外、すべて同じ `tools/dev.ps1` を呼びま�
 
 モバイルの列が「クロスビルドのみ」なのは、それが CI にできることの全部だからです —— コンパイルして成果物を検査しますが、**どの実機もそれらを読み込んだことがありません。**
 
-**この表に無いレーンが 2 つあります。どちらもどの workflow からも走りません。** `test-unity-web`（WebGL の Player を建ててブラウザで走らせる）は、CI 側が `Web browser E2E` job で同じことを別の形でやっています —— あちらは Player を自分で建て、`dev.ps1` を通さずに同じ 2 つのスクリプトを直接呼びます。もう 1 つは UPM tarball を使い捨てのプロジェクトへ導入するレーン（`test-unity-tarball`）で、ローカル専用で、上に書いた「導入できて通る」という結果は手で測ったものです。
+**この表に無いレーンが 4 つあります。どれもどの workflow からも走りません。** `test-unity-web`（WebGL の Player を建ててブラウザで走らせる）は、CI 側が `Web browser E2E` job で同じことを別の形でやっています —— あちらは Player を自分で建て、`dev.ps1` を通さずに同じ 2 つのスクリプトを直接呼びます。`test-unity-tarball`（UPM tarball を使い捨てのプロジェクトへ導入する）はローカル専用で、上に書いた「導入できて通る」という結果は手で測ったものです。残る 2 つ（`test-unity-graphics` と `benchmark`）は後から足したもので、**CI に相当するものが一切ありません。**
+
+**後ろの 2 つは、前の 2 つより重い意味を持ちます。他に同じところを見ているものが無いからです。** `RenderTextureConverter.ToMat` と `RequestMat` は、パッケージに入る公開 API ですが（**次の版から**。上の「現状」）、**実際に画素を運ぶ経路は CI で 1 度も実行されていません。** CI の Unity レーンは 2 つとも `-nographics` で走り、その下では `RenderTexture` の生成は成功するのに読み出した画素が塗った色になりません —— つまり GPU の経路はそこでは動かせず、それを動かす `test-unity-graphics` はローカル専用で merge を止めません。**引数の検証だけは CI が通っています**（`ToMat(null)` を拒むことは両レーンで実行されます）。通っていないのは GPU が要る側です。CI から見えないテストの一覧は `tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が名指しで固定しているので、増えるときは意図して増やすことになります。
 
 Unity のレーンは Linux で走り、Windows の IL2CPP Player はローカルのレーンだけが担います。**これはいまや推測ではなく実測に基づく結論です。** 以前ここに書いてあった理由は、実際には別の action と別のイメージ系統についての上流 issue を挙げていました。2026-08-31 に `windows-2022` で実際に試したところ、**EditMode は動いて 33 件通りました。Standalone は動きませんでした** —— IL2CPP は C++ を生成し、GameCI の Windows コンテナにはそれをコンパイルする MSVC が無いため、`ToolchainNotFoundException` でビルドが落ちます。**したがって Windows 固有の IL2CPP の欠陥は、見落としではなく設計上 CI に映りません。** macOS は同じ時期に 4 回試し、さらに手前で失敗します —— GameCI は darwin を支えず、エディタを直接入れる経路はライセンスが「entitlement 0 件」を返すところで止まります。ロードマップに両方の試行が記録されています。
 
 **Linux の成果物は Ubuntu 22.04 のコンテナの中でビルドします**（runner のイメージ上ではありません）。共有ライブラリは、それをビルドした環境と同じかそれより新しいシステムでしか読み込めず、runner のイメージは前へ進み続けます。固定したコンテナでビルドすることで下限を意図した場所（glibc 2.35）に保ち、`tools/verify-plugin-portability.ps1` が、出てきたものがそれより新しいものを要求していればビルドを落とします。
 
-表の外では、すべての pull request が `actionlint` / `shellcheck` / `PSScriptAnalyzer` とリポジトリ内リンクの検査を走らせ、CodeQL が C++ と C# を解析します。nightly の workflow は Linux 成果物の glibc の下限を再確認し、Windows と macOS で速いレーンを走らせ、固定した OpenCV の artifact が期限切れでないことを確かめます —— **誰も push していない間に壊れるもの**です。**この nightly はまだ schedule で起動したことがありません**。手で 2 回起動しただけで、1 回目は失敗（API のレート制限）、2 回目は緑でした。
+表の外では、すべての pull request が `actionlint` / `shellcheck` / `PSScriptAnalyzer` とリポジトリ内リンクの検査を走らせ、CodeQL が C++ と C# を解析します。nightly の workflow は Linux 成果物の glibc の下限を再確認し、Windows と macOS で速いレーンを走らせ、固定した OpenCV の artifact が期限切れでないことを確かめます —— **誰も push していない間に壊れるもの**です。**この nightly は 2026-08-29 から毎日 schedule で走っています** —— 2026-09-10 時点で 13 回、直近 8 回は緑です。（以前ここには「まだ schedule で起動したことがない」と書いてありました。1 週間以上のあいだ偽で、**この種の記述は真でなくなっても何も赤くなりません。**）
 
-**pull request で走るレーンのほとんどが merge を止めます。** 必須チェックは 21 本です: desktop 3 platform の契約・P/Invoke・sanitizer、Android と iOS のクロスビルド、lint の 4 job、CodeQL の 2 つ、Unity の 2 レーン、そしてその 5 platform 分の配布物をビルド・組み立てる release の 6 job。9 本は意図的に必須にしていません。うち 5 本は Unity のレーンが消費する platform ごとのプラグインをビルドするもので、**どれかが失敗すると Unity のレーンは走ったうえで材料が無いことで赤くなり**、それが merge を止めます。3 本は Web / Wasm のもの（クロスビルド・ブラウザでの E2E・リリースの梱包）で、**まだ昇格の実績を積んでいないため、現時点では Web のレーンが赤くても merge を止めません。****skip された必須チェックは合格として通る**ので、その守りなしにそれらへ依存すると、壊れたビルドが通ってしまいます。**レーンは安定して緑になってから必須にします** —— 過去 2 回、早すぎる昇格が「赤いのに merge できる」隙間を作りました。2026-08-29 までは Unity・lint・CodeQL の workflow がすべての pull request で走りながら必須ではなく、**赤いまま merge できました。CI が見ていることと CI が止めることは別で、ゲートなのは後者だけです。** 残る 3 つの workflow（`build-opencv`、`nightly`、`unity-probe`）は pull request では起動しないので、そもそも必須にできません。`release` は 2026-08-31 までその一覧にありました —— いまは pull request でも走ります。tag でしか走らなかった間に配布の経路に欠陥が 3 件たまり、**うち 1 件は「tag を打つとリリースが 1 件も作られない」というものでした。** その `Publish the release` job だけは必須にしません —— pull request では設計上 skip され、**skip は合格として通る**ので、必須にしても何も止まらないからです。
+**pull request で走るレーンのほとんどが merge を止めます。** 必須チェックは 21 本です: desktop 3 platform の契約・P/Invoke・sanitizer、Android と iOS のクロスビルド、lint の 4 job、CodeQL の 2 つ、Unity の 2 レーン、そしてその 5 platform 分の配布物をビルド・組み立てる release の 6 job。9 本は意図的に必須にしていません。うち 5 本は Unity のレーンが消費する platform ごとのプラグインをビルドするもので、**どれかが失敗すると Unity のレーンは走ったうえで材料が無いことで赤くなり**、それが merge を止めます。3 本は Web / Wasm のもの（クロスビルド・ブラウザでの E2E・リリースの梱包）で、**昇格していないため、現時点では Web のレーンが赤くても merge を止めません。** 以前ここには「まだ昇格の実績を積んでいない」と書いていましたが、2026-09-10 の時点でそれは成立しません —— 3 本とも直近 5 本の pull request すべてで緑で、そのうち main でも走る 2 本は main の直近 6 run でも緑です。**昇格するかどうかは、測定待ちではなく未決の判断です。****skip された必須チェックは合格として通る**ので、その守りなしにそれらへ依存すると、壊れたビルドが通ってしまいます。**レーンは安定して緑になってから必須にします** —— ただし過去 2 回踏んだのは、その逆の形でした: **レーンを足したのに必須にしないまま置いたこと**が、「赤いのに merge できる」隙間そのものです。2026-08-29 までは Unity・lint・CodeQL の workflow がすべての pull request で走りながら必須ではなく、**赤いまま merge できました。CI が見ていることと CI が止めることは別で、ゲートなのは後者だけです。** 残る 3 つの workflow（`build-opencv`、`nightly`、`unity-probe`）は pull request では起動しないので、そもそも必須にできません。`release` は 2026-08-31 までその一覧にありました —— いまは pull request でも走ります。tag でしか走らなかった間に配布の経路に欠陥が 3 件たまり、**うち 1 件は「tag を打つとリリースが 1 件も作られない」というものでした。** その `Publish the release` job だけは必須にしません —— pull request では設計上 skip され、**skip は合格として通る**ので、必須にしても何も止まらないからです。
 
 ## 貢献とセキュリティ
 
@@ -268,9 +279,14 @@ Windows では、実行時ライブラリを埋め込まず共有する形でリ
 - [M4 実装計画](docs/superpowers/plans/2026-08-30-m4-mobile.md)
 - [M5 実装計画](docs/superpowers/plans/2026-08-31-m5-binding-generator.md)
 - [M6 実装計画](docs/superpowers/plans/2026-09-03-m6-web-wasm.md)
+- [M7 設計](docs/superpowers/plans/2026-09-05-m7-profiles-and-performance.md) —— 3 つの M7 計画が共有する仕様
+- [M7 (a) 低コピー経路と benchmark](docs/superpowers/plans/2026-09-05-m7a-low-copy-and-benchmarks.md)
+- [M7 (b) module 分離](docs/superpowers/plans/2026-09-05-m7b-module-separation.md)
+- [M7 (c) dnn profile](docs/superpowers/plans/2026-09-05-m7c-dnn-profile.md)
 
-M5 の残りの条件を閉じた計画はそれらの隣にあります。全部の一覧は
-[文書一覧](docs/README.md) にあります。
+M5 の残りの条件を閉じた計画と、M6 と M7 の間で API を広げた 6 本は、それらの
+隣にあります。全部の一覧は [文書一覧](docs/README.md) にあります。
+- [性能](docs/performance.md) —— 測ったものと、意図して測っていないもの
 - [実機検証の手順](docs/m4-device-verification.md) —— CI では閉じないもの
 - [API リファレンス](docs/api-reference.md)
 - [API 対応表](docs/api-map.md) —— binding spec から生成
