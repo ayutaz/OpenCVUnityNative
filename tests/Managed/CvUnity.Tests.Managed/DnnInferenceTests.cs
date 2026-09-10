@@ -192,7 +192,6 @@ public class DnnInferenceTests
     }
 
     /// <summary>
-    /// <summary>
     /// **`ocvu_dnn_net_forward` の `catch (const cv::Exception&amp;)` 経路
     /// （`native/src/ocvu_dnn.cpp` の forward 実装、`OCVU_STATUS_OPENCV_ERROR`
     /// を返す意図的な分岐）を、実物のモデルで踏む（レビュー指摘 M6）。**
@@ -217,9 +216,12 @@ public class DnnInferenceTests
     /// <see cref="CvDnn.Forward"/> に渡すと、`net.setInput()` が
     /// <c>incompatible type of input tensor #0: CV_8UC3 given, CV_32FC1
     /// expected</c> という `cv::Exception` を実際に投げ、
-    /// `OCVU_STATUS_OPENCV_ERROR` として返ってくる（実測のメッセージを
-    /// そのまま確認する）。**呼ぶ側が `BlobFromImage` を通さずに `Forward`
-    /// を呼ぶ**という、空間サイズの取り違えより現実的な誤用でもある。
+    /// `OCVU_STATUS_OPENCV_ERROR` として返ってくる。**assert は完全一致では
+    /// なく `CV_8UC3` / `CV_32FC1` の部分一致（<c>Assert.Contains</c>）に
+    /// している** —— OpenCV の点リリースが文言を書き換えても、型名が
+    /// 変わらない限り検査が生き残るようにするための意図的な選択である。
+    /// **呼ぶ側が `BlobFromImage` を通さずに `Forward` を呼ぶ**という、
+    /// 空間サイズの取り違えより現実的な誤用でもある。
     /// </para>
     /// </summary>
     [Fact]
