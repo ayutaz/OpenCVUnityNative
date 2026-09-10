@@ -875,10 +875,9 @@ function Test-UnityTarball {
         $results = Join-Path $ResultsDir 'unity-tarball.xml'
         $log     = Join-Path $ResultsDir 'unity-tarball.log'
         # -testCategory は Test-UnityEditMode と同じ定義を使う
-        # （$script:UnityGraphicsExclusionCategory。理由はその定義側にある）。
-        # このレーンも -testPlatform EditMode で走るので同じ理由が当てはまる。
-        # 2026-09-10 まで足し忘れていた（be5615f で Test-UnityEditMode /
-        # Test-UnityGraphics には足したが、ここは漏れた）。
+        # （$script:UnityGraphicsExclusionCategory。理由と経緯はその
+        # 定義側にある）。このレーンも -testPlatform EditMode で走るので
+        # 同じ理由が当てはまる。
         $unityArgs = @(
             '-projectPath', $project,
             '-runTests', '-testPlatform', 'EditMode',

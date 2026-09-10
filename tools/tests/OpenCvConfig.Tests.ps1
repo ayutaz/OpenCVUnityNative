@@ -1017,7 +1017,7 @@ $devPs1Raw = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
 # 正本は $script:UnityGraphicsExclusionCategory の定義そのもの
 # （関数本体の中の文字列ではない）。
 $exclusionDefMatches = [regex]::Matches($devPs1Raw,
-    "(?m)^\`$script:UnityGraphicsExclusionCategory\s*=\s*'(?<cat>[^']+)'\s*`$")
+    "(?m)^\s*\`$script:UnityGraphicsExclusionCategory\s*=\s*'(?<cat>[^']+)'\s*`$")
 Assert-That ($exclusionDefMatches.Count -eq 1) `
     "tools/dev.ps1 defines `$script:UnityGraphicsExclusionCategory exactly once (saw $($exclusionDefMatches.Count); 読み取れなければ以下は空振りする)"
 
@@ -1034,9 +1034,19 @@ if ($exclusionDefMatches.Count -eq 1) { $localCategory = $exclusionDefMatches[0]
 # ことを見る —— 変数を定義しただけで呼び出し側が直書きの文字列のままでも、
 # 説明のコメントに変数名を書いておけば下の素朴な部分文字列一致は通って
 # しまう（実測: 引数を直書きに戻し、コメントだけ変数名を残す形を試したら
-# 最初の版はここを PASS のまま見逃した）。だから **コード上の引数の形**
+# 最初の版はここを PASS のまま見逃した）。そこで **コード上の引数の形**
 # （`'-testCategory', $script:UnityGraphicsExclusionCategory`）そのものを
-# 探し、コメント内の言及では満たせないようにする。
+# 探すよう狭めた。
+#
+# **それでもこの assertion 単体は「直書きに戻していない」ことの証明には
+# ならない。** コメントが偶然この引数の形そのもの（この関数を直書きに
+# 戻したうえで、コメントに `'-testCategory',
+# $script:UnityGraphicsExclusionCategory` という文字列を書く）を含んで
+# いれば、この assertion は再び PASS する（実測。正規表現はコードと
+# コメントを区別しない）。**直書きへの回帰を実際に捕まえるのは、下の
+# 「コピーが増えていない」assertion（否定形の -testCategory リテラルを
+# 探す）である。この 2 つは対になって初めて 1 つの門になり、どちらか
+# 片方だけでは足りない。**
 foreach ($fnName in @('Test-UnityEditMode', 'Test-UnityTarball')) {
     $fnMatch = [regex]::Match($devPs1Raw, "(?ms)^function $fnName \{.*?^\}")
     Assert-That $fnMatch.Success `
@@ -1044,17 +1054,28 @@ foreach ($fnName in @('Test-UnityEditMode', 'Test-UnityTarball')) {
     if ($fnMatch.Success) {
         $usagePattern = "'-testCategory',\s*\`$script:UnityGraphicsExclusionCategory\b"
         Assert-That ($fnMatch.Value -match $usagePattern) `
-            "$fnName passes `$script:UnityGraphicsExclusionCategory as the -testCategory argument (not a literal, and not just mentioned in a comment)"
+            "$fnName's text contains the '-testCategory', `$script:UnityGraphicsExclusionCategory argument shape (this alone does not prove the argument isn't hardcoded elsewhere in a way a comment happens to echo — see the paired literal-copy check below)"
     }
 }
 
 # **コピーが増えていないことも見る。** 定義行そのもの（上の
 # $exclusionDefMatches が既に見ている）を除いて、否定形の -testCategory を
-# クォートされた文字列リテラルで直書きした箇所が 1 つも無いこと。これが
-# 「新しいレーンを足したときにまた直書きする」ことを止める唯一の門である
-# —— 定義と使用箇所の assertion だけでは、3 つ目のレーンが `'!Graphics'`
-# を再び書いても気づけない。
-$literalNegatedCategoryMatches = [regex]::Matches($devPs1Raw, "'-testCategory',\s*'!(?<cat>[^']+)'")
+# クォートされた文字列リテラルで直書きした箇所が 1 つも無いこと。
+#
+# **単独で万能ではない、と正直に書く。** 上の「$fnName が
+# $script:UnityGraphicsExclusionCategory を引数として渡している」assertion
+# は、コメントがたまたま同じ引数の形（`'-testCategory',
+# $script:UnityGraphicsExclusionCategory`）を書いていれば、引数自体を
+# 直書きに戻していても PASS してしまう（実測）。実際に直書きへの回帰を
+# 捕まえるのはこちらの assertion であり、**2 つは対になって初めて 1 つの
+# 門になる** —— どちらか片方だけでは足りない。
+#
+# クォート文字は `'` と `"` の両方を見る——シングルクォートだけを見ていた
+# 版は `"-testCategory", "!Graphics"`（有効な PowerShell で挙動は同じ）を
+# 素通ししていた（実測）。**それでも万能ではない**: 引数を splatting や
+# 文字列連結で組み立てた形はどちらも素通りする。ここで捕まえるのは
+# 「素朴な直書き」だけで、意図的に検査を迂回する書き方までは狙っていない。
+$literalNegatedCategoryMatches = [regex]::Matches($devPs1Raw, '[''"]-testCategory[''"],\s*[''"]!(?<cat>[^''"]+)[''"]')
 Assert-That ($literalNegatedCategoryMatches.Count -eq 0) `
     ("tools/dev.ps1 has no literal negated -testCategory value outside " +
      "`$script:UnityGraphicsExclusionCategory (saw $($literalNegatedCategoryMatches.Count))")
