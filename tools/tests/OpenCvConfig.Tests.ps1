@@ -992,13 +992,13 @@ if ($markerName) {
 
 # --- ci-unity の EditMode レーンが、ローカルの -testCategory 除外と一致すること ---
 #
-# tools/dev.ps1 の Test-UnityEditMode は GraphicsTests / GraphicsBenchmarkRunner
-# （M7a Task 2、GPU に依る検査）を -testCategory '!Graphics' で除外する。
-# -nographics の下では graphicsDeviceType が Null になり、GL.Clear の直後の
-# ReadPixels が実際には描画しないまま 205,205,205 を返す（実測、2026-09-05）。
-# GraphicsChecks.AGraphicsDeviceIsPresent は GPU が無ければ skip ではなく
-# fail する設計なので、この除外を欠いたまま Unity を起動すると本物の欠陥として
-# 落ちる。
+# tools/dev.ps1 は GraphicsTests / GraphicsBenchmarkRunner（M7a Task 2、GPU に
+# 依る検査）を除外する値を $script:UnityGraphicsExclusionCategory 1 箇所に
+# 持つ（定義側の docstring に理由がある）。-nographics で EditMode を走らせる
+# レーン（Test-UnityEditMode と Test-UnityTarball）は両方ともこれを使う
+# —— **直書きのコピーを許さない。** 2026-09-10 に実際に Test-UnityTarball が
+# 直書きのコピーを持ち、どこからも縛られていなかった（この検査は
+# Test-UnityEditMode しか見ていなかった）。
 #
 # ci-unity.yml は「CI はローカルと同一のコマンドを呼ぶ」の意図的な例外
 # （game-ci が Unity を起動し、tools/dev.ps1 ではない）なので、この 2 つの
@@ -1014,21 +1014,50 @@ if ($markerName) {
 # 変わらず 1 のままになる（PluginGatingTests の合図名と同じ形）。
 $devPs1Raw = Get-Content -LiteralPath (Join-Path $repoRoot 'tools/dev.ps1') -Raw
 
-# Test-UnityGraphics にも '-testCategory' が在る（値は 'Graphics'、
-# -nographics を渡さない側）ので、関数本体を名前で切り出してから読む。
-# このファイルのトップレベル関数はすべて列 0 の '}' で閉じる規約
-# （tools/dev.ps1 の他の関数と同じ）なので、それを終端として使う。
-$editModeFnMatch = [regex]::Match($devPs1Raw, '(?ms)^function Test-UnityEditMode \{.*?^\}')
-Assert-That $editModeFnMatch.Success `
-    'tools/dev.ps1 から Test-UnityEditMode 関数を切り出せる (切り出せなければ以下は空振りする)'
+# 正本は $script:UnityGraphicsExclusionCategory の定義そのもの
+# （関数本体の中の文字列ではない）。
+$exclusionDefMatches = [regex]::Matches($devPs1Raw,
+    "(?m)^\`$script:UnityGraphicsExclusionCategory\s*=\s*'(?<cat>[^']+)'\s*`$")
+Assert-That ($exclusionDefMatches.Count -eq 1) `
+    "tools/dev.ps1 defines `$script:UnityGraphicsExclusionCategory exactly once (saw $($exclusionDefMatches.Count); 読み取れなければ以下は空振りする)"
 
 $localCategory = $null
-if ($editModeFnMatch.Success) {
-    $localCatMatch = [regex]::Match($editModeFnMatch.Value, "'-testCategory',\s*'(?<cat>[^']+)'")
-    Assert-That $localCatMatch.Success `
-        "Test-UnityEditMode から -testCategory の値を読み取れる (読み取れなければ以下は空振りする)"
-    if ($localCatMatch.Success) { $localCategory = $localCatMatch.Groups['cat'].Value }
+if ($exclusionDefMatches.Count -eq 1) { $localCategory = $exclusionDefMatches[0].Groups['cat'].Value }
+
+# Test-UnityGraphics にも '-testCategory' が在る（値は 'Graphics'、
+# -nographics を渡さない側、正の値なので同じ定義を使わない）ので、
+# 対象の関数だけを名前で切り出してから読む。このファイルのトップレベル
+# 関数はすべて列 0 の '}' で閉じる規約（tools/dev.ps1 の他の関数と同じ）
+# なので、それを終端として使う。
+#
+# **定義を持つだけでは足りない。** 両方のレーンが実際にそれを参照している
+# ことを見る —— 変数を定義しただけで呼び出し側が直書きの文字列のままでも、
+# 説明のコメントに変数名を書いておけば下の素朴な部分文字列一致は通って
+# しまう（実測: 引数を直書きに戻し、コメントだけ変数名を残す形を試したら
+# 最初の版はここを PASS のまま見逃した）。だから **コード上の引数の形**
+# （`'-testCategory', $script:UnityGraphicsExclusionCategory`）そのものを
+# 探し、コメント内の言及では満たせないようにする。
+foreach ($fnName in @('Test-UnityEditMode', 'Test-UnityTarball')) {
+    $fnMatch = [regex]::Match($devPs1Raw, "(?ms)^function $fnName \{.*?^\}")
+    Assert-That $fnMatch.Success `
+        "tools/dev.ps1 から $fnName 関数を切り出せる (切り出せなければ以下は空振りする)"
+    if ($fnMatch.Success) {
+        $usagePattern = "'-testCategory',\s*\`$script:UnityGraphicsExclusionCategory\b"
+        Assert-That ($fnMatch.Value -match $usagePattern) `
+            "$fnName passes `$script:UnityGraphicsExclusionCategory as the -testCategory argument (not a literal, and not just mentioned in a comment)"
+    }
 }
+
+# **コピーが増えていないことも見る。** 定義行そのもの（上の
+# $exclusionDefMatches が既に見ている）を除いて、否定形の -testCategory を
+# クォートされた文字列リテラルで直書きした箇所が 1 つも無いこと。これが
+# 「新しいレーンを足したときにまた直書きする」ことを止める唯一の門である
+# —— 定義と使用箇所の assertion だけでは、3 つ目のレーンが `'!Graphics'`
+# を再び書いても気づけない。
+$literalNegatedCategoryMatches = [regex]::Matches($devPs1Raw, "'-testCategory',\s*'!(?<cat>[^']+)'")
+Assert-That ($literalNegatedCategoryMatches.Count -eq 0) `
+    ("tools/dev.ps1 has no literal negated -testCategory value outside " +
+     "`$script:UnityGraphicsExclusionCategory (saw $($literalNegatedCategoryMatches.Count))")
 
 # ci-unity.yml 側。**単純な「customParameters: の行を探す」では足りない** ——
 # matrix の 2 つの lane（リテラル文字列）に加えて、customParameters を実際に
@@ -1066,7 +1095,7 @@ if ($ciCategoryLines.Count -eq 1) {
 # 「$null -eq $null」のような偶然の一致を PASS と報告する必要は無い。
 if ($null -ne $localCategory -and $null -ne $ciCategory) {
     Assert-That ($localCategory -eq $ciCategory) `
-        "ci-unity.yml's EditMode -testCategory ('$ciCategory') matches tools/dev.ps1's Test-UnityEditMode ('$localCategory')"
+        "ci-unity.yml's EditMode -testCategory ('$ciCategory') matches tools/dev.ps1's `$script:UnityGraphicsExclusionCategory ('$localCategory')"
 }
 
 # **matrix の宣言だけでは足りない。** 上のリテラル判定は

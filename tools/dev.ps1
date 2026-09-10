@@ -557,6 +557,24 @@ $script:GatingTestNames = @(
     'PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget'
 )
 
+<#
+    GraphicsTests / GraphicsBenchmarkRunner（M7a Task 2、GPU に依る検査）を
+    除外する -testCategory の値。**正本はここ 1 箇所。**
+
+    -nographics の下では graphicsDeviceType が Null になり、GL.Clear の
+    直後の ReadPixels が実際には描画しないまま 205,205,205 を返す
+    （実測、2026-09-05）。GPU に依る検査は test-unity-graphics に分けて
+    あるので、-nographics で EditMode を走らせるレーン（Test-UnityEditMode /
+    Test-UnityTarball）はどちらもこれを除外しないと、GraphicsTests を
+    足しただけで恒久的に赤くなる。
+
+    文字列として 2 度書かない —— tools/tests/OpenCvConfig.Tests.ps1 が
+    ci-unity.yml の customParameters とこの値を突き合わせるので、直書きの
+    コピーを増やすとそちらの検査から外れる（実際に Test-UnityTarball に
+    直書きしたコピーができ、どこにも縛られていなかった。2026-09-10）。
+#>
+$script:UnityGraphicsExclusionCategory = '!Graphics'
+
 function Sync-AllPlatformsMarker {
     param([Parameter(Mandatory)][string] $ProjectPath)
 
@@ -589,18 +607,15 @@ function Test-UnityEditMode {
 
     # -batchmode -nographics は CI とローカルで同じ条件にするため常に付ける。
     #
-    # -testCategory '!Graphics' は GraphicsTests（M7a Task 2）を除外する。
-    # -nographics の下では graphicsDeviceType が Null になり、GL.Clear /
-    # ReadPixels が実際には描画しないまま 205,205,205 を返す（実測、
-    # 2026-09-05）。**GPU に依る検査は test-unity-graphics に分けてある**
-    # —— ここで除外しないと、GraphicsTests を足しただけでこのレーンが
-    # 恒久的に赤くなる。
+    # -testCategory は GPU に依る検査（GraphicsTests / GraphicsBenchmarkRunner）
+    # を除外する。理由と正本は $script:UnityGraphicsExclusionCategory の
+    # 定義側に書いてある。
     $unityArgs = @(
         '-projectPath', $project,
         '-runTests', '-testPlatform', 'EditMode',
         '-testResults', $results, '-logFile', $log,
         '-batchmode', '-nographics',
-        '-testCategory', '!Graphics'
+        '-testCategory', $script:UnityGraphicsExclusionCategory
     )
     $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -Wait -PassThru -NoNewWindow
     $exit = $proc.ExitCode
@@ -859,23 +874,17 @@ function Test-UnityTarball {
 
         $results = Join-Path $ResultsDir 'unity-tarball.xml'
         $log     = Join-Path $ResultsDir 'unity-tarball.log'
-        # -testCategory '!Graphics' は GraphicsTests（M7a Task 2）を除外する。
-        # このレーンも -testPlatform EditMode で走るので、Test-UnityEditMode の
-        # 上の docstring と同じ理由が当てはまる: -nographics の下では
-        # graphicsDeviceType が Null になり、GL.Clear / ReadPixels が実際には
-        # 描画しないまま 205,205,205 を返す（実測、2026-09-05）。**GPU に依る
-        # 検査は test-unity-graphics に分けてある** —— ここで除外しないと、
-        # GraphicsTests を足しただけでこのレーンが恒久的に赤くなる。
-        # この抜けは M7a の 57212dc で EditMode / Graphics の 2 レーンには
-        # 足したが、このレーンには足し忘れた形で入った。CI からは見えない
-        # レーンなので（CLAUDE.md: test-unity-tarball はどの workflow からも
-        # 走らない）、誰も気づかないまま残っていた。
+        # -testCategory は Test-UnityEditMode と同じ定義を使う
+        # （$script:UnityGraphicsExclusionCategory。理由はその定義側にある）。
+        # このレーンも -testPlatform EditMode で走るので同じ理由が当てはまる。
+        # 2026-09-10 まで足し忘れていた（be5615f で Test-UnityEditMode /
+        # Test-UnityGraphics には足したが、ここは漏れた）。
         $unityArgs = @(
             '-projectPath', $project,
             '-runTests', '-testPlatform', 'EditMode',
             '-testResults', $results, '-logFile', $log,
             '-batchmode', '-nographics',
-            '-testCategory', '!Graphics'
+            '-testCategory', $script:UnityGraphicsExclusionCategory
         )
         <#
             タイムアウトを付ける。CLAUDE.md の不変条件「テストは必ずタイムアウト
