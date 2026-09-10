@@ -54,6 +54,13 @@ the player fail to link on duplicate symbols, and leaving it out makes OpenCV's 
 fail to link on undefined ones. Neither extreme works, so the Web build has PNG turned
 off. Every other platform has both.
 
+**PNG decoding lost its ARM acceleration on Android, iOS and macOS** (not just Web).
+Working around an upstream OpenCV 5.0.0 defect required turning off `PNG_ARM_NEON` on
+those three arm64 platforms, which drops both the hand-written assembly kernel and the
+NEON intrinsics path — they share the same build switch. This affects every `CvCodecs`
+user on those platforms, whether or not they touch `dnn`. See the
+[roadmap](docs/roadmap.md) for why.
+
 Unity 6000.3 or newer throughout.
 
 ## Installing

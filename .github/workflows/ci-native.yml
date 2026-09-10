@@ -412,12 +412,17 @@ jobs:
         run: ./tools/dev.ps1 build -Platform ${{ matrix.platform }}
 
       # **M7b Task 1: この job には tools/verify-exported-symbols.ps1 を
-      # 配線しない。** Android の .so は host の nm で読めるが、iOS と Web は
-      # 静的ライブラリで「エクスポート」という概念自体が違う（ar archive の
-      # 中の object は動的リンカのエクスポート表を持たない。実際に検査したいのは
-      # 静的リンク後 —— アプリの実行ファイルに組み込まれた時点 —— の解決なので、
-      # このレーンの `.a` に対しては意味を成さない）。desktop 3 job（Windows /
-      # macOS / Linux）だけが対象である。
+      # 配線しない。** iOS と Web は静的ライブラリで「エクスポート」という
+      # 概念自体が違う（ar archive の中の object は動的リンカのエクスポート表を
+      # 持たない。実際に検査したいのは静的リンク後 —— アプリの実行ファイルに
+      # 組み込まれた時点 —— の解決なので、このレーンの `.a` に対しては意味を
+      # 成さない）。Android は共有ライブラリで概念上は当てはまるが、
+      # **host（この job のランナー）の `nm` が arm64 の ELF を読めるかは
+      # ここでは確認していない**——確認するまでは skip する。desktop 3 job
+      # （Windows / macOS / Linux）だけが対象である（M7c のレビューで
+      # release.yml 側の同種のコメントと表現が食い違っていたのを揃えた ——
+      # この branch で Android の strip 対応を足したことで、この問いに
+      # 意味のある答えが要る場面が増えている）。
 
       # **配る形になっていること。** Android は 16 KB page size、iOS は
       # 静的ライブラリであること。どちらも「ビルドできた ≠ 動く」の距離を

@@ -143,6 +143,14 @@ public class ProfileGatingTests
     [Test]
     public void TheDnnPublicApiAssemblyIsAlsoAbsentWithoutItsDefine()
     {
+        var defines = UnityEditor.PlayerSettings.GetScriptingDefineSymbols(
+            UnityEditor.Build.NamedBuildTarget.Standalone);
+
+        // このプロジェクトは既定で OCVU_PROFILE_DNN を立てていない。
+        // **前提が崩れたら、この検査は何も見ていないので落とす。**
+        Assert.That(defines, Does.Not.Contain(DnnDefine),
+            "このテストは OCVU_PROFILE_DNN が立っていないことを前提にしている");
+
         var names = CompilationPipeline.GetAssemblies(AssembliesType.Editor)
             .Select(a => a.name).ToList();
         Assert.That(names, Does.Not.Contain(DnnPublicApiAssembly),

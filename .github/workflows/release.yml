@@ -326,7 +326,14 @@ jobs:
               ./tools/verify-exported-symbols.ps1 -LibraryPath $bins[0].FullName
               if ($LASTEXITCODE -ne 0) { exit 1 }
           } elseif ($platform -in @('android-arm64', 'ios-arm64', 'web-wasm')) {
-              Write-Host "==> skipped on ${platform} (iOS / Web は静的ライブラリ、Android は host の nm で読めるかを確かめていない)"
+              # iOS / Web は静的ライブラリで「エクスポート」の概念自体が
+              # 違う。Android は共有ライブラリで概念上は当てはまるが、
+              # host（この job のランナー）の `nm` が arm64 の ELF を
+              # 読めるかはここでは確認していない——確認するまでは skip
+              # する（ci-native.yml の同種のコメントと表現を揃えた。
+              # M7c で Android を strip するようになったので、この問いは
+              # 以前より意味を持つ）。
+              Write-Host "==> skipped on ${platform} (iOS / Web は静的ライブラリ。Android は host の nm が arm64 ELF を読めるか未確認のため skip)"
           } else {
               Write-Error "unknown platform '${platform}': 公開面を検査するかどうかが決まっていない。tools/verify-exported-symbols.ps1 を掛けるか、ここに明示的な除外を足すこと。"
               exit 1

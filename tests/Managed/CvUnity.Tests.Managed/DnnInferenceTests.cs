@@ -191,6 +191,52 @@ public class DnnInferenceTests
         Assert.NotEqual(afterFirstForward, secondOutputBytes);
     }
 
+    /// <summary>
+    /// <summary>
+    /// **`ocvu_dnn_net_forward` の `catch (const cv::Exception&amp;)` 経路
+    /// （`native/src/ocvu_dnn.cpp` の forward 実装、`OCVU_STATUS_OPENCV_ERROR`
+    /// を返す意図的な分岐）を、実物のモデルで踏む（レビュー指摘 M6）。**
+    /// このファイルの他のテストはすべて <see cref="CvDnn.BlobFromImage"/> が
+    /// 作った正しい形の blob しか渡していないので、この経路はハッピーケース
+    /// の外で一度も実行されていなかった —— これは攻撃者が影響できる入力に
+    /// 対するエラー処理であり、未実行のまま配ってはならない。
+    /// <para>
+    /// **当初は「空間サイズを 4x4 から 8x8 に変える」形で書いたが、これは
+    /// 例外を投げなかった**（実測: `output.Rows * output.Cols` が
+    /// `24 * 8 = 192` になり forward が成功した）。`tiny.onnx` は
+    /// `Identity` 1 ノードだけのネットワークで、OpenCV の dnn engine は
+    /// 実行時の入力から shape を再推論するため、ONNX の value_info に
+    /// 書かれた `[1, 3, 4, 4]` という宣言は検証されない——空間サイズの
+    /// 不一致では、この model に対して負の対照が取れなかった
+    /// （`.clone()` のときと同じ形。docs/abi-ownership-and-versioning.md
+    /// §1.7 参照）。
+    /// </para>
+    /// <para>
+    /// **代わりに型の不一致で踏めることを確かめた。** <see cref="CvDnn.BlobFromImage"/>
+    /// を経由しない生の 8bit 3channel Mat（<c>CV_8UC3</c>）をそのまま
+    /// <see cref="CvDnn.Forward"/> に渡すと、`net.setInput()` が
+    /// <c>incompatible type of input tensor #0: CV_8UC3 given, CV_32FC1
+    /// expected</c> という `cv::Exception` を実際に投げ、
+    /// `OCVU_STATUS_OPENCV_ERROR` として返ってくる（実測のメッセージを
+    /// そのまま確認する）。**呼ぶ側が `BlobFromImage` を通さずに `Forward`
+    /// を呼ぶ**という、空間サイズの取り違えより現実的な誤用でもある。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ForwardWithARawNonBlobMatReturnsAnOpenCvError()
+    {
+        using var net = CvDnn.ReadOnnx(TinyModel());
+        // BlobFromImage を経由しない、8bit 3channel の素の Mat をそのまま渡す
+        // （dnn engine が要求する CV_32FC1 の blob になっていない）。
+        using var notABlob = CvMat.Create(ModelSize, ModelSize, CvMatType.Bgr24);
+        using var output = CvMat.Create(1, 1, CvMatType.Response32);
+
+        var ex = Assert.Throws<CvNativeException>(() => CvDnn.Forward(net, notABlob, output));
+        Assert.Equal(CvStatus.OpenCvError, ex.Status);
+        Assert.Contains("CV_8UC3", ex.Message);
+        Assert.Contains("CV_32FC1", ex.Message);
+    }
+
     /// <summary>32FC1（4 byte/pixel、1 channel）の Mat を丸ごと byte[] に読み出す。</summary>
     private static byte[] ReadAll(CvMat mat)
     {

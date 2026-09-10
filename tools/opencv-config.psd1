@@ -156,9 +156,13 @@
                 `-DPNG_ARM_NEON=off` にすると、この `enable_language(ASM)` が
                 呼ばれなくなり（`arm/arm_init.c` 等の intrinsics 実装も含めて
                 NEON 最適化そのものが丸ごと無効になる）、mlas の判定が
-                x86_64 と同じ「plain ASM が無い」経路を取れるようになるはず、
-                という仮説にもとづく。**代償は明確: PNG の NEON デコード
-                高速化を、Android / macOS / iOS の 3 platform で失う。**
+                x86_64 と同じ「plain ASM が無い」経路を取れるようになる。
+                **これは仮説ではなく実測で確認済みである** —— run
+                `34309760354` で 3 platform とも `DNN MLAS: NO (no ASM
+                compiler available)` になり、`Building ASM object` /
+                `ASM compiler identification` がどちらも 0 件になった。
+                **代償は明確: PNG の NEON デコード高速化を、Android / macOS /
+                iOS の 3 platform で失う。**
                 OpenCV 全体の `WITH_SIMD`（core/imgproc）や libjpeg-turbo の
                 JPEG SIMD には触れない——PNG だけに絞った変更である。
 

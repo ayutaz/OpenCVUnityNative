@@ -6,7 +6,8 @@ using Xunit;
 /// <summary>
 /// **有効な ONNX を手で組むのは現実的でない。**
 /// ここが見るのは、壊れた入力・寿命・所有権である。
-/// **正常系は Task 5 が、実物の小さなモデルを使って見る。**
+/// **正常系は <see cref="DnnInferenceTests"/> が、実物の小さなモデル
+/// （<c>tiny.onnx</c>）を使って見ている**（Task 5 で追加済み）。
 /// </summary>
 public class DnnTests
 {

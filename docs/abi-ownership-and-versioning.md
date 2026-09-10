@@ -274,6 +274,18 @@ native はそこへ書くだけで、戻った後は一切保持しない。
 生かし続ける。Unity 側が `cv::dnn::Net` の実体を直接見ることは無い —— 見えるのは
 `uint64_t` の handle だけである。
 
+**§1.5 の複数スレッド規約は `ocvu_net_handle` にもそのまま適用される。**
+`net_table_get` は table の mutex を取って `cv::dnn::Net*` を解決し、
+`ocvu_mat_table.cpp` と同じくロックを離してから返す —— `setInput` /
+`forward()` はロックの外で走る。table 自体は §1.5 のとおりスレッド安全だが、
+`cv::dnn::Net` 自体はそうではない。**`cv::Mat` より踏みやすい経路である**
+可能性が高い —— 1 度読み込んだ `Net` を複数フレーム・複数スレッドから
+使い回す使い方（1 スレッドが推論している最中に別スレッドが同じ handle を
+解放する、あるいは同じ handle を 2 スレッドへ同時に渡す）は `Mat` の
+一時的な読み書きより自然に起こりうる。§1.5 が明記しているとおり、
+書かれていない契約は守りようがない —— この 1 文がその契約である
+（レビュー指摘 I4）。
+
 **`Slot` が値ではなく `unique_ptr` を持つ理由は mat_table と同じである。**
 値で持つと、table が伸びたときに再配置が起き、先に解決したポインタが
 全部ぶら下がる。壊れるのは伸ばした側ではなく、無関係な handle を使っている側
@@ -830,8 +842,25 @@ Important 2）。** `cv::dnn::Net::forward()` が返す `Mat` はネットワー
 指したままになり、同じ net で 2 回目の forward を呼ぶと 1 回目の出力が
 黙って書き換わる —— この ABI の他のすべての関数が新しく確保したメモリを
 返す契約と矛盾する。**この所有権の挙動は OpenCV のヘッダに明記が無く、
-実装から推測している。** 実物の ONNX モデルで forward を 2 回呼んで
-確かめるのは、まだ無いので後続タスクの担当である。
+実装から推測している。**
+
+**Task 5 が実物の ONNX モデルで確かめようとしたが、負の対照が取れなかった
+（`prove-a-check-works` skill が M6 で記録した形と同じ）。** Identity 1 ノード
+のモデルと、投げ捨てた検証用の 2 層 Relu モデルの両方で forward を 2 回
+呼んだが、`.clone()` を外しても外さなくても結果が変わらなかった。
+当初の説明（`cv::Mat` の参照カウントが外側の参照を守るため再割り当てが
+起きる）はレビューで「`cv::Mat::create()` の早期リターン経路は参照カウントを
+見ない」と指摘されほぼ確実に誤りだと分かり、いまの主説は「OpenCV 5 の
+新しい dnn engine が `forward()` のたびに新しく確保したバッファを返している」
+（機構として否定されてはいないが未確認）である。**確定できない理由は、
+`./tools/opencv.ps1 restore` が復元する木がヘッダとビルド済み lib だけで、
+`cv::dnn::Net::forward()` の実装ソースを含まないため**——読んで確定させる
+経路がこのリポジトリの構成上無い。**実証しているのは境界の往復（実物の
+ONNX を読み込み、blob 化し、forward を呼び、結果を読める）であって、
+`.clone()` が防ぐはずのエイリアシング欠陥そのものではない**——過大に
+書かないための一文（`tests/Managed/CvUnity.Tests.Managed/DnnInferenceTests.cs`
+の `CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput`
+docstring に実測が残っている）。
 
 **`ocvu_mat_get_info` が dims > 2 の Mat を拒むようになった（レビューで
 直した。Important 1）。** `ocvu_dnn_blob_from_image` が作る Mat は dims == 4
@@ -1044,8 +1073,12 @@ platform（iOS / WebGL）で `"__Internal"` にならず、Player の中で最�
 - L3（`DnnTests.cs`）が壊れた入力・二重解放・null/空 byte 列を固定した
   （185 → 189、+4）
 
-**まだ実証されていないこと**（Task 4 の範囲外）は、上の「有効な ONNX を
-読み込んで実際に推論すること」だけが残る——**Task 5 の担当である。**
+**Task 4 が「まだ実証されていない」と書いていた「有効な ONNX を読み込んで
+実際に推論すること」は、Task 5 が実際に行った**（`tests/Managed/CvUnity.Tests.Managed/DnnInferenceTests.cs`、実物の `tiny.onnx` を使う 6 件）。
+**実証しているのは境界の往復（読み込み・blob 化・forward・結果読み出し）
+であって、`.clone()` が防ぐはずのエイリアシング欠陥そのものではない**——
+負の対照は取れなかった（詳細は上の §1.7 と同テストの docstring）。
+過大に読まないこと。
 
 ---
 

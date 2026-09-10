@@ -41,6 +41,8 @@ encode / decode の検査が PNG ではなく JPEG を使うので、**画素の
 どちらの極端も通らないので、Web のビルドでは PNG を外してあります。
 **他の 5 platform は PNG / JPEG の両方を扱えます。**
 
+**PNG のデコードは Android・iOS・macOS でも ARM 加速を失っています**（Web だけではありません）。上流の OpenCV 5.0.0 の欠陥を回避するため、この 3 つの arm64 platform で `PNG_ARM_NEON` を切る必要があり、これはアセンブリで書かれたカーネルと NEON intrinsics の経路を両方とも落とします —— 同じビルドスイッチを共有しているためです。`dnn` を使うかどうかに関わらず、これらの platform で `CvCodecs` を使う利用者全員に影響します。理由の詳細は[ロードマップ](docs/roadmap.md)にあります。
+
 全体を通して Unity 6000.3 以降が必要です。
 
 ## 導入
