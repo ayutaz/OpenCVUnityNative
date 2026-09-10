@@ -384,12 +384,15 @@ required: the contract, P/Invoke and sanitizer jobs across the three desktop pla
 Android, iOS and Web/Wasm cross-builds, the four lint jobs, both CodeQL analyses, both
 Unity lanes, the browser end-to-end test, and the seven release jobs that build and
 assemble the distributable for all six platforms.
-Six are deliberately not required. Five build the per-platform plugins the Unity lanes
+Nine are deliberately not required. Five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which
 is what stops the merge. The three Web/Wasm checks — its cross-build, its browser
 end-to-end test and its release packaging — **were promoted on 2026-09-10**, after
-passing on five consecutive pull requests and, for the two that also run on `main`, its
-last six runs. A red Web lane now stops a merge like any other.
+passing on all eleven pull requests merged since #63 and, for the two that also run on
+`main`, its last six runs. A red Web lane now stops a merge like any other. The other
+three unrequired checks are the aggregate `CodeQL` check, whose two per-language
+analyses are required individually, and the two Unity result-publishing jobs, which are
+skipped on pull requests.
 **Promotion follows evidence, but somebody has to go and look at it.** A skipped required check
 counts as passing, so depending on one without that guard would let a broken build
 through. A lane is only made required once it has been reliably green — but the failure
