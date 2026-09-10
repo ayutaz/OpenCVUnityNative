@@ -2,7 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> ## 着手する前に読むこと
+> ## この gate は 2026-09-08 に解除され、この計画は実行済みである（`e1b0930`）
+>
+> **以下の「着手する前に読むこと」は、着手前の記録として残してある。**
+> 前提 1（(b) が済んでいること）は 2026-09-06 の `### M7b の判定` が、
+> 前提 2 は 2026-09-08 のリポジトリ所有者による gate lift が満たした
+> （やり取りの引用と、その順序が意味を持つ理由は `docs/roadmap.md` の
+> 「この決定は解除された」）。**したがって、この計画を「着手してはいけない
+> 計画」として読まないこと。** 完了条件 1 を閉じたのはこの計画である
+> （`### M7c の判定`）。
+>
+> **元の決定を支えていた根拠は否定されていない** —— 上流の実測（旧エンジンの
+> 削除、`enum EngineType` の再番号、`OPENCV_FORCE_DNN_ENGINE` の意味変化）は
+> いまも成立しており、**5.1 が来たら作り直しが要ると見込んでよい。**
+> 変わったのは、所有者がその費用を承知のうえで受け入れると判断したことだけである。
+>
+> ## 着手する前に読むこと（2026-09-08 より前の記録）
 >
 > **`docs/roadmap.md` の M7 節は「5.0 に固定した DNN ラッパーを作り込まない」と
 > 決めている。** 根拠は上流の実測で、要約すると **5.0 で作り込むと 5.1 で
