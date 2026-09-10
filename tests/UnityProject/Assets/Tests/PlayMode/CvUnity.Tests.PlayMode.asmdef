@@ -6,7 +6,8 @@
         "CvUnity.Core",
         "CvUnity.Interop",
         "CvUnity.UnityIntegration",
-        "CvUnity.Tests.Shared"
+        "CvUnity.Tests.Shared",
+        "CvUnity.Tests.Shared.Dnn"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

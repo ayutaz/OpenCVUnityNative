@@ -54,6 +54,13 @@ the player fail to link on duplicate symbols, and leaving it out makes OpenCV's 
 fail to link on undefined ones. Neither extreme works, so the Web build has PNG turned
 off. Every other platform has both.
 
+**PNG decoding lost its ARM acceleration on Android, iOS and macOS** (not just Web).
+Working around an upstream OpenCV 5.0.0 defect required turning off `PNG_ARM_NEON` on
+those three arm64 platforms, which drops both the hand-written assembly kernel and the
+NEON intrinsics path — they share the same build switch. This affects every `CvCodecs`
+user on those platforms, whether or not they touch `dnn`. See the
+[roadmap](docs/roadmap.md) for why.
+
 Unity 6000.3 or newer throughout.
 
 ## Installing
@@ -178,6 +185,29 @@ every platform's binary present**, so the multi-platform case those checks exist
 exactly what CI exercises — an EditMode test refuses to go green unless it sees them
 all. Current counts and sizes are in the [roadmap](docs/roadmap.md); they move with
 every release, so they are not repeated here.
+
+### Optional profiles: dnn
+
+The native binary always contains OpenCV's `dnn` module (ONNX loading, blob
+conversion, and forward inference) — it is not split into a separate binary,
+because two of the six platforms (iOS, WebGL) resolve `DllImport("__Internal")`
+by symbol name, not by library name, so there is no name to switch on. What is
+optional is the **C# side**: the `dnn` API (`CvDnn`, in the `CvUnity.Dnn`
+assembly) only compiles into your project if you add the Scripting Define
+Symbol `OCVU_PROFILE_DNN` under **Project Settings → Player → Other Settings →
+Scripting Define Symbols** for the platforms you target. Leave it unset and
+that code — and the P/Invoke declarations it depends on — is not part of your
+build.
+
+This could not be automated with `package.json`'s `versionDefines`: that
+mechanism fires a define when a given *package* is present, but `dnn` lives
+inside this same package rather than a separate one, so there is nothing
+whose presence to key off. The define is therefore something you set
+yourself, not something the package sets for you.
+
+`dnn` has not been run on a real device (the same gap the mobile platforms
+have generally — see the [roadmap](docs/roadmap.md)), and inference speed has
+not been measured.
 
 ### How releases are made
 

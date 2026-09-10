@@ -78,10 +78,21 @@ Assert-That ($LASTEXITCODE -eq 0) 'an accepted transitive module (flann) is perm
 # 非ゼロになるので、意図した拒否とクラッシュが区別できない（同じ理由を
 # `$undocumented` の検査も書いている。**行番号ではなく内容で引く** ——
 # 行番号は書いた瞬間から古くなる）。**拒んだ相手の名前まで見る。**
-$withUnlisted = New-Tree ($allowed + @('opencv_dnn500.lib'))
+#
+# **ここは以前 opencv_dnn500.lib を「許可リストに無い module」の見本にしていたが、
+# `dnn` が Modules に足された 2026-09-08 にその前提が崩れ、このアサーションは
+# 実際に赤くなった**（緑のまま意味を失ったのではない——`$allowed` は
+# `$config.Modules` から動的に作るので、`opencv_dnn500.lib` は既に `$allowed` に
+# 含まれるようになり、`$withUnlisted` は事実上ただの `$allowed` と同じ内容になった。
+# 検証スクリプトはこれを合格と判定して exit 0 を返し、
+# `Assert-That ($LASTEXITCODE -ne 0) ...` が FAIL した）。gapi はこのリポジトリの
+# どの計画にも予定が無く、$config.Modules にも $AcceptedTransitiveModules にも
+# 現れない —— それでも将来 gapi を足す日が来れば、この見本も同じ形で
+# （今回と同じく、実際に赤くなって）古くなる。
+$withUnlisted = New-Tree ($allowed + @('opencv_gapi500.lib'))
 $unlistedOutput = & pwsh -NoProfile -File $verify -Root $withUnlisted 2>&1 | Out-String
 Assert-That ($LASTEXITCODE -ne 0) 'an OpenCV module outside the permitted set is rejected'
-Assert-That ($unlistedOutput -match [regex]::Escape("OpenCV module 'dnn'")) `
+Assert-That ($unlistedOutput -match [regex]::Escape("OpenCV module 'gapi'")) `
     'the rejection names the module it refused (生の例外で落ちるのと区別が付く形で落ちること)'
 
 

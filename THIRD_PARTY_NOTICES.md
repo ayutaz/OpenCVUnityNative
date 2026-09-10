@@ -23,17 +23,31 @@ source, which is Apache-2.0 (see [LICENSE](LICENSE)).
   | macOS / Linux / iOS / Web | `lib/*.a` | `share/licenses/opencv5/` |
   | Android | `sdk/native/staticlibs/arm64-v8a/*.a` | `sdk/etc/licenses/` |
 - Modules built for this configuration (`tools/opencv-config.psd1`):
-  `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, `calib`, plus `flann`,
-  `geometry` and `stereo`, pulled in transitively
+  `core`, `imgproc`, `imgcodecs`, `objdetect`, `features`, `calib`, `dnn`, plus
+  `flann`, `geometry` and `stereo`, pulled in transitively
   (`tools/verify-opencv-artifact.ps1` `$AcceptedTransitiveModules`).
 - **Universe considered**: every file under
   `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）` in the restored artifact
-  (`./tools/opencv.ps1 restore`) — **13 files** on the desktop and iOS configurations, **15 on Android**
-  (`cpufeatures-LICENSE` and `cpufeatures-README.md`, both from the NDK), and
-  **11 on Web** as of this hash. **Web has two fewer, not more**: it is built with
+  (`./tools/opencv.ps1 restore`) — counts **as of this hash** (they were last
+  updated 2026-09-08, when `dnn` added `protobuf-LICENSE` and
+  `protobuf-README.md` to every platform): **15 on Windows and Linux, 14 on
+  macOS, 13 on iOS, 16 on Android, 13 on Web.** These are no longer a flat
+  "desktop and iOS" bucket — that grouping was already an approximation
+  before this count, and listing each platform actually downloaded and
+  counted (not restored-then-guessed) surfaced two differences unrelated to
+  `dnn`: **macOS and iOS both lack `clapack-lapack_LICENSE`** (Windows and
+  Linux have it; whatever backs linear algebra on Apple Silicon here isn't
+  bundled CLAPACK), and **iOS additionally lacks `dlpack-LICENSE`**, which
+  every other platform — including Android and Web — has. Neither of these
+  is a `dnn` effect (both were true of the pre-`dnn` trees too, as far as
+  this document's authors can tell from what's on hand); they simply hadn't
+  been individually counted before. Android's baseline is **cpufeatures-LICENSE
+  and cpufeatures-README.md** (both from the NDK) on top of the Windows/Linux
+  set, minus the same missing `clapack-lapack_LICENSE`. **Web has two fewer than
+  Windows/Linux for an unrelated, already-documented reason**: it is built with
   `WITH_PNG=OFF`, so `libpng-LICENSE` and `libpng-README` are absent — Unity's own
   WebGL support ships libpng, and bundling OpenCV's copy makes the player fail to
-  link on duplicate symbols. Measured 2026-09-03 by listing both trees. This is the
+  link on duplicate symbols. This is the
   set OpenCV's own install step attributes as third-party, and it is now the
   allowlist `tools/verify-opencv-artifact.ps1`'s `$InertLicenseFiles`
   enforces: a new file appearing there that isn't in that list fails the
@@ -816,33 +830,393 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
+## protobuf
+
+License: BSD 3-Clause (`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）protobuf-LICENSE`)
+
+Linked into: its own static library alongside the `opencv_*` module
+libraries — `libprotobuf.lib` on Windows, `liblibprotobuf.a` on the other
+five platforms. **The doubled `lib` prefix is not a typo and not this
+repository's naming**: upstream protobuf's own CMake target is itself named
+`libprotobuf`, so the platform's usual `lib` prefix is added on top of that
+on Unix (confirmed against every platform's build log, run `34212296352`,
+2026-09-08).
+
+**This library is new as of `dnn` being added to `Modules`.** It was not
+present, and not linked, in any earlier configuration. OpenCV's ONNX
+importer (part of `dnn`) parses models that are serialized with protobuf,
+so — unlike the optional codecs this document lists elsewhere — protobuf
+is not something this package chose to enable for convenience: without it,
+`dnn` does not compile at all (`tools/opencv-config.psd1` used to carry
+`WITH_PROTOBUF=OFF` under its "value this project doesn't need" rationale;
+that premise stopped holding the moment `dnn` was added, and the comment at
+that line explains why rather than silently disappearing). The copy bundled
+here is the version OpenCV vendors and builds from source — 3.19.1 — not
+whatever protobuf a build machine happens to have installed
+(`-DBUILD_PROTOBUF=ON`, for the same reproducibility reason `BUILD_ZLIB` /
+`BUILD_PNG` / `BUILD_JPEG` are already `ON` above).
+
+OpenCV's install also ships `protobuf-README.md` in the same licenses
+directory. Like `cpufeatures-README.md` above, it is minimal
+project/version metadata (name, upstream URL, bundled version number), not
+a separate licence — both files are covered by the BSD-3-Clause text below.
+Verified against OpenCV's own vendored copy at the `5.0.0` tag
+(<https://github.com/opencv/opencv/blob/5.0.0/3rdparty/protobuf/LICENSE>),
+which is byte-for-byte the same text upstream protobuf ships at its
+`v3.19.1` tag.
+
+**BSD-3-Clause requires the copyright notice and disclaimer to be
+reproduced in binary redistributions**, which is what the text below does.
+
+```
+Copyright 2008 Google Inc.  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+    * Neither the name of Google Inc. nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Code generated by the Protocol Buffer compiler is owned by the owner
+of the input file used when generating it.  This code is not
+standalone and requires a support library to be linked with it.  This
+support library is itself covered by the above license.
+```
+
+---
+
+## flatbuffers
+
+License: Apache License 2.0
+(`third_party/opencv/<hash>/ のライセンスディレクトリ（上表）flatbuffers-LICENSE.txt`)
+
+Linked into: `opencv_dnn500.lib` (Windows) / the platform-equivalent
+`opencv_dnn` static library — the reading side of `dnn`'s TFLite importer
+(`opencv_tflite` namespace: `Model`, `SubGraph`, `Operator`, `Tensor` and
+friends), which walks a `.tflite` file through
+`flatbuffers::Table`, `flatbuffers::VerifierTemplate`, `flatbuffers::Vector`,
+`flatbuffers::String`, `flatbuffers::GetRoot` / `GetMutableRoot`,
+`flatbuffers::ReadScalar` / `EndianScalar`, and related reader-side
+machinery. **`FlatBufferBuilder` (the writer side) was searched for and not
+found** — consistent with an importer that only ever reads models, never
+serializes them.
+
+**This library was previously listed below as "present but not linked."
+That was correct when last checked, and stopped being correct the moment
+`dnn` entered `Modules` (2026-09-08) — TFLite import is part of `dnn`.**
+Confirmed by actually restoring a build that has `dnn` (run `34215362804`,
+`./tools/opencv.ps1 restore`) and searching its `opencv_dnn500.lib`, not by
+inference from compiler flags.
+
+**Confirmed on two platforms, deliberately chosen for two different
+name-mangling schemes** — Windows/MSVC (above) and Linux/Itanium
+(`lib/libopencv_dnn.a` from the same run `34215362804`: `flatbuffers` → 164
+matches, `dlpack` → 0 matches, and 0 matches for `dlpack` across every `.a`
+in that tree). That second data point matters more than a second platform
+would on its own, because the methodology defect described below is
+specific to which mangling scheme a toolchain uses — confirming the same
+classification under both schemes is what makes it trustworthy, not merely
+having checked twice. **The remaining four platforms (macOS, iOS, Android,
+Web) were not individually inspected.** They are inferred from building the
+same `Modules` list from the same OpenCV source tree, not from grepping
+their own `.a` files — record that as inference, not as a third data point.
+
+**A methodology correction, recorded so the next search doesn't repeat it:**
+the two earlier "zero matches" results for this component used patterns
+containing `::`, e.g. `flatbuffers::`, mirroring how the identifier reads in
+source. **That pattern cannot match on Windows.** MSVC's name-mangling
+scheme (`?Verify@ConcatEmbeddingsOptions@opencv_tflite@@...`) does not
+preserve `::` as literal text the way Itanium mangling (used by GCC/Clang on
+the other five platforms) tends to keep readable substrings — it uses `@` as
+a namespace separator instead. Searching for the **bare identifier**
+(`flatbuffers`, no punctuation) is what actually finds it:
+
+```
+grep -a -o -i "flatbuffers" opencv_dnn500.lib | wc -l
+```
+
+returns several hundred matches, all of them decorated `opencv_tflite`
+member-function names of the shape shown above — not the single
+`cv::getBuildInformation()` summary-string hit this document previously
+noted in `opencv_core500.lib` (that hit is still there, and is still just
+build-info text, not code). **This does not retroactively make the earlier
+"zero matches" wrong for what they actually tested** — the tree they ran
+against had no `dnn`, so there was no flatbuffers-using code to find
+regardless of pattern. It does mean the `::`-containing pattern shape is
+unreliable on Windows going forward and bare identifiers should be
+preferred, especially for any future search on `.lib` (not `.a`) files.
+
+**Apache License 2.0 requires a copy of the license to accompany
+redistribution**, which is what the text below does — the same text OpenCV
+itself vendors at `3rdparty/flatbuffers/LICENSE.txt` (verified against the
+`5.0.0` tag,
+<https://github.com/opencv/opencv/blob/5.0.0/3rdparty/flatbuffers/LICENSE.txt>).
+
+```
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
+---
+
 ## Present in `etc/licenses/` but not linked into this build
 
-Two of those files are license texts for components that OpenCV's build
-system attributes generally, but a symbol-table search of every `.lib`
-under the platform's library directory (see the table above) for identifiers
-specific to each found nothing.
-Both belong to OpenCV modules (`dnn`, `gapi`) that are **not** in this
-configuration's `Modules` list (`tools/opencv-config.psd1`), so their code
-was never compiled into anything this package ships. Their license text is
-listed here for completeness — so the inventory is fully
-accounted for — but is not reproduced, because nothing of theirs ships.
+One file remains here — **not two.** `flatbuffers` used to be listed
+alongside `dlpack` in this section; it moved up to its own reproduced
+section above once `dnn` (which actually uses it, via the TFLite importer)
+entered `Modules` and a real build could be searched. See that section for
+the full story, including a methodology correction that applies to this
+section too.
 
 - **dlpack** (Apache License 2.0) —
   `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）dlpack-LICENSE`. Searched
-  for `DLManagedTensor`, `DLPackVersioned`, `dlpack` (case-insensitive)
-  across every `.lib`; zero matches.
-- **flatbuffers** (Apache License 2.0) —
-  `third_party/opencv/<hash>/ のライセンスディレクトリ（上表）flatbuffers-LICENSE.txt`.
-  Searched for `flatbuffers::`, `FlatBufferBuilder`, `flatbuffers_`; zero
-  matches. (`opencv_core500.lib` does contain the bare word "Flatbuffers"
-  once, but only inside the embedded `cv::getBuildInformation()` summary
-  string — see the note in "Scope of this document" above about why that
-  doesn't count as linked code.)
+  the restored `dnn`-enabled tree (run `34215362804`) for the bare
+  identifiers `DLTensor`, `DLDevice`, `DLDataType`,
+  `DLManagedTensor`, `dlpack` (case-insensitive, no `::` — see the
+  methodology note above) across every `.lib` in
+  `x64/vc17/staticlib/`; zero matches, all patterns, all files. Confirmed a
+  second time on the Linux artifact from the same run (`dlpack`, zero
+  matches across every `.a` in that tree) — same two-mangling-scheme
+  reasoning as the `flatbuffers` entry above. The other four platforms were
+  not individually inspected; they are inferred from the same `Modules`
+  list and source tree.
 
-If a future `Modules` list adds `dnn` or `gapi`, re-run these searches —
-they will very likely start matching, and these two need to move up into
-the reproduced sections above.
+**Both components were attributed to OpenCV modules (`dnn`, `gapi`) that
+were not in this configuration's `Modules` list. That premise is now false
+for `dnn`** (added 2026-09-08) **and still true for `gapi`**, which remains
+outside `Modules` and outside this build entirely. dlpack staying unlinked
+despite `dnn` now being built is consistent with it being a header-only
+type-definition library (`DLManagedTensor` et al. are C structs, not
+functions) — nothing in this build's compiled sources instantiates them in
+a way that leaves a distinct symbol behind, unlike flatbuffers' `Table` /
+`Vector` reader templates, which do generate real code. Its license text is
+kept here for completeness — so the inventory is fully accounted for — but
+is not reproduced, because nothing of it ships.
+
+If a future `Modules` list adds `gapi`, or if `dlpack` starts matching in a
+later search (a genuinely different call site could reference the structs
+in a way that survives into object code), re-run the search above and move
+it up.
 
 ---
 

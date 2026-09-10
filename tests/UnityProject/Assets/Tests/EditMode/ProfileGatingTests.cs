@@ -26,12 +26,16 @@ using UnityEditor.Compilation;
 /// `ProjectSettings.asset` の `scriptingDefineSymbols` に
 /// `Standalone: OCVU_PROFILE_DNN` を置いて `dev.ps1 test-unity-editmode` を
 /// 走らせ、`tests/UnityProject/Library/ScriptAssemblies/` に
-/// `CvUnity.Interop.Dnn.dll` と `CvUnity.Tests.Shared.Dnn.dll` が
-/// 現れることを見る（最後の実測は 2026-09-06。合成した
-/// `profile: "dnn"` の spec から**生成した**ファイルで確かめた）。
+/// `CvUnity.Interop.Dnn.dll` / `CvUnity.Tests.Shared.Dnn.dll` /
+/// `CvUnity.Dnn.dll` が現れることを見る（最後の実測は 2026-09-09、**本物の
+/// `bindings/spec/dnn.json` から生成した公開 API を含む** —— この 3 つ目は
+/// M7c Task 4 で足した。この実行では上の「切れている」方向の 3 件が
+/// 前提を欠いて赤くなる ―― defines が既に `OCVU_PROFILE_DNN` を含むため
+/// 意図どおりで、それ以外の全テストは緑のままだった。確認後は
+/// `scriptingDefineSymbols` を空 `{}` へ戻す）。
 ///
 /// **「切れている」だけを見る検査は、綴り間違いと区別が付かない。**
-/// `defineConstraints` の値を打ち間違えても、この 4 件は全部緑になる ——
+/// `defineConstraints` の値を打ち間違えても、この 5 件は全部緑になる ——
 /// その 1 点だけは <see cref="TheGatedAsmdefsSpellTheDefineTheseTestsCheckFor"/>
 /// が塞ぐ（asmdef が実際に綴っている値と、この class が使う定数を比べる）。
 /// </summary>
@@ -40,6 +44,14 @@ public class ProfileGatingTests
     private const string DnnAssembly = "CvUnity.Interop.Dnn";
     private const string StandardAssembly = "CvUnity.Interop";
     private const string DnnSharedTestAssembly = "CvUnity.Tests.Shared.Dnn";
+
+    /// <summary>
+    /// 公開 API 層（Runtime/Dnn/、M7c Task 4）。<see cref="DnnAssembly"/> と
+    /// 同じ define で切ってある —— こちらだけを切り忘れると、
+    /// Interop.Dnn が消えたときに参照先を失って利用者のプロジェクトが
+    /// コンパイルエラーになる。
+    /// </summary>
+    private const string DnnPublicApiAssembly = "CvUnity.Dnn";
 
     /// <summary>
     /// **この define の綴りは、下の各テストと asmdef の両方が使う。**
@@ -122,9 +134,33 @@ public class ProfileGatingTests
     }
 
     /// <summary>
+    /// **dnn の公開 API 層も、define が無ければコンパイルされない。**
+    ///
+    /// Interop.Dnn だけを切っても足りない —— それを参照する
+    /// CvUnity.Dnn が残ると、参照先を失って**利用者のプロジェクトが
+    /// コンパイルエラーになる。**
+    /// </summary>
+    [Test]
+    public void TheDnnPublicApiAssemblyIsAlsoAbsentWithoutItsDefine()
+    {
+        var defines = UnityEditor.PlayerSettings.GetScriptingDefineSymbols(
+            UnityEditor.Build.NamedBuildTarget.Standalone);
+
+        // このプロジェクトは既定で OCVU_PROFILE_DNN を立てていない。
+        // **前提が崩れたら、この検査は何も見ていないので落とす。**
+        Assert.That(defines, Does.Not.Contain(DnnDefine),
+            "このテストは OCVU_PROFILE_DNN が立っていないことを前提にしている");
+
+        var names = CompilationPipeline.GetAssemblies(AssembliesType.Editor)
+            .Select(a => a.name).ToList();
+        Assert.That(names, Does.Not.Contain(DnnPublicApiAssembly),
+            "define が無いのに dnn の公開 API assembly がコンパイルされている");
+    }
+
+    /// <summary>
     /// **綴りを見る。**
     ///
-    /// 上の 3 件はどれも「define が立っていない状態で assembly が現れない」を
+    /// 上の 4 件はどれも「define が立っていない状態で assembly が現れない」を
     /// 見ている。**`defineConstraints` の値を打ち間違えても、それは全部真である**
     /// —— 存在しない define は決して立たないので、その assembly は
     /// **どんな define を立てても永久に現れない。** 「切ってある」と
@@ -149,7 +185,7 @@ public class ProfileGatingTests
         // 下の foreach は 1 度も回らずに緑になる。
         Assert.IsNotEmpty(all, "asmdef が 1 つも拾えていない。走査が壊れている");
 
-        foreach (var wanted in new[] { DnnAssembly, DnnSharedTestAssembly })
+        foreach (var wanted in new[] { DnnAssembly, DnnSharedTestAssembly, DnnPublicApiAssembly })
         {
             var matches = all.Where(a => a.name == wanted).ToList();
             Assert.AreEqual(1, matches.Count,

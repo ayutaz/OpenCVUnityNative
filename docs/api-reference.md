@@ -15,9 +15,15 @@
 §2.13、core の基本演算が §2.14、特徴点マッチングとステレオが §2.15 にある。**`WebCamTexture` 連携は
 M4 で足したので §2.6 にある。QR コードの符号化・復号と ORB 特徴点検出、射影変換の
 推定、カメラの歪み補正とチェスボードの格子点検出は M5 で足したので §1「objdetect /
-features / geometry / カメラ校正」と §2.8〜§2.11 にある。**詳しい経緯は
+features / geometry / カメラ校正」と §2.8〜§2.11 にある。**M7c で `dnn` を
+4 本足した** —— C ABI は §1「dnn」にあるが、`"profile": "dnn"` を宣言する
+初めての module なので C# の宣言だけが別 assembly（`CvUnity.Interop.Dnn`）へ
+出る。**利用者向けの `CvUnity.Dnn.CvDnn` / `CvNet` も同じ M7c で足した**
+（Task 4。§2.17）—— こちらも `CvUnity.Interop.Dnn` と同じ `defineConstraints`
+で切ってある別 assembly（`CvUnity.Dnn`）である。**詳しい経緯は
 `docs/abi-ownership-and-versioning.md` §3「API の allowlist」（M3.5 の追加は §3.5、
-M5 の追加は §3.6〜§3.9）を、所有権契約そのものは同 §1 を参照。
+M5 の追加は §3.6〜§3.9）を、所有権契約そのものは同 §1・§1.7 を、profile の
+仕組みは同 §4 を参照。
 
 対応 Unity は **6000.3 以降**（`package.json` の下限が `6000.3`。**実際に検証しているのは
 6000.3.16f1 の 1 版だけ**）。**対応 platform は最新の公開版のもの**（**一覧をここに写さない** ——
@@ -424,6 +430,71 @@ SIFT は `create(200)` で 240 個）。**`capacity` を `max_features` と同�
 強制するのは `StereoBM` だけで、`StereoSGBM` はどちらも検査しない（実測）——
 **この ABI が自分で決めた、OpenCV より厳しい契約である**（呼ぶ側にとって単純になる）。
 
+### dnn（M7c で追加、`dnn` profile）
+
+**この 4 本は既定 profile ではない。** spec（`bindings/spec/dnn.json`）が
+`"profile": "dnn"` を宣言しているため、C ヘッダは他と同じ
+`native/include/ocvu/dnn.h` に出るが、C# の宣言は `CvUnity.Interop` の
+`NativeMethods` ではなく `CvUnity.Interop.Dnn` の `NativeMethodsDnn` という
+**別の assembly** に出る（`docs/abi-ownership-and-versioning.md` §4）。
+**利用者側の公開 API（`CvUnity.Dnn.CvDnn` / `CvNet`）は M7c Task 4 で足した**
+—— §2.17 にある。
+
+| 関数 | 何をするか |
+| --- | --- |
+| `ocvu_dnn_net_read_onnx` | メモリ上の ONNX の byte 列からネットワークを読み、`ocvu_net_handle` を返す。ファイルパスは受け取らない |
+| `ocvu_dnn_net_release` | `ocvu_net_handle` を解放する |
+| `ocvu_dnn_blob_from_image` | `Mat` を推論の入力（4 次元の blob）にする |
+| `ocvu_dnn_net_forward` | 推論を 1 回走らせ、結果を 2 次元の `Mat` に書く |
+
+**`ocvu_net_handle` は `ocvu_mat_handle` と同じ所有権の形である。** native が
+常に所有し、`ocvu_dnn_net_release` で解放するまで生きる。新しい所有権モデルは
+増えていない（`docs/abi-ownership-and-versioning.md` §1.7）。
+
+**engine / backend を選ぶ引数も定数も出していない。** OpenCV 5.1 で
+`enum EngineType` の値が総入れ替えになったため、5.1 で意味が変わる数字を
+境界の外へ出さない判断である（`docs/roadmap.md` の M7 節）。
+
+**推論の出力は 2 次元に潰す。** `cv::dnn::Net::forward()` が返すのは 4 次元の
+blob（NCHW）だが、この ABI の `Mat` は `rows` / `cols` / `channels` / `step`
+しか公開していない。`ocvu_dnn_net_forward` は最後の次元を列数として残りを
+すべて行数へ畳み込む —— **分類モデルの典型的な `(1, N)` はそのまま `1 × N` に
+なるが、検出モデルのような 4 次元の出力では N と C の区別が失われる。**
+この ABI が受け取れるのは分類モデルの `1 × N` の出力だけである。**戻り値は
+net の内部バッファから独立したコピーであり**、同じ net で続けて forward を
+呼んでも書き換わらない（`.clone()` している）。handle の検証は net →
+input → output の順で行い、解放済みの net も他の無効な handle と同じ
+`OCVU_STATUS_INVALID_HANDLE` になる。
+
+**`ocvu_dnn_blob_from_image` の出力は潰さない。** `cv::dnn::Net::setInput` が
+要求するのは 4 次元の NCHW そのものなので、`ocvu_dnn_net_forward` へ渡すまで
+形を保つ。この handle を `ocvu_mat_get_info` のような 2 次元前提の関数へ渡すと
+`OCVU_STATUS_INVALID_ARGUMENT` で拒まれる（`ocvu_mat_get_info` は dims > 2 の
+Mat を断る）。
+
+**`mean_b` / `mean_g` / `mean_r` は配列ではなく 3 個の scalar である。**
+各チャンネルから引く値をこの順（B, G, R）で渡す固定契約で、配列 + 長さの
+形にしていない —— 短い配列を渡して境界の外を読む、という誤りをそもそも
+表現できなくするためである。NULL を心配する必要も無い。**検証の順序は
+width / height の範囲 → src の handle → dst の handle で固定してある**
+（範囲外の width と無効な handle を同時に渡すと `OCVU_STATUS_INVALID_ARGUMENT`
+になる）。`width` / `height` は `OCVU_DNN_MAX_BLOB_DIM`（4096）以下でなければ
+ならない —— buffer の長さではなく、native がその寸法でメモリを確保する
+引数だからである（`ocvu_orb_detect` の `max_features` などと同じ形の上限）。
+
+**有効な ONNX を読み込ませて推論する経路は、L3 で実物のモデルを使って
+実証している。** 壊れた入力に対する振る舞い（NULL、負または 0 の長さ、
+無効な handle、異常な blob の寸法）は L1（`native/tests/test_dnn.cpp`）と、
+公開 API の壊れた入力・寿命・所有権（`tests/Managed/CvUnity.Tests.Managed/DnnTests.cs`。
+§2.17）が固定し、正常系（読み込み → blob 化 → forward の往復）は
+自作の Identity 1 ノード ONNX（`tests/Managed/CvUnity.Tests.Managed/TestModels/tiny.onnx`。
+生成スクリプトはその隣の `tiny.onnx.py`）を使う `DnnInferenceTests.cs` が
+`tests/Managed/CvUnity.Tests.Managed/` で見ている。**ただし、これが実証する
+のは境界が往復することであって、下で述べる「戻り値が独立したコピーである」
+こと（`.clone()` の効果）そのものではない** —— そちらの経緯は次段落と
+`CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput` の
+docstring を見ること。
+
 ### この allowlist に含まれないもの
 
 `ocvu_get_abi_version` / `ocvu_get_last_error_status` / `ocvu_get_last_error_message` /
@@ -441,9 +512,12 @@ C# としての契約は §2.1 の `CopyFrom(IntPtr, …)` / `CopyTo(IntPtr, …
 ## 2. C# 公開 API
 
 対象アセンブリ: `CvUnity.Core`（`Runtime/Core/`、`UnityEngine` 非参照）、
-`CvUnity.UnityIntegration`（`Runtime/UnityIntegration/`、`UnityEngine` 参照）。
-`CvUnity.Interop`（`Runtime/Interop/`）は P/Invoke 宣言のみを持ち、公開型は無い
-（`NativeMethods` は `internal`）。
+`CvUnity.UnityIntegration`（`Runtime/UnityIntegration/`、`UnityEngine` 参照）、
+`CvUnity.Dnn`（`Runtime/Dnn/`、`UnityEngine` 非参照。`dnn` profile の
+`defineConstraints` つきで、`OCVU_PROFILE_DNN` が無いプロジェクトではコンパイル
+されない）。`CvUnity.Interop`（`Runtime/Interop/`）と `CvUnity.Interop.Dnn`
+（`Runtime/Interop.Dnn/`）は P/Invoke 宣言のみを持ち、公開型は無い
+（`NativeMethods` / `NativeMethodsDnn` はどちらも `internal`）。
 
 ### 2.1 `CvUnity.CvMat`
 
@@ -886,6 +960,45 @@ CPU から読むには GPU → CPU の転送が要る。
 （実測。詳細は [性能](./performance.md)）。この経路を検証するローカル専用の
 `test-unity-graphics` レーンは `-nographics` を付けずに走り、**CI には
 配線していない。**
+
+### 2.17 `CvUnity.Dnn.CvDnn` / `CvNet`（M7c で追加、`dnn` profile）
+
+`CvUnity.Dnn` アセンブリ（`Runtime/Dnn/`）。**opt-in profile である** ——
+`CvUnity.Interop.Dnn` と同じ `defineConstraints`（`OCVU_PROFILE_DNN`）で
+切ってあり、`OCVU_PROFILE_DNN` が無いプロジェクトではコンパイルされない。
+**片方だけを切ると壊れる** —— `CvUnity.Interop.Dnn` だけを切って `CvUnity.Dnn`
+を残すと、参照先を失って利用者のプロジェクトがコンパイルエラーになる
+（`docs/abi-ownership-and-versioning.md` §4）。
+
+`CvNet`（`sealed class`、`IDisposable`）: native が所有する `ocvu_net_handle` を
+包む。**寿命の契約は `CvMat`（§2.1）と同じ** —— handle は常に native 側の
+ものであり、二度目以降の `Dispose()` は no-op（`ocvu_dnn_net_release` は
+解放済み handle に `OCVU_STATUS_INVALID_HANDLE` を返すだけで落ちない。
+C# 側はその戻り値を見ない）。
+
+| メンバ | 内容 |
+| --- | --- |
+| `void Dispose()` | `ocvu_dnn_net_release` を呼ぶ。二度目以降は no-op |
+
+`CvDnn`（`static class`）:
+
+| メンバ | 内容 |
+| --- | --- |
+| `static CvNet ReadOnnx(byte[] data)` | `ocvu_dnn_net_read_onnx` を呼ぶ。`data` が `null` なら `ArgumentNullException`、空なら `ArgumentException`。読めない byte 列は `CvNativeException`（`Status == CvStatus.OpenCvError`） |
+| `static void BlobFromImage(CvMat src, CvMat dst, double scale, int width, int height, double[] mean, bool swapRb, bool crop)` | `ocvu_dnn_blob_from_image` を呼ぶ。`mean` は **B, G, R の順で 3 要素**でなければならない（native は 3 個の scalar を受け取る固定契約で、配列ではないので長さを取り違える余地が無い）。長さが違えば `ArgumentException` |
+| `static void Forward(CvNet net, CvMat input, CvMat output)` | `ocvu_dnn_net_forward` を呼ぶ。`output` は net の内部バッファから独立したコピーで、同じ `net` で続けて呼んでも書き換わらない |
+
+**正常系（実物の ONNX モデルを読んで実際に推論する経路）は L3 で実証している。**
+`DnnTests.cs`（`tests/Managed/CvUnity.Tests.Managed/`）が見るのは壊れた
+入力・寿命・所有権だけだが（有効な ONNX を手で組むのは現実的でないため）、
+自作の Identity 1 ノード ONNX（`TestModels/tiny.onnx`。生成スクリプトは
+`TestModels/tiny.onnx.py`）を使う `DnnInferenceTests.cs` が読み込み → blob
+化 → forward の往復を実物のモデルで確かめている。**実証しているのは
+境界が往復することであって、`output` が独立したコピーであること
+（上の行、`.clone()` の効果）を再現テストとして証明したわけではない** ——
+`.clone()` を外して再現を試みたが、この規模のモデルでは検知できなかった
+（`CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput` の
+docstring 参照）。
 
 ## 3. 対象外（この文書に書かないもの）
 

@@ -94,6 +94,46 @@ set_target_properties(opencv_unity_native PROPERTIES
     OUTPUT_NAME opencv_unity_native
 )
 
+# **Android だけ、リンク後に DWARF デバッグ情報を strip する。**
+#
+# dnn（実質は MLAS / onnxruntime 由来の重いテンプレート）を足したことで
+# 全部入り tarball が上限（100 MB）を 18 MB 超えた。ELF のセクションを
+# 直接読んで原因を実測したところ、Android の .so は **86% が
+# .debug_* セクション**で、実行に要る部分（.text / .rodata / .dynsym 等）は
+# 1 割に満たない。**これは dnn 固有の問題ではない** —— dnn を足す前の
+# v0.3.0 の .so を同じ方法で測っても、既に 82% がデバッグ情報だった。
+# dnn は閾値を越えさせただけで、原因は前から在った。
+#
+# Windows は `.pdb` にデバッグ情報を分離するので実行体は増えず、macOS の
+# .dylib は約 14 MB で問題にならない。iOS / Web は Unity が最終リンクする
+# **静的アーカイブ**を配るので、話が違う（strip すると利用側のリンクが
+# 変わりうる）——この決定はここでは行わない。
+#
+# **`--strip-unneeded` を選ぶ。** `.debug_*` に加えて `.symtab` / `.strtab`
+# （backtrace 用のローカル記号）も落とすが、実行時に解決へ使う `.dynsym` /
+# `.dynstr` は対象外（objcopy/strip の仕様）。実測でも確認済み: strip 前後で
+# `ocvu_` の動的エクスポート（`.dynsym`）は 1 つも減らない。
+#
+# **CMAKE_STRIP を使う。** NDK の toolchain file
+# （`${ANDROID_NDK}/build/cmake/android.toolchain.cmake`）が
+# `llvm-strip` を指すよう設定済みなので、道具を自分で探さない。
+# **見つからなければ黙って skip しない** —— 「strip できたはず」が
+# 検証されないまま配られる経路を作らないため、無ければ止める。
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    if(NOT CMAKE_STRIP)
+        message(FATAL_ERROR
+            "CMAKE_STRIP が未設定です。NDK の toolchain file が正しく "
+            "include されているか確認すること（Android の .so から "
+            "デバッグ情報を strip できません）。")
+    endif()
+    add_custom_command(
+        TARGET opencv_unity_native POST_BUILD
+        COMMAND ${CMAKE_STRIP} --strip-unneeded "$<TARGET_FILE:opencv_unity_native>"
+        COMMENT "Android: stripping DWARF debug info from opencv_unity_native.so"
+        VERBATIM
+    )
+endif()
+
 add_library(ocvu_static STATIC ${OCVU_SOURCES})
 target_include_directories(ocvu_static
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

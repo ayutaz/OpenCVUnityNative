@@ -121,6 +121,18 @@ extern "C" ocvu_status ocvu_mat_get_info(ocvu_mat_handle handle, ocvu_mat_info* 
     if (mat == nullptr) {
         return ::ocvu::set_last_error(OCVU_STATUS_INVALID_HANDLE, "handle is invalid");
     }
+    // **2 次元より多い次元を持つ Mat を素通ししない（レビュー指摘、Important 1）。**
+    // ocvu_dnn_blob_from_image が作る Mat は dims == 4 でありうる。この struct は
+    // rows / cols / channels / step という 2 次元の語彙しか持たないので、
+    // dims > 2 のとき OpenCV は rows = cols = -1 を返す —— 素通しすると
+    // OCVU_STATUS_OK のまま rows = -1、total_bytes が負の値になる。
+    // 「読めない」ではなく「間違った値を自信満々で返す」形だったので、
+    // ここで明示的に断る。
+    if (mat->dims > 2) {
+        return ::ocvu::set_last_error(
+            OCVU_STATUS_INVALID_ARGUMENT,
+            "ocvu_mat_get_info: mat has more than 2 dimensions (e.g. a dnn blob)");
+    }
     out_info->rows = mat->rows;
     out_info->cols = mat->cols;
     out_info->type = from_cv_type(mat->type());

@@ -41,6 +41,8 @@ encode / decode の検査が PNG ではなく JPEG を使うので、**画素の
 どちらの極端も通らないので、Web のビルドでは PNG を外してあります。
 **他の 5 platform は PNG / JPEG の両方を扱えます。**
 
+**PNG のデコードは Android・iOS・macOS でも ARM 加速を失っています**（Web だけではありません）。上流の OpenCV 5.0.0 の欠陥を回避するため、この 3 つの arm64 platform で `PNG_ARM_NEON` を切る必要があり、これはアセンブリで書かれたカーネルと NEON intrinsics の経路を両方とも落とします —— 同じビルドスイッチを共有しているためです。`dnn` を使うかどうかに関わらず、これらの platform で `CvCodecs` を使う利用者全員に影響します。理由の詳細は[ロードマップ](docs/roadmap.md)にあります。
+
 全体を通して Unity 6000.3 以降が必要です。
 
 ## 導入
@@ -115,6 +117,25 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 第 2 に、この検査には歯があります。macOS のライブラリが Windows でも有効だと主張するように `.meta` を意図的に壊すと、**古い 10 件のテスト群は 10/10 のまま通り**（`DllImport` の解決はファイル名の時点で分岐するので、そこでは誰も気づきません）、**gating のテストが 3 件落ちます。**
 
 全部入りの tarball を使い捨てのプロジェクトに導入して EditMode を走らせると通ります（このマシンでの実測）。**CI は全 platform の binary を置いた状態で同じ EditMode 群を走らせる**ので、これらの検査が存在する理由である「複数 platform が同居する場合」を、CI がまさに実際に確かめています —— EditMode のテストが、全部揃っているのを見るまで緑になりません。現在の件数やサイズは[ロードマップ](docs/roadmap.md)にあります（リリースのたびに動くので、ここには写しません）。
+
+### 追加 profile: dnn
+
+native binary には OpenCV の `dnn` module（ONNX の読み込み、blob 化、forward 推論）が
+**常に**入っています —— profile ごとに別 binary へ分けてはいません。理由は、6 platform
+のうち iOS と WebGL の 2 つが `DllImport("__Internal")` を**シンボル名**で解決し、
+**ライブラリ名**では解決しないため、切り替える対象の名前がそもそも存在しないからです。
+**任意にできるのは C# 側だけです。** `dnn` の API（`CvDnn`、`CvUnity.Dnn` assembly）は、
+利用側のプロジェクトの **Project Settings → Player → Other Settings → Scripting Define
+Symbols** に `OCVU_PROFILE_DNN` を対象 platform 分足したときだけコンパイルされます。
+立てなければ、そのコードと、それが依存する P/Invoke 宣言はビルドに入りません。
+
+これは `package.json` の `versionDefines` では自動化できませんでした —— あの機構は
+「ある**パッケージ**が入っていれば define を立てる」もので、`dnn` は別パッケージではなく
+**同じパッケージの中**にあるため、存在の有無を条件にできる対象がありません。したがって
+この define は、パッケージ側が立てるものではなく、**利用者が自分で立てるもの**です。
+
+`dnn` は実機で動かしたことがありません（モバイル platform 全般が抱える穴と同じ形です。
+詳細は[ロードマップ](docs/roadmap.md)）。推論の速さも測っていません。
 
 ### リリースの作り方
 

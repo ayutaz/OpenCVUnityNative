@@ -261,6 +261,86 @@ native はそこへ書くだけで、戻った後は一切保持しない。
 
 関数を足しただけなので `OCVU_ABI_VERSION` は 1 のままである（§2「bump しない変更」）。
 
+## 1.7. `ocvu_net_handle` の所有権規約（M7c で追加）
+
+**`ocvu_net_handle` は `ocvu_mat_handle` とまったく同じ所有権の形を再利用する。**
+新しい所有権モデルは増えていない —— `native/src/ocvu_dnn_table.h` / `.cpp` は
+`native/src/ocvu_mat_table.h` / `.cpp` の設計をそのまま写している（世代番号 +
+索引の handle、`std::vector<Slot>` の `Slot` が `std::unique_ptr<cv::dnn::Net>` を
+持つ、`std::mutex` で保護、free list で索引を再利用）。
+
+**native が常に所有する。** `ocvu_dnn_net_read_onnx` が読み込んだ
+`cv::dnn::Net` は、`ocvu_dnn_net_release` を呼ぶまで native 側の table が
+生かし続ける。Unity 側が `cv::dnn::Net` の実体を直接見ることは無い —— 見えるのは
+`uint64_t` の handle だけである。
+
+**§1.5 の複数スレッド規約は `ocvu_net_handle` にもそのまま適用される。**
+`net_table_get` は table の mutex を取って `cv::dnn::Net*` を解決し、
+`ocvu_mat_table.cpp` と同じくロックを離してから返す —— `setInput` /
+`forward()` はロックの外で走る。table 自体は §1.5 のとおりスレッド安全だが、
+`cv::dnn::Net` 自体はそうではない。**`cv::Mat` より踏みやすい経路である**
+可能性が高い —— 1 度読み込んだ `Net` を複数フレーム・複数スレッドから
+使い回す使い方（1 スレッドが推論している最中に別スレッドが同じ handle を
+解放する、あるいは同じ handle を 2 スレッドへ同時に渡す）は `Mat` の
+一時的な読み書きより自然に起こりうる。§1.5 が明記しているとおり、
+書かれていない契約は守りようがない —— この 1 文がその契約である
+（レビュー指摘 I4）。
+
+**`Slot` が値ではなく `unique_ptr` を持つ理由は mat_table と同じである。**
+値で持つと、table が伸びたときに再配置が起き、先に解決したポインタが
+全部ぶら下がる。壊れるのは伸ばした側ではなく、無関係な handle を使っている側
+である（M3 の PR #8 で mat_table が実際に踏んだ形。上の §1.5 参照）。
+`native/tests/test_dnn_table_stability.cpp` がこれを決定的に固定している ——
+容量（要素数ではない）を前後で測り、実際に再配置が起きたことまで確かめる
+（`mat_table_slot_capacity()` と同じ理由。**net_table を使うのが
+`test_dnn_table_stability.cpp` だけだった間は「4096 個足せば再配置される
+だろう」に頼っていたが、Task 3 が `native/tests/test_dnn.cpp` から同じ
+net_table を使い始めた時点でその前提が崩れる**ので、`net_table_slot_capacity()`
+を足して実測に変えた）。
+
+**解放は `ocvu_dnn_net_release` の 1 本だけ。** `ocvu_mat_release` と同じく、
+handle が 0、解放済み、未知の索引のいずれでも `OCVU_STATUS_INVALID_HANDLE`
+を返し、落とさない（二重解放の検出）。
+
+**engine / backend を選ぶ引数も定数も出さない**（設計 D7）。上流の 5.1 で
+`enum EngineType` の値が総入れ替えになった（§2 冒頭の引用、docs/roadmap.md の
+M7 節）ので、5.1 で意味が変わる数字を境界の外へ出さない。
+
+**推論の出力は 2 次元に潰す（決定 A）。** `cv::dnn::Net::forward()` が返すのは
+4 次元の blob（NCHW）だが、この ABI の `Mat` は `rows` / `cols` / `channels` /
+`step` しか公開していない。`ocvu_dnn_net_forward` は最後の次元を列数として
+残りをすべて行数へ畳み込む —— 分類モデルの典型的な `(1, N)` はそのまま
+`1 × N` になるが、検出モデルのような `(1, C, H, W)` では **N と C の区別が
+失われる。** この ABI は分類モデルの `1 × N` の出力を受け取ることを想定して
+いる。選ばなかった案（別 struct で形を返す / `ocvu_tensor_handle` を新設する）
+と、その理由は `docs/superpowers/plans/2026-09-05-m7c-dnn-profile.md`
+「この計画で最も難しいところ」にある。
+
+**`ocvu_dnn_blob_from_image` の出力は潰さない。** `cv::dnn::Net::setInput` が
+要求するのは 4 次元の NCHW そのものなので、`ocvu_dnn_net_forward` へ渡すまで
+形を保つ。`cv::Mat` は内部で 2 次元より多い次元を表現できるので、この
+handle へ 4 次元の値を割り当てること自体は合法である。**4 次元を 2 次元へ
+潰す決定は、推論の出力側だけに掛かる。**
+
+**~~ただし `ocvu_mat_get_info` のような 2 次元前提の関数へこの handle を
+渡した結果は未定義とする。~~ この文はレビューで否定された（Important 1）。**
+「未定義」ではなく**定義されているが間違っていた** —— `ocvu_mat_get_info`
+は dims > 2 のとき OpenCV が返す `rows = cols = -1` をそのまま
+`OCVU_STATUS_OK` で通し、`total_bytes` まで負の値になっていた。C# から
+到達可能な状態だったので、いまは `ocvu_mat_get_info` 自身が
+`OCVU_STATUS_INVALID_ARGUMENT` で断る（§3.14、`native/src/ocvu_mat.cpp`）。
+消さずに残してあるのは、「境界の外側は未定義でよい」という言い回しが
+他のどこかで同じ誤りを隠していないか、次に読む人が確かめられるように
+するためである。
+
+**ファイルパスは受けない。** 理由は §1.6 と同じ（Windows の文字コード、
+Android の StreamingAssets）。
+
+**ABI version は上げていない。** 新しい module と新しい handle 型
+（`ocvu_net_handle`）を足しただけなので `OCVU_ABI_VERSION` は 1 のままである
+—— この判断の一般原則（「新しい関数を足す」「新しい status を末尾に足す」は
+bump しない）は §2「bump しない変更」が正本として持つ。
+
 ## 2. C ABI の versioning と後方互換
 
 > **上流の版を上げるときの前提**（2026-08-30 に確認）。OpenCV の
@@ -308,6 +388,12 @@ native library と C# は同じ UPM パッケージで同時に配布される�
 - 実装の内部変更で、観測できる挙動が変わらないもの
 - コメント・文書
 
+**実例（3 つ目、1 つ目の具体化）**: M7c で `ocvu_net_handle` という新しい
+handle 型と `dnn` module の 4 関数を足したが、`OCVU_ABI_VERSION` は 1 の
+ままである。既存の型・関数・status は 1 つも変えていない —— 「新しい関数を
+足す」の一種であって、新しい所有権モデルでもない（`ocvu_mat_handle` と
+同じ世代番号つき handle table を再利用している）。詳細は §1.7。
+
 **実例（2 つ目）**: `OCVU_STATUS_NOT_FOUND` は M5 で `OCVU_STATUS_LIST` の末尾に足した
 status で、bump しなかった。`ocvu_qr_decode` が「QR コードが写っていない」ことを
 `OCVU_STATUS_OK` + 長さ 0（＝「空文字列の QR」と区別が付かない）ではなくこの新しい
@@ -353,11 +439,11 @@ status 表の同期は `StatusCodeSyncTests` が見ている。**この 2 つを
 
 ---
 
-## 3. API の allowlist（M2 で確定、M3.5・M5 で追加）
+## 3. API の allowlist（M2 で確定、M3.5・M5・M7c で追加）
 
 M2 で公開する `ocvu_` 関数は次で全部とする。広さを追わないのが M2 の目的である。
-**M3.5 で 2 本、M5 で 7 本、2026-09 の API 拡張で 26 本足したので、現在の
-allowlist は §3.5〜§3.13 を含めて 44 本である。**
+**M3.5 で 2 本、M5 で 7 本、2026-09 の API 拡張で 26 本、M7c で 4 本足したので、
+現在の allowlist は §3.5〜§3.14 を含めて 48 本である。**
 
 **この節は「何を出すと決めたか」の正本であって、「いま何が出ているか」の一覧ではない。**
 後者は `bindings/spec/*.json`（機械可読の正本）と、そこから生成される
@@ -696,6 +782,108 @@ SIFT は `create(200)` で 240 個）。**`capacity` を `max_features` と同�
 強制するのは `StereoBM` だけで、`StereoSGBM` はどちらも検査しない（実測）——
 **この ABI が自分で決めた、OpenCV より厳しい契約である**（呼ぶ側にとって単純になる）。
 
+### 3.14 dnn（M7c で追加。**`dnn` module と `dnn` profile を初めて足した**）
+
+| 関数 | 何を |
+| --- | --- |
+| `ocvu_dnn_net_read_onnx` | メモリ上の ONNX の byte 列から `cv::dnn::Net` を読み、`ocvu_net_handle` を返す |
+| `ocvu_dnn_net_release` | `ocvu_net_handle` を解放する |
+| `ocvu_dnn_blob_from_image` | `Mat` を推論の入力（4 次元の blob）にする |
+| `ocvu_dnn_net_forward` | 推論を 1 回走らせ、結果を 2 次元の `Mat` に書く |
+
+**`ocvu_net_handle` の所有権は §1.7 が正本である。** `ocvu_mat_handle` と
+まったく同じ形（native が常に所有、世代番号つき handle table）を再利用して
+おり、新しい所有権モデルは増えていない。
+
+**`dnn` は spec の `profile` が `standard` ではない初めての module である。**
+`bindings/spec/dnn.json` は `"profile": "dnn"` を宣言しており、C ヘッダ
+（`native/include/ocvu/dnn.h`）は他の module と同じ場所に出るが、C# の
+P/Invoke 宣言だけが別 assembly（`CvUnity.Interop.Dnn` の `NativeMethodsDnn`）
+へ出る。**§4 が合成 spec で実証していた機構を、本物の spec で初めて動かした
+形である**（§4「いま実証されていること、いないこと」）。
+
+**推論の出力は 2 次元に潰す（決定 A）。** `cv::dnn::Net::forward()` は 4 次元
+の blob（NCHW）を返すが、この ABI の `Mat` は 2 次元までしか表現できない。
+`ocvu_dnn_net_forward` は最後の次元を列数として残りをすべて行数へ畳み込む
+—— 分類モデルの `(1, N)` はそのまま `1 × N` になるが、検出モデルのような
+出力では N と C の区別が失われる。選ばなかった案（別 struct で形を返す /
+`ocvu_tensor_handle` を新設する）は
+`docs/superpowers/plans/2026-09-05-m7c-dnn-profile.md`
+「この計画で最も難しいところ」にある。**`ocvu_dnn_blob_from_image` の出力は
+潰さない** —— `cv::dnn::Net::setInput` が要求する 4 次元の NCHW をそのまま
+保つ（詳細は §1.7）。
+
+**engine / backend を選ぶ引数も定数も出していない**（設計 D7）。上流の 5.1 で
+`enum EngineType` の値が総入れ替えになった（§2 冒頭の引用）ので、5.1 で
+意味が変わる数字を境界の外へ出さない。
+
+**`mean` は配列ではなく 3 個の scalar（`mean_b` / `mean_g` / `mean_r`）である
+（レビューで直した。Critical 1）。** 当初は「長さを渡さない固定 3 要素の
+配列」として出していたが、それは**長さの検証を一切持たない buffer**という
+形で、呼ぶ側が短い配列を渡せば境界の外を読めてしまう —— 防いでいたのは
+検査ではなく summary の文章だけだった。3 個の scalar に変えたことで、
+その誤りは**表現できなくなった**（§1 が借用 handle を禁じたのと同じ
+「規約で禁じるのではなく表現できなくする」考え方）。NULL を心配する必要も
+消えた。`width` / `height` は buffer の長さではなく `cv::dnn::blobFromImage`
+がその寸法でメモリを確保する引数なので、`OCVU_DNN_MAX_BLOB_DIM`（4096）と
+いう上限を新設した —— `cv::cornerSubPix` の `win_size` で踏んだのと同じ形
+である。
+
+**`ocvu_dnn_blob_from_image` の検証順序は width/height → src の handle →
+dst の handle で固定してあり、spec の summary と L1
+（`Dnn.BlobFromImageChecksDimensionsBeforeHandles`）の両方がそれを記録する**
+（レビュー指摘 M1）。文書だけでは、順序を変える将来の変更が気づかれずに
+入りうる。
+
+**`ocvu_dnn_net_forward` の出力は `.clone()` している（レビューで直した。
+Important 2）。** `cv::dnn::Net::forward()` が返す `Mat` はネットワーク内部の
+バッファへの浅いコピーで、決定 A の `reshape` もヘッダだけを作り直す浅い
+操作である。`.clone()` を省くと `*output_mat` は net が所有するメモリを
+指したままになり、同じ net で 2 回目の forward を呼ぶと 1 回目の出力が
+黙って書き換わる —— この ABI の他のすべての関数が新しく確保したメモリを
+返す契約と矛盾する。**この所有権の挙動は OpenCV のヘッダに明記が無く、
+実装から推測している。**
+
+**Task 5 が実物の ONNX モデルで確かめようとしたが、負の対照が取れなかった
+（`prove-a-check-works` skill が M6 で記録した形と同じ）。** Identity 1 ノード
+のモデルと、投げ捨てた検証用の 2 層 Relu モデルの両方で forward を 2 回
+呼んだが、`.clone()` を外しても外さなくても結果が変わらなかった。
+当初の説明（`cv::Mat` の参照カウントが外側の参照を守るため再割り当てが
+起きる）はレビューで「`cv::Mat::create()` の早期リターン経路は参照カウントを
+見ない」と指摘されほぼ確実に誤りだと分かり、いまの主説は「OpenCV 5 の
+新しい dnn engine が `forward()` のたびに新しく確保したバッファを返している」
+（機構として否定されてはいないが未確認）である。**確定できない理由は、
+`./tools/opencv.ps1 restore` が復元する木がヘッダとビルド済み lib だけで、
+`cv::dnn::Net::forward()` の実装ソースを含まないため**——読んで確定させる
+経路がこのリポジトリの構成上無い。**実証しているのは境界の往復（実物の
+ONNX を読み込み、blob 化し、forward を呼び、結果を読める）であって、
+`.clone()` が防ぐはずのエイリアシング欠陥そのものではない**——過大に
+書かないための一文（`tests/Managed/CvUnity.Tests.Managed/DnnInferenceTests.cs`
+の `CallingForwardTwiceWithDifferentInputsDoesNotRewriteTheFirstOutput`
+docstring に実測が残っている）。
+
+**`ocvu_mat_get_info` が dims > 2 の Mat を拒むようになった（レビューで
+直した。Important 1）。** `ocvu_dnn_blob_from_image` が作る Mat は dims == 4
+でありうるが、`ocvu_mat_info` は rows / cols / channels / step という
+2 次元の語彙しか持たない。直す前は、dims > 2 のとき OpenCV が返す
+`rows = cols = -1` をそのまま `OCVU_STATUS_OK` で通しており、
+`total_bytes` まで負の値になっていた —— 「読めない」ではなく「間違った値を
+自信満々で返す」形で、C# から到達可能だった。いまは
+`OCVU_STATUS_INVALID_ARGUMENT` を返す（`native/tests/test_mat_lifecycle.cpp`
+の `GetInfoRejectsMatsWithMoreThanTwoDimensions`）。**この検査は dnn 固有の
+module には置いていない** —— `ocvu_mat_get_info` は `core` module の関数で
+あり、2 次元より多い Mat を作りうる関数が増えるたびに効く。
+
+**COMPONENTS への追加は Task 2 が先に行った。** `native/src/ocvu_dnn_table.cpp`
+の `std::unique_ptr<cv::dnn::Net>` の破棄に `cv::dnn::Net` の定義が要るため、
+`cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` への `dnn` の追加は
+Task 2（`dd28867`）の時点で済んでいた。**それでも binary は 1 バイトも
+増えなかった** —— `native/tests/test_module_linkage.cpp` の `DnnIsLinked` が
+`cv::dnn::Net` を実際に構築・参照して初めてリンクの証拠になり、この 4 本の
+実装（Task 3）で初めて binary が増えた。**「`COMPONENTS` に足すだけでは
+増えない」を 3 度目に実測した形になる**（M3.5 の `imgcodecs`、M5 の module
+追加に続く）。
+
 ### まだ作らないもの
 
 `Mat` の部分参照（ROI）、型変換、算術演算、**`imgcodecs` の
@@ -795,15 +983,22 @@ platform（iOS / WebGL）で `"__Internal"` にならず、Player の中で最�
   読まない）
 
 **切り出しは M7c の判断である。** `bindings/spec/dnn.json` が入って
-本物の 2 つ目の利用者ができ、レビューを一巡させられるときに決める。
+本物の 2 つ目の利用者ができ、レビューを一巡させられるときに決める
+（**2026-09-08、M7c の Task 3 で入った** —— `dnn` の C ABI 4 本、§3.14）。
 
 ### いま実証されていること、いないこと
 
-**`bindings/spec/dnn.json` はまだ無く、`profile: "dnn"` を宣言する module は
-現時点で 1 つも無い。** `CvUnity.Interop.Dnn` と `CvUnity.Tests.Shared.Dnn` は、
+> **この節はもう正確ではない。** 次の段落は `bindings/spec/dnn.json` が
+> 存在しなかった時点（合成 probe だけで機構を検証していた段階）の記録で、
+> **消さずに残してある** —— 同じ「まだ無い」という前提が別の場所にも
+> 残っていないかを、次に読む人が確かめられるようにするためである。
+> 現状は直後の段落を見ること。
+
+**~~`bindings/spec/dnn.json` はまだ無く、`profile: "dnn"` を宣言する module は
+現時点で 1 つも無い。~~** `CvUnity.Interop.Dnn` と `CvUnity.Tests.Shared.Dnn` は、
 リポジトリに commit された状態では中身が空の assembly である。
 
-実証されているのは次の 3 つで、**どれも実物を動かして測った**:
+実証されていた（当時）のは次の 3 つで、**どれも実物を動かして測った**:
 
 1. **`defineConstraints` が効く。** `OCVU_PROFILE_DNN` を立てれば 2 つの
    assembly は実際にコンパイルされ、外せば消える —— Unity 自身に問うている
@@ -820,9 +1015,70 @@ platform（iOS / WebGL）で `"__Internal"` にならず、Player の中で最�
 3. 上の (2) の常設版が速いレーンに在る（`BindingGenerator.Tests.ps1` が
    合成 spec から生成して `dotnet build` に掛ける）。**Unity は要らない**
 
-**まだ実証されていないのは「dnn で働く」ことである** —— 上の実証は
+**まだ実証されていなかったのは「dnn で働く」ことである** —— 上の実証は
 どれも合成した probe module によるもので、本物の `dnn` の spec も
-実装も無い。**「機構が働く」ことと「dnn で働く」ことは別である。**
+実装も無かった。**「機構が働く」ことと「dnn で働く」ことは別である。**
+
+### 2026-09-08 以降: 本物の spec で何が実証され、何がまだかを更新する
+
+**Task 3 で実証されたこと**（`native/tests/test_dnn.cpp`・`dev.ps1 generate`・
+`tools/tests/BindingGenerator.Tests.ps1` の実測）:
+
+- `bindings/spec/dnn.json`（本物の 4 関数、`"profile": "dnn"`）から
+  `dev.ps1 generate` が `native/include/ocvu/dnn.h` と
+  `Runtime/Interop.Dnn/NativeMethods.Dnn.g.cs` を実際に生成した。**生成物の
+  `LibraryName` ブロックが platform の `#if` 分岐ごと複製されていることを
+  目視で確認済み**（§4 上部が予告していたとおりの形）
+- `tests/UnityProject/Assets/Tests/Shared.Dnn/AbiReachabilityChecks.Dnn.g.cs`
+  が本物の 4 関数を 1 回ずつ呼ぶ形で生成された
+- C ABI の実装（`native/src/ocvu_dnn.cpp`）が `dnn` module としてビルドされ、
+  L1（`native/tests/test_dnn.cpp`、7 件）と `ModuleLinkage.DnnIsLinked` が
+  実物の `opencv_unity_native.dll` に対して green
+
+**まだ実証されていないこと**（Task 3 の範囲外。後続タスクの担当）:
+
+- **Unity が実物の `NativeMethodsDnn` / `AbiReachabilityChecksDnn` を実際に
+  コンパイルすること。** Task 3 は Unity を 1 度も起動していない —— 検証は
+  L1（native）と生成器の一致検査（`dotnet` ベース）だけで、上の「実証されて
+  いること」の 2 番目（Unity 自身に問う `ProfileGatingTests`）はまだ本物の
+  spec に対しては走らせていない
+- **有効な ONNX を読み込んで実際に推論すること。** `native/tests/test_dnn.cpp`
+  は壊れた入力に対する振る舞いだけを固定しており、正常系は実物の小さな
+  モデルを使う L3 に委ねてある（`docs/api-reference.md` の dnn 節にも明記）
+- 利用者向けの C# 公開 API（`CvUnity.Dnn.CvDnn`）はまだ無い
+
+**Task 4 で実証されたこと**（2026-09-09、`tools/dev.ps1 test-managed` と
+`tools/dev.ps1 test-unity-editmode` の実測。上の 1 番目と 3 番目を閉じた）:
+
+- **利用者向けの C# 公開 API ができた**（`CvUnity.Dnn.CvDnn` / `CvNet`、
+  `Runtime/Dnn/CvDnn.cs`）。`CvUnity.Interop.Dnn` と同じ
+  `defineConstraints`（`OCVU_PROFILE_DNN`）を持つ別 assembly
+  `CvUnity.Dnn` に出る（`docs/api-reference.md` §2.17）
+- **これが `CvUnity.Interop`/`CvUnity.Core` の外から `CvMat.Handle` を読む
+  最初の消費者だった。** `Runtime/Core/` にはそれまで `AssemblyInfo.cs` が
+  無く（内部でしか `.Handle` を読んでいなかったため）、`CvUnity.Dnn` を
+  追加しただけでは Unity の中でコンパイルが通らない —— これは
+  `dev.ps1 test-managed`（shim が全部を 1 つの assembly にまとめてしまう）
+  では**見えない**穴で、Step 5 の「define を立てて Unity に本当にコンパイル
+  させる」手順で初めて表面化した。`Runtime/Core/AssemblyInfo.cs` を新設し
+  `[assembly: InternalsVisibleTo("CvUnity.Dnn")]` を足して塞いだ
+- **Unity が実物の `NativeMethodsDnn` / `CvDnn` / `AbiReachabilityChecksDnn` を
+  実際にコンパイルした**（本物の `bindings/spec/dnn.json` に対して、Unity
+  6000.3.16f1 で実測。`OCVU_PROFILE_DNN` を立てて `Library/ScriptAssemblies/`
+  に `CvUnity.Interop.Dnn.dll` / `CvUnity.Dnn.dll` / `CvUnity.Tests.Shared.Dnn.dll`
+  が現れることを確認し、立てていない既定の状態では 3 つとも現れないことも
+  同じ日に確認した——`ProfileGatingTests`（`tests/UnityProject/Assets/Tests/EditMode/`）
+  が両方向を機械的に見る。前者は手動の一回性の確認、後者は毎回の EditMode
+  実行が見る）
+- L3（`DnnTests.cs`）が壊れた入力・二重解放・null/空 byte 列を固定した
+  （185 → 189、+4）
+
+**Task 4 が「まだ実証されていない」と書いていた「有効な ONNX を読み込んで
+実際に推論すること」は、Task 5 が実際に行った**（`tests/Managed/CvUnity.Tests.Managed/DnnInferenceTests.cs`、実物の `tiny.onnx` を使う 6 件）。
+**実証しているのは境界の往復（読み込み・blob 化・forward・結果読み出し）
+であって、`.clone()` が防ぐはずのエイリアシング欠陥そのものではない**——
+負の対照は取れなかった（詳細は上の §1.7 と同テストの docstring）。
+過大に読まないこと。
 
 ---
 

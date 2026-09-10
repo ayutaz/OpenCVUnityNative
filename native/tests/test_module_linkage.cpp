@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 
 #include <opencv2/core.hpp>
+#include <opencv2/dnn.hpp>
 #include <opencv2/features.hpp>
 #include <opencv2/geometry.hpp>
 #include <opencv2/imgproc.hpp>
@@ -151,4 +152,15 @@ TEST(ModuleLinkage, StereoIsLinked) {
     ASSERT_FALSE(matcher.empty());
     EXPECT_EQ(matcher->getNumDisparities(), 16);
     EXPECT_EQ(matcher->getBlockSize(), 21);
+}
+
+TEST(ModuleLinkage, DnnIsLinked) {
+    // **COMPONENTS に足すだけでは binary は 1 バイトも増えない。**
+    // 静的リンクは参照された object しか引かないので、
+    // **cv::dnn:: を実際に参照するテストだけが「リンクした」の証拠になる**
+    // （M3.5 と M5 で 2 度実測した）。dnn は Task 2 で COMPONENTS に足したが
+    // （unique_ptr<cv::dnn::Net> の破棄に定義が要るため）、cv::dnn::Net を
+    // 構築・参照するのはこのテストが最初である。
+    cv::dnn::Net net;
+    EXPECT_TRUE(net.empty());
 }

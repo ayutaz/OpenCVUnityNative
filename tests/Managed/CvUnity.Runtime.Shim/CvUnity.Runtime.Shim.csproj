@@ -19,9 +19,15 @@
 
   <ItemGroup>
     <!-- UnityEngine に依存しない層だけを取り込む。
-         UnityIntegration は意図的に含めない。 -->
+         UnityIntegration は意図的に含めない。
+
+         Interop.Dnn / Dnn は Unity 側では OCVU_PROFILE_DNN の defineConstraints
+         で切れるが、この .csproj はそれを見ない —— L3 は常に dnn を見る
+         （CLAUDE.md「L3 のクラッシュ・ハング耐性」の隣、M7c Task 4 の意図どおり）。 -->
     <Compile Include="$(OcvuPackageRuntime)\Interop\**\*.cs" />
+    <Compile Include="$(OcvuPackageRuntime)\Interop.Dnn\**\*.cs" />
     <Compile Include="$(OcvuPackageRuntime)\Core\**\*.cs" />
+    <Compile Include="$(OcvuPackageRuntime)\Dnn\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>

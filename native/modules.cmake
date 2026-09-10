@@ -37,10 +37,15 @@ set(OCVU_MODULE_geometry   src/ocvu_geometry.cpp src/ocvu_pose.cpp)
 set(OCVU_MODULE_calib      src/ocvu_calibration.cpp)
 set(OCVU_MODULE_stereo     src/ocvu_stereo.cpp)
 
+# **Task 3 が ocvu_dnn.cpp（C ABI 関数本体）を足した。**
+# Task 2 の時点ではこの 1 本（handle 表）だけだった —— src/ocvu_dnn.cpp が
+# まだ存在せず、列挙すると configure が落ちるためである。
+set(OCVU_MODULE_dnn        src/ocvu_dnn_table.cpp src/ocvu_dnn.cpp)
+
 # **infra と core は外せない。** last-error も status も Mat も、
 # 他の全 module が使う。外せる単位から明示的に除く。
 set(OCVU_REQUIRED_MODULES infra core)
 
 # 既定で全部入れる。profile はこの一覧から引く形で表す。
 set(OCVU_ALL_MODULES
-    infra core imgproc imgcodecs objdetect features geometry calib stereo)
+    infra core imgproc imgcodecs objdetect features geometry calib stereo dnn)

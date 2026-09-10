@@ -81,6 +81,14 @@ enum { OCVU_STATUS_LIST(OCVU_STATUS_ENUMERATOR_) };
 typedef uint64_t ocvu_mat_handle;
 #define OCVU_MAT_HANDLE_NONE ((ocvu_mat_handle)0)
 
+/**
+ * 読み込んだニューラルネットワークの handle。
+ *
+ * **native が所有する。** ocvu_dnn_net_release で解放するまで生きる。
+ * ocvu_mat_handle と同じ規約で、0 は常に無効である。
+ */
+typedef uint64_t ocvu_net_handle;
+
 /*
  * ABI に出す Mat の型。
  *
@@ -389,6 +397,15 @@ typedef struct ocvu_dmatch {
 #define OCVU_IMREAD_GRAYSCALE   0
 #define OCVU_IMREAD_COLOR       1
 
+/* ocvu_dnn_blob_from_image の width / height の上限。
+ * OCVU_ARUCO_MAX_MARKER_PIXELS と同じ理由 —— この値は buffer の長さではなく、
+ * cv::dnn::blobFromImage が実際にその寸法でメモリを確保する引数である
+ * （cv::cornerSubPix の win_size で踏んだのと同じ形。add-abi-function skill の
+ * 「buffer ではないのに上限が要る引数」）。縛らないと呼ぶ側が渡した
+ * int32_t からそのまま巨大な確保が起きる。実用上の推論入力（せいぜい
+ * 数百〜1000 台）はこれを大きく下回る。 */
+#define OCVU_DNN_MAX_BLOB_DIM 4096
+
 /*
  * module ごとの宣言は生成物である（bindings/spec/*.json を正本として
  * ./tools/dev.ps1 generate が書き出す）。**ここに手で足さないこと。**
@@ -407,5 +424,6 @@ typedef struct ocvu_dmatch {
 #include "ocvu/geometry.h"
 #include "ocvu/calib.h"
 #include "ocvu/stereo.h"
+#include "ocvu/dnn.h"
 
 #endif /* OPENCV_UNITY_NATIVE_H */

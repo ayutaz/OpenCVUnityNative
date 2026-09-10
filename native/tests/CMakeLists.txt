@@ -34,6 +34,8 @@ add_executable(ocvu_tests
     test_core_ops.cpp
     test_matching.cpp
     test_stereo.cpp
+    test_dnn_table_stability.cpp
+    test_dnn.cpp
 )
 
 # SHARED ではなく STATIC 側にリンクする（native/CMakeLists.txt の注記を参照）

@@ -150,6 +150,29 @@ $PermittedThirdPartyLibs = @(
     # **binary 形式での再頒布に著作権表示と免責の同梱を求める**ので、
     # THIRD_PARTY_NOTICES.md に全文を入れてある。Apache-2.0 と両立する。
     'cpufeatures'
+
+    # **dnn を足したので protobuf が入る。**
+    #
+    # 以前はここに denylist の項があり、「protobuf は dnn 用で allowlist 外」と
+    # 書いてあった。**dnn を足した時点でその前提が失効した** —— ONNX モデルは
+    # protobuf でシリアライズされているので、dnn にとって protobuf はもう
+    # optional でも allowlist 外でもない。消さずにこう書き換えるのは、
+    # 同じ誤解が別の場所にも在るかを次に読む人が確かめられるようにするためである。
+    #
+    # **名前は 'protobuf' ではなく 'libprotobuf'。** 上流の protobuf プロジェクト
+    # 自身が CMake target を 'libprotobuf' と名付けているため、OpenCV が
+    # そのままバンドルすると Windows は libprotobuf.lib、Unix は 'lib' 接頭辞が
+    # 二重に付いた liblibprotobuf.a になる（実測: run 34212296352、6 platform
+    # 全部で確認。Windows は libprotobuf.lib、他 5 platform は liblibprotobuf.a）。
+    # 判定側は拡張子と 'lib' 接頭辞を 1 回だけ剥がすので、'libprotobuf' の 1 エントリで
+    # 両方（stem 一致 / stripped 一致）を拾える。'protobuf' だけでは Unix 側の
+    # liblibprotobuf.a（stripped => 'libprotobuf'）を拾えない。
+    #
+    # **ライセンスは一次情報で確認: BSD-3-Clause**
+    # （https://github.com/protocolbuffers/protobuf/blob/main/LICENSE）。
+    # THIRD_PARTY_NOTICES.md に全文を足すまで、この行だけで緑にしない ——
+    # 利用者が読む文書は何も赤くならない（add-a-platform skill の罠 5）。
+    'libprotobuf'
 )
 
 # 名前に現れたら拒否理由を具体的に説明できるもの。
@@ -174,7 +197,10 @@ $knownBadPatterns = @(
     # 無関係なファイル名の途中にたまたま ipp を含むものまで拾ってしまう。
     # OpenCV 自身の module 名は opencv_ で始まり ipp を名乗らないので衝突しない。
     @{ Pattern = 'ipp*';        Why = 'IPP は Intel の独自条項。有効化は M7 で検討する' }
-    @{ Pattern = '*protobuf*';  Why = 'protobuf は dnn 用で allowlist 外' }
+    # protobuf はここに在った（*protobuf*、「protobuf は dnn 用で allowlist 外」）。
+    # **dnn を Modules に足した時点でその前提が失効した** —— dnn にとって
+    # protobuf はもう「allowlist 外にしてよい依存」ではない。$PermittedThirdPartyLibs
+    # 側に移した理由はそちらのコメントに書いてある。
     @{ Pattern = '*libtiff*';   Why = 'TIFF は allowlist 外' }
     @{ Pattern = '*libwebp*';   Why = 'WebP は allowlist 外' }
     @{ Pattern = '*openexr*';   Why = 'OpenEXR は allowlist 外' }
@@ -252,6 +278,11 @@ $InertLicenseFiles = @(
     # Android のビルドにだけ現れる（NDK の cpufeatures）。
     'cpufeatures-LICENSE'
     'cpufeatures-README.md'
+
+    # dnn を足したので現れる（実測: run 34212296352、6 platform 全部）。
+    # $PermittedThirdPartyLibs の libprotobuf の項を見よ。
+    'protobuf-LICENSE'
+    'protobuf-README.md'
 )
 # Valgrind の抑制ファイル。Unix 系の install だけが置く（Windows のビルドには
 # 現れない — 実測で確認）。実行可能コードではなく、Valgrind に「この警告は
