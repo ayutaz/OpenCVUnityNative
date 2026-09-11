@@ -127,6 +127,28 @@ try {
             "nothing is published when no key=value could be parsed ($($shape.What))"
     }
 
+    <#
+        **扱えない単位の接尾辞は落ちること。**
+
+        規約（`_ns` ならナノ秒、それ以外はマイクロ秒）を守っているのは
+        publish する側だけで、`OCVU_BENCH:` を出す C# 側には強制が無い。
+        `*_ms` を足した日に、**1000 倍ずれた数字がマイクロ秒として世に出る。**
+    #>
+    foreach ($bad in @('copy_to_buffer_ms', 'startup_sec')) {
+        Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+        $xml = New-ResultXml ('unit-' + [guid]::NewGuid().ToString('N') + '.xml') @("OCVU_BENCH: $bad=42")
+        & pwsh -NoProfile -File $script -XmlPath $xml -OutPath $out 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) "a key with an unhandled unit suffix ($bad) is rejected"
+        Assert-That (-not (Test-Path -LiteralPath $out)) "nothing is published for $bad"
+    }
+
+    # **正当な key は落とさない。** 拒む形が広すぎると、実在の key
+    # （`texture2d_to_mat` は `_mat` で終わる）まで巻き込む。
+    Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+    $legit = New-ResultXml 'legit.xml' @('OCVU_BENCH: texture2d_to_mat=42', 'OCVU_BENCH: first_pinvoke_ns=7')
+    & pwsh -NoProfile -File $script -XmlPath $legit -OutPath $out 2>&1 | Out-Null
+    Assert-That ($LASTEXITCODE -eq 0) 'real keys are not caught by the unit-suffix guard'
+
     # --- 0 マイクロ秒は publish しない（既存の門） ---
     $zero = New-ResultXml 'zero.xml' @('OCVU_BENCH: copy_to_buffer=0')
     & pwsh -NoProfile -File $script -XmlPath $zero -OutPath $out 2>&1 | Out-Null

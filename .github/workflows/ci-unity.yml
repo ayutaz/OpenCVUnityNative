@@ -885,15 +885,24 @@ jobs:
         shell: pwsh
         run: |
           $work = Join-Path $env:GITHUB_WORKSPACE 'artifacts/tarball-lane'
-          # **$LASTEXITCODE は見ない。** `&` で .ps1 を呼んでも設定されるのは
-          # 「その中で最後に走った native command」の終了コードで、dev.ps1 の
-          # 成否ではない（レビュー指摘 M-5）。**exit コードを見ているように
-          # 読めて実は見ていない**形は、このリポジトリが繰り返し潰してきた
-          # ものである。dev.ps1 は失敗時に throw し、GitHub の pwsh は
-          # $ErrorActionPreference='stop' なので step は赤くなる。そのうえで
-          # **出来た物の存在**を確かめる。
+          # **$LASTEXITCODE と、出来た物の存在の両方を見る。**
+          #
+          # レビューは「`&` で .ps1 を呼んでも $LASTEXITCODE は設定されない
+          # ので見ても無駄」と指摘したが、**実測すると設定される** ——
+          # `exit 7` する .ps1 を `& child.ps1 | Select-Object -Last 1` で
+          # 呼ぶと $LASTEXITCODE は 7 になった（パイプ越しでも同じ）。
+          # `tools/dev.ps1` の失敗経路 `Write-DevFailure` は throw ではなく
+          # **`exit 1`** なので（そちらの docstring に理由がある）、ここを
+          # 見ないと**静かに次へ進む。**
+          #
+          # **指摘をそのまま適用しかけて、測って引き返した。** このリポジトリの
+          # 「仮説のまま直さない」がレビューの指摘にも同じだけ掛かる。
           $project = & ./tools/dev.ps1 test-unity-tarball -PrepareOnly -WorkDir $work |
                      Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "dev.ps1 test-unity-tarball -PrepareOnly failed (exit $LASTEXITCODE)"
+              exit 1
+          }
           if (-not $project -or -not (Test-Path -LiteralPath $project)) {
               Write-Error "the prepared project path does not exist: $project"
               exit 1

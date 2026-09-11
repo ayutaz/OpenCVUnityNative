@@ -1011,7 +1011,13 @@ if ($markerName) {
     # このファイルが何度も記録している失敗である。
     # ここで使えるのは $unityWorkflow（この節の頭で読んだ行の配列）である。
     # $unityWorkflowText はもっと下で定義されるので、ここからは見えない。
-    $presentLines = @($unityWorkflow | Where-Object { $_ -match 'native plugins present:' })
+    # **要求している行に限る。** 素の部分一致だと、**コメント行 1 本でも
+    # 「1 本以上ある」を満たせる** —— 本物の要求を全部消してコメントだけ
+    # 残す形が通る（旧版が持っていた `requireOutput:` という文脈のアンカーを
+    # 失っていた）。YAML の宣言と PowerShell の引数の両方を受ける。
+    $presentLines = @($unityWorkflow | Where-Object {
+        $_ -match 'native plugins present:' -and $_ -cmatch '(requireOutput:|-RequireOutput)'
+    })
     Assert-That ($presentLines.Count -ge 1) `
         'ci-unity.yml requires the all-platform report at least once (0 件なら以下は空振りする)'
     foreach ($line in $presentLines) {
@@ -1136,8 +1142,14 @@ $unityLines = $unityWorkflowText -split "`r?`n"
 # 切り出す。切れなかったときは空振りではなく落とす、も同じ。）
 $entries = @()
 $current = $null
+$laneHeaders = 0
 foreach ($line in $unityLines) {
-    if ($line -match '^          - lane:\s*(?<lane>\S+)\s*$') {
+    # **行末アンカーを付けない。** YAML は `lane: X  # コメント` を許すので、
+    # `$` で締めると**要素そのものが認識されず、その属性が直前の要素に
+    # 付く。** 壊れ方が「1 件見落とす」ではなく「別の要素の値に化ける」形に
+    # なるので、アンカーはここでは有害である。
+    if ($line -match '^          - lane:\s*(?<lane>\S+)') {
+        $laneHeaders++
         if ($null -ne $current) { $entries += $current }
         $current = @{ Lane = $Matches['lane']; TestMode = $null; Params = $null; HasParams = $false }
         continue
@@ -1149,8 +1161,8 @@ foreach ($line in $unityLines) {
         $current = $null
         continue
     }
-    if ($line -match "^            testMode:\s*(?<v>\S+)\s*$") { $current.TestMode = $Matches['v'] }
-    if ($line -match "^            customParameters:\s*'(?<v>[^']*)'\s*$") {
+    if ($line -match "^            testMode:\s*(?<v>\S+)") { $current.TestMode = $Matches['v'] }
+    if ($line -match "^            customParameters:\s*'(?<v>[^']*)'") {
         $current.Params = $Matches['v']
         $current.HasParams = $true
     }
@@ -1160,6 +1172,31 @@ if ($null -ne $current) { $entries += $current }
 # **切り出せたことを先に確かめる。** 0 件なら以下は全部空振りする。
 Assert-That ($entries.Count -ge 2) `
     "ci-unity.yml の unity job から matrix entry を切り出せる (saw $($entries.Count))"
+
+# **緩い数え方と突き合わせる。** 切り出しが 1 件でも取りこぼしたら、
+# 空振りではなく落とす（このファイルが `jobs:` の切り出しで使っている型）。
+Assert-That ($entries.Count -eq $laneHeaders) `
+    "切り出した matrix entry の数が '- lane:' の行数と一致する (entries $($entries.Count) / headers $laneHeaders)"
+
+<#
+    **分類から落ちた要素を「違反なし」と読まない。**
+
+    下の検査は `testMode` で EditMode / Standalone に振り分ける。**どちらにも
+    入らなかった要素は、customParameters を一切見られないまま緑になる** ——
+    レビューが負の対照で実測した（`testMode:` の行末にコメントを足しつつ、
+    同じ要素の `customParameters` を '' にすると、全 assertion が PASS した）。
+
+    **`$entries.Count -ge 2` のような緩い下限は、落ちた 1 本を吸収する。**
+    要素ごとに「知っている testMode を持つか」を問う。
+#>
+$knownModes = @('EditMode', 'Standalone')
+$unclassified = @($entries |
+    Where-Object { $null -eq $_.TestMode -or $_.TestMode -notin $knownModes } |
+    ForEach-Object { "$($_.Lane)='$($_.TestMode)'" })
+Assert-That ($unclassified.Count -eq 0) `
+    ("every ci-unity.yml matrix entry declares a testMode this check knows " +
+     "($($knownModes -join ' / ')); otherwise its customParameters is never inspected " +
+     "(unclassified: $($unclassified -join ', '))")
 
 # **全 entry が customParameters をリテラルで宣言していること。**
 # 宣言そのものを消せば「渡し忘れ」と「意図的な空」が区別できなくなる。
@@ -1537,6 +1574,29 @@ foreach ($t in $toolsTests) {
     $leaf = Split-Path -Leaf $t
     Assert-That ($leaf -in $wiredToolsTests) `
         "tools/dev.ps1 runs $leaf (ToolsTestScriptsFast/Slow に載せないとどこからも走らない)"
+}
+
+<#
+    **`$ErrorActionPreference = 'Continue'` で走るテストは trap を持つこと。**
+
+    Continue の下では、**検査の途中で終了エラーが出ても残りの assertion を
+    飛ばして `$failures` は 0 のまま**になり、末尾の判定を通って exit 0 に
+    なる。2026-09-11 に実測で踏んだ —— `Benchmarks.Tests.ps1` に無い
+    プロパティを読む assertion を書いたところ、例外が表示されたうえで
+    `==> Benchmarks.Tests: OK` と出て exit 0 になった。**負の対照を取ろうと
+    して、対照そのものが素通りした。**
+
+    そのとき 4 本が同じ形をしていた（`PackageRelease.Tests.ps1` だけが
+    正しい trap を持っていた）。**4 本を直したが、次に書く人は付け忘れる** ——
+    だから機械に見させる。`'Stop'` のファイルは対象外である（終了エラーが
+    そのままスクリプトを止め、exit は非 0 になる）。
+#>
+foreach ($t in $toolsTests) {
+    $text = Get-Content -LiteralPath (Join-Path $repoRoot $t) -Raw
+    if ($text -notmatch "(?m)^\s*\`$ErrorActionPreference\s*=\s*'Continue'") { continue }
+    Assert-That ($text -match '(?m)^\s*trap\s*\{') `
+        ("$(Split-Path -Leaf $t) runs with ErrorActionPreference='Continue', so it needs a trap " +
+         "(無いと、途中の例外が静かな合格になる)")
 }
 
 

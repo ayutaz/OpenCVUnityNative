@@ -342,9 +342,11 @@ two scripts directly rather than going through `dev.ps1`. `test-unity-graphics` 
 `benchmark` sit in between — CI runs a `Graphics` lane and a `benchmarks` job that
 exercise and collect the same things.
 
-**None of those four CI checks is required, so a red one does not stop a merge.**
-That is the honest summary, and it is why the paragraph above distinguishes
-"CI runs it" from "CI blocks on it".
+**Three of those four CI checks are not required, so a red one does not stop a
+merge**: the `Graphics` lane, the tarball install job and the benchmark job. The
+fourth, `Web browser E2E`, *is* required — it was promoted on 2026-09-10. That
+split is why the paragraph above distinguishes "CI runs it" from "CI blocks on
+it"; the two are not the same thing.
 
 **The GPU half of the `RenderTexture` API is now exercised, in the Editor only.**
 `RenderTextureConverter.ToMat` and `RequestMat` are public API in the package
@@ -401,7 +403,8 @@ when a `Graphics` lane, two `dnn`-profile lanes, a tarball-install job and a
 benchmark-publishing job were added to `ci-unity` (each contributes its own check,
 and the four Unity ones also produce a GameCI results check). They were left
 un-required on purpose: this project promotes a lane only after watching it stay
-green, and these have three runs on one branch.
+green, and these have **at most three runs, all on one branch** — three for the
+`Graphics` and `dnn` lanes, two for the tarball job, one for the benchmark job.
 
 Of the nine that predate them, five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which

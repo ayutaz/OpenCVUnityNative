@@ -56,12 +56,20 @@ ABI 関数を足すか、反転しないことを選ぶかで、**どちらも�
 | `texture2d_to_mat` | 292 µs | Player（IL2CPP、`-nographics`） |
 | `rendertexture_sync` | 1756〜2562 µs（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
 | `rendertexture_async_request` | 1643〜2841 µs（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
-| `first_pinvoke`（起動時間） | 1 µs（下記の留保つき） | Player（IL2CPP、`-nographics`） |
+| `first_pinvoke`（起動時間。**改名前のキー**） | 1 µs（下記の留保つき） | Player（IL2CPP、`-nographics`） |
 
 ### CI（Linux、run 34615630480、2026-09-11）
 
 **2026-09-11 に CI が publish するようになったので、初めて 2 つの環境の
 数字が並んだ。**
+
+**この run の `latest.json` は旧い形である** —— 全 entry 共通の
+`"unit": "microseconds per call"` を持ち、`first_pinvoke_ns` もその下に
+並んでいた（**まさにこの節が直した嘘**）。entry ごとに単位を持つ新しい形を
+CI が出すのは、この変更が main に入って以降の run からである。
+**数字そのものは同じで、変わるのは単位の書き方だけ**だが、
+「文書が説明している形」と「CI が出している形」が一時的に別物である
+ことは書いておく。
 
 | 経路 | 実測 | レーン |
 | --- | --- | --- |
@@ -188,10 +196,6 @@ backend の話になり、M7 の CUDA に関する決定（同梱しない）に
 `SyncReadbackProducesTheExpectedPixels` / `VerticalFlipIsApplied` /
 `AsyncMatchesSync` / `TakingTheMatTwiceIsRejected` もすべて通った ——
 **コンテナには実物の graphics device が在り、`AsyncGPUReadback` も動く。**
-
-**「CI から見えないテストの一覧」を固定していた `CiVisibilityTests` は、
-同時に消した。** その class の docstring が「graphics レーンを CI に配線できたら、
-この一覧は空にでき、そのとき検査ごと消してよい」と書いていたとおりである。
 
 **Player 側は依然として閉じていない。** game-ci の `run_tests.sh` は
 Standalone Player を `xvfb-run ... -batchmode -nographics` で起動しており、

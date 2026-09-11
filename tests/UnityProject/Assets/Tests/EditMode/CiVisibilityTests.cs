@@ -102,8 +102,8 @@ public class CiVisibilityTests
 
         Assert.IsEmpty(unexpectedlyGraphicsOnly,
             "一覧に無いものが増えた —— 新たに [Category(\"Graphics\")] が付き、" +
-            "CI から見えなくなったテスト: " + string.Join(", ", unexpectedlyGraphicsOnly) +
-            "。CI から消えてよいなら ExpectedGraphicsOnlyTests に追記すること。");
+            "必須レーンから外れたテスト: " + string.Join(", ", unexpectedlyGraphicsOnly) +
+            "。merge を止めないレーンへ移してよいなら ExpectedGraphicsOnlyTests に追記すること。");
 
         Assert.IsEmpty(noLongerGraphicsOnly,
             "一覧にあるものが消えた —— [Category(\"Graphics\")] が外れたか、" +

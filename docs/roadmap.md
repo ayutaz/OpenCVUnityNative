@@ -2301,7 +2301,7 @@ CI 自身での確認は `.superpowers/sdd/2026-09-05-m7c-dnn-profile/task-6-rep
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | **満たした。ただし実証の範囲は限定的である。** `RenderTextureConverter.ToMat`（同期）と `RequestMat`（`AsyncGPUReadback` を使う非同期）はどちらも実装し、実測した——`-nographics` の下では `RenderTexture.Create()` が true を返すのに読んだ画素が `205,205,205` になる（作れたが読めない）という落とし穴を実際に踏み、上下反転だけを行う `FillFlipped` を GPU 非依存の純粋関数として切り出して既存レーンで検証できる形にした。**残る 2 つの経路（`ToMat` / `RequestMat` そのもの）は Editor（Mono、グラフィックス有効）でしか実行したことがない。** **2026-09-11 にこの経路を CI へ配線した**（`ci-unity.yml` の `Graphics` レーン。実測 run 34612557397 で 7 passed）ので、「CI に配線しておらず、赤くても merge を止めない」という当時の記述と、それを支えていた `CiVisibilityTests`（「CI から見えないテスト」の一覧）は失効し、後者は削除した。経緯は下の「GPU 経路を CI に載せる」。**`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない** —— game-ci は Standalone Player を `-nographics` で起動しており（`run_tests.sh`）、**その指定は action 側にあってこちらからは外せない。****native texture pointer は評価のみで、実装していない**（やらないと決めた—— `GetNativeTexturePtr()` を CPU から読むにはレンダースレッドからグラフィックス API を呼ぶ必要があり、6 platform 分の分岐を持つ新しい subsystem になる。得られるはずのものと再評価の条件は [性能](./performance.md) にある） |
+| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | **満たした。ただし実証の範囲は限定的である。** `RenderTextureConverter.ToMat`（同期）と `RequestMat`（`AsyncGPUReadback` を使う非同期）はどちらも実装し、実測した——`-nographics` の下では `RenderTexture.Create()` が true を返すのに読んだ画素が `205,205,205` になる（作れたが読めない）という落とし穴を実際に踏み、上下反転だけを行う `FillFlipped` を GPU 非依存の純粋関数として切り出して既存レーンで検証できる形にした。**残る 2 つの経路（`ToMat` / `RequestMat` そのもの）は Editor（Mono、グラフィックス有効）でしか実行したことがない。** **2026-09-11 にこの経路を CI へ配線した**（`ci-unity.yml` の `Graphics` レーン。実測 run 34612557397 で 7 passed）ので、「CI に配線しておらず、赤くても merge を止めない」という当時の記述と、それを支えていた `CiVisibilityTests` の位置づけも変わった —— **「CI から見えないテスト」の台帳から「必須レーンに居ないテスト」の台帳になった**（`Unity Graphics (Linux)` は非必須なので、**「赤くても merge を止めない」の半分はいまも真である**）。経緯は下の「GPU 経路を CI に載せる」。**`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない** —— game-ci は Standalone Player を `-nographics` で起動しており（`run_tests.sh`）、**その指定は action 側にあってこちらからは外せない。****native texture pointer は評価のみで、実装していない**（やらないと決めた—— `GetNativeTexturePtr()` を CPU から読むにはレンダースレッドからグラフィックス API を呼ぶ必要があり、6 platform 分の分岐を持つ新しい subsystem になる。得られるはずのものと再評価の条件は [性能](./performance.md) にある） |
 | 3 | package size、startup time、frame time、allocation の benchmark を公開 | **満たした。ただし性質が 2 つに分かれる。** package size（`PackageSize.Tests.ps1`）と allocation（L3 の `AllocationTests`）は**機械が assert し、CI が守り続ける**——ポインタ経路は 0 バイト、`byte[]` 経路はそれ以上であることを毎回確かめ、tarball が上限を超えれば落ちる。**frame time（境界のコピーと `RenderTexture`）と startup time は、公開したが assert していない**（設計 D1: 共有 CI ランナー上で時間を assert すると必ずフレークになる）。**startup time にはさらに留保がある** —— `BenchmarkRunner.MeasureFirstPInvoke` が実測した 1 µs は、同じ Player 実行内で他の PlayMode テストが先に P/Invoke を呼んでいる可能性が高く、**native ライブラリの真の初回ロードを捉えていない**（測れるものを測っただけで、測れていないものを測れたことにはしていない）。**`RenderTexture` の 2 経路は run をまたぐと大小が入れ替わることを実測した**（run A: sync 2562 / async 2841、run B: sync 1756 / async 1643）——「非同期のほうが速い／遅い」はどちらも主張できず、**時間を assert しない設計判断の裏づけになっている** |
 
 **穴を隠さず書く。**
@@ -2502,10 +2502,22 @@ Mesa の実装が依存で入るかどうかは解決次第である。
 | `tarball` job | `dev.ps1 test-unity-tarball` は M3 から在るのに、**どの workflow からも走っていなかった** |
 | `benchmarks` job | `dev.ps1 benchmark` も同じ。しかも唯一 Unity を持つ開発機では内部の `test-unity-player` がハングするので**完走しない** |
 
-**消したものが 1 つある。** `CiVisibilityTests`（「CI から見えないテストの
-一覧」を名指しで固定する検査）は、その class 自身の docstring が
-「graphics レーンを CI に配線できたら、この一覧は空にでき、そのとき検査ごと
-消してよい」と書いていた。配線したので、消した。
+**1 度消して、レビューで戻した検査が 1 つある。**
+`CiVisibilityTests`（「`[Category("Graphics")]` が付いたテストの台帳」）は、
+その class 自身の docstring が「graphics レーンを **CI に配線できたら**、
+この一覧は空にでき、そのとき検査ごと消してよい」と書いていた。配線したので
+消した —— **が、削除の条件はそれでは足りなかった。**
+
+`Unity Graphics (Linux)` は**必須チェックではない**ので、
+`[Category("Graphics")]` を付ける行為は「CI から完全に消える」から
+**「必須レーンから、赤くても merge を止めないレーンへ無言で移る」**に
+変わっただけで、**守るべき性質は残っている。** 正しい削除の条件は
+**「そのレーンが merge を止めるようになること」**である。
+docstring をそう書き換えたうえで、検査は戻した。
+
+**この誤りは条件文の読み違えであって、実測の誤りではない** ——
+配線されたことは本当である。**「CI が見ている」と「CI が止める」を
+取り違えると、こういう形で守りが 1 段落ちる。**
 
 **必須チェックにはしない（この判断も記録しておく）。**
 
@@ -2514,8 +2526,10 @@ Mesa の実装が依存で入るかどうかは解決次第である。
 `Publish the benchmarks`）と、game-ci が `checkName` から作る 4 本は、
 **どれも必須チェックにしない。** 理由はこのリポジトリの手順どおりで、
 **安定して緑になったのを見てから昇格する** —— Web の 3 本は #63 から
-#74 まで 11 本の PR で緑を見てから昇格した。いまの実績は 1 ブランチで
-3 run である。
+#74 まで 11 本の PR で緑を見てから昇格した。**いまの実績は 1 ブランチ上で、
+多くても 3 run である** —— `Graphics` と dnn の 2 レーンが 3 run、
+`tarball` が 2 run、`benchmarks` は **1 run** しかない
+（**「3 run」と一括りにしない。1 本の run で全部を主張しないのと同じ理由である**）。
 
 **帰結を隠さない: いまは赤くても merge を止めない。** `tarball` が赤くなっても
 M3 で見つかった「導入できない tarball」がもう一度入りうるし、`DnnStandalone` で

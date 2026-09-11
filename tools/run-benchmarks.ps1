@@ -137,6 +137,31 @@ function Get-BenchmarkUnitSuffix {
     if ($Key -match '_ns$') { 'ns' } else { 'us' }
 }
 
+<#
+    **扱える接尾辞は `_ns` だけである。それ以外の時間単位は、黙って
+    マイクロ秒として publish せずに落とす。**
+
+    規約を守っているのは publish する側だけで、`OCVU_BENCH:` を出す C# 側
+    （`BenchmarkRunner` / `GraphicsBenchmarkRunner`）には何の強制も無い ——
+    将来 `*_ms` を足すと、**1000 倍ずれた数字が「マイクロ秒」として世に出る。**
+
+    **ここは意図的に列挙である。** 「知らない接尾辞を全部拒む」形にすると
+    `texture2d_to_mat`（`_mat`）のような正当な key まで落ちる。拒むのは
+    **時間単位に見えるのに扱えないもの**だけで、既定（マイクロ秒）は
+    `docs/performance.md` に書いてある。
+#>
+$unhandledUnitSuffixes = @('_ms', '_us', '_s', '_sec', '_msec', '_usec', '_nsec', '_micros', '_millis', '_nanos')
+$badUnitKeys = @($results.Keys | Where-Object {
+    $k = $_
+    @($unhandledUnitSuffixes | Where-Object { $k.EndsWith($_) }).Count -gt 0
+})
+if ($badUnitKeys.Count -gt 0) {
+    Write-Error ("扱えない単位の接尾辞を持つ key がある（マイクロ秒として publish しない）: " +
+                 "$($badUnitKeys -join ', ')。扱えるのは '_ns' だけで、" +
+                 "接尾辞が無ければマイクロ秒として扱う")
+    exit 1
+}
+
 # **単位つきの表に組み替える。** 値だけの map を残さないのは、
 # 読む側が単位を知らずに値を取れる形を publish しないためである。
 $entries = [ordered]@{}
