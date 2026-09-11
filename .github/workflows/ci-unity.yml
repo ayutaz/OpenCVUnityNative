@@ -676,6 +676,73 @@ jobs:
           path: artifacts/unity-${{ matrix.lane }}
           if-no-files-found: warn
 
+  # **測った数字を CI が publish する。**
+  #
+  # `dev.ps1 benchmark` は M7a から在るが、**どの workflow からも走って
+  # いなかった** —— しかも唯一 Unity を持つ開発機では、内部で呼ぶ
+  # `test-unity-player` が後始末でハングする既知の欠陥のせいで**完走しない**。
+  # 数字は「ハングしたプロセスを止めてから `run-benchmarks.ps1` を直接叩く」
+  # という手順でしか得られていなかった。
+  #
+  # **GPU に依る側が CI で走るようになって初めて、この job が成立した。**
+  # `GraphicsBenchmarkRunner` は `Graphics` レーンにしか居ないので、
+  # そのレーンが無い間はここで集められるのは半分だけだった。
+  #
+  # **時間そのものは判定しない**（設計 D1）。`run-benchmarks.ps1` が落ちるのは
+  # 「測れなかったとき」だけである —— XML ごとに 1 本も `OCVU_BENCH:` が
+  # 拾えなかったか、値が 0 だったとき。共有 runner の上で閾値を置くと
+  # フレークになるので、速い・遅いでは落とさない。
+  benchmarks:
+    name: Publish the benchmarks
+    runs-on: ubuntu-24.04
+    needs: unity
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the Player results
+        uses: actions/download-artifact@v8
+        with:
+          name: test-results-unity-Standalone
+          path: bench-in/standalone
+
+      - name: Download the Graphics results
+        uses: actions/download-artifact@v8
+        with:
+          name: test-results-unity-Graphics
+          path: bench-in/graphics
+
+      # **2 つの XML を名指しで渡す。** `run-benchmarks.ps1` は
+      # **XML ごとに**「1 本も拾えなかったか」を見るので、片方のレーンの
+      # benchmark 本体が丸ごと消えても、もう片方の行に紛れて通ることはない。
+      - name: Collect the benchmark results
+        shell: pwsh
+        run: |
+          $paths = @()
+          foreach ($dir in @('bench-in/standalone', 'bench-in/graphics')) {
+              $xml = Get-ChildItem -Path $dir -Filter '*.xml' -Recurse -File |
+                     Select-Object -First 1
+              if (-not $xml) {
+                  Write-Error "no test result XML under $dir"
+                  exit 1
+              }
+              Write-Host "==> $dir -> $($xml.FullName)"
+              $paths += $xml.FullName
+          }
+          ./tools/run-benchmarks.ps1 -XmlPath ($paths -join ';') `
+                                     -OutPath artifacts/benchmarks/latest.json
+          Get-Content -LiteralPath artifacts/benchmarks/latest.json
+
+      - name: Upload the benchmarks
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmarks
+          path: artifacts/benchmarks
+          if-no-files-found: warn
+
   # **配る tarball を、使い捨ての Unity プロジェクトに実際に導入する。**
   #
   # `dev.ps1 test-unity-tarball` は M3 から在るのに、**どの workflow からも

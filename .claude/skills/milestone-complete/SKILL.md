@@ -84,12 +84,20 @@ pwsh tools/dev.ps1 test-unity-graphics   # M7a。GPU に依る RenderTexture の
 pwsh tools/dev.ps1 benchmark             # M7a。上の 2 レーンから OCVU_BENCH: を集める
 ```
 
-**下の 2 つはどの workflow からも走らない**（`test-unity-tarball` /
-`test-unity-web` も同じである）。**CI に配線されていないレーンは、判定のときだけが
-唯一の実行機会である** —— 回さなければ誰も回さない。
-`tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が
-「CI から見えないテスト」を名指しで固定しているが、それが固定しているのは
-まさに `test-unity-graphics` の中身である。
+**2026-09-11 より前は、下の 2 つと `test-unity-tarball` / `test-unity-web` が
+どの workflow からも走っていなかった。** いまは `ci-unity.yml` に対応する
+レーンが在る（`Graphics` / `benchmarks` / `tarball` / `web-e2e`）ので、
+**「判定のときだけが唯一の実行機会」ではなくなった** —— ただし
+**CI が呼ぶのは `dev.ps1` のサブコマンドそのものではない**（Unity の起動は
+game-ci）。したがってローカルで回す意味は残る: **同じ判定 script を通る
+別の経路で、同じものが見えるかを突き合わせられる。**
+
+**「CI に配線されていないレーンは、判定のときだけが唯一の実行機会である」
+という規則そのものは生きている。** 配線が無いレーンを作ったら、この一覧に
+足すこと —— **走らないレーンは腐る。** 実例が 2 つある（どちらも
+`test-unity-tarball`）: M4 で期待する binary の数が `3` と直書きされたまま
+残り、M7a で Graphics の除外が抜けた。**どちらも無関係な作業の途中で
+1 度手で回すまで誰も知らなかった。**
 
 **`test-unity-player` は、このマシンでは後始末段階でハングする既知の欠陥を持つ**
 （`Stop-UnityTestPlayers` の中の `Get-CimInstance`。roadmap の

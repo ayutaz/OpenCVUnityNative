@@ -750,7 +750,7 @@ M5 の module 拡張で `objdetect` / `features` / `geometry` / `calib`、そし
 | 6 | macOS で Unity に読み込ませたことがない | 「iOS のビルドに macOS runner が要るので M4 で自然に埋まる」と書いていたが、**埋まらなかった。** macOS runner は plugin をビルドするだけで Unity を起動しない | **未解消。2026-08-31 に 4 回試して「CI では閉じない」と確定した**（game-ci は macOS を支えず、Hub で直接入れる経路は Editor が 14 分で入るのにライセンスで止まる）。詳細は下の「担当が無かった制約」 |
 | 7 | Windows の IL2CPP を CI で回していない | 「game-ci では無理」の根拠に挙げていた issue は、使っていない別 action のものだった —— **そこで実際に投げて根拠を作った** | **未解消。2026-08-31 に「CI で回さない」と結論した** —— `windows-2022` で EditMode は 33 件通ったが、`Standalone` は `ToolchainNotFoundException` で落ちた（game-ci の Windows コンテナに MSVC が無い）。**根拠は実測であって他人の issue ではない。** これは「まだ調べていない穴」ではなく**意図して CI の外に置いたもの**である |
 | 8 | 対応 CPU アーキテクチャが狭い | Android エミュレータ（x86_64）が無いと開発しづらい | **M4 で決めた: arm64 のみ**（Android は arm64-v8a、iOS は実機の arm64）。**穴は塞いでいない —— 塞がないと決めた。** 増やすと platform が 2 つ増え、OpenCV のビルドも配布物も同じだけ増える（**数を写さない** —— 正本は `tools/dev.ps1` の `$AllPlatformBinaries` で、触る場所は `add-a-platform` skill にある） |
-| 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7a で着手し、部分的に解消（2026-09-06）。** 割り当ては L3 が機械で保証し（ポインタ経路 0 バイト）、時間は測って公開したが**assert していない**。**`RenderTexture` / `AsyncGPUReadback` の経路は Editor（Mono）の `test-unity-graphics` でしか実行しておらず、そのレーンは CI に配線していない** —— IL2CPP の Player でこの経路が動くかは未実証のままである。**native texture pointer は評価のみで実装していない**（やらないと決めた）。判定と根拠は下の「M7a の判定」節 |
+| 9 | 「低コピー連携」を測っていない | §7 の 7 番目に掲げているのに実測が無い | **M7a で着手し、部分的に解消（2026-09-06）。** 割り当ては L3 が機械で保証し（ポインタ経路 0 バイト）、時間は測って公開したが**assert していない**。**`RenderTexture` / `AsyncGPUReadback` の経路は Editor（Mono）でしか実行していない** —— ただし **2026-09-11 に CI へ配線した**（`ci-unity.yml` の `Graphics` レーン。下の「GPU 経路を CI に載せる」）ので、「そのレーンは CI に配線していない」という留保は失効した。**IL2CPP の Player でこの経路が動くかは依然として未実証である** —— game-ci が Player を `-nographics` で起動しており、そこはこちらから外せない。**native texture pointer は評価のみで実装していない**（やらないと決めた）。判定と根拠は下の「M7a の判定」節 |
 | 10 | 新しい DNN エンジンを載せていない | OpenCV 5 最大の変更。ただし Unity には代替がある。**2026-08-30 の調査で、5.0 に固定して作り込めない根拠が付いた**（根拠と一次情報は M7 節。**ここに再掲しない** —— 根拠を直すと 2 箇所が同時に古くなる） | **M7c で部分的に解消（2026-09-10）。** ONNX をメモリから読んで forward を 1 回走らせる C ABI 4 本を、opt-in profile（`OCVU_PROFILE_DNN`）として出した。**ただし実機で 1 度も動かしておらず、推論の速さも測っていない**（`### M7c の判定`）。位置づけと、そこから出た module 分離の決定は下記 |
 
 ### #1 を最優先に置く理由
@@ -1514,7 +1514,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 | 6 | macOS の Plugin Import Settings を Unity で実測 | **閉じていない**（2026-08-31 に 4 回試して確定）。game-ci は macOS を支えない（`darwin-platform is not supported`）。Unity Hub の CLI で直接入れる経路も試し、**Editor は 14 分で入るところまで到達したが、ライセンスで止まる** —— `Found 0 entitlement groups and 0 free entitlements`。**認証を 2 系統（`-username`/`-password` と `.ulf`）とも試して同じ**なので、認証方法ではなく entitlement 自体が降りていない。**Editor の導入は障害ではなく、障害はライセンスである**（詳細は上記「担当が無かった制約」の節）|
 | 7 | Windows IL2CPP を CI で回すかの結論 | **満たす**（2026-08-31）。**結論は「諦める」。** `windows-2022` に 2 回投げた —— EditMode は動いた（33 passed、run 33350726005）が、**`Standalone` は `ToolchainNotFoundException` で落ちた**（run 33352025223）。game-ci の Windows コンテナに、IL2CPP が生成した C++ をコンパイルする MSVC が無い。**このとき game-ci 自身は success を返しており、結果 XML の有無を別に見ていなければ逆の結論を書いていた。** 根拠は 2 回の実測で、他人の issue ではない（詳細は上記「担当が無かった制約」の節）|
 | 8 | 対応 CPU アーキテクチャの決定 | **満たす**。Android arm64-v8a のみ / iOS 実機 arm64 のみ（上記「対応 CPU アーキテクチャの決定」） |
-| 9 | モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通る | **満たす**（2026-08-31、このマシン）。5 platform 分を束ねた tarball を使い捨ての Unity プロジェクトに導入して `==> UPM tarball install: 25 passed`。**ただしこのレーンはどの workflow からも走らない** —— game-ci の action の外で Unity を起動する必要があり、CI に載せるのは別作業である。**M4 でモバイルを足した時点からこのレーンは壊れており**（期待する binary の数が `3` と直書きされ、iOS の `.a` を binary と認めなかった）、無関係な作業の途中で 1 度手で回すまで誰も知らなかった |
+| 9 | モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通る | **満たす**（2026-08-31、このマシン）。5 platform 分を束ねた tarball を使い捨ての Unity プロジェクトに導入して `==> UPM tarball install: 25 passed`。**当時このレーンはどの workflow からも走らなかった** —— game-ci の action の外で Unity を起動する必要があり、「CI に載せるのは別作業である」と書いて置いていた。**その別作業は 2026-09-11 に済んだ**（下の「GPU 経路を CI に載せる」。`ci-unity.yml` の `tarball` job）。**M4 でモバイルを足した時点からこのレーンは壊れており**（期待する binary の数が `3` と直書きされ、iOS の `.a` を binary と認めなかった）、無関係な作業の途中で 1 度手で回すまで誰も知らなかった —— **走らないレーンが腐るのはこれで 2 度目で**（M7a では Graphics の除外が抜けた）、CI に載せた直接の動機でもある |
 
 **条件 1・2 は 2026-08-31 に「満たす」へ変えた。** この構成の CI が緑になり、
 **実物の成果物に検査が当たった**からである（run 33319185326）。それまでは
@@ -2297,7 +2297,7 @@ CI 自身での確認は `.superpowers/sdd/2026-09-05-m7c-dnn-profile/task-6-rep
 
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
-| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | **満たした。ただし実証の範囲は限定的である。** `RenderTextureConverter.ToMat`（同期）と `RequestMat`（`AsyncGPUReadback` を使う非同期）はどちらも実装し、実測した——`-nographics` の下では `RenderTexture.Create()` が true を返すのに読んだ画素が `205,205,205` になる（作れたが読めない）という落とし穴を実際に踏み、上下反転だけを行う `FillFlipped` を GPU 非依存の純粋関数として切り出して既存レーンで検証できる形にした。**残る 2 つの経路（`ToMat` / `RequestMat` そのもの）は Editor（Mono、グラフィックス有効）の `test-unity-graphics` でしか実行したことがない** —— このレーンは CI に配線しておらず、赤くても merge を止めない（`tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が「CI から見えないテスト」として名指しで固定している）。**`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない** —— `test-unity-player` は `-nographics` で走るため `supportsAsyncGPUReadback` が `false` になる。**native texture pointer は評価のみで、実装していない**（やらないと決めた—— `GetNativeTexturePtr()` を CPU から読むにはレンダースレッドからグラフィックス API を呼ぶ必要があり、6 platform 分の分岐を持つ新しい subsystem になる。得られるはずのものと再評価の条件は [性能](./performance.md) にある） |
+| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | **満たした。ただし実証の範囲は限定的である。** `RenderTextureConverter.ToMat`（同期）と `RequestMat`（`AsyncGPUReadback` を使う非同期）はどちらも実装し、実測した——`-nographics` の下では `RenderTexture.Create()` が true を返すのに読んだ画素が `205,205,205` になる（作れたが読めない）という落とし穴を実際に踏み、上下反転だけを行う `FillFlipped` を GPU 非依存の純粋関数として切り出して既存レーンで検証できる形にした。**残る 2 つの経路（`ToMat` / `RequestMat` そのもの）は Editor（Mono、グラフィックス有効）でしか実行したことがない。** **2026-09-11 にこの経路を CI へ配線した**（`ci-unity.yml` の `Graphics` レーン。実測 run 34612557397 で 7 passed）ので、「CI に配線しておらず、赤くても merge を止めない」という当時の記述と、それを支えていた `CiVisibilityTests`（「CI から見えないテスト」の一覧）は失効し、後者は削除した。経緯は下の「GPU 経路を CI に載せる」。**`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない** —— game-ci は Standalone Player を `-nographics` で起動しており（`run_tests.sh`）、**その指定は action 側にあってこちらからは外せない。****native texture pointer は評価のみで、実装していない**（やらないと決めた—— `GetNativeTexturePtr()` を CPU から読むにはレンダースレッドからグラフィックス API を呼ぶ必要があり、6 platform 分の分岐を持つ新しい subsystem になる。得られるはずのものと再評価の条件は [性能](./performance.md) にある） |
 | 3 | package size、startup time、frame time、allocation の benchmark を公開 | **満たした。ただし性質が 2 つに分かれる。** package size（`PackageSize.Tests.ps1`）と allocation（L3 の `AllocationTests`）は**機械が assert し、CI が守り続ける**——ポインタ経路は 0 バイト、`byte[]` 経路はそれ以上であることを毎回確かめ、tarball が上限を超えれば落ちる。**frame time（境界のコピーと `RenderTexture`）と startup time は、公開したが assert していない**（設計 D1: 共有 CI ランナー上で時間を assert すると必ずフレークになる）。**startup time にはさらに留保がある** —— `BenchmarkRunner.MeasureFirstPInvoke` が実測した 1 µs は、同じ Player 実行内で他の PlayMode テストが先に P/Invoke を呼んでいる可能性が高く、**native ライブラリの真の初回ロードを捉えていない**（測れるものを測っただけで、測れていないものを測れたことにはしていない）。**`RenderTexture` の 2 経路は run をまたぐと大小が入れ替わることを実測した**（run A: sync 2562 / async 2841、run B: sync 1756 / async 1643）——「非同期のほうが速い／遅い」はどちらも主張できず、**時間を assert しない設計判断の裏づけになっている** |
 
 **穴を隠さず書く。**
@@ -2408,9 +2408,12 @@ M0 から M7 までで、M8 は無い。**帰結を先に書く: ここで「次
   は 1 通で全 platform を代表している**（`clapack-lapack_LICENSE` は macOS / iOS に無い）
 - **CUDA / cuDNN の再配布条件は読んでいない。** 大きさだけで結論が出たので読まずに
   済んだ、という形である —— **配布形態が変われば、この宿題はそのまま戻ってくる**
-- **`dnn` の到達性は人が手で 1 回確かめたきりである。** `OCVU_PROFILE_DNN` を立てる
-  workflow も `dev.ps1` のレーンも無いので、次に `dnn` の ABI が変わっても自動では
-  再検証されない
+- ~~**`dnn` の到達性は人が手で 1 回確かめたきりである。**~~ **2026-09-11 に閉じた**
+  （下の「GPU 経路を CI に載せる」と同じ作業）。`ci-unity.yml` の
+  `DnnEditMode` / `DnnStandalone` レーンが `ProjectSettings.asset` に
+  `OCVU_PROFILE_DNN` を書いてから Unity を走らせる。**stripping 済みの
+  IL2CPP Player で `AbiSurfaceDnnPlayerTests.EveryDnnEntryPointIsReachable` が
+  通ることを CI が要求する**ので、次に dnn の ABI が変われば自動で再検証される
 
 **担当が無い。** 上の各項目は、M8 が無い以上「次のマイルストーンで拾う」ことが
 できない。**拾う予定は無い** —— 拾うなら、そのときに新しい計画を立てることになる。
@@ -2440,6 +2443,74 @@ M0 から M7 までで、M8 は無い。**帰結を先に書く: ここで「次
    `check-unityengine-leak.sh` は M7c で守備範囲が 2 → 4 フォルダになったのに
    2 のままで、2026-09-10 に正本から読む形へ直した**（実測: 直す前は
    `Runtime/Interop.Dnn` と `Runtime/Dnn` が素通りした）
+
+---
+
+### GPU 経路を CI に載せる（2026-09-11）
+
+**M7 が終わった後、「CI が何を見ていないか」を洗い直したところ、
+穴の 1 つは穴ではなかった。**
+
+この文書と `CLAUDE.md` と [性能](./performance.md) の 3 つが、同じことを
+書いていた —— 「CI のレーンは `-nographics` で走るので、`RenderTexture` の
+画素を運ぶ経路は CI では確かめられない」。**そう書いた根拠は
+`tools/dev.ps1` の側の実測**（`-nographics` の下で `graphicsDeviceType` が
+`Null` になり、`RenderTexture.Create()` が true を返すのに `ReadPixels` が
+205,205,205 を返す）であって、**CI の側は 1 度も測っていなかった。**
+
+実物はこうだった。`game-ci/unity-test-runner` がコンテナの中で呼ぶ
+`unity-editor` は、game-ci/docker の `images/ubuntu/editor/Dockerfile` が
+こう書いている:
+
+```sh
+xvfb-run -ae /dev/stdout "$UNITY_PATH/Editor/Unity" -batchmode "$@"
+```
+
+**`-batchmode` は付くが `-nographics` は付かない。** 仮想 X の下で起動する
+ので、コンテナに GL の実装さえ在れば graphics device は在る。
+**そして在るかどうかは Dockerfile からは決まらなかった** ——
+`unityci/base` は `--no-install-recommends` で `libglu1` しか入れておらず、
+Mesa の実装が依存で入るかどうかは解決次第である。
+
+**だから推測で書かず、レーンを足してそれ自体を実測に使った。**
+`ci-unity.yml` の matrix に `Graphics` レーン（`-testCategory Graphics`）を
+足し、ブランチ上で `workflow_dispatch` した。
+
+**結果（run 34612557397、2026-09-11）: 7 passed。**
+`GraphicsTests.AGraphicsDeviceIsPresent` が通ったので **graphics device は
+実在し**、`SyncReadbackProducesTheExpectedPixels` と `VerticalFlipIsApplied` が
+通ったので **画素が実際に読める**。`AsyncMatchesSync` も通ったので
+**`AsyncGPUReadback` も動く**。`GraphicsBenchmarkRunner` は
+`OCVU_BENCH: rendertexture_sync=793` / `rendertexture_async_request=1308` を
+出した。
+
+**この作業で CI に載ったものは 5 つある。**
+
+| 足したもの | それまでの状態 |
+| --- | --- |
+| `Graphics` レーン | **ローカル専用**。`[Category("Graphics")]` のテストは CI から完全に見えなかった |
+| `DnnEditMode` / `DnnStandalone` レーン | **どの workflow も `OCVU_PROFILE_DNN` を立てていなかった**。Unity の中で dnn の assembly がコンパイルされ、IL2CPP の stripping を生き延びることは人が手で 1 回確かめたきりだった |
+| `tarball` job | `dev.ps1 test-unity-tarball` は M3 から在るのに、**どの workflow からも走っていなかった** |
+| `benchmarks` job | `dev.ps1 benchmark` も同じ。しかも唯一 Unity を持つ開発機では内部の `test-unity-player` がハングするので**完走しない** |
+
+**消したものが 1 つある。** `CiVisibilityTests`（「CI から見えないテストの
+一覧」を名指しで固定する検査）は、その class 自身の docstring が
+「graphics レーンを CI に配線できたら、この一覧は空にでき、そのとき検査ごと
+消してよい」と書いていた。配線したので、消した。
+
+**閉じなかったものも書く。**
+
+- **Player（IL2CPP）側の GPU 経路は閉じていない。** game-ci の
+  `run_tests.sh` は Standalone Player を
+  `xvfb-run -a -e /dev/stdout ... -batchmode -nographics` で起動しており、
+  **`-nographics` は action の中に書かれていてこちらからは外せない。**
+  したがって `AsyncGPUReadback` が IL2CPP で動くかは、いまの構成では
+  確かめる術が無い（Editor では動くことが分かった、が上限である）
+- **実機は変わらず 1 度も動かしていない。** Android / iOS / dnn のいずれも
+
+**この 1 件から取れる一般的な教訓は、`prove-a-check-works` skill に
+「『原理的に無理』と書いた前提を、誰も測っていないことがある」として
+入れてある。** 個別の経緯はこの節が持つので、そちらには再掲しない。
 
 ---
 

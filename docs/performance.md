@@ -47,7 +47,7 @@ ABI 関数を足すか、反転しないことを選ぶかで、**どちらも�
 | `texture2d_to_mat` | 292 | Player（IL2CPP、`-nographics`） |
 | `rendertexture_sync` | 1756〜2562（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
 | `rendertexture_async_request` | 1643〜2841（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
-| `first_pinvoke`（起動時間） | 1（下記の留保つき） | Player（IL2CPP、`-nographics`） |
+| `first_pinvoke_ns`（起動時間） | **ナノ秒**で出す。下記の留保つき | Player（IL2CPP、`-nographics`） |
 
 **読み方を 3 つ書く。1 つでも欠けると誤読する。**
 
@@ -132,25 +132,49 @@ backend の話になり、M7 の CUDA に関する決定（同梱しない）に
 2. **`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない。**
    `test-unity-player` も `-nographics` で走るため
    `supportsAsyncGPUReadback` が `false` になり、`RequestMat` の経路は
-   **Editor（Mono）の `test-unity-graphics` でしか実行されたことがない。**
-   実機の IL2CPP Player でこの経路が動くかどうかは、いまのところ未実証である。
+   **Editor（Mono）でしか実行されたことがない** —— 2026-09-11 からは
+   ローカルの `test-unity-graphics` に加えて **CI の `Graphics` レーン**でも
+   走るが、どちらも Editor である。実機の IL2CPP Player でこの経路が動くか
+   どうかは、いまのところ未実証である。
 
-**`test-unity-graphics` は CI に配線していない。** `ci-unity.yml` からは
-呼ばれないので、**このレーンが赤くても merge は止まらない。**
-`tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が
-「CI から見えないテストの一覧」を名指しで固定しており、
-`GraphicsTests` / `GraphicsBenchmarkRunner.MeasureRenderTexturePaths` は
-その一覧に載っている。新しく `[Category("Graphics")]` を付けたテストが
-増えるとこの一覧との不一致で `CiVisibilityTests` 自体が落ちるので、
-「いつの間にか CI から見えなくなっていた」は「差分として見える変更」に
-変わる —— ただし変わるのは気づき方であって、**CI に配線されること自体では
-ない。**
+**2026-09-11 に、この経路は CI へ配線された。** `ci-unity.yml` の
+`Graphics` レーンが `-testCategory Graphics` で EditMode を走らせる。
+
+**成立した理由は、前提が誤っていたことである。** ここには長らく
+「CI のレーンは `-nographics` で走るのでこの経路を通れない」と書いてあったが、
+**game-ci が Editor を `-nographics` で起動していないことを誰も測っていなかった。**
+コンテナの `unity-editor` は
+
+    xvfb-run -ae /dev/stdout "$UNITY_PATH/Editor/Unity" -batchmode "$@"
+
+で、仮想 X の下から起動する（game-ci/docker の `images/ubuntu/editor/Dockerfile`）。
+実測（run 34612557397）では `AGraphicsDeviceIsPresent` が通り、
+`SyncReadbackProducesTheExpectedPixels` / `VerticalFlipIsApplied` /
+`AsyncMatchesSync` / `TakingTheMatTwiceIsRejected` もすべて通った ——
+**コンテナには実物の graphics device が在り、`AsyncGPUReadback` も動く。**
+
+**「CI から見えないテストの一覧」を固定していた `CiVisibilityTests` は、
+同時に消した。** その class の docstring が「graphics レーンを CI に配線できたら、
+この一覧は空にでき、そのとき検査ごと消してよい」と書いていたとおりである。
+
+**Player 側は依然として閉じていない。** game-ci の `run_tests.sh` は
+Standalone Player を `xvfb-run ... -batchmode -nographics` で起動しており、
+**`-nographics` は action 側が固定していてこちらからは外せない。**
 
 ## startup time
 
 **Player が起きてから最初の P/Invoke が返るまで**を、
 `BenchmarkRunner.MeasureFirstPInvoke`（`test-unity-player` レーン）で
 測った: **1 マイクロ秒**（2026-09-06、このマシン）。
+
+**2026-09-11 に単位をナノ秒へ変えた**（キーも `first_pinvoke` から
+`first_pinvoke_ns` に改名した）。理由は、**CI の Linux Player で実測 0 に
+なったから**である（run 34612557397）。`tools/run-benchmarks.ps1` は
+0 を「測定が効いていない」として落とすので、そのままでは benchmark を
+CI で集められない。**0 が出たのは測定が壊れていたからではなく、
+マイクロ秒では分解能が足りなかったからである** —— 下に書くとおり、
+ここで測っているのは既にライブラリが読み込まれた後の 1 回の呼び出しで、
+それは 1 µs に満たない。**値そのものは正しく、桁の取り方だけが誤っていた。**
 
 **この数字は「native ライブラリの真の初回ロード」を捉えていない。**
 同じ Player の実行では `PlayerSmokeTests` など他の PlayMode テストが
