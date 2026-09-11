@@ -676,6 +676,212 @@ jobs:
           path: artifacts/unity-${{ matrix.lane }}
           if-no-files-found: warn
 
+  # **配る tarball を、使い捨ての Unity プロジェクトに実際に導入する。**
+  #
+  # `dev.ps1 test-unity-tarball` は M3 から在るのに、**どの workflow からも
+  # 走っていなかった** —— roadmap は M4 の時点で「game-ci の action の外で
+  # Unity を起動する必要があり、CI に載せるのは別作業である」と書き、
+  # そのまま置かれていた。
+  #
+  # **走らないレーンは腐る、を 2 度実証した後で載せる。**
+  #   - M4 でモバイルを足したとき、期待する binary の数が `3` と直書きされて
+  #     いて iOS の `.a` を binary と認めなかった
+  #   - M7a で Graphics の除外が抜け、66 件中 6 件が落ちる状態になった
+  #   どちらも**無関係な作業の途中で 1 度手で回すまで誰も知らなかった。**
+  #
+  # **`unity` job に相乗りしない。** あちらは `tests/UnityProject` を直接
+  # 指すが、このレーンの本体は**使い捨てのプロジェクトを作るところ**にある
+  # （tarball から解決させ、ディレクトリ参照が 1 つも残っていないことまで
+  # 見る）。projectPath が違うので matrix には畳めない。
+  #
+  # プロジェクトの作り方は `dev.ps1 test-unity-tarball -PrepareOnly` に寄せて
+  # ある —— ここに書き写すと、**導入を確かめた tarball と実際に配る
+  # tarball が別物になる。**
+  tarball:
+    name: UPM tarball install (Linux)
+    runs-on: ubuntu-24.04
+    needs: plugin
+    # `unity` job と同じ理由（そちらの長いコメントを参照）。skip は必須
+    # チェックを通すので、材料が無いときは赤くなる形にする。
+    if: ${{ !cancelled() }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the other platforms plugins
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unity-plugin-*
+          path: other-plugins
+
+      - name: Assemble every platform into one package
+        shell: pwsh
+        run: |
+          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
+                     ForEach-Object { "other-plugins/unity-plugin-$_" }
+          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
+
+      - name: Resolve the Unity version
+        id: unity
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+          $m = Select-String -LiteralPath $file -Pattern '^m_EditorVersion:\s*(\S+)' |
+               Select-Object -First 1
+          if (-not $m) {
+              Write-Error "could not read m_EditorVersion from $file"
+              exit 1
+          }
+          $version = $m.Matches[0].Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "image=unityci/editor:ubuntu-$version-base-3" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
+      # `unity` job と同じ理由でコンテナの中でビルドする（runner の glibc で
+      # 作った .so は game-ci のコンテナでは読み込めない。v0.1.0 の欠陥）。
+      - name: Build the native plugin in the build container
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          image=$(grep -oP "Container\s*=\s*'\K[^']+" tools/opencv-config.psd1 | head -1)
+          echo "==> building in $image"
+          docker run --rm \
+            -v "$PWD:/w" -w /w \
+            -e GH_TOKEN \
+            "$image" \
+            bash -c 'bash ./tools/ci/setup-linux-container.sh \
+                     && pwsh -NoProfile -File ./tools/opencv.ps1 restore \
+                     && pwsh -NoProfile -File ./tools/dev.ps1 build'
+          sudo chown -R "$(id -u):$(id -g)" \
+            Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins build third_party || true
+
+      - name: Verify the plugin's portability
+        shell: pwsh
+        run: ./tools/verify-plugin-portability.ps1
+
+      # **プロジェクトの作り方はローカルと同じ script を通す。**
+      #
+      # `-PrepareOnly` は Unity を起動せず、作ったプロジェクトのパスを
+      # 最後の 1 行に出す。`-WorkDir` はワークスペースの中でなければ
+      # ならない —— game-ci はコンテナにワークスペースを mount するので、
+      # その外に作ったプロジェクトはコンテナから見えない。
+      - name: Prepare a disposable Unity project from the tarball
+        id: prepare
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:GITHUB_WORKSPACE 'artifacts/tarball-lane'
+          $project = & ./tools/dev.ps1 test-unity-tarball -PrepareOnly -WorkDir $work |
+                     Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "dev.ps1 test-unity-tarball -PrepareOnly failed (exit $LASTEXITCODE)"
+              exit 1
+          }
+          if (-not $project -or -not (Test-Path -LiteralPath $project)) {
+              Write-Error "the prepared project path does not exist: $project"
+              exit 1
+          }
+          $rel = [System.IO.Path]::GetRelativePath($env:GITHUB_WORKSPACE, $project).Replace([char]92, [char]47)
+          "project=$rel" >> $env:GITHUB_OUTPUT
+          Write-Host "==> prepared project: $rel"
+
+      # **合図を「書く」のではなく「届いたか」を見る。**
+      #
+      # `unity` job はここで合図を書くが、このレーンでは `dev.ps1` が
+      # **木から導出して**置く（Sync-AllPlatformsMarker。6 つ揃っていなければ
+      # 置かず、置き去りがあれば消す）。ここで書き直すと、導出が壊れていても
+      # 合図だけは在る状態を自分で作ってしまう。**導出の結果を要求するほうが
+      # 強い。**
+      - name: Check the all-platforms marker reached the prepared project
+        shell: pwsh
+        run: |
+          $marker = Join-Path '${{ steps.prepare.outputs.project }}' 'ocvu-expect-all-platforms'
+          if (-not (Test-Path -LiteralPath $marker)) {
+              Write-Error "the prepared project has no all-platforms marker at $marker"
+              exit 1
+          }
+          Write-Host "==> present: $marker"
+
+      - name: Run the EditMode tests in the prepared project
+        uses: game-ci/unity-test-runner@f7d28f891263d875d47ef34370e9e8dd6087e1ef # v5.0.0-beta.1
+        id: tests
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: ${{ steps.prepare.outputs.project }}
+          unityVersion: ${{ steps.unity.outputs.version }}
+          customImage: ${{ steps.unity.outputs.image }}
+          testMode: EditMode
+          artifactsPath: artifacts/unity-tarball
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Tarball results
+          customParameters: '-testCategory !Graphics'
+
+      - name: Assert the results
+        if: always()
+        shell: pwsh
+        run: |
+          $xml = Get-ChildItem -Path 'artifacts/unity-tarball' -Filter '*.xml' -Recurse -File |
+                 Select-Object -First 1
+          if (-not $xml) {
+              Write-Error 'no test result XML was produced under artifacts/unity-tarball'
+              exit 1
+          }
+          ./tools/assert-unity-results.ps1 `
+            -ResultsPath $xml.FullName `
+            -Lane 'tarball' `
+            -RequireTest 'PluginGatingTests.ExactlyOnePluginTargetsThisEditorOs;PluginGatingTests.EachPluginTargetsOnlyItsOwnEditorOs;PluginGatingTests.NoPluginIsEnabledForEveryPlatform;PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget' `
+            -RequireOutput 'native plugins present: 6 ['
+
+      # **テストが通ったことは、tarball で解決された証拠にならない。**
+      # テストはパッケージの外（プロジェクトの Assets/）に在るので、
+      # ディレクトリ参照で解決されても同じ数だけ通る。UPM が書き戻した
+      # packages-lock.json を読んで、参照が本当に .tgz だったかを見る。
+      # ローカルの `dev.ps1` はこれを自分でやっているが、こちらは Unity の
+      # 起動が game-ci なので、同じ判定をここに置く。
+      - name: Check that UPM resolved the package from the tarball
+        if: always()
+        shell: pwsh
+        run: |
+          $lock = Join-Path '${{ steps.prepare.outputs.project }}' 'Packages/packages-lock.json'
+          if (-not (Test-Path -LiteralPath $lock)) {
+              Write-Error "UPM did not write back $lock, so we cannot tell how the package resolved"
+              exit 1
+          }
+          $manifest = Get-Content -LiteralPath $lock -Raw | ConvertFrom-Json
+          $entry = $manifest.dependencies.'com.ayutaz.opencv-unity-native'
+          $resolved = if ($entry) { $entry.version } else { '(no entry)' }
+          if ($resolved -notlike '*.tgz') {
+              Write-Error "UPM resolved from a non-tarball reference: $resolved"
+              exit 1
+          }
+          Write-Host "==> resolved from $resolved"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-unity-tarball
+          path: artifacts/unity-tarball
+          if-no-files-found: warn
+
   # **ブラウザで実際に動かす。** これが「動く」を主張できる唯一のレーンである
   # （`add-a-platform` skill の「ビルドできる / 配れる / 動く」）。
   #

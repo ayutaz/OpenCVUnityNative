@@ -41,7 +41,35 @@ param(
         クロスの対象を渡す意味が無い（渡されたら止める）。
     #>
     [ValidateSet('windows-x64', 'macos-arm64', 'linux-x64', 'android-arm64', 'ios-arm64', 'web-wasm')]
-    [string]$Platform
+    [string]$Platform,
+
+    <#
+        **`test-unity-tarball` の準備だけを行い、Unity を起動しない。**
+
+        CI では Unity を起動するのが game-ci の action であって `dev.ps1` では
+        ない（理由は .github/workflows/ci-unity.yml の冒頭にある）。このレーンは
+        **使い捨ての Unity プロジェクトを作る**ところが本体なので、その作り方を
+        CI 側に書き写すと「導入を確かめた tarball」と「実際に配る tarball」が
+        別物になりうる —— `pack-upm-tarball.ps1` を 1 つに寄せたのと同じ理由で、
+        **プロジェクトの作り方も 1 つに寄せる。**
+
+        このレーンは **M4 の時点から「CI に載せるのは別作業である」と
+        roadmap に書かれたまま残っていた**。載せていなかった間に実際に
+        壊れており（M4 で binary の数が 3 と直書きされ iOS の .a を binary と
+        認めなかった／M7a で Graphics の除外が抜けた）、どちらも
+        **無関係な作業の途中で 1 度手で回すまで誰も知らなかった。**
+
+        `-WorkDir` は必須にしてある —— 省略できると一時ディレクトリに作って
+        そのまま残し、**誰も消さないものが毎回積もる。**
+    #>
+    [switch]$PrepareOnly,
+
+    <#
+        `-PrepareOnly` の出力先。**CI ではワークスペースの中でなければならない**
+        —— game-ci はコンテナにワークスペースを mount するので、その外に作った
+        プロジェクトはコンテナから見えない。
+    #>
+    [string]$WorkDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -706,7 +734,16 @@ function Test-UnityGraphics {
     かなり遅い。CI とローカルの手動確認のためのレーンで、`test` には含めない。
 #>
 function Test-UnityTarball {
-    Build-Native
+    <#
+        **-PrepareOnly では native をビルドしない。**
+
+        CI ではこの直前に、**Unity が動くコンテナと同じ世代のイメージの中で**
+        plugin をビルドしてある。ここで host 側（ubuntu-24.04, glibc 2.39）の
+        道具でビルドし直すと、**より新しい glibc を要求する .so で静かに
+        上書きしてしまう** —— v0.1.0 が実際に配ってしまった欠陥そのもので、
+        しかも「ビルドは成功する」ので誰も赤くならない。
+    #>
+    if (-not $PrepareOnly) { Build-Native }
 
     # 他 platform の木を渡されたら重ねる。ここで初めて 3 platform が揃う。
     $allPlatforms = $false
@@ -739,11 +776,16 @@ function Test-UnityTarball {
         }
     }
 
-    $unity   = Get-UnityEditorPath
+    # **-PrepareOnly では Unity を探さない。** CI の runner に Unity は無く
+    # （コンテナの中にしかない）、探しに行けばここで落ちる。
+    $unity = if ($PrepareOnly) { $null } else { Get-UnityEditorPath }
 
     New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
-    $work = Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-tarball-" + [guid]::NewGuid().ToString('n'))
+    $work = if ($PrepareOnly) { $WorkDir } else {
+        Join-Path ([System.IO.Path]::GetTempPath()) ("ocvu-tarball-" + [guid]::NewGuid().ToString('n'))
+    }
     New-Item -ItemType Directory -Force -Path $work | Out-Null
+    $work = (Resolve-Path -LiteralPath $work).Path
 
     try {
         # release.yml と同じ作り方で tarball にする。作り方が違うと、
@@ -862,7 +904,22 @@ function Test-UnityTarball {
 
         $manifestPath = Join-Path $project 'Packages/manifest.json'
         $manifest = Get-Content -LiteralPath $manifestPath -Raw
-        $tgzUri = 'file:' + ($tgz -replace '\\', '/')
+        <#
+            **相対パスで参照する。** 以前は host の絶対パスを書いていたが、
+            CI では Unity が**コンテナの中**で動き、ワークスペースは別のパスへ
+            mount される —— 絶対パスはそこでは解決できない。
+
+            UPM の `file:` 参照は**プロジェクトの `Packages` フォルダからの相対**
+            として解決される。実例はこのリポジトリ自身にある:
+            `tests/UnityProject/Packages/manifest.json` が
+            `file:../../../Packages/com.ayutaz.opencv-unity-native` で動いている。
+
+            **ローカルでも同じ形にする。** 分けると、CI で通る形をローカルでは
+            一度も試していないことになる。
+        #>
+        $packagesDir = Join-Path $project 'Packages'
+        $relativeTgz = ([System.IO.Path]::GetRelativePath($packagesDir, $tgz)).Replace([char]92, [char]47)
+        $tgzUri = 'file:' + $relativeTgz
         $manifest = $manifest -replace
             '"com\.ayutaz\.opencv-unity-native":\s*"[^"]*"',
             ('"com.ayutaz.opencv-unity-native": "' + $tgzUri + '"')
@@ -912,6 +969,13 @@ function Test-UnityTarball {
             しておく（ワークスペースはコンテナに mount される）。
         #>
         Sync-AllPlatformsMarker -ProjectPath $project
+
+        if ($PrepareOnly) {
+            Write-Host "==> prepared a disposable Unity project at $project" -ForegroundColor Green
+            # **呼ぶ側（CI）が projectPath として使う。** 最後の 1 行に出す。
+            Write-Output $project
+            return
+        }
 
         $proc = Start-Process -FilePath $unity -ArgumentList $unityArgs -PassThru -NoNewWindow
         if (-not $proc.WaitForExit($timeoutMs)) {
@@ -994,7 +1058,12 @@ function Test-UnityTarball {
         Write-Host "==> UPM tarball install: $passed passed (resolved from $($entry.version))" -ForegroundColor Green
     }
     finally {
-        Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+        # **-PrepareOnly のときは消さない。** これから Unity に読ませる
+        # プロジェクトそのものであり、消す責任は呼ぶ側にある（CI では
+        # ワークスペースごと捨てられる）。
+        if (-not $PrepareOnly) {
+            Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+        }
     }
 }
 <#
@@ -1284,6 +1353,18 @@ function Test-ManagedProbe {
     になる —— このリポジトリが繰り返し潰してきた「通るのに何も証明していない」
     形そのものである。
 #>
+foreach ($name in @('PrepareOnly', 'WorkDir')) {
+    if ($PSBoundParameters.ContainsKey($name) -and $Command -ne 'test-unity-tarball') {
+        Write-DevFailure "-$name は test-unity-tarball でだけ意味があります（渡されたコマンド: $Command）。"
+    }
+}
+if ($PrepareOnly -and -not $WorkDir) {
+    Write-DevFailure '-PrepareOnly には -WorkDir が要ります（省略すると、誰も消さないプロジェクトが積もる）。'
+}
+if ($WorkDir -and -not $PrepareOnly) {
+    Write-DevFailure '-WorkDir は -PrepareOnly と一緒にだけ使えます（Unity を起動するときは一時ディレクトリを使い、必ず消す）。'
+}
+
 if ($PSBoundParameters.ContainsKey('Platform') -and $Command -ne 'build') {
     Write-DevFailure (@(
         "-Platform は build のときだけ使えます（渡された command: $Command）。"
