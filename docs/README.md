@@ -28,7 +28,7 @@
   - **M7a（2026-09-06）。** `Texture2D` / `RenderTexture` と `CvMat` の間の低コピー経路の評価と、`./tools/dev.ps1 benchmark` / `test-unity-graphics` が測った実測値
   - **時間は公開するが assert しない。** `RenderTexture` の同期・非同期 2 経路は run をまたぐと大小が入れ替わることを実例で示す
   - native texture pointer は評価のみで実装しない決定と、その理由・再評価の条件
-  - `RenderTexture` の経路が `-nographics` で読めない実測と、`test-unity-graphics` が CI に配線されていないこと
+  - `RenderTexture` の経路が `-nographics` で読めない実測と、**Editor 側は 2026-09-11 に CI へ配線され、Player 側は依然として配線できないこと**（game-ci が Player を `-nographics` で起動する）
 - [Unity 向け OpenCV 統合の競合調査と初期計画](./unity-opencv-integration-research-and-plan.md)
   - OpenCV 5.x / 4.x の状況（2026-08-25 時点。**§3 と §4.6 は 2026-08-29 に取り直し、§4.6 の配布と OpenUPM、§8.3 の `imgcodecs` は M3.5（2026-08-30）で更新した** —— 5.0 の目玉が DNN エンジンの書き直しであること、競合の現況、OpenUPM という配布経路）
   - OpenCV for Unity、OpenCV-plus-Unity、OpenCvSharp、Emgu CV の比較
@@ -121,8 +121,11 @@ native binary には既定で入っています）です。
 **依存 allowlist からは見えません**。`WITH_CAROTENE` / `WITH_KLEIDICV` は既定 ON の
 まま監査していません。**third-party のライセンス集合は platform ごとに実際に違う
 のに、`THIRD_PARTY_NOTICES.md` は 1 通で全 platform を代表しています。**
-`RenderTexture` の画素を運ぶ経路は CI で 1 度も実行されません
-（`test-unity-graphics` はローカル専用です）。詳細は roadmap の `M7 の判定` と、
+`RenderTexture` の画素を運ぶ経路は、**Editor 側は 2026-09-11 から CI が
+実行します**（`ci-unity.yml` の `Graphics` レーン。経緯は roadmap の
+「GPU 経路を CI に載せる」）。**Player（IL2CPP）側は依然として実行されません**
+—— game-ci が Standalone Player を `-nographics` で起動しており、その指定は
+action の中にあって外せないためです。詳細は roadmap の `M7 の判定` と、
 各判定節の「穴を隠さず書く」にあります。
 
 本文中の「推奨」「目標」「案」のうち、まだ実装されていない部分は依然として設計提案であり、実装済み機能や動作確認結果ではありません。両者の区別は各文書内の記述を見て判断してください。競合製品のバージョンや対応状況は変わるため、実装開始時と公開前に再確認します。

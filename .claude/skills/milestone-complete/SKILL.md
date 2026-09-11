@@ -84,16 +84,19 @@ pwsh tools/dev.ps1 test-unity-graphics   # M7a。GPU に依る RenderTexture の
 pwsh tools/dev.ps1 benchmark             # M7a。上の 2 レーンから OCVU_BENCH: を集める
 ```
 
-**2026-09-11 より前は、下の 2 つと `test-unity-tarball` / `test-unity-web` が
-どの workflow からも走っていなかった。** いまは `ci-unity.yml` に対応する
-レーンが在る（`Graphics` / `benchmarks` / `tarball` / `web-e2e`）ので、
+**2026-09-11 より前は、下の 2 つと `test-unity-tarball` がどの workflow からも
+走っていなかった**（`test-unity-web` は例外で、**M6 から `web-e2e` job が
+同じところを見ている** —— そちらは 2026-09-03 である）。いまは `ci-unity.yml` に
+対応するレーンが在る（`Graphics` / `benchmarks` / `tarball` / `web-e2e`）ので、
 **「判定のときだけが唯一の実行機会」ではなくなった** —— ただし
 **CI が呼ぶのは `dev.ps1` のサブコマンドそのものではない**（Unity の起動は
 game-ci）。したがってローカルで回す意味は残る: **同じ判定 script を通る
 別の経路で、同じものが見えるかを突き合わせられる。**
 
 **「CI に配線されていないレーンは、判定のときだけが唯一の実行機会である」
-という規則そのものは生きている。** 配線が無いレーンを作ったら、この一覧に
+という規則そのものは生きている。** **加えて、配線しただけでは足りない** ——
+上の 4 つはどれも**必須チェックではない**ので、赤くても merge は止まらない。
+**判定のときは「CI が走らせているか」と「CI が止めるか」を別々に確かめること。** 配線が無いレーンを作ったら、この一覧に
 足すこと —— **走らないレーンは腐る。** 実例が 2 つある（どちらも
 `test-unity-tarball`）: M4 で期待する binary の数が `3` と直書きされたまま
 残り、M7a で Graphics の除外が抜けた。**どちらも無関係な作業の途中で

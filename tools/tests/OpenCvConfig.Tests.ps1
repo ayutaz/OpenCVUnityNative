@@ -1218,10 +1218,11 @@ if ($null -ne $localCategory) {
 # 渡っているかは別に見ていない。渡す `with:` 側の行（`customParameters:
 # ${{ matrix.customParameters }}`）を消しても matrix の宣言はそのまま残るので
 # 上の検査は緑のままだが、action には何も渡らず、EditMode の除外が効かなく
-# なる。壊れ方は GPU の有無に依存する — GPU が無ければ `AGraphicsDeviceIsPresent`
-# が本物の欠陥として落ちて気づけるが、GPU が在れば緑のまま `docs/performance.md`
-# / `docs/roadmap.md` の「CI で 1 度も実行されていない」という前提が黙って嘘に
-# なる。だから `with:` 側の参照がちょうど 1 本在ることを別に assert する。
+# なる。**2026-09-11 に、コンテナに GPU が在ることが実測で分かった**ので、
+# この壊れ方は「気づけない側」に倒れる —— 除外が効かなくなっても
+# `AGraphicsDeviceIsPresent` は通り、**両レーンが同じテストを 2 度走らせる
+# 状態が緑のまま残る。** 補集合という前提だけが黙って崩れる。
+# だから `with:` 側の参照がちょうど 1 本在ることを別に assert する。
 $ciRefLines = @(($unityWorkflowText -split "`r?`n") | Where-Object {
     $_ -match '^\s*customParameters:\s*\$\{\{\s*matrix\.customParameters\s*\}\}\s*$'
 })

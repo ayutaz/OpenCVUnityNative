@@ -1,10 +1,13 @@
 # 性能
 
 **この文書は測った数字と、測っていないことを書く。** 数字を書く経路は
-`./tools/dev.ps1 benchmark` の 1 つだけである —— 内部で `test-unity-player`
+**2 つある**。ローカルの `./tools/dev.ps1 benchmark` —— 内部で `test-unity-player`
 （GPU に依らない経路）と `test-unity-graphics`（GPU に依る経路）を順に走らせ、
 両方の結果 XML から集めた `OCVU_BENCH:` 行を `artifacts/benchmarks/latest.json`
-へ書く。**`test-unity-graphics` 単体は `latest.json` を 1 バイトも書かない**
+へ書く —— と、**2026-09-11 に足した CI の `benchmarks` job**（`ci-unity.yml`）で、
+そちらは `Standalone` と `Graphics` の 2 レーンの結果 artifact を材料に
+同じ `run-benchmarks.ps1` を呼び、`latest.json` を artifact として publish する。
+**集計と判定はどちらも `run-benchmarks.ps1` で、そこは分かれていない。****`test-unity-graphics` 単体は `latest.json` を 1 バイトも書かない**
 —— そちらは Unity のテストレーンにすぎず、収集は `run-benchmarks.ps1`
 （`benchmark` コマンドだけが呼ぶ）が担う。
 
@@ -40,14 +43,44 @@ ABI 関数を足すか、反転しないことを選ぶかで、**どちらも�
 
 ## 測った数字
 
-| 経路 | µs/回 | レーン |
+**単位は key の末尾で決まる** —— `_ns` で終わる key はナノ秒、それ以外は
+マイクロ秒である（`tools/run-benchmarks.ps1`。`latest.json` は entry ごとに
+`unit` を持つ）。
+
+### このマシン（Windows、2026-09-06）
+
+| 経路 | 実測 | レーン |
 | --- | --- | --- |
-| `mat_copy_to_pointer` | 29 | Player（IL2CPP、`-nographics`） |
-| `mat_copy_from_pointer` | 33 | Player（IL2CPP、`-nographics`） |
-| `texture2d_to_mat` | 292 | Player（IL2CPP、`-nographics`） |
-| `rendertexture_sync` | 1756〜2562（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
-| `rendertexture_async_request` | 1643〜2841（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
-| `first_pinvoke_ns`（起動時間） | **ナノ秒**で出す。下記の留保つき | Player（IL2CPP、`-nographics`） |
+| `mat_copy_to_pointer` | 29 µs | Player（IL2CPP、`-nographics`） |
+| `mat_copy_from_pointer` | 33 µs | Player（IL2CPP、`-nographics`） |
+| `texture2d_to_mat` | 292 µs | Player（IL2CPP、`-nographics`） |
+| `rendertexture_sync` | 1756〜2562 µs（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
+| `rendertexture_async_request` | 1643〜2841 µs（揺れる。下記） | Graphics（Editor/Mono、グラフィックス有効） |
+| `first_pinvoke`（起動時間） | 1 µs（下記の留保つき） | Player（IL2CPP、`-nographics`） |
+
+### CI（Linux、run 34615630480、2026-09-11）
+
+**2026-09-11 に CI が publish するようになったので、初めて 2 つの環境の
+数字が並んだ。**
+
+| 経路 | 実測 | レーン |
+| --- | --- | --- |
+| `mat_copy_to_pointer` | 39 µs | Standalone（IL2CPP、`-nographics`） |
+| `mat_copy_from_pointer` | 50 µs | Standalone（IL2CPP、`-nographics`） |
+| `texture2d_to_mat` | 52 µs | Standalone（IL2CPP、`-nographics`） |
+| `rendertexture_sync` | 810 µs | Graphics（Editor/Mono、xvfb + ソフトウェア GL） |
+| `rendertexture_async_request` | 1289 µs | Graphics（Editor/Mono、xvfb + ソフトウェア GL） |
+| `first_pinvoke_ns`（起動時間） | 400 ns（下記の留保つき） | Standalone（IL2CPP、`-nographics`） |
+
+**2 つの表を並べて読むときの注意が 3 つある。**
+
+1. **`texture2d_to_mat` が 292 µs 対 52 µs で 5 倍以上違う。** 境界のコピー
+   （29/33 対 39/50）はほぼ同じなので、差は `CvMat.Create` の確保側にある
+   —— **どちらが「正しい」でもない。** 別の OS・別のアロケータ・別の負荷で
+   測った別の数字である。
+2. **CI の `Graphics` レーンの GPU はソフトウェア実装である**（コンテナの
+   xvfb + Mesa）。実機の GPU の数字ではない。
+3. **どちらも利用者の端末の数字ではない。**
 
 **読み方を 3 つ書く。1 つでも欠けると誤読する。**
 
@@ -123,10 +156,13 @@ backend の話になり、M7 の CUDA に関する決定（同梱しない）に
 
    **「作れた」が「読める」を意味しないのがこの経路の落とし穴である。**
    v0.1.0 の「ビルドできた ≠ 動く」と同じ形が、ここにも出た。
-   `test-unity-player` / `ci-unity.yml` はどちらも `-nographics` で走るので、
-   **`RenderTextureConverter.ToMat` / `RequestMat` はこの 2 つのレーンでは
-   検証できない** —— 検証は `test-unity-graphics`（`-nographics` を付けずに
-   EditMode を走らせる新しいローカル専用レーン）が担う。上下反転だけを行う
+   `-nographics` で走るレーン（ローカルの `test-unity-player` /
+   `test-unity-editmode`、CI の `EditMode` / `Standalone`）では
+   **`RenderTextureConverter.ToMat` / `RequestMat` を検証できない** ——
+   検証は `-nographics` を付けないレーンが担う。ローカルの
+   `test-unity-graphics` と、**2026-09-11 に足した CI の `Graphics` レーン**の
+   2 つである（**当初ここには「CI のレーンはどちらも `-nographics` で走る」と
+   書いてあったが、それは誤りだった** —— 下の節を参照）。上下反転だけを行う
    `FillFlipped` は GPU に依存しないので、こちらは通常の EditMode / Player
    レーンで（合成した配列を使い）検証できる。
 2. **`AsyncGPUReadback` は IL2CPP の Player で 1 度も走っていない。**
@@ -195,7 +231,10 @@ CI で集められない。**0 が出たのは測定が壊れていたからで�
   測った 1 µs は同じ Player 内の他テストが先に P/Invoke を呼んだ後の値である
   可能性が高く、真の初回ロード時間ではない
 - **IL2CPP Player での `RenderTexture` の経路。** `RenderTextureConverter.ToMat` /
-  `RequestMat` は Editor（Mono）の `test-unity-graphics` でしか実行されたことがない
+  `RequestMat` は Editor（Mono）でしか実行されたことがない —— ローカルの
+  `test-unity-graphics` と、CI の `Graphics` レーンの 2 つである。
+  **Player 側は原理的に届かない** —— game-ci が Standalone Player を
+  `-nographics` で起動しており、その指定は action の中にある
 - **`dnn` の推論（M7c、2026-09-10）。** `./tools/dev.ps1 benchmark` の対象に `dnn` の
   項目は無く、`OCVU_BENCH:` 行を `ocvu_dnn_net_forward` から出したことも無い。
   **モデルの読み込み・blob 化・forward のいずれについても、このリポジトリは

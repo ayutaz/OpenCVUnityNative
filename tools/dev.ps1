@@ -676,8 +676,13 @@ function Test-UnityEditMode {
     `-nographics` を渡さないことと、`GraphicsTests`（`[Category("Graphics")]`）
     だけを対象にすることである。
 
-    **CI には配線しない**（controller の裁定）。game-ci の Linux コンテナに
-    グラフィックス装置が在るかは未確認で、投げてみるまで分からない。
+    **2026-09-11 に CI へ配線した。** それまでここには「CI には配線しない
+    （controller の裁定）。game-ci の Linux コンテナにグラフィックス装置が
+    在るかは未確認で、投げてみるまで分からない」と書いてあった ——
+    **投げてみたら在った。** `ci-unity.yml` の `Graphics` レーンが同じ
+    `-testCategory` で走る（game-ci の Editor は `-nographics` を付けずに
+    xvfb の下から起動する）。**このローカルのレーンは残す** —— CI と
+    起動の仕方が違うので、同じ判定 script を通る別経路の突き合わせになる。
 #>
 function Test-UnityGraphics {
     Build-Native
@@ -912,7 +917,12 @@ function Test-UnityTarball {
             UPM の `file:` 参照は**プロジェクトの `Packages` フォルダからの相対**
             として解決される。実例はこのリポジトリ自身にある:
             `tests/UnityProject/Packages/manifest.json` が
-            `file:../../../Packages/com.ayutaz.opencv-unity-native` で動いている。
+            `file:../../../Packages/com.ayutaz.opencv-unity-native` で動いている
+            —— **ただしそれはディレクトリ参照であって tarball ではない。**
+            tarball を相対 `file:` で参照するのはこのリポジトリで初めての形で、
+            **根拠はローカル実測（このマシン、全部入りで `59 passed` /
+            `resolved from file:../../upm/...tgz`）と CI の run 34613947274**
+            である。
 
             **ローカルでも同じ形にする。** 分けると、CI で通る形をローカルでは
             一度も試していないことになる。

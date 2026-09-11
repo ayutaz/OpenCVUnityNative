@@ -288,7 +288,8 @@ All local development after that goes through `tools/dev.ps1`:
 
 # The GPU-dependent RenderTexture paths (EditMode, graphics enabled) and the
 # benchmark lane that collects OCVU_BENCH: lines from the player and graphics
-# lanes. Neither runs in any workflow — see "What CI covers" below.
+# lanes. CI has run equivalents of both since 2026-09-11, but neither of those
+# checks is required — see "What CI covers" below.
 ./tools/dev.ps1 test-unity-graphics
 ./tools/dev.ps1 benchmark
 
@@ -330,26 +331,37 @@ different: CI builds a real WebGL player and **runs it in a headless Chromium**,
 same checks EditMode and the IL2CPP player run also run in a browser. There is no
 sanitizer lane for Web (a cross-compiled sanitizer cannot run on the host).
 
-Four lanes are absent from that table because they run in no workflow at all.
-`test-unity-tarball` installs the UPM tarball into a throwaway project; it is local
-only, and the "installs and passes" result above was measured by hand.
-`test-unity-web` builds the WebGL player and drives it in a browser; CI covers the
-same ground in its own `Web browser E2E` job, which builds the player itself and
-calls the same two scripts directly rather than going through `dev.ps1`.
-`test-unity-graphics` and `benchmark` were added later and have no CI counterpart
-at all.
+Four lanes are absent from that table because CI does not invoke those `dev.ps1`
+commands directly. **All four now have a CI equivalent** — that changed on
+2026-09-11, and before it two of them had none at all. `test-unity-tarball` is the
+closest coupling: CI calls `./tools/dev.ps1 test-unity-tarball -PrepareOnly` to build
+the throwaway project and then hands the launch to GameCI, so the tarball CI installs
+is built by the same code that builds the one you install locally. `test-unity-web`
+is the loosest: CI's `Web browser E2E` job builds the player itself and calls the same
+two scripts directly rather than going through `dev.ps1`. `test-unity-graphics` and
+`benchmark` sit in between — CI runs a `Graphics` lane and a `benchmarks` job that
+exercise and collect the same things.
 
-**That last pair matters more than the first two, because nothing else covers the
-same ground.** `RenderTextureConverter.ToMat` and `RequestMat` are public API in
-the package (from the next release — see *Status*), and **the code path that
-actually moves pixels has never run in CI.** Both CI Unity lanes run with `-nographics`, where `RenderTexture`
-creation succeeds but the pixels read back are not the ones you drew — so the
-GPU path cannot be exercised there, and `test-unity-graphics`, which does exercise
-it, is local-only and does not block a merge. Argument validation *is* covered
-(`ToMat(null)` is rejected in both CI lanes); it is the GPU half that is not.
+**None of those four CI checks is required, so a red one does not stop a merge.**
+That is the honest summary, and it is why the paragraph above distinguishes
+"CI runs it" from "CI blocks on it".
+
+**The GPU half of the `RenderTexture` API is now exercised, in the Editor only.**
+`RenderTextureConverter.ToMat` and `RequestMat` are public API in the package
+(from the next release — see *Status*). Until 2026-09-11 the code path that
+actually moves pixels had never run in CI, on the assumption that it could not:
+every CI Unity lane was believed to run with `-nographics`, where `RenderTexture`
+creation succeeds but the pixels read back are not the ones you drew. **That
+assumption was never measured.** GameCI's Linux editor container runs Unity under
+`xvfb` *without* `-nographics`, so a `Graphics` lane exercises the real path — it
+passes, including the `AsyncGPUReadback` route. **The IL2CPP player is a different
+story and is still not covered**: GameCI launches the standalone player with
+`-nographics` from inside the action, and that is not ours to change. Argument
+validation is covered in every lane (`ToMat(null)` is rejected); the player-side
+GPU path is not.
 `tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` pins the list of
-tests CI cannot see, so the list has to be edited deliberately rather than growing
-by accident.
+tests that live only in the non-required `Graphics` lane, so the list has to be
+edited deliberately rather than growing by accident.
 
 The Unity lanes run on Linux, and the Windows IL2CPP player is covered only by the
 local lane. **That is now a measured conclusion rather than an assumption.** An earlier
@@ -384,15 +396,23 @@ required: the contract, P/Invoke and sanitizer jobs across the three desktop pla
 Android, iOS and Web/Wasm cross-builds, the four lint jobs, both CodeQL analyses, both
 Unity lanes, the browser end-to-end test, and the seven release jobs that build and
 assemble the distributable for all six platforms.
-Nine are deliberately not required. Five build the per-platform plugins the Unity lanes
+Eighteen are deliberately not required — **nine of them added on 2026-09-11**,
+when a `Graphics` lane, two `dnn`-profile lanes, a tarball-install job and a
+benchmark-publishing job were added to `ci-unity` (each contributes its own check,
+and the four Unity ones also produce a GameCI results check). They were left
+un-required on purpose: this project promotes a lane only after watching it stay
+green, and these have three runs on one branch.
+
+Of the nine that predate them, five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which
-is what stops the merge. The three Web/Wasm checks — its cross-build, its browser
-end-to-end test and its release packaging — **were promoted on 2026-09-10**, after
-passing on all eleven pull requests merged since #63 and, for the two that also run on
-`main`, its last six runs. A red Web lane now stops a merge like any other. The other
-four are the aggregate `CodeQL` check, whose two per-language analyses are required
-individually; the two Unity result-publishing jobs, which are skipped on pull requests;
-and `Publish the release`, described at the end of this section.
+is what stops the merge. The other four are the aggregate `CodeQL` check, whose two
+per-language analyses are required individually; the two Unity result-publishing jobs,
+which are skipped on pull requests; and `Publish the release`, described at the end of
+this section. (The three Web/Wasm checks — its cross-build, its browser end-to-end test
+and its release packaging — **were promoted on 2026-09-10**, after passing on all eleven
+pull requests merged since #63 and, for the two that also run on `main`, its last six
+runs. A red Web lane now stops a merge like any other; they are counted among the
+twenty-four above.)
 **Promotion follows evidence, but somebody has to go and look at it.** A skipped required check
 counts as passing, so depending on one without that guard would let a broken build
 through. A lane is only made required once it has been reliably green — but the failure

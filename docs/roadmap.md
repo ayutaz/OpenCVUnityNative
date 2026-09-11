@@ -852,7 +852,7 @@ Asset Store での配布。
 | # | 完了条件 | 判定 |
 | --- | --- | --- |
 | 1 | 全 platform の binary を 1 つに収めた tarball を `release.yml` が作る | **満たす（留保あり）**。`tools/assemble-plugins.ps1` と `pack-upm-tarball.ps1 -AllPlatforms` はローカルで実測（3 binary が同梱されていることを、作った archive の中を数えて確認）。**`release.yml` 側の配線も 2026-08-30 に通した**（run 33289128197、`workflow_dispatch`。いまの 2 job 構成での実績）—— 組み立て 3 binary、tarball 61 entries、staged 17 assets、`SHA256SUMS` 17 行（大きさは条件 4 の行にある）。Release は作られていない（publish job は tag に限る）|
-| 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 16 passed`（2026-08-30、このマシン）。**このレーンはどの workflow にも入っていない**（ローカル専用。M3 から変わっていない） |
+| 2 | その tarball を使い捨ての Unity プロジェクトに導入して EditMode が通る | **満たす**。`dev.ps1 test-unity-tarball -PluginSource` に v0.1.1 の macOS / Linux を重ねて全部入りを作り、`==> UPM tarball install: 16 passed`（2026-08-30、このマシン）。**当時このレーンはどの workflow にも入っていなかった**（ローカル専用。M3 から変わっていなかった）。**2026-09-11 に `ci-unity.yml` の `tarball` job として載せた**（下の「GPU 経路を CI に載せる」） |
 | 3 | 全部入りの中で Unity が自分の platform の binary だけを読み込むことを実測する | **満たす**（2026-08-30。M3.5 時点では「満たすが未実証」だった —— 下の「条件 3 を閉じる」）。**CI が 3 platform を同居させた状態で `PluginGatingTests` を走らせ、`==> [EditMode] output says: native plugins present: 3 [` と gating 4 件の個別 Passed を出した**（PR #37、`c070923`、run 33290375806）。`PluginGatingTests`（EditMode 6 件）は書いたが、**自動で走る唯一の場所（`ci-unity.yml`）には 1 platform 分の binary しか無く、6 件が要素 1 個の集合を検査して緑になっていた**。`ci-unity` が他 2 platform を自分でビルドして重ねる形にし、gating が走ったことまで結果 XML で確かめるようにした（下記）。**この判定はその CI が緑になった時点で更新する** —— 「ファイルが存在する」は「CI で実行された」ではない |
 | 4 | OpenUPM へ登録できる形にする | **(a)(b) は満たす、(c) は未了**。(a) asset 名から版番号を落とした（`com.ayutaz.opencv-unity-native.tgz`）。(b) `pack-upm-tarball.ps1 -MaxBytes`（既定 512 MB）が上限を見る —— 全部入りの実測は 9.6 MB（9,608,334 バイト）。(c) **登録申請を提出し、受理された**（openupm/openupm PR #6843、2026-08-30。`Data validation` が通り自動マージ）。**OpenUPM 側の受理はこの条件に含めていなかった**が、結果として通った —— `https://package.openupm.com/com.ayutaz.opencv-unity-native` が `0.2.0` を配信し、落とした tarball に 3 platform の binary が入っていることを実測した |
 | 5 | `imgcodecs` を C ABI に出す（メモリ上の byte 列） | **満たす**。`ocvu_imencode` / `ocvu_imdecode`（公開 ABI 18 → 20 本、allowlist は 9 → 11 本）。L1 8 ケース / L3 8 ケース、C# は `CvCodecs`。**着手して初めて `imgcodecs` がリンクされていなかったことが分かった**（下記） |
@@ -1157,8 +1157,11 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    ない** —— 確かめられるのは「同じ配線が作った同じ中身の tarball が導入できる」
    ところまでである。**そこは正直に書くこと。**
 
-   **このレーンはどの workflow からも走らない**ので、ここで人がやらなければ
-   誰もやらない。**platform が増えた版では必ず回すこと** —— 新しい形の binary と
+   **2026-09-11 から、このレーンは CI にも在る**（`ci-unity.yml` の `tarball`
+   job。下の「GPU 経路を CI に載せる」）。**それでもここで人が回す理由は 2 つ** ——
+   CI が固めるのは PR 時点の binary であって**これから配る asset ではない**こと、
+   そして `tarball` job は**必須チェックではない**ので赤くても止まらないこと。
+   **platform が増えた版では必ず回すこと** —— 新しい形の binary と
    `.meta` が初めて全部入りに入るのは、その版だからである。
 
    **予行は済んでいる**（完了条件を見よ。空撃ちの成果物で 2026-09-03 に通した）。
@@ -1528,9 +1531,10 @@ M2 の条件 7 / M3.5 の条件 3 と同じ基準で「満たすが未実証」�
 **モバイルの binary が全部入りに入り `dev.ps1 test-unity-tarball` が通ること**
 （roadmap の最後の条件）は **満たす**。5 platform 分を束ねた tarball を
 使い捨ての Unity プロジェクトに導入して `==> UPM tarball install: 25 passed`
-（2026-08-31、このマシン）。**ただしこのレーンはどの workflow からも走らない** ——
-game-ci の action の外で Unity を起動する必要があり、CI に載せるのは別作業である。
-`milestone-complete` の「CI では原理的に閉じない条件」と同じ扱いで、**人が回す**。
+（2026-08-31、このマシン）。**当時このレーンはどの workflow からも走らなかった** ——
+game-ci の action の外で Unity を起動する必要があり、「CI に載せるのは別作業である」と
+書いて置いていた。**その別作業は 2026-09-11 に済んだ**（下の
+「GPU 経路を CI に載せる」）。
 実際、M4 でモバイルを足した時点からこのレーンは壊れており（期待する binary の数が
 `3` と直書きされ、iOS の `.a` を binary と認めなかった）、**無関係な作業の途中で
 1 度手で回すまで誰も知らなかった。**
@@ -2302,7 +2306,7 @@ CI 自身での確認は `.superpowers/sdd/2026-09-05-m7c-dnn-profile/task-6-rep
 
 **穴を隠さず書く。**
 
-- **M7a は roadmap の差別化の穴 #9（「低コピー連携」を測っていない）を「部分的に解消」にした。** 「解消済み」としなかった理由は、上の 2 経路のうち `RenderTexture` / `AsyncGPUReadback` が実機で動く実行形態（IL2CPP Player）で 1 度も検証されておらず、`test-unity-graphics` が CI に配線されていないため——**満たしたことと実証されたことは同じではない**（`milestone-complete` skill）。
+- **M7a は roadmap の差別化の穴 #9（「低コピー連携」を測っていない）を「部分的に解消」にした。** 「解消済み」としなかった理由は、上の 2 経路のうち `RenderTexture` / `AsyncGPUReadback` が実機で動く実行形態（IL2CPP Player）で 1 度も検証されておらず、`test-unity-graphics` が当時 CI に配線されていなかったため——（**後者は 2026-09-11 に解消した**。下の「GPU 経路を CI に載せる」）**満たしたことと実証されたことは同じではない**（`milestone-complete` skill）。
 - **`test-unity-player` はこのマシンで、Player の後始末段階（`Stop-UnityTestPlayers` 内の `Get-CimInstance` 呼び出し）がハングする既知の欠陥を持つ。** テスト自体は完走し結果 XML も書かれるが、レーン全体が無音で固まる（`CLAUDE.md` が書く「Unity のレーンではクラッシュもハングも赤いテストにならない」という形そのもの）。M7a の変更が原因ではない（`git diff` でこの箇所に差分は無い）ので、この作業では直していない——本番の測定は、ハングしたプロセスを終了させたうえで `tools/assert-unity-results.ps1` を結果 XML に直接掛けて確認した（35 passed / exit 0）。
 - **`BenchmarkRunner` の `Report` ヘルパーが `BenchmarkRunner.cs` と `GraphicsBenchmarkRunner.cs` に複製されている。** このリポジトリは「本体はここにしか無い」を繰り返し記録しており、片方だけ直る壊れ方をする。M7a では直していない。
 - **この計画（M7a）が触れているのは条件 2・3 だけである。** dnn を opt-in profile として足す前提（C ABI / C# の module 分離、条件 4）にも、CUDA / cuDNN の再配布確認（条件 5）にも、条件 1（profile ごとの native artifact 等）にも触れていない。**それぞれの現在の状態は、この節ではなく担当する計画自身の判定にある**（条件 4 は `### M7b の判定`、条件 5 は `### CUDA / cuDNN 同梱の判定`、条件 1 は `### M7c の判定`）。
@@ -2378,7 +2382,7 @@ M0 から M7 までで、M8 は無い。**帰結を先に書く: ここで「次
 | # | 完了条件 | 判定の本文 | 満たした | 実証した |
 | --- | --- | --- | --- | --- |
 | 1 | profile ごとの native artifact、manifest、third-party notices | `### M7c の判定`（2026-09-10） | はい | **いいえ** —— `dnn` を実機で動かしたことは 1 度も無く、推論の速さも測っていない |
-| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | `### M7a の判定`（2026-09-06） | はい | **部分的** —— `ToMat` / `RequestMat` の画素を運ぶ経路は Editor の `test-unity-graphics` でしか走っておらず、そのレーンは CI に配線されていない。native texture pointer は評価のみで実装していない |
+| 2 | `RenderTexture` / native texture pointer / `AsyncGPUReadback` を使う低コピー経路の評価 | `### M7a の判定`（2026-09-06） | はい | **部分的** —— `ToMat` / `RequestMat` の画素を運ぶ経路は Editor でしか走らない。**2026-09-11 に CI へ配線した**ので「レーンが CI に無い」という留保は失効したが（下の「GPU 経路を CI に載せる」）、**Player（IL2CPP）側は依然として走らない** —— game-ci が Player を `-nographics` で起動する。native texture pointer は評価のみで実装していない |
 | 3 | package size、startup time、frame time、allocation の benchmark を公開 | `### M7a の判定`（2026-09-06） | はい | **半分** —— package size と allocation は機械が assert し CI が守る。frame time と startup time は公開するが assert しない（設計 D1）。startup time は「native ライブラリの真の初回ロード」を捉えていない |
 | 4 | `dnn` を足す前に、C ABI と C# の module 分離が済んでいること | `### M7b の判定`（2026-09-06） | はい | はい —— ただし当時証明したのは「機構が働くこと」で、`dnn` で働くことは条件 1 の側（M7c）が示した |
 | 5 | CUDA / cuDNN を同梱するなら、再配布条件の確認が済んでいること。確認できないなら**同梱しない**と決めて記録する | `### CUDA / cuDNN 同梱の判定`（2026-09-06） | はい | —— **ライセンス条項は読んでいない。** 条件が用意した 2 経路のうち「確認できないので同梱しないと決める」を選んだ形である |
@@ -2480,11 +2484,16 @@ Mesa の実装が依存で入るかどうかは解決次第である。
 `GraphicsTests.AGraphicsDeviceIsPresent` が通ったので **graphics device は
 実在し**、`SyncReadbackProducesTheExpectedPixels` と `VerticalFlipIsApplied` が
 通ったので **画素が実際に読める**。`AsyncMatchesSync` も通ったので
-**`AsyncGPUReadback` も動く**。`GraphicsBenchmarkRunner` は
-`OCVU_BENCH: rendertexture_sync=793` / `rendertexture_async_request=1308` を
-出した。
+**`AsyncGPUReadback` も動く**。`GraphicsBenchmarkRunner` も `OCVU_BENCH:` を
+出した（**数値はここに写さない。正本は [性能](./performance.md) である**）。
 
-**この作業で CI に載ったものは 5 つある。**
+**残り 2 つの実測は別の run である。** `tarball` job は **run 34613947274**
+（`resolved from file:../../upm/com.ayutaz.opencv-unity-native.tgz` まで出て
+いる）、`benchmarks` job は **run 34615630480** で初めて走った ——
+34612557397 の時点ではどちらの job もまだ存在しない。**1 本の run で全部を
+主張しない。**
+
+**この作業で CI に載ったものは、下の表のとおりである。**
 
 | 足したもの | それまでの状態 |
 | --- | --- |
@@ -2498,6 +2507,26 @@ Mesa の実装が依存で入るかどうかは解決次第である。
 「graphics レーンを CI に配線できたら、この一覧は空にでき、そのとき検査ごと
 消してよい」と書いていた。配線したので、消した。
 
+**必須チェックにはしない（この判断も記録しておく）。**
+
+足した 5 本（`Unity Graphics (Linux)` / `Unity DnnEditMode (Linux)` /
+`Unity DnnStandalone (Linux)` / `UPM tarball install (Linux)` /
+`Publish the benchmarks`）と、game-ci が `checkName` から作る 4 本は、
+**どれも必須チェックにしない。** 理由はこのリポジトリの手順どおりで、
+**安定して緑になったのを見てから昇格する** —— Web の 3 本は #63 から
+#74 まで 11 本の PR で緑を見てから昇格した。いまの実績は 1 ブランチで
+3 run である。
+
+**帰結を隠さない: いまは赤くても merge を止めない。** `tarball` が赤くなっても
+M3 で見つかった「導入できない tarball」がもう一度入りうるし、`DnnStandalone` で
+stripping が dnn の宣言を消しても止まらない。**「CI が見ている」と
+「CI が止める」は別である**（`CLAUDE.md` の同名の節）。
+
+**昇格の条件**: main と PR で連続して緑になった実績を見てから、
+`gh api ... /protection/required_status_checks` に足す。そのときは
+`CLAUDE.md` の必須／非必須の行と、`README.md` / `README.ja.md` の
+該当段落（このリポジトリが唯一認めている二重記述）も同じ commit で直すこと。
+
 **閉じなかったものも書く。**
 
 - **Player（IL2CPP）側の GPU 経路は閉じていない。** game-ci の
@@ -2506,7 +2535,8 @@ Mesa の実装が依存で入るかどうかは解決次第である。
   **`-nographics` は action の中に書かれていてこちらからは外せない。**
   したがって `AsyncGPUReadback` が IL2CPP で動くかは、いまの構成では
   確かめる術が無い（Editor では動くことが分かった、が上限である）
-- **実機は変わらず 1 度も動かしていない。** Android / iOS / dnn のいずれも
+- **実機は変わらず 1 度も動かしていない。** Android / iOS / dnn のいずれについても、
+  実機で動かした実績は無いままである
 
 **この 1 件から取れる一般的な教訓は、`prove-a-check-works` skill に
 「『原理的に無理』と書いた前提を、誰も測っていないことがある」として
