@@ -709,12 +709,19 @@ jobs:
     name: Publish the benchmarks
     runs-on: ubuntu-24.04
     needs: unity
-    # **`if: !cancelled()` は付けない。** 他 3 job（`unity` / `tarball` /
-    # `web-e2e`）が付けているのは、**必須チェックが skip で通ってしまう**のを
-    # 防ぐためである。この job は必須チェックではなく、しかも `unity` が
-    # 落ちれば集める XML そのものが無い —— 走らせても「artifact が無い」で
-    # 落ちるだけで、情報は増えない。**必須へ昇格するなら、ここも同時に
-    # 決めること**（roadmap の「GPU 経路を CI に載せる」に昇格の条件がある）。
+    # **必須チェックへ昇格したので、`if: !cancelled()` を付けた。**
+    #
+    # 素の `needs:` だと、`unity` が落ちた瞬間にこの job は **skip** になる。
+    # **GitHub は skip を required check の合格として通す**ので、必須に
+    # したまま素の `needs:` を残すと、**依存が落ちているのに緑と同じ意味を
+    # 持つ**（`unity` job の長いコメントが同じことを書いている）。
+    #
+    # `!cancelled()` なら依存が落ちても走り、集める XML が無いので
+    # 「artifact が無い」で**赤くなる** —— skip ではなく赤である。
+    #
+    # **`always()` にしない。** この workflow は `cancel-in-progress: true` を
+    # 宣言しており、`always()` だと追い越された古い run が最後まで走る。
+    if: ${{ !cancelled() }}
     timeout-minutes: 15
 
     steps:

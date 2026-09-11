@@ -393,29 +393,26 @@ eight of them green. (An earlier version of this paragraph said it had never run
 a schedule. That was wrong for over a week, and nothing goes red when a statement
 like that stops being true.)
 
-**Almost every lane that runs on a pull request blocks a merge.** Twenty-four checks are
+**Almost every lane that runs on a pull request blocks a merge.** Twenty-nine checks are
 required: the contract, P/Invoke and sanitizer jobs across the three desktop platforms, the
 Android, iOS and Web/Wasm cross-builds, the four lint jobs, both CodeQL analyses, both
-Unity lanes, the browser end-to-end test, and the seven release jobs that build and
-assemble the distributable for all six platforms.
-Eighteen are deliberately not required — **nine of them added on 2026-09-11**,
-when a `Graphics` lane, two `dnn`-profile lanes, a tarball-install job and a
-benchmark-publishing job were added to `ci-unity` (five jobs, plus the four GameCI
-results checks the Unity ones produce). They were left
-un-required on purpose: this project promotes a lane only after watching it stay
-green, and these have **at most three runs, all on one branch** — three for the
-`Graphics` and `dnn` lanes, two for the tarball job, one for the benchmark job.
-(Count these *after* the run finishes: GameCI creates its results checks late in
-each job, so counting mid-run undercounts. These numbers come from `gh pr checks`
-on a completed PR, matched against the protection settings by name.)
+Unity lanes, the browser end-to-end test, the seven release jobs that build and
+assemble the distributable for all six platforms, and — **since 2026-09-11** — the
+five `ci-unity` jobs added that day: the `Graphics` lane, the two `dnn`-profile
+lanes, the tarball-install job and the benchmark-publishing job.
+Thirteen are deliberately not required. Six of them are the GameCI results checks
+(`EditMode results` and its five siblings): they report `neutral` on pull requests,
+and **GitHub counts neutral as passing**, so requiring them would add no stopping
+power. (Count these *after* the run finishes: GameCI creates them late in each job,
+so counting mid-run undercounts. These numbers come from `gh pr checks` on a
+completed PR, matched against the protection settings by name.)
 
-Of the other nine, five build the per-platform plugins the Unity lanes
+Of the other seven, five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which
 is what stops the merge. The other four are the aggregate `CodeQL` check, whose two
 per-language analyses are required individually; the two Unity result-publishing jobs,
 which are skipped on pull requests; and `Publish the release`, described at the end of
-this section; and the two Unity results checks that predate this change.
-(The three Web/Wasm checks — its cross-build, its browser end-to-end test
+this section. (The three Web/Wasm checks — its cross-build, its browser end-to-end test
 and its release packaging — **were promoted on 2026-09-10**, after passing on all eleven
 pull requests merged since #63 and, for the two that also run on `main`, its last six
 runs. A red Web lane now stops a merge like any other; they are counted among the

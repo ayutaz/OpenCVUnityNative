@@ -2519,33 +2519,47 @@ docstring をそう書き換えたうえで、検査は戻した。
 配線されたことは本当である。**「CI が見ている」と「CI が止める」を
 取り違えると、こういう形で守りが 1 段落ちる。**
 
-**必須チェックにはしない（この判断も記録しておく）。**
+**必須チェックへ昇格した（2026-09-11、所有者の判断）。**
 
 足した 5 本（`Unity Graphics (Linux)` / `Unity DnnEditMode (Linux)` /
 `Unity DnnStandalone (Linux)` / `UPM tarball install (Linux)` /
-`Publish the benchmarks`）と、game-ci が `checkName` から作る check run 4 本は、
-**どれも必須チェックにしない。**
+`Publish the benchmarks`）を必須チェックにした。必須は **24 → 29 本**、
+必須でないものは **18 → 13 本**になる（残るのは `Plugin` 5 本・
+`Publish the release`・集約 `CodeQL`・game-ci の結果 check 6 本）。
 
-**本数の測り方で 1 度間違えた。** PR #76 で `gh pr checks` を叩いて 36 件を得て
-「非必須 12 本」と書いたが、**走っている途中だった** —— game-ci の `* results` は
-各 job の終盤に作られるので、完了を待つと 42 件になり、非必須は 18 本だった。
-**集合演算で突き合わせたので確からしく見えたが、入力のほうが未完成だった。**
-数えるなら、**完了を待ってから**数えること。 理由はこのリポジトリの手順どおりで、
-**安定して緑になったのを見てから昇格する** —— Web の 3 本は #63 から
-#74 まで 11 本の PR で緑を見てから昇格した。**いまの実績は 1 ブランチ上で、
-多くても 3 run である** —— `Graphics` と dnn の 2 レーンが 3 run、
-`tarball` が 2 run、`benchmarks` は **1 run** しかない
-（**「3 run」と一括りにしない。1 本の run で全部を主張しないのと同じ理由である**）。
+**これはこのリポジトリの手順からの逸脱である。それを記録しておく。**
+これまでの昇格はすべて「安定して緑になったのを見てから」で、Web の 3 本は
+#63 から #74 まで 11 本の PR で緑を見てから昇格した。**今回の実績は
+1 ブランチ上で多くても 3 run である**（`Graphics` と dnn の 2 レーンが
+3 run、`tarball` が 2 run、`benchmarks` は 1 run）。**所有者がその差を
+承知のうえで、いま昇格させると決めた。** 見込める帰結は 2 つ:
 
-**帰結を隠さない: いまは赤くても merge を止めない。** `tarball` が赤くなっても
-M3 で見つかった「導入できない tarball」がもう一度入りうるし、`DnnStandalone` で
-stripping が dnn の宣言を消しても止まらない。**「CI が見ている」と
-「CI が止める」は別である**（`CLAUDE.md` の同名の節）。
+- **良い側**: 足したレーンが赤ければ merge が止まる。**これが昇格の目的で
+  ある** —— `tarball` が赤ければ「導入できない tarball」は入らないし、
+  `DnnStandalone` が赤ければ stripping が dnn の宣言を消した状態は入らない
+- **悪い側**: **これらのレーンがフレークなら、main が固まる。**
+  実績が浅いぶん、そのときの原因切り分けは「新しいレーンが不安定なのか、
+  本当の欠陥なのか」から始まる。そうなったら、**必須から外すのは
+  `gh api ... /protection/required_status_checks` の 1 回の PATCH で戻せる**
 
-**昇格の条件**: main と PR で連続して緑になった実績を見てから、
-`gh api ... /protection/required_status_checks` に足す。そのときは
-`CLAUDE.md` の必須／非必須の行と、`README.md` / `README.ja.md` の
-該当段落（このリポジトリが唯一認めている二重記述）も同じ commit で直すこと。
+**game-ci の結果 check（`* results`）は昇格させない。** PR では `neutral` に
+なり、**GitHub は neutral を合格として通す**ので、必須にしても止める力は
+増えない（`EditMode results` / `Standalone results` を必須にしていない
+のと同じ理由である）。
+
+**`benchmarks` job に `if: ${{ !cancelled() }}` を足した。** 昇格と同じ
+commit で入れてある —— 素の `needs: unity` だと、依存が落ちた瞬間に
+この job は **skip** になり、**skip は required check を通す。**
+必須にしたまま素の `needs:` を残すと、「依存が落ちているのに緑と同じ
+意味を持つ」状態を自分で作ることになる。
+
+**昇格の順序に注意が要る。** 必須にした 5 本は**この変更が入った
+workflow でしか作られない**ので、**この PR が main に入る前に main から
+切った branch には現れず、その PR は永久に待たされる。**
+（`CLAUDE.md` が「PR で起動しない workflow は必須にできない —— 当たらない
+PR では check が現れず、必須にすると永久に merge できない」と書いている
+のと同じ形である。）今回は開いている PR が 1 本だけで、そこでは 5 本とも
+緑だったので踏んでいない。
 
 **閉じなかったものも書く。**
 
