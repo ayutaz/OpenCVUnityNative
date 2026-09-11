@@ -18,21 +18,22 @@ using UnityEditor.Compilation;
 /// （prove-a-check-works skill。M4 で .meta のキー名がまさにこれで、
 /// 自前パースは通り、Unity に問う検査だけが落とした）。
 ///
-/// **ただしこの一群が自動で見られるのは「切れている」方向だけである。**
-/// define が立っていない状態で assembly が現れないことは毎回確かめるが、
-/// **define を立てれば現れること（正の方向）は、ここでは確かめていない**
-/// —— それには define を変えて Unity をもう一度走らせる必要があり、
-/// 1 回の EditMode 実行では原理的に届かない。正の方向は人が手で確かめる:
+/// **両方向を見る。1 回の実行では届かないので、レーンを 2 つに分けてある。**
+/// define が立っていない状態で assembly が現れないことは既定のレーンが、
+/// **define を立てれば現れること（正の方向）は `ci-unity.yml` の
+/// `DnnEditMode` レーン**が確かめる —— あちらは
 /// `ProjectSettings.asset` の `scriptingDefineSymbols` に
-/// `Standalone: OCVU_PROFILE_DNN` を置いて `dev.ps1 test-unity-editmode` を
-/// 走らせ、`tests/UnityProject/Library/ScriptAssemblies/` に
-/// `CvUnity.Interop.Dnn.dll` / `CvUnity.Tests.Shared.Dnn.dll` /
-/// `CvUnity.Dnn.dll` が現れることを見る（最後の実測は 2026-09-09、**本物の
-/// `bindings/spec/dnn.json` から生成した公開 API を含む** —— この 3 つ目は
-/// M7c Task 4 で足した。この実行では上の「切れている」方向の 3 件が
-/// 前提を欠いて赤くなる ―― defines が既に `OCVU_PROFILE_DNN` を含むため
-/// 意図どおりで、それ以外の全テストは緑のままだった。確認後は
-/// `scriptingDefineSymbols` を空 `{}` へ戻す）。
+/// `Standalone: OCVU_PROFILE_DNN` を書いてから Unity を走らせる。
+/// **1 回の EditMode 実行では原理的に届かない**というのは正しく、
+/// 届かせる方法は実行を分けることだけである。
+///
+/// **「どちらの分岐を通ったか」は出力で要求する。** 判定を
+/// 「無ければ無い／有れば有る」にすると、**どちらのレーンでもテスト名は
+/// 同じように Passed で並ぶ** —— 名前だけを要求する検査は、define を
+/// 立て損ねたレーンを緑のまま通す。だから
+/// <see cref="AssertTheAssemblyMatchesTheDefine"/> が通った側を
+/// `TestContext.WriteLine` に書き、CI は
+/// `assert-unity-results.ps1 -RequireOutput` でその行を要求する。
 ///
 /// **「切れている」だけを見る検査は、綴り間違いと区別が付かない。**
 /// `defineConstraints` の値を打ち間違えても、この 5 件は全部緑になる ——
@@ -69,29 +70,67 @@ public class ProfileGatingTests
     }
 
     /// <summary>
-    /// **define が無ければ dnn の assembly はコンパイルされない。**
+    /// **dnn の assembly が、define の有無と一致していること。**
     ///
     /// これが roadmap の決定 2（「dnn が入らないビルドで参照が壊れない」）の
-    /// 実体である —— 実行時に EntryPointNotFoundException が出ることではなく、
-    /// **参照するコードがビルドを通らないこと。**
+    /// 実体である —— 実行時に EntryPointNotFoundException が出ないことではなく、
+    /// **参照するコードがそもそもビルドに入らないこと。**
+    ///
+    /// **両方向を見る。** 以前この一群は「define が立っていない状態で
+    /// assembly が現れない」だけを見ており、同 class の docstring が
+    /// 「define を立てれば現れること（正の方向）は 1 回の EditMode 実行では
+    /// 原理的に届かない」と正しく断っていた。**届かせる方法は実行を 2 つに
+    /// 分けることだけで**、`ci-unity.yml` の `DnnEditMode` レーンがそれを担う
+    /// （ProjectSettings.asset に define を書いてからもう一度走らせる）。
+    /// 判定を「無ければ無い／有れば有る」に変えたことで、**同じテストが
+    /// どちらのレーンでも load-bearing になる。**
     /// </summary>
-    [Test]
-    public void TheDnnInteropAssemblyIsAbsentWithoutItsDefine()
+    private static bool DnnDefineIsOn
     {
-        var defines = UnityEditor.PlayerSettings.GetScriptingDefineSymbols(
-            UnityEditor.Build.NamedBuildTarget.Standalone);
+        get
+        {
+            var raw = UnityEditor.PlayerSettings.GetScriptingDefineSymbols(
+                UnityEditor.Build.NamedBuildTarget.Standalone);
+            // **部分一致で見ない。** OCVU_PROFILE_DNN_SOMETHING のような別の
+            // 記号を立てただけで「立っている」と読んでしまう。
+            return raw.Split(';').Select(d => d.Trim()).Contains(DnnDefine);
+        }
+    }
 
-        // このプロジェクトは既定で OCVU_PROFILE_DNN を立てていない。
-        // **前提が崩れたら、この検査は何も見ていないので落とす。**
-        Assert.That(defines, Does.Not.Contain(DnnDefine),
-            "このテストは OCVU_PROFILE_DNN が立っていないことを前提にしている");
-
+    /// <summary>
+    /// define の状態に応じて、その assembly が在る／無いことを要求する。
+    /// **どちらの分岐を通ったかを出力に残す** —— テストが通ったことと、
+    /// 意図した側を確かめたことは別である（`assert-unity-results.ps1` の
+    /// -RequireOutput が CI でこれを要求する）。
+    /// </summary>
+    private static void AssertTheAssemblyMatchesTheDefine(string assembly, string what)
+    {
         var names = CompilationPipeline.GetAssemblies(AssembliesType.Editor)
             .Select(a => a.name).ToList();
-        Assert.That(names, Does.Not.Contain(DnnAssembly),
-            "define が無いのに dnn の assembly がコンパイルされている。" +
-            "defineConstraints が効いていない");
+        // **0 件を「違反なし」と読まない。** 走査が壊れていれば
+        // Does.Not.Contain は常に真になる。
+        Assert.IsNotEmpty(names, "assembly が 1 つも拾えていない。走査が壊れている");
+
+        if (DnnDefineIsOn)
+        {
+            Assert.Contains(assembly, names,
+                $"OCVU_PROFILE_DNN を立てたのに {what} がコンパイルされていない。" +
+                "defineConstraints の綴りか、profile の配線が壊れている");
+            TestContext.WriteLine(
+                $"OCVU_PROFILE_DNN is defined and the dnn assemblies are compiled [{assembly}]");
+        }
+        else
+        {
+            Assert.That(names, Does.Not.Contain(assembly),
+                $"define が無いのに {what} がコンパイルされている。defineConstraints が効いていない");
+            TestContext.WriteLine(
+                $"OCVU_PROFILE_DNN is not defined and {assembly} is absent");
+        }
     }
+
+    [Test]
+    public void TheDnnInteropAssemblyMatchesTheDefine()
+        => AssertTheAssemblyMatchesTheDefine(DnnAssembly, "dnn の Interop assembly");
 
     /// <summary>
     /// **asmdef のファイル自体は在ること。**
@@ -116,46 +155,19 @@ public class ProfileGatingTests
     /// D8 が新設した 2 つ目の define 制約付き assembly を見ていない。
     /// </summary>
     [Test]
-    public void TheDnnSharedTestAssemblyIsAbsentWithoutItsDefine()
-    {
-        var defines = UnityEditor.PlayerSettings.GetScriptingDefineSymbols(
-            UnityEditor.Build.NamedBuildTarget.Standalone);
-
-        // このプロジェクトは既定で OCVU_PROFILE_DNN を立てていない。
-        // **前提が崩れたら、この検査は何も見ていないので落とす。**
-        Assert.That(defines, Does.Not.Contain(DnnDefine),
-            "このテストは OCVU_PROFILE_DNN が立っていないことを前提にしている");
-
-        var names = CompilationPipeline.GetAssemblies(AssembliesType.Editor)
-            .Select(a => a.name).ToList();
-        Assert.That(names, Does.Not.Contain(DnnSharedTestAssembly),
-            "define が無いのに CvUnity.Tests.Shared.Dnn がコンパイルされている。" +
-            "defineConstraints が効いていない");
-    }
+    public void TheDnnSharedTestAssemblyMatchesTheDefine()
+        => AssertTheAssemblyMatchesTheDefine(DnnSharedTestAssembly, "CvUnity.Tests.Shared.Dnn");
 
     /// <summary>
-    /// **dnn の公開 API 層も、define が無ければコンパイルされない。**
+    /// **dnn の公開 API 層も、同じ define と一致していること。**
     ///
     /// Interop.Dnn だけを切っても足りない —— それを参照する
     /// CvUnity.Dnn が残ると、参照先を失って**利用者のプロジェクトが
     /// コンパイルエラーになる。**
     /// </summary>
     [Test]
-    public void TheDnnPublicApiAssemblyIsAlsoAbsentWithoutItsDefine()
-    {
-        var defines = UnityEditor.PlayerSettings.GetScriptingDefineSymbols(
-            UnityEditor.Build.NamedBuildTarget.Standalone);
-
-        // このプロジェクトは既定で OCVU_PROFILE_DNN を立てていない。
-        // **前提が崩れたら、この検査は何も見ていないので落とす。**
-        Assert.That(defines, Does.Not.Contain(DnnDefine),
-            "このテストは OCVU_PROFILE_DNN が立っていないことを前提にしている");
-
-        var names = CompilationPipeline.GetAssemblies(AssembliesType.Editor)
-            .Select(a => a.name).ToList();
-        Assert.That(names, Does.Not.Contain(DnnPublicApiAssembly),
-            "define が無いのに dnn の公開 API assembly がコンパイルされている");
-    }
+    public void TheDnnPublicApiAssemblyMatchesTheDefine()
+        => AssertTheAssemblyMatchesTheDefine(DnnPublicApiAssembly, "dnn の公開 API assembly");
 
     /// <summary>
     /// **綴りを見る。**

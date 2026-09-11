@@ -289,6 +289,10 @@ jobs:
             # 対象にならず、そのまま 1 トークンとして渡る——引用符で囲むと逆に
             # 引用符ごと 1 トークンになり `!Graphics` に一致しなくなる）。
             customParameters: '-testCategory !Graphics'
+            # **既定 profile。** 空文字を渡すのは requireTest / customParameters と
+            # 同じ理由で、「渡し忘れ」と「意図的に何も立てない」を区別できる形に
+            # しておくためである。下の Dnn レーンだけがここに値を持つ。
+            defineSymbols: ''
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
@@ -308,6 +312,84 @@ jobs:
             # 空文字を渡すのは requireTest / requireOutput と同じ理由（渡し忘れと
             # 意図的な空を区別できる形にする）。
             customParameters: ''
+            defineSymbols: ''
+
+          # **GPU に依る経路を CI で実際に走らせる（`[Category("Graphics")]`）。**
+          #
+          # **これを足せたのは、game-ci の Editor が -nographics で走っていない
+          # と実測で分かったからである。** コンテナの `unity-editor` は
+          #
+          #     xvfb-run -ae /dev/stdout "$UNITY_PATH/Editor/Unity" -batchmode "$@"
+          #
+          # で、**仮想 X の下で、-nographics 無しで**起動する（game-ci/docker の
+          # images/ubuntu/editor/Dockerfile）。したがって
+          # `SystemInfo.graphicsDeviceType` が Null にならない可能性があり、
+          # ローカル専用だった `dev.ps1 test-unity-graphics` と同じものを
+          # CI で走らせられる見込みが立った。
+          #
+          # **見込みであって、Dockerfile からは決まらない。** `unityci/base` は
+          # `--no-install-recommends` で `libglu1` しか入れておらず、Mesa の
+          # 実装（`libglx-mesa0` / `libgl1-mesa-dri`）が入るかは依存の解決次第
+          # である。**だから推測で書かず、このレーンそのものを実測に使った** ——
+          # 結論は docs/roadmap.md の「GPU 経路を CI に載せる」にある。
+          #
+          # **GPU が無ければ skip ではなく fail する。** `AGraphicsDeviceIsPresent`
+          # がそう書かれており（GraphicsChecks）、それが正しい —— 「GPU が無い
+          # から確かめられなかった」を緑にすると、このレーンは在るのに何も
+          # 見ていない状態になる。
+          - lane: Graphics
+            testMode: EditMode
+            # GPU に依るのは Editor 側の経路で、IL2CPP は要らない。
+            imageFlavour: base
+            # **名指しする。** category の綴りを間違えると 0 件になり、
+            # 「passed が 1 以上」は他のテストでは満たせない（このレーンは
+            # Graphics だけを走らせる）——それでも、どれが通ったかを要求する
+            # ほうが強い。GPU が要る 5 件と、このレーンでしか測れない
+            # benchmark を名指しする。
+            requireTest: 'GraphicsTests.AGraphicsDeviceIsPresent;GraphicsTests.SyncReadbackProducesTheExpectedPixels;GraphicsTests.VerticalFlipIsApplied;GraphicsTests.AsyncMatchesSync;GraphicsTests.TakingTheMatTwiceIsRejected;GraphicsBenchmarkRunner.MeasureRenderTexturePaths'
+            requireOutput: ''
+            # **`!Graphics` の補集合。** 2 つで完全に分かれる。
+            customParameters: '-testCategory Graphics'
+            defineSymbols: ''
+
+          # **非既定 profile（dnn）を Unity の中で実際にコンパイルする。**
+          #
+          # M7c が残した穴そのものである —— それまで
+          # **どの workflow も、どの dev.ps1 のレーンも `OCVU_PROFILE_DNN` を
+          # 立てていなかった**ので、`CvUnity.Interop.Dnn` / `CvUnity.Dnn` が
+          # Unity の中でコンパイルできることは人が手で 1 回確かめたきりだった。
+          #
+          # **define は下の step が ProjectSettings.asset に書き込む。**
+          # `ProfileGatingTests` が「立っていない」方向を、このレーンが
+          # 「立てれば現れる」方向を見る —— **1 回の実行では原理的に
+          # 届かない**と同 class の docstring が書いていたのは正しく、
+          # 届かせるには実行を 2 つに分けるしかない。
+          - lane: DnnEditMode
+            testMode: EditMode
+            imageFlavour: base
+            # **define を立てた側でしか通らないものを名指しする。**
+            # 立て損ねたら（書き込みが空振りしたら）このレーンは赤くなる。
+            requireTest: 'ProfileGatingTests.TheDnnInteropAssemblyMatchesTheDefine;ProfileGatingTests.TheDnnSharedTestAssemblyMatchesTheDefine;ProfileGatingTests.TheDnnPublicApiAssemblyMatchesTheDefine'
+            # **テスト自身が出した事実を要求する。** 名前だけだと、define が
+            # 無い側の分岐を通っても同じ名前が Passed で並ぶ。
+            requireOutput: 'OCVU_PROFILE_DNN is defined and the dnn assemblies are compiled'
+            customParameters: '-testCategory !Graphics'
+            defineSymbols: 'OCVU_PROFILE_DNN'
+
+          # **stripping 済みの実物の Player で、dnn の P/Invoke が生き残ること。**
+          #
+          # 既定 profile の `AbiSurfacePlayerTests` と同じ役割を dnn 側で果たす。
+          # **Player でしか確かめられない** —— IL2CPP の stripping が消せるのは
+          # 呼ばれない宣言なので、Editor(Mono) では成立しない。
+          - lane: DnnStandalone
+            testMode: Standalone
+            imageFlavour: linux-il2cpp
+            # 4 本の宣言を 1 回ずつ呼ぶ生成物の、手書きの唯一の入口。
+            requireTest: 'AbiSurfaceDnnPlayerTests.EveryDnnEntryPointIsReachable'
+            requireOutput: ''
+            # EditMode 専用の asmdef は Player に入らないので、除外する対象が無い。
+            customParameters: ''
+            defineSymbols: 'OCVU_PROFILE_DNN'
 
     steps:
       - name: Checkout
@@ -466,6 +548,47 @@ jobs:
           }
           Set-Content -LiteralPath 'tests/UnityProject/ocvu-expect-all-platforms' `
                       -Value '1' -NoNewline
+
+      # **このレーンだけ scripting define symbols を立てる。**
+      #
+      # `OCVU_PROFILE_DNN` を立てると `CvUnity.Interop.Dnn` / `CvUnity.Dnn` /
+      # `CvUnity.Tests.Shared.Dnn` がコンパイル対象に入る（asmdef の
+      # defineConstraints）。**Unity の compilation pipeline が見るのはここで、
+      # `csc.rsp` では届かない** —— あちらはコンパイラに渡る define であって、
+      # Unity が defineConstraints を評価するときの集合ではない。
+      #
+      # **書き換えが空振りしたら落とす。** 空振りすると define の無い側の
+      # 分岐を通って**同じテスト名が Passed で並ぶ**ので、出力からは
+      # 区別が付かない。入力（ここ）と出力（assert-unity-results.ps1 の
+      # -RequireOutput）の両方で見る —— 入力だけでは「書いたつもり」を、
+      # 出力だけでは「なぜ立たなかったか」を取り逃がす。
+      - name: Turn on the scripting define symbols for this lane
+        if: matrix.defineSymbols != ''
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectSettings.asset'
+          $text = Get-Content -LiteralPath $file -Raw
+
+          # 既定は空の map。ここが変わったら、黙って no-op にせず落とす。
+          $empty = "`n  scriptingDefineSymbols: {}`n"
+          if ($text -notmatch [regex]::Escape($empty)) {
+              Write-Error "scriptingDefineSymbols is not the expected empty map in $file"
+              exit 1
+          }
+
+          # キーは NamedBuildTarget の名前。同じファイルの scriptingBackend が
+          # 'Standalone' を使っているので、それに合わせる。
+          $filled = "`n  scriptingDefineSymbols:`n    Standalone: ${{ matrix.defineSymbols }}`n"
+          $text = $text.Replace($empty, $filled)
+          Set-Content -LiteralPath $file -Value $text -NoNewline
+
+          # 書けたことを読み直して確かめる。
+          $after = Get-Content -LiteralPath $file -Raw
+          if ($after -notmatch [regex]::Escape('Standalone: ${{ matrix.defineSymbols }}')) {
+              Write-Error 'failed to write the scripting define symbols'
+              exit 1
+          }
+          Write-Host '==> scripting define symbols: ${{ matrix.defineSymbols }}'
 
       # **pre-release を固定してある。** これだけが node20 を宣言する action
       # だった（GitHub は 2025-09 に node20 を非推奨にし、いまは node24 上で
