@@ -398,20 +398,23 @@ required: the contract, P/Invoke and sanitizer jobs across the three desktop pla
 Android, iOS and Web/Wasm cross-builds, the four lint jobs, both CodeQL analyses, both
 Unity lanes, the browser end-to-end test, and the seven release jobs that build and
 assemble the distributable for all six platforms.
-Eighteen are deliberately not required — **nine of them added on 2026-09-11**,
+Twelve are deliberately not required — **five of them added on 2026-09-11**,
 when a `Graphics` lane, two `dnn`-profile lanes, a tarball-install job and a
-benchmark-publishing job were added to `ci-unity` (each contributes its own check,
-and the four Unity ones also produce a GameCI results check). They were left
+benchmark-publishing job were added to `ci-unity`. They were left
 un-required on purpose: this project promotes a lane only after watching it stay
 green, and these have **at most three runs, all on one branch** — three for the
 `Graphics` and `dnn` lanes, two for the tarball job, one for the benchmark job.
+(Counting these needs care: GameCI also creates `EditMode results`-style check runs
+on the commit, which `gh pr checks` does not list. The numbers here come from
+`gh pr checks`, matched against the protection settings by name.)
 
-Of the nine that predate them, five build the per-platform plugins the Unity lanes
+Of the other seven, five build the per-platform plugins the Unity lanes
 consume: when one fails the Unity lanes run anyway and go red on the missing input, which
 is what stops the merge. The other four are the aggregate `CodeQL` check, whose two
 per-language analyses are required individually; the two Unity result-publishing jobs,
 which are skipped on pull requests; and `Publish the release`, described at the end of
-this section. (The three Web/Wasm checks — its cross-build, its browser end-to-end test
+this section — that is two, and with the five plugin jobs it makes seven.
+(The three Web/Wasm checks — its cross-build, its browser end-to-end test
 and its release packaging — **were promoted on 2026-09-10**, after passing on all eleven
 pull requests merged since #63 and, for the two that also run on `main`, its last six
 runs. A red Web lane now stops a merge like any other; they are counted among the

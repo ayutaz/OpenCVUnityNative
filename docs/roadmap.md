@@ -2523,8 +2523,11 @@ docstring をそう書き換えたうえで、検査は戻した。
 
 足した 5 本（`Unity Graphics (Linux)` / `Unity DnnEditMode (Linux)` /
 `Unity DnnStandalone (Linux)` / `UPM tarball install (Linux)` /
-`Publish the benchmarks`）と、game-ci が `checkName` から作る 4 本は、
-**どれも必須チェックにしない。** 理由はこのリポジトリの手順どおりで、
+`Publish the benchmarks`）は、**どれも必須チェックにしない。**
+（game-ci が `checkName` から作る `Graphics results` などの check run も
+commit 上には在るが、**`gh pr checks` はそれを列挙しない** ——
+PR #76 で実測: `gh pr checks` は 36 件、同じ SHA の check-runs API は 55 件。
+**数えるなら方法を書くこと。**） 理由はこのリポジトリの手順どおりで、
 **安定して緑になったのを見てから昇格する** —— Web の 3 本は #63 から
 #74 まで 11 本の PR で緑を見てから昇格した。**いまの実績は 1 ブランチ上で、
 多くても 3 run である** —— `Graphics` と dnn の 2 レーンが 3 run、
