@@ -1,6 +1,28 @@
 #!/usr/bin/env pwsh
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
+
+<#
+    **未処理の例外を「静かな合格」にしない。**
+
+    このファイルは $ErrorActionPreference = 'Continue' で走る（probe した
+    コマンドの非終了エラーで中断しないため）。その結果、**検査の途中で
+    終了エラーが出ると、残りの assertion が 1 つも走らないまま
+    `$failures` は 0 のままになり、末尾の判定を通って exit 0 になる。**
+
+    2026-09-11 に実測で踏んだ: Benchmarks.Tests.ps1 に無いプロパティを
+    読む assertion を書いたところ、PropertyNotFoundException が表示された
+    うえで `==> Benchmarks.Tests: OK` と出て exit 0 になった。**負の対照を
+    取ろうとして、対照そのものが素通りした。**
+
+    先例は tools/tests/PackageRelease.Tests.ps1 で、同じ形の trap を持つ。
+#>
+trap {
+    [Console]::Error.WriteLine("`n未処理の例外でテストが中断しました:")
+    [Console]::Error.WriteLine($_.ToString())
+    [Console]::Error.WriteLine($_.ScriptStackTrace)
+    exit 1
+}
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 $script:failures = @()

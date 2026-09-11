@@ -999,8 +999,26 @@ if ($markerName) {
     $platformCount = @([regex]::Matches($binBlock.Groups['body'].Value, "'[^']+'")).Count
     Assert-That ($platformCount -ge 3) "正本から platform 数を数えられた (got $platformCount)"
 
-    Assert-That (@($declaredOutputs | Where-Object { $_ -match "native plugins present: $platformCount \[" }).Count -eq 1) `
-        "ci-unity.yml requires the tests to report every platform ($platformCount; saw: $($declaredOutputs -join ', '))"
+    # **YAML の requireOutput: だけを見ない。**
+    #
+    # 2026-09-11 に tarball job が加わり、そちらは matrix を通さず
+    # `assert-unity-results.ps1 -RequireOutput '...'` に直接書く。**この行は
+    # `requireOutput:` にも `native plugins present` を書いた側にも数えられず、
+    # 古い platform 数が黙って残る場所になっていた**（レビュー指摘 M-1）。
+    #
+    # **この文字列が現れる行を 1 本残らず拾い、全部が正本の数であること**を見る。
+    # 「1 本が正しければよい」ではない —— 片方だけ古くなる形が、まさに
+    # このファイルが何度も記録している失敗である。
+    # ここで使えるのは $unityWorkflow（この節の頭で読んだ行の配列）である。
+    # $unityWorkflowText はもっと下で定義されるので、ここからは見えない。
+    $presentLines = @($unityWorkflow | Where-Object { $_ -match 'native plugins present:' })
+    Assert-That ($presentLines.Count -ge 1) `
+        'ci-unity.yml requires the all-platform report at least once (0 件なら以下は空振りする)'
+    foreach ($line in $presentLines) {
+        Assert-That ($line -match "native plugins present: $platformCount \[") `
+            ("ci-unity.yml requires the tests to report every platform " +
+             "($platformCount; saw: $($line.Trim()))")
+    }
 }
 
 
@@ -1102,57 +1120,94 @@ Assert-That ($literalNegatedCategoryMatches.Count -eq 0) `
 # ここで `saw 2` になった）。**リテラル文字列（`'...'`）だけを対象にする**
 # ことで、`${{ }}` の参照行を構造的に除外する。
 $unityWorkflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/ci-unity.yml') -Raw
-$ciLiteralLines = @(($unityWorkflowText -split "`r?`n") | Where-Object {
-    $_ -match "^\s*customParameters:\s*'(?<val>[^']*)'\s*`$"
-})
-# **合計を数えない。** 以前ここは「ちょうど 2 本」だったが、それは
-# レーンが 2 本しか無かったことの言い換えにすぎず、**どの 2 本かは
-# 何も保証していなかった。** レーンが増えるたびにこの数だけを書き換える
-# 運用は、prove-a-check-works skill が「数を見る検査は、誤った読みに
-# 満たされる」として記録している形そのものである。
+# **matrix の要素ごとに見る。合計を数えない。**
 #
-# 抽出が空振りしていないことだけを見て、判定は下の要素ごとの検査に任せる。
-Assert-That ($ciLiteralLines.Count -ge 1) `
-    "ci-unity.yml declares customParameters as a literal string at least once (0 件なら以下は空振りする)"
+# 最初の版はリテラル行の合計（否定形が 1 本以上 / 肯定形がちょうど 1 本）を
+# 見ていたが、**否定形が 3 本ある状態では 1 本が '' に落ちても残り 2 本で
+# 緑になる**とレビューが実測した。消えうる 1 本は tarball レーンの
+# `-testCategory !Graphics` で、**それはまさに M7a で実際に踏んだ回帰である。**
+#
+# 見るべきは「否定形が何本あるか」ではなく「**否定形を持つはずの要素が
+# 全部持っているか**」である。matrix の要素を切り出して、要素ごとに問う。
+$unityLines = $unityWorkflowText -split "`r?`n"
 
-# **否定形を使っている行は、1 本残らず正本と一致していること。**
-#
-# `-testCategory !Graphics` を渡すレーンは複数ある（EditMode と、tarball の
-# 導入検証）。**どれか 1 本が正本と一致していればよい、ではない** ——
-# 片方だけ綴りを変えれば、そのレーンの除外が黙って効かなくなる。
-$ciNegatedLines = @($ciLiteralLines | Where-Object { $_ -match '-testCategory\s+!' })
-Assert-That ($ciNegatedLines.Count -ge 1) `
-    "ci-unity.yml has at least one lane excluding a -testCategory (0 件なら以下は空振りする)"
-foreach ($line in $ciNegatedLines) {
-    $m = [regex]::Match($line, '-testCategory\s+(?<cat>\S+)')
-    Assert-That $m.Success "ci-unity.yml line carries a -testCategory value (saw: $($line.Trim()))"
-    if ($m.Success -and $null -ne $localCategory) {
-        $cat = $m.Groups['cat'].Value.Trim("'", '"')
-        Assert-That ($cat -eq $localCategory) `
-            ("ci-unity.yml's negated -testCategory ('$cat') matches tools/dev.ps1's " +
-             "`$script:UnityGraphicsExclusionCategory ('$localCategory') — saw: $($line.Trim())")
+# matrix entry は 10 スペース + '- lane:' で始まり、その属性は 12 スペース。
+# （このリポジトリの workflow 検査は YAML パーサを使わずインデント規約で
+# 切り出す。切れなかったときは空振りではなく落とす、も同じ。）
+$entries = @()
+$current = $null
+foreach ($line in $unityLines) {
+    if ($line -match '^          - lane:\s*(?<lane>\S+)\s*$') {
+        if ($null -ne $current) { $entries += $current }
+        $current = @{ Lane = $Matches['lane']; TestMode = $null; Params = $null; HasParams = $false }
+        continue
+    }
+    if ($null -eq $current) { continue }
+    # 12 スペースより浅い非空行が来たら matrix は終わり
+    if ($line -match '^\S' -or ($line.Trim() -and $line -notmatch '^            ')) {
+        $entries += $current
+        $current = $null
+        continue
+    }
+    if ($line -match "^            testMode:\s*(?<v>\S+)\s*$") { $current.TestMode = $Matches['v'] }
+    if ($line -match "^            customParameters:\s*'(?<v>[^']*)'\s*$") {
+        $current.Params = $Matches['v']
+        $current.HasParams = $true
     }
 }
+if ($null -ne $current) { $entries += $current }
 
-# **肯定形はちょうど 1 本で、否定形の補集合であること。**
-#
-# `Graphics` レーン（GPU に依る経路）と `!Graphics` レーンは補集合なので、
-# **実行時の和集合が常に完全になる。** ここが一致しなくなると、
-# どちらのレーンからも漏れるテストが生まれる —— しかも**どのレーンも
-# 赤くならない**（走らないだけなので）。だから綴りを突き合わせる。
-$ciPositiveLines = @($ciLiteralLines |
-    Where-Object { $_ -match '-testCategory\s+[^!\s]' })
-Assert-That ($ciPositiveLines.Count -eq 1) `
-    "ci-unity.yml runs the complement category in exactly one lane (saw $($ciPositiveLines.Count))"
-if ($ciPositiveLines.Count -eq 1 -and $null -ne $localCategory) {
-    $m = [regex]::Match($ciPositiveLines[0], '-testCategory\s+(?<cat>\S+)')
-    Assert-That $m.Success `
-        "ci-unity.yml's complement lane carries a -testCategory value (saw: $($ciPositiveLines[0].Trim()))"
-    if ($m.Success) {
-        $positive = $m.Groups['cat'].Value.Trim("'", '"')
-        Assert-That ($positive -eq $localCategory.TrimStart('!')) `
-            ("ci-unity.yml's Graphics lane ('$positive') is the complement of " +
-             "`$script:UnityGraphicsExclusionCategory ('$localCategory')")
+# **切り出せたことを先に確かめる。** 0 件なら以下は全部空振りする。
+Assert-That ($entries.Count -ge 2) `
+    "ci-unity.yml の unity job から matrix entry を切り出せる (saw $($entries.Count))"
+
+# **全 entry が customParameters をリテラルで宣言していること。**
+# 宣言そのものを消せば「渡し忘れ」と「意図的な空」が区別できなくなる。
+$missing = @($entries | Where-Object { -not $_.HasParams } | ForEach-Object { $_.Lane })
+Assert-That ($missing.Count -eq 0) `
+    "every ci-unity.yml lane declares customParameters as a literal (missing: $($missing -join ', '))"
+
+if ($null -ne $localCategory) {
+    $complement = $localCategory.TrimStart('!')
+
+    # **EditMode を走らせる entry は、1 つを除いて全部が否定形を持つ。**
+    # 例外の 1 つが補集合（Graphics）レーンで、**ちょうど 1 つであること**も見る。
+    $editEntries = @($entries | Where-Object { $_.TestMode -eq 'EditMode' })
+    Assert-That ($editEntries.Count -ge 2) `
+        "ci-unity.yml has both the excluding and the complement EditMode lanes (saw $($editEntries.Count))"
+
+    $positive = @($editEntries | Where-Object { $_.Params -eq "-testCategory $complement" })
+    Assert-That ($positive.Count -eq 1) `
+        ("ci-unity.yml runs the complement category ('-testCategory $complement') in exactly one " +
+         "EditMode lane (saw $($positive.Count): $(($editEntries | ForEach-Object { "$($_.Lane)='$($_.Params)'" }) -join ', '))")
+
+    foreach ($entry in $editEntries) {
+        if ($entry.Params -eq "-testCategory $complement") { continue }
+        Assert-That ($entry.Params -eq "-testCategory $localCategory") `
+            ("ci-unity.yml lane '$($entry.Lane)' runs EditMode and must exclude the complement " +
+             "('-testCategory $localCategory'; saw '$($entry.Params)')")
+    }
+
+    # **Standalone は渡すものが無いことを明示している。**
+    foreach ($entry in @($entries | Where-Object { $_.TestMode -eq 'Standalone' })) {
+        Assert-That ($entry.Params -eq '') `
+            ("ci-unity.yml lane '$($entry.Lane)' runs Standalone, where the EditMode-only asmdef " +
+             "is not compiled, so it must declare an empty customParameters (saw '$($entry.Params)')")
+    }
+
+    # **matrix の外にも EditMode を走らせる job が在る**（tarball）。
+    # そちらは `with:` にリテラルで書くので、matrix の走査には入らない。
+    # **名指しで要求する** —— ここが '' に落ちる形が、上で塞いだ穴の実体だった。
+    $tarballParams = @($unityLines | Where-Object {
+        $_ -match "^          customParameters:\s*'(?<v>[^']*)'\s*`$"
+    })
+    Assert-That ($tarballParams.Count -eq 1) `
+        "ci-unity.yml declares customParameters directly on exactly one job outside the matrix (saw $($tarballParams.Count))"
+    if ($tarballParams.Count -eq 1) {
+        $m = [regex]::Match($tarballParams[0], "customParameters:\s*'(?<v>[^']*)'")
+        Assert-That ($m.Groups['v'].Value -eq "-testCategory $localCategory") `
+            ("the tarball job runs EditMode and must exclude the complement " +
+             "('-testCategory $localCategory'; saw '$($m.Groups['v'].Value)')")
     }
 }
 

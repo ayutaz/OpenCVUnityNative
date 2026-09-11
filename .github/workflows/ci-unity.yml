@@ -262,7 +262,16 @@ jobs:
             # 重ねてから走るので、無条件に全部を要求してよい。**
             # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
             # 'present: 50' にも当たる。
-            requireOutput: 'native plugins present: 6 ['
+            # **2 つ要求する**（';' 区切り。assert-unity-results.ps1 が split する）。
+            #
+            # 2 つ目は I-1 のレビュー指摘で足した。`ProfileGatingTests` を
+            # 「define が無ければ無い」から「define の有無と一致する」に変えた
+            # ことで、**既定のレーンから「立っていないこと」への要求が消えた** ——
+            # 誰かが ProjectSettings.asset に OCVU_PROFILE_DNN を commit すると、
+            # このレーンは陽性の分岐を通って**緑のまま**になる。
+            # dnn を切った利用者のビルドが壊れないことを見るはずのレーンが、
+            # dnn を入れた状態を見ていることになる。
+            requireOutput: 'native plugins present: 6 [;OCVU_PROFILE_DNN is not defined'
             # **`tools/dev.ps1` の `Test-UnityEditMode` と同じ除外を CI にも渡す。**
             #
             # ローカルは `-batchmode -nographics -testCategory '!Graphics'` で
@@ -346,7 +355,11 @@ jobs:
             # Graphics だけを走らせる）——それでも、どれが通ったかを要求する
             # ほうが強い。GPU が要る 5 件と、このレーンでしか測れない
             # benchmark を名指しする。
-            requireTest: 'GraphicsTests.AGraphicsDeviceIsPresent;GraphicsTests.SyncReadbackProducesTheExpectedPixels;GraphicsTests.VerticalFlipIsApplied;GraphicsTests.AsyncMatchesSync;GraphicsTests.TakingTheMatTwiceIsRejected;GraphicsBenchmarkRunner.MeasureRenderTexturePaths'
+            # **`EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint` を落とさない。**
+            # 共有本体（GraphicsChecks）に足した検査が入口に配線されているかを
+            # 見る唯一のテストで、**これが assembly から外れても残り 6 件で
+            # 緑になる。** 名指しの中で最も消えたら困る 1 件である。
+            requireTest: 'GraphicsTests.AGraphicsDeviceIsPresent;GraphicsTests.SyncReadbackProducesTheExpectedPixels;GraphicsTests.VerticalFlipIsApplied;GraphicsTests.AsyncMatchesSync;GraphicsTests.TakingTheMatTwiceIsRejected;GraphicsTests.EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint;GraphicsBenchmarkRunner.MeasureRenderTexturePaths'
             requireOutput: ''
             # **`!Graphics` の補集合。** 2 つで完全に分かれる。
             customParameters: '-testCategory Graphics'
@@ -696,6 +709,12 @@ jobs:
     name: Publish the benchmarks
     runs-on: ubuntu-24.04
     needs: unity
+    # **`if: !cancelled()` は付けない。** 他 3 job（`unity` / `tarball` /
+    # `web-e2e`）が付けているのは、**必須チェックが skip で通ってしまう**のを
+    # 防ぐためである。この job は必須チェックではなく、しかも `unity` が
+    # 落ちれば集める XML そのものが無い —— 走らせても「artifact が無い」で
+    # 落ちるだけで、情報は増えない。**必須へ昇格するなら、ここも同時に
+    # 決めること**（roadmap の「GPU 経路を CI に載せる」に昇格の条件がある）。
     timeout-minutes: 15
 
     steps:
@@ -714,6 +733,19 @@ jobs:
           name: test-results-unity-Graphics
           path: bench-in/graphics
 
+      # **これは `dev.ps1` の `Invoke-Benchmark` の 2 つ目の写しである。**
+      #
+      # 同じブランチの `tarball` job は「作り方を CI に書き写すと別物になる」
+      # という理由で `-PrepareOnly` を作ったのに、こちらは写している
+      # （レビュー指摘 M-4）。**写したまま残す判断の理由**: あちらが寄せたのは
+      # **出来る物**（使い捨てプロジェクト）で、こちらが持つのは
+      # **どのレーンの XML を集めるか**という配線だけである。
+      # `dev.ps1` 側はローカルのレーン名（`unity-player.xml` /
+      # `unity-graphics.xml`）を、CI 側は artifact 名を指すので、
+      # **同じ物を指す 1 つの表にはできない。** 集計と判定そのものは
+      # `run-benchmarks.ps1` に寄せてあり、そこは分かれていない。
+      # **3 本目の benchmark レーンを足すときは、両方を直すこと。**
+      #
       # **2 つの XML を名指しで渡す。** `run-benchmarks.ps1` は
       # **XML ごとに**「1 本も拾えなかったか」を見るので、片方のレーンの
       # benchmark 本体が丸ごと消えても、もう片方の行に紛れて通ることはない。
@@ -853,12 +885,15 @@ jobs:
         shell: pwsh
         run: |
           $work = Join-Path $env:GITHUB_WORKSPACE 'artifacts/tarball-lane'
+          # **$LASTEXITCODE は見ない。** `&` で .ps1 を呼んでも設定されるのは
+          # 「その中で最後に走った native command」の終了コードで、dev.ps1 の
+          # 成否ではない（レビュー指摘 M-5）。**exit コードを見ているように
+          # 読めて実は見ていない**形は、このリポジトリが繰り返し潰してきた
+          # ものである。dev.ps1 は失敗時に throw し、GitHub の pwsh は
+          # $ErrorActionPreference='stop' なので step は赤くなる。そのうえで
+          # **出来た物の存在**を確かめる。
           $project = & ./tools/dev.ps1 test-unity-tarball -PrepareOnly -WorkDir $work |
                      Select-Object -Last 1
-          if ($LASTEXITCODE -ne 0) {
-              Write-Error "dev.ps1 test-unity-tarball -PrepareOnly failed (exit $LASTEXITCODE)"
-              exit 1
-          }
           if (-not $project -or -not (Test-Path -LiteralPath $project)) {
               Write-Error "the prepared project path does not exist: $project"
               exit 1
@@ -915,7 +950,7 @@ jobs:
             -ResultsPath $xml.FullName `
             -Lane 'tarball' `
             -RequireTest 'PluginGatingTests.ExactlyOnePluginTargetsThisEditorOs;PluginGatingTests.EachPluginTargetsOnlyItsOwnEditorOs;PluginGatingTests.NoPluginIsEnabledForEveryPlatform;PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget' `
-            -RequireOutput 'native plugins present: 6 ['
+            -RequireOutput 'native plugins present: 6 [;OCVU_PROFILE_DNN is not defined'
 
       # **テストが通ったことは、tarball で解決された証拠にならない。**
       # テストはパッケージの外（プロジェクトの Assets/）に在るので、
