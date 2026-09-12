@@ -50,6 +50,13 @@ assembly（`CvUnity.Interop.Dnn` / `CvUnity.Dnn`）だけである。したが�
 `CvDnn` / `CvNet` は利用者のビルドから丸ごと消える**（参照が壊れた状態は
 残らない）。
 
+公開クラスの namespace は **`CvUnity.Dnn`** である（他の公開クラスは `CvUnity`
+なので、`using CvUnity.Dnn;` が要る）。
+
+**engine / backend を選ぶ引数も定数も出していない。実質 CPU のみである。**
+OpenCV 5.1 で `enum EngineType` が総入れ替えになる見込みなので、5.0 の値を
+この境界に固定しない。
+
 > **この経路は実機で一度も動かしていない。** 下の「この版で確かめていないこと」を読むこと。
 
 ## 検証
@@ -59,8 +66,8 @@ assembly（`CvUnity.Interop.Dnn` / `CvUnity.Dnn`）だけである。したが�
 6 platform 分を材料に、同じ script（`pack-upm-tarball.ps1`）で固め直して導入した。6 つ入った状態で Unity が読み込み、
 **自分の platform 向けだけを有効にする**ところまで見ている
 （`native plugins present: 6` と EditMode が緑になるところまで）。
-**件数はここに書きません** —— この本文は次のリリースでも読まれるので、
-検査を 1 件足した日にこの行だけが嘘になります。
+**テストの件数はここに書かない** —— この本文は次のリリースでも読まれるので、
+検査を 1 件足した日にこの行だけが嘘になる。
 **「中に 6 つ入っている」とは別の主張である。**
 
 **この版から、同じ検証を CI も毎回行う。** pull request のたびに、配る形の
@@ -86,18 +93,25 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 **公開している C ABI は 27 本から 57 本になった。** 内訳は下のとおりで、
 **`OCVU_ABI_VERSION` は 1 のまま変わっていない**（関数の追加は bump しない変更である）。
 
-- **画像処理が 8 本増えた**（`CvOps`）—— 2 値化（`Threshold`）、Canny のエッジ検出、
-  モルフォロジー（`MorphologyEx`）、射影変換の適用（`WarpPerspective`）、
+**下は C# のクラスで並べてある。** C ABI の module 名とは一致しない ——
+たとえば `GetPerspectiveTransform` は ABI では `geometry` だが、C# では
+`WarpPerspective` と対で使うので `CvOps` に在る。
+
+- **画像処理が 9 本増えた**（`CvOps`）—— 2 値化（`Threshold`）、Canny のエッジ検出、
+  モルフォロジー（`MorphologyEx`）、4 点対応からの射影変換行列
+  （`GetPerspectiveTransform`）とその適用（`WarpPerspective`）、
   テンプレート照合（`MatchTemplate`）、輪郭抽出（`FindContours`）、
   確率的 Hough 直線（`HoughLinesP`）、コーナーの副画素精度化（`CornerSubPix`）
 - **基本演算が 8 本増えた**（`CvCoreOps`）—— channel の取り出しと差し込み、
   最小・最大とその位置、範囲内判定（`InRange`）、正規化、ビット演算、
   ルックアップテーブル（`Lut`）、余白の追加（`CopyMakeBorder`）
 - **姿勢推定が入った**（`CvGeometry`）—— `SolvePnP`、`ProjectPoints`、
-  Rodrigues の相互変換 2 本、4 点対応からの射影変換行列（`GetPerspectiveTransform`）。
+  Rodrigues の相互変換 2 本の計 4 本。
   **前の版で入った校正（内部パラメータと歪み係数）と合わせて、
   「校正して、姿勢を求めて、投影する」までが繋がった**
-- **ArUco マーカーを読み書きできる**（`CvAruco`）—— 生成と検出の 2 本
+- **ArUco マーカーを読み書きできる**（`CvAruco`）—— 生成と検出に加えて、
+  **マーカーの姿勢推定**（`EstimateMarkerPose`）。3 つ目は新しい C ABI 関数を
+  使わず、`SolvePnP` の上に立つ純 C# である
 - **特徴量の記述子と照合**（`CvFeatures`）—— `DetectAndCompute` と `MatchDescriptors`
 - **ステレオの視差**（`CvStereo.ComputeDisparity`）。**新しい module である**
   （OpenCV の `stereo` をこの版から実際にリンクしている）
@@ -110,8 +124,42 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 - **`RenderTexture` から `CvMat` を作れる**（`CvUnity.Unity.RenderTextureConverter`）。
   同期の `ToMat` と、`AsyncGPUReadback` を使う非同期の `RequestMat` がある。
   **新しい C ABI 関数は使っていない** —— 既存の上に立つ純 C# である。
-  `WebCamTextureConverter` と同じ規約で**既定で上下を反転する**
-  （Unity は左下原点、OpenCV は左上原点）
+  `WebCamTextureConverter` と同じ規約で**常に上下を反転する**
+  （Unity は左下原点、OpenCV は左上原点）。**`WebCamTextureConverter` と違い、
+  反転を切る引数は無い** —— `Texture2D` へ戻すなど反転が不要な用途では、
+  呼ぶ側で戻すことになる
+
+**Android の `.so` からデバッグ情報を落とした。** `llvm-strip --strip-unneeded`
+で **258,995,040 → 24,385,832 バイト**になり、全部入り tarball は
+**124,102,343 → 77,528,652 バイト**（v0.3.0 の実物は 69,565,901 バイト）。
+`.dynsym` は残るので動作には影響しないが、**`.symtab` / `.strtab` が無いので、
+実機で native crash が起きても関数名を復元できない** ——
+**symbolicate 用の debug package はどこにも発行していない。**
+**Android は実機で一度も動かしていない**ので、最初に crash を踏むのは
+利用者である可能性が高い。他の 5 platform は変えていない。
+
+**性能の実測値をこの版から公開している** —— 境界のコピー、`Texture2D` /
+`RenderTexture` の経路、起動時間を、開発機と CI の 2 つの環境で測った数字が
+[性能](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.4.0/docs/performance.md)
+にある。**時間は公開するが、速い・遅いで CI を落とすことはしない**（共有
+ランナーの上で閾値を置くとフレークになるため）。
+
+### 退行（Android / iOS / macOS arm64 を使う人は必ず読むこと）
+
+**PNG のデコードとエンコードが、Android・iOS・macOS arm64 の 3 platform で
+ARM 加速を丸ごと失った。** `dnn` を使うかどうかに関係なく、
+**これらの platform で `CvCodecs` を使う利用者全員に影響する。**
+
+理由は上流 OpenCV 5.0.0 の vendoring の欠陥である —— `mlas` が実体の無い
+シンボルを無条件に参照しており、macOS arm64 のリンクが落ちる。その経路を
+止めるには libpng の ARM NEON 向け `enable_language(ASM)` を止めるしかなく、
+`PNG_ARM_NEON=off` は**アセンブリで書かれたカーネルだけでなく、同じ分岐に
+ある NEON intrinsics の実装も道連れにする**（上流が両方を 1 つのスイッチに
+まとめているため）。
+
+**これは取引であって、無条件の勝ちではない。** JPEG の SIMD、および
+`core` / `imgproc` の SIMD には触れていない —— **PNG だけに絞った変更である。**
+x64 と Web には要らないので入れていない。上流が 5.1 で直せば見直す。
 
 **公開している C ABI の本数は [API 対応表](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.4.0/docs/api-map.md) の冒頭が数える**（この表は
 リポジトリにあり、**パッケージには入らない**）。
@@ -158,6 +206,11 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
   からは見えない。** allowlist が検査するのは成果物の中の独立したライブラリで、
   `libopencv_dnn.a` に静的に取り込まれたものは現れない。`THIRD_PARTY_NOTICES` は
   1 通で全 platform を代表しており、**platform ごとに実際の集合は違う**
+- **`WITH_CAROTENE` と `WITH_KLEIDICV` は上流の既定（ON）のままで、
+  ライセンスと再配布条件を確認していない。** このプロジェクトが明示的に
+  OFF にしている他の optional 依存（`WITH_IPP` / `WITH_ITT`）とは扱いが
+  違う。**リンクされていること自体は実測済みで、確認していないのは条項の
+  ほうである**
 
 実機で確かめる手順は `docs/m4-device-verification.md` にある。
 
@@ -165,12 +218,14 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
 
 - **対応 platform**: Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a /
   iOS arm64 / Web (WebGL)
-- **Web にだけ在る制限: 画像の encode / decode は JPEG のみで、PNG を持たない。**
+- **Web には PNG が無い: 画像の encode / decode は JPEG のみである。**
   Unity の WebGL 支援が**自前の libpng を同梱している**ため、こちらが OpenCV の
   libpng を束ねると Player のリンク段でシンボルが衝突する。束ねないほうも成立
   しない（OpenCV の PNG コードが要求するシンボルが未解決になる）。**どちらの
   極端も通らないので、Web では PNG を外した。他の 5 platform は両方持つ。**
-  `".png"` を渡すと失敗が返る
+  `".png"` を渡すと失敗が返る。
+  **ただし「PNG の話は Web だけ」ではない** —— Android / iOS / macOS arm64 では
+  PNG が ARM 加速を失っている（上の「退行」）
 - **CPU アーキテクチャ**: Android は arm64-v8a のみ（x86_64 エミュレータは非対応）、
   iOS は実機の arm64 のみ（シミュレータは非対応）
 - **公開 API**: `Mat` のライフサイクル、`cvtColor` / `resize` / `GaussianBlur` と
@@ -209,11 +264,14 @@ asset は全部で 33 件（6 platform × 5 + 全部入りの 2 + `SHA256SUMS.tx
 `build-manifest.json` には OpenCV のタグ、構成ハッシュ、generator、compiler、
 ビルドしたモジュール、依存バージョン、CMake flags が実測で入っている。
 
-**`dnn` を足したぶん、third-party が増えている**（protobuf）。
-**Android は third-party がさらに 2 件多い**（`cpufeatures` の LICENSE と README。
-Android NDK 由来、BSD-3-Clause）。**Web は逆に 2 件少ない**（`libpng` の LICENSE と
-README。上の PNG の制限と同じ理由で、**そもそも入っていない**）。
-`THIRD_PARTY_NOTICES` に全文がある。
+**`dnn` を足したぶん、third-party が 1 件増えた**（protobuf。全 platform）。
+
+**license ファイルの数は platform ごとに違う** —— Windows / Linux が 15、
+macOS が 14、iOS が 13、Android が 16、Web が 13 である。Android は
+`cpufeatures`（NDK 由来、BSD-3-Clause）の 2 件が多く `clapack-lapack` を欠く、
+macOS と iOS は `clapack-lapack` を欠き iOS はさらに `dlpack` も欠く、
+Web は `libpng` の 2 件を欠く（上の PNG の話と同じ理由で、そもそも入っていない）。
+**内訳と全文は `THIRD_PARTY_NOTICES` の冒頭にある。**
 
 ## OpenUPM
 
