@@ -1150,11 +1150,25 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    tarball**」が見つかっており、v0.1.0 は「ビルドできた ≠ 動く」を踏んでいる。
 
    ```sh
-   # **下書きの asset そのもの**を落として展開し、6 platform 分を材料に固め直して導入する
-   gh release download v0.3.0 -p 'com.ayutaz.opencv-unity-native.tgz' -D <dir>
+   # **下書きの asset そのもの**を落として展開し、全 platform 分を材料に固め直して導入する
+   # ★ <version> は必ず**これから配る版**に置き換える（下の警告を読むこと）
+   gh release download v<version> -p 'com.ayutaz.opencv-unity-native.tgz' -D <dir>
    tar -xzf <dir>/com.ayutaz.opencv-unity-native.tgz -C <out>
+   # 落とした物が本当にその版か、目で見る（asset 名に版番号が無いので名前では分からない）
+   grep '"version"' <out>/package/package.json
    ./tools/dev.ps1 test-unity-tarball -PluginSource "<out>/package"
    ```
+
+   > **⚠ ここに前の版の番号を書いたまま実行しても、落ちない。**
+   > **無音で緑になる。** 全部入りの asset 名には**版番号が入っていない**
+   > （OpenUPM が安定した接頭辞で選ぶため）ので、前の版の asset も
+   > 同じ `com.ayutaz.opencv-unity-native.tgz` である。前の版は公開済みで
+   > 現存し、中には全 platform が揃っているので
+   > `native plugins present: N` まで通って **exit 0 になる。**
+   > `dev.ps1 test-unity-tarball` は package の version を照合しない。
+   > **だから上の `grep '"version"'` を飛ばさないこと** ——
+   > これが「前の版を検証して合格した」と「この版を検証して合格した」を
+   > 見分ける唯一の手段である。
 
    **`gh run download` で済ませないこと。** あれが取るのは workflow run の
    artifact であって、**配る Release の asset ではない** —— PR の空撃ちの
@@ -1177,7 +1191,11 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    **予行は済んでいる**（完了条件を見よ。空撃ちの成果物で 2026-09-03 に通した）。
    **それとは別に、下書きの asset で必ず回すこと** —— 予行が見たのは
    「この配線が作る tarball は導入できる」で、**配る物そのものではない。**
-8. **公開する**（`gh release edit v0.3.0 --draft=false`）
+8. **公開する**（`gh release edit v<version> --draft=false`）。
+   直後に **Latest バッジが移ったか**を見る ——
+   `gh api repos/ayutaz/OpenCVUnityNative/releases/latest --jq .tag_name` が
+   新しい版を返すこと。**`--draft=false` が `make_latest` を送るかは確かめて
+   いない**ので、返らなければ `gh release edit v<version> --latest` を足す。
 9. **OpenUPM が拾うことを確かめる。** 確かめ方:
 
    ```sh
@@ -1209,9 +1227,48 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    `docs/openupm-registration.md`（「`0.2.0` を配信している」）、
    `docs/unity-opencv-integration-research-and-plan.md`（比較表の前書き。
    **ここは既に古い** —— M6 が抜けている）。
-   **9 ファイルある。** 1 つでも古いと、次に読む人が違う版を前提に動く。
+   **もう 1 つある: `docs/m4-device-verification.md`** ——
+   実機で動かす人が最初に開く文書で、最新の公開版を前提に書かれている。
+   **合わせて 10 ファイルある。** 1 つでも古いと、次に読む人が違う版を前提に動く。
+
+   **README 2 本は「Status と『導入』の節」だけでは足りない。**
+   版に依存する記述はもっと広く散っている（v0.4.0 の時点で
+   `README.md` に 10 行、`README.ja.md` に 9 行）。
+   **`v0.3.0` / `next release` / `次の版` で grep して全件洗うこと** ——
+   とくに「**次の版から効く**」のような相対表現は、公開した瞬間に
+   すべて嘘になるうえ、版番号で grep しても引っかからない。
    **この数も写しである** —— 増えたら一緒に直すこと（実際 2026-09-03 の
    レビューで 7 から 9 に増えた）。
+
+#### tag を打ち直すときの順序（版によらない）
+
+**`release.yml` は条件なしに `gh release create` を呼ぶ**ので、古い下書きを
+残したまま打ち直すと、落ちるか、同じ tag 名の下書きが 2 つ並ぶ
+（**どちらになるかは確かめていない**）。並んだ場合、古いほうを公開すると
+**捨てたはずの本文と asset がそのまま世に出る。** 順序は:
+
+```sh
+gh release view v<version> --json assets --jq '.assets[].name'   # 何を捨てるか控える
+gh release delete v<version> --yes
+git push origin :refs/tags/v<version>
+git tag -d v<version>
+git checkout main && git pull
+git tag -a v<version> -m "v<version>" && git push origin v<version>
+git rev-list -n1 v<version>                                      # 意図した commit か
+```
+
+**打ち直したら step 6 と step 7 をやり直す。** asset は別物になる ——
+native binary はバイト単位で再現しないので、**本文に実物の大きさを書いて
+あるなら測り直しが要る**（そこで数字が動くと、本文を直して**もう 1 往復**
+tag を打ち直すことになる。これは実際に起こりうる無限ループである）。
+
+**そもそも打ち直すべきかを先に考えること。** 差が本文だけなら
+`gh release edit v<version> --notes-file .github/release-notes.md` で足りる ——
+**検証済みの asset を捨てずに済み、「この asset そのもので確かめた」という
+主張も真のまま残る。** 代償は `blob/v<version>/.github/release-notes.md`
+（tag 側の写し）と公開本文が食い違うことだが、**本文はそのファイルへの
+リンクを張っていない**ので利用者が踏む経路は無い。
+**v0.4.0 ではこちらを採った。**
 
 #### 既存の v0.3.0 の tag と下書きをどうするか
 

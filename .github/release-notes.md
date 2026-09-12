@@ -56,8 +56,8 @@ assembly（`CvUnity.Interop.Dnn` / `CvUnity.Dnn`）だけである。したが�
 `CvDnn` / `CvNet` は利用者のビルドから丸ごと消える**（参照が壊れた状態は
 残らない）。
 
-公開クラスの namespace は **`CvUnity.Dnn`** である（他の公開クラスは `CvUnity`
-なので、`using CvUnity.Dnn;` が要る）。
+公開クラスの namespace は **`CvUnity.Dnn`** である（`CvMat` などは `CvUnity`、
+Unity 連携だけ `CvUnity.Unity` なので、`using CvUnity.Dnn;` が別に要る）。
 
 **engine / backend を選ぶ引数も定数も出していない。実質 CPU のみである。**
 OpenCV 5.1 で `enum EngineType` が総入れ替えになる見込みなので、5.0 の値を
@@ -91,8 +91,16 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 落としていないファイルは missing と出る（想定どおり）。落としたものが `OK` であればよい。
 
 全部入りの `checksums.txt`（接頭辞なし）と、各 platform の `<platform>-checksums.txt` は
-package の**中身**を対象にしているので、展開後に使う。`SHA256SUMS.txt` は
-ダウンロードする物そのものを対象にしている。
+package の**中身**を対象にしている。各行は `package/` からの相対パスなので、
+**展開してできる `package/` の中に入って**使うこと —— 展開先の root で走らせると
+6 件とも `No such file or directory` になる（実測）。
+
+```sh
+tar -xzf com.ayutaz.opencv-unity-native.tgz
+cd package && sha256sum -c ../checksums.txt
+```
+
+`SHA256SUMS.txt` は逆に、ダウンロードする物そのものを対象にしている。
 
 ## 前の版（v0.3.0）から変わったこと
 
@@ -159,7 +167,9 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
 crash を踏むのは利用者である可能性が高い。他の 5 platform は変えていない。
 
 **性能の実測値をこの版から公開している** —— 境界のコピー、`Texture2D` /
-`RenderTexture` の経路、起動時間を、開発機と CI の 2 つの環境で測った数字が
+`RenderTexture` の経路、起動時間（**ただしこの数字は「native ライブラリの
+真の初回ロード」を捉えていない。理由はリンク先にある**）を、開発機と CI の
+2 つの環境で測った数字が
 [性能](https://github.com/ayutaz/OpenCVUnityNative/blob/v0.4.0/docs/performance.md)
 にある。**時間は公開するが、速い・遅いで CI を落とすことはしない**（共有
 ランナーの上で閾値を置くとフレークになるため）。
@@ -212,6 +222,8 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
   素の .NET から実物の binary を叩けること（L3）、Unity の中で
   `OCVU_PROFILE_DNN` を立てた assembly がコンパイルされ、**IL2CPP の
   stripping を生き延びること**までである。
+  **そのレーンは Linux の 2 本だけである** —— iOS / Android / Web / Windows /
+  macOS の Player に dnn の C# assembly が入った状態は、**1 度も作られていない。**
   **forward が返すメモリを複製している 1 行についても、それが必要だと示す
   再現テストは無い**（外しても壊れなかったが、確定させる経路がこのリポジトリの
   構成上無い —— 復元する OpenCV の木にヘッダと lib はあるが実装ソースが無い）。
@@ -227,7 +239,8 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
   モバイルのブラウザでは動かしていない**
 - **`RenderTexture` の経路は Editor でしか動かしていない。** CI は
   グラフィックス装置が在る Editor で `ToMat` / `RequestMat` を実際に走らせ、
-  画素が正しく運ばれることを確かめている。**しかし IL2CPP の Player では
+  画素が正しく運ばれることを確かめている —— **ただしその装置は
+  ソフトウェア実装である**（コンテナの xvfb + Mesa）。実機の GPU ではない。**しかし IL2CPP の Player では
   走らせていない** —— Player は `-nographics` で起動され、その指定は
   CI が使う道具の側にあって変えられない
 - **`dnn` が使う数値カーネル（MLAS / ONNX Runtime 由来）は、依存の allowlist
@@ -257,7 +270,7 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
 - **CPU アーキテクチャ**: Android は arm64-v8a のみ（x86_64 エミュレータは非対応）、
   iOS は実機の arm64 のみ（シミュレータは非対応）
 - **公開 API**: `Mat` のライフサイクル、`cvtColor` / `resize` / `GaussianBlur` と
-  この版で増えた画像処理 8 本（`CvOps`）、基本演算（`CvCoreOps`）、
+  この版で増えた画像処理（`CvOps`）、基本演算（`CvCoreOps`）、
   画像の encode / decode（`CvCodecs`）、QR コード（`CvQrCode`）、
   ArUco（`CvAruco`）、特徴点と記述子（`CvFeatures`）、
   射影変換と姿勢（`CvGeometry`）、単眼カメラの校正 3 段（`CvCalibration`）、
