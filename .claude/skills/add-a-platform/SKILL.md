@@ -104,7 +104,7 @@ web-wasm を足し、前者に足し忘れた** —— ローカルの全レー�
 
 | 形 | 実例 |
 | --- | --- |
-| platform **名**のリスト | `.github/workflows/release.yml` に 2 つ（matrix と合わせて同一ファイルに 3 つ） |
+| platform **名**のリスト | `.github/workflows/release.yml` に 2 つ（matrix と合わせて同一ファイルに 3 つ）。**`ci-unity.yml` にも 2 つある** —— `unity` job と `tarball` job が、それぞれ「重ねる他 platform」を名前で並べる（2026-09-11 に 2 つ目が増えた。**どちらも fail-closed** で、足りなければ合図が置かれず検査が赤くなる） |
 | Unity の `BuildTarget` | `PluginGatingTests.cs` の `Slots` |
 | workflow の matrix | 各 `.yml` |
 

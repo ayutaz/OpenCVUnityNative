@@ -14,9 +14,14 @@ using NUnit.Framework;
 /// として切り出してあるので Player 側に対（`RenderTexturePlayerTests`）を
 /// 持てるが、`GraphicsChecks` にはその切り出しが無く、対を作りようがない。
 ///
-/// **`test-unity-graphics` レーンからだけ走る。** 既存の EditMode /
-/// PlayMode レーンは `-nographics` で起動するため、ここに置いた検査は
-/// 常に失敗する（`GL.Clear` が効かず 205,205,205 が返る、実測）。
+/// **`-nographics` を付けないレーンからだけ走る。** ローカルの
+/// `test-unity-graphics` と、**CI の `Graphics` レーン**（`ci-unity.yml`、
+/// 2026-09-11 から）の 2 つである。既存の EditMode / PlayMode レーンは
+/// `-nographics` で起動するため、ここに置いた検査は常に失敗する
+/// （`GL.Clear` が効かず 205,205,205 が返る、実測）。
+/// **CI の `Graphics` レーンは必須チェックではない** ——
+/// `CiVisibilityTests` がその帰結（ここに置いたテストは merge を止めない）を
+/// 台帳として固定している。
 ///
 /// **`[Category("Graphics")]` で振り分ける。** 改訂は
 /// `-testFilter 'GraphicsChecks'` と書いていたが、それは検証本体

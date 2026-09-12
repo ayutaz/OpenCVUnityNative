@@ -23,10 +23,13 @@ using UnityEngine.TestTools;
 /// この `#if` で自分を守る —— define が立っていなければ、このクラスは
 /// テストを 1 つも持たない空のクラスになる。
 ///
-/// **CI はどのレーンも `OCVU_PROFILE_DNN` を立てない**ので、このテストは
-/// 自動実行されない。`ProfileGatingTests` が確立した「正の方向は人が手で
-/// 確かめる」という規約と同じ形である。手動での実測手順と結果は
-/// `docs/roadmap.md` の `### M7c の判定`「穴を隠さず書く」にある。
+/// **`ci-unity.yml` の `DnnStandalone` レーンがこれを走らせる。**
+/// そのレーンだけが `ProjectSettings.asset` に `OCVU_PROFILE_DNN` を書いてから
+/// IL2CPP Player を建てる。**このテストが自動実行されるようになったのは
+/// そのレーンを足してからで**、それまでは人が手で 1 回確かめたきりだった
+/// （M7c が残した穴。`docs/roadmap.md` の `### M7c の判定`）。
+/// レーンは `-RequireTest` でこのテスト名を名指ししているので、
+/// **assembly から外れれば CI が赤くなる。**
 /// </summary>
 public class AbiSurfaceDnnPlayerTests
 {

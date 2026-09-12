@@ -110,8 +110,66 @@ if ($results.Count -eq 0) {
 # ここで一括して名指しし、0 の entry があれば exit 1 にする。
 $zeroKeys = @($results.Keys | Where-Object { $results[$_] -eq 0 })
 if ($zeroKeys.Count -gt 0) {
-    Write-Error "0 マイクロ秒の entry がある（測定が効いていない）: $($zeroKeys -join ', ')"
+    Write-Error "0 の entry がある（測定が効いていない）: $($zeroKeys -join ', ')"
     exit 1
+}
+
+<#
+    **単位は key の末尾で決まる。** `_ns` で終わる key はナノ秒、それ以外は
+    マイクロ秒である。
+
+    **これは 2026-09-11 のレビュー指摘（I-5 / I-2）で足した。** それまで
+    payload は `unit = 'microseconds per call'` を**全 entry 共通**で持って
+    おり、`first_pinvoke_ns`（ナノ秒）が入った時点で **publish する成果物が
+    嘘をついていた。** しかも key 名に単位を書いた側の意図（「名前で区別
+    できないと桁を取り違える」）は、**より強い信号である `unit` フィールドに
+    打ち消されていた** —— 取り違えは解消せず、場所が移っただけである。
+
+    **どの key がどちらかを列挙しない。** 列挙すると、次に `_ns` の項目を
+    足した人がここを直し忘れる。**規約（接尾辞）で決める。**
+#>
+function Get-BenchmarkUnit {
+    param([Parameter(Mandatory)][string] $Key)
+    if ($Key -match '_ns$') { 'nanoseconds per call' } else { 'microseconds per call' }
+}
+function Get-BenchmarkUnitSuffix {
+    param([Parameter(Mandatory)][string] $Key)
+    if ($Key -match '_ns$') { 'ns' } else { 'us' }
+}
+
+<#
+    **扱える接尾辞は `_ns` だけである。それ以外の時間単位は、黙って
+    マイクロ秒として publish せずに落とす。**
+
+    規約を守っているのは publish する側だけで、`OCVU_BENCH:` を出す C# 側
+    （`BenchmarkRunner` / `GraphicsBenchmarkRunner`）には何の強制も無い ——
+    将来 `*_ms` を足すと、**1000 倍ずれた数字が「マイクロ秒」として世に出る。**
+
+    **ここは意図的に列挙である。** 「知らない接尾辞を全部拒む」形にすると
+    `texture2d_to_mat`（`_mat`）のような正当な key まで落ちる。拒むのは
+    **時間単位に見えるのに扱えないもの**だけで、既定（マイクロ秒）は
+    `docs/performance.md` に書いてある。
+#>
+$unhandledUnitSuffixes = @('_ms', '_us', '_s', '_sec', '_msec', '_usec', '_nsec', '_micros', '_millis', '_nanos')
+$badUnitKeys = @($results.Keys | Where-Object {
+    $k = $_
+    @($unhandledUnitSuffixes | Where-Object { $k.EndsWith($_) }).Count -gt 0
+})
+if ($badUnitKeys.Count -gt 0) {
+    Write-Error ("扱えない単位の接尾辞を持つ key がある（マイクロ秒として publish しない）: " +
+                 "$($badUnitKeys -join ', ')。扱えるのは '_ns' だけで、" +
+                 "接尾辞が無ければマイクロ秒として扱う")
+    exit 1
+}
+
+# **単位つきの表に組み替える。** 値だけの map を残さないのは、
+# 読む側が単位を知らずに値を取れる形を publish しないためである。
+$entries = [ordered]@{}
+foreach ($k in $results.Keys) {
+    $entries[$k] = [ordered]@{
+        value = $results[$k]
+        unit  = Get-BenchmarkUnit -Key $k
+    }
 }
 
 # **測った環境を必ず併記する**（設計 §6）。数字だけ残すと、
@@ -120,9 +178,12 @@ $payload = [ordered]@{
     measuredAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     os         = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
     arch       = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-    unit       = 'microseconds per call'
+    # **全 entry 共通の `unit` は持たない。** 単位は entry ごとに在る
+    # （上の Get-BenchmarkUnit）。共通の 1 つを置くと、単位の違う項目が
+    # 1 つ入った瞬間に payload 全体が嘘になる。
+    unitNote   = 'unit は entry ごとに持つ。key が _ns で終わればナノ秒、それ以外はマイクロ秒'
     note       = 'CI ランナーまたは開発機での実測。利用者の端末の数字ではない'
-    results    = $results
+    results    = $entries
 }
 
 $dir = Split-Path -Parent $OutPath
@@ -132,4 +193,6 @@ if ($dir -and -not (Test-Path -LiteralPath $dir)) {
 $payload | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $OutPath -Encoding utf8
 
 Write-Host "==> benchmark: $($results.Count) 件を $OutPath へ書いた"
-foreach ($k in $results.Keys) { Write-Host "    $k = $($results[$k]) us" }
+foreach ($k in $results.Keys) {
+    Write-Host "    $k = $($results[$k]) $(Get-BenchmarkUnitSuffix -Key $k)"
+}

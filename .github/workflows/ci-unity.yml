@@ -262,7 +262,16 @@ jobs:
             # 重ねてから走るので、無条件に全部を要求してよい。**
             # 末尾の '[' まで含めるのは境界のため。'present: 5' だけだと
             # 'present: 50' にも当たる。
-            requireOutput: 'native plugins present: 6 ['
+            # **2 つ要求する**（';' 区切り。assert-unity-results.ps1 が split する）。
+            #
+            # 2 つ目は I-1 のレビュー指摘で足した。`ProfileGatingTests` を
+            # 「define が無ければ無い」から「define の有無と一致する」に変えた
+            # ことで、**既定のレーンから「立っていないこと」への要求が消えた** ——
+            # 誰かが ProjectSettings.asset に OCVU_PROFILE_DNN を commit すると、
+            # このレーンは陽性の分岐を通って**緑のまま**になる。
+            # dnn を切った利用者のビルドが壊れないことを見るはずのレーンが、
+            # dnn を入れた状態を見ていることになる。
+            requireOutput: 'native plugins present: 6 [;OCVU_PROFILE_DNN is not defined'
             # **`tools/dev.ps1` の `Test-UnityEditMode` と同じ除外を CI にも渡す。**
             #
             # ローカルは `-batchmode -nographics -testCategory '!Graphics'` で
@@ -289,6 +298,10 @@ jobs:
             # 対象にならず、そのまま 1 トークンとして渡る——引用符で囲むと逆に
             # 引用符ごと 1 トークンになり `!Graphics` に一致しなくなる）。
             customParameters: '-testCategory !Graphics'
+            # **既定 profile。** 空文字を渡すのは requireTest / customParameters と
+            # 同じ理由で、「渡し忘れ」と「意図的に何も立てない」を区別できる形に
+            # しておくためである。下の Dnn レーンだけがここに値を持つ。
+            defineSymbols: ''
           # L5: 実際に IL2CPP Player をビルドして、その上で走らせる。
           # scripting backend と stripping level は ProjectSettings に
           # コミットしてあるので（scriptingBackend.Standalone: 1、
@@ -308,6 +321,88 @@ jobs:
             # 空文字を渡すのは requireTest / requireOutput と同じ理由（渡し忘れと
             # 意図的な空を区別できる形にする）。
             customParameters: ''
+            defineSymbols: ''
+
+          # **GPU に依る経路を CI で実際に走らせる（`[Category("Graphics")]`）。**
+          #
+          # **これを足せたのは、game-ci の Editor が -nographics で走っていない
+          # と実測で分かったからである。** コンテナの `unity-editor` は
+          #
+          #     xvfb-run -ae /dev/stdout "$UNITY_PATH/Editor/Unity" -batchmode "$@"
+          #
+          # で、**仮想 X の下で、-nographics 無しで**起動する（game-ci/docker の
+          # images/ubuntu/editor/Dockerfile）。したがって
+          # `SystemInfo.graphicsDeviceType` が Null にならない可能性があり、
+          # ローカル専用だった `dev.ps1 test-unity-graphics` と同じものを
+          # CI で走らせられる見込みが立った。
+          #
+          # **見込みであって、Dockerfile からは決まらない。** `unityci/base` は
+          # `--no-install-recommends` で `libglu1` しか入れておらず、Mesa の
+          # 実装（`libglx-mesa0` / `libgl1-mesa-dri`）が入るかは依存の解決次第
+          # である。**だから推測で書かず、このレーンそのものを実測に使った** ——
+          # 結論は docs/roadmap.md の「GPU 経路を CI に載せる」にある。
+          #
+          # **GPU が無ければ skip ではなく fail する。** `AGraphicsDeviceIsPresent`
+          # がそう書かれており（GraphicsChecks）、それが正しい —— 「GPU が無い
+          # から確かめられなかった」を緑にすると、このレーンは在るのに何も
+          # 見ていない状態になる。
+          - lane: Graphics
+            testMode: EditMode
+            # GPU に依るのは Editor 側の経路で、IL2CPP は要らない。
+            imageFlavour: base
+            # **名指しする。** category の綴りを間違えると 0 件になり、
+            # 「passed が 1 以上」は他のテストでは満たせない（このレーンは
+            # Graphics だけを走らせる）——それでも、どれが通ったかを要求する
+            # ほうが強い。GPU が要る 5 件と、このレーンでしか測れない
+            # benchmark を名指しする。
+            # **`EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint` を落とさない。**
+            # 共有本体（GraphicsChecks）に足した検査が入口に配線されているかを
+            # 見る唯一のテストで、**これが assembly から外れても残り 6 件で
+            # 緑になる。** 名指しの中で最も消えたら困る 1 件である。
+            requireTest: 'GraphicsTests.AGraphicsDeviceIsPresent;GraphicsTests.SyncReadbackProducesTheExpectedPixels;GraphicsTests.VerticalFlipIsApplied;GraphicsTests.AsyncMatchesSync;GraphicsTests.TakingTheMatTwiceIsRejected;GraphicsTests.EveryCheckInTheSharedBodyIsWiredIntoThisEntryPoint;GraphicsBenchmarkRunner.MeasureRenderTexturePaths'
+            requireOutput: ''
+            # **`!Graphics` の補集合。** 2 つで完全に分かれる。
+            customParameters: '-testCategory Graphics'
+            defineSymbols: ''
+
+          # **非既定 profile（dnn）を Unity の中で実際にコンパイルする。**
+          #
+          # M7c が残した穴そのものである —— それまで
+          # **どの workflow も、どの dev.ps1 のレーンも `OCVU_PROFILE_DNN` を
+          # 立てていなかった**ので、`CvUnity.Interop.Dnn` / `CvUnity.Dnn` が
+          # Unity の中でコンパイルできることは人が手で 1 回確かめたきりだった。
+          #
+          # **define は下の step が ProjectSettings.asset に書き込む。**
+          # `ProfileGatingTests` が「立っていない」方向を、このレーンが
+          # 「立てれば現れる」方向を見る —— **1 回の実行では原理的に
+          # 届かない**と同 class の docstring が書いていたのは正しく、
+          # 届かせるには実行を 2 つに分けるしかない。
+          - lane: DnnEditMode
+            testMode: EditMode
+            imageFlavour: base
+            # **define を立てた側でしか通らないものを名指しする。**
+            # 立て損ねたら（書き込みが空振りしたら）このレーンは赤くなる。
+            requireTest: 'ProfileGatingTests.TheDnnInteropAssemblyMatchesTheDefine;ProfileGatingTests.TheDnnSharedTestAssemblyMatchesTheDefine;ProfileGatingTests.TheDnnPublicApiAssemblyMatchesTheDefine'
+            # **テスト自身が出した事実を要求する。** 名前だけだと、define が
+            # 無い側の分岐を通っても同じ名前が Passed で並ぶ。
+            requireOutput: 'OCVU_PROFILE_DNN is defined and the dnn assemblies are compiled'
+            customParameters: '-testCategory !Graphics'
+            defineSymbols: 'OCVU_PROFILE_DNN'
+
+          # **stripping 済みの実物の Player で、dnn の P/Invoke が生き残ること。**
+          #
+          # 既定 profile の `AbiSurfacePlayerTests` と同じ役割を dnn 側で果たす。
+          # **Player でしか確かめられない** —— IL2CPP の stripping が消せるのは
+          # 呼ばれない宣言なので、Editor(Mono) では成立しない。
+          - lane: DnnStandalone
+            testMode: Standalone
+            imageFlavour: linux-il2cpp
+            # 4 本の宣言を 1 回ずつ呼ぶ生成物の、手書きの唯一の入口。
+            requireTest: 'AbiSurfaceDnnPlayerTests.EveryDnnEntryPointIsReachable'
+            requireOutput: ''
+            # EditMode 専用の asmdef は Player に入らないので、除外する対象が無い。
+            customParameters: ''
+            defineSymbols: 'OCVU_PROFILE_DNN'
 
     steps:
       - name: Checkout
@@ -467,6 +562,47 @@ jobs:
           Set-Content -LiteralPath 'tests/UnityProject/ocvu-expect-all-platforms' `
                       -Value '1' -NoNewline
 
+      # **このレーンだけ scripting define symbols を立てる。**
+      #
+      # `OCVU_PROFILE_DNN` を立てると `CvUnity.Interop.Dnn` / `CvUnity.Dnn` /
+      # `CvUnity.Tests.Shared.Dnn` がコンパイル対象に入る（asmdef の
+      # defineConstraints）。**Unity の compilation pipeline が見るのはここで、
+      # `csc.rsp` では届かない** —— あちらはコンパイラに渡る define であって、
+      # Unity が defineConstraints を評価するときの集合ではない。
+      #
+      # **書き換えが空振りしたら落とす。** 空振りすると define の無い側の
+      # 分岐を通って**同じテスト名が Passed で並ぶ**ので、出力からは
+      # 区別が付かない。入力（ここ）と出力（assert-unity-results.ps1 の
+      # -RequireOutput）の両方で見る —— 入力だけでは「書いたつもり」を、
+      # 出力だけでは「なぜ立たなかったか」を取り逃がす。
+      - name: Turn on the scripting define symbols for this lane
+        if: matrix.defineSymbols != ''
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectSettings.asset'
+          $text = Get-Content -LiteralPath $file -Raw
+
+          # 既定は空の map。ここが変わったら、黙って no-op にせず落とす。
+          $empty = "`n  scriptingDefineSymbols: {}`n"
+          if ($text -notmatch [regex]::Escape($empty)) {
+              Write-Error "scriptingDefineSymbols is not the expected empty map in $file"
+              exit 1
+          }
+
+          # キーは NamedBuildTarget の名前。同じファイルの scriptingBackend が
+          # 'Standalone' を使っているので、それに合わせる。
+          $filled = "`n  scriptingDefineSymbols:`n    Standalone: ${{ matrix.defineSymbols }}`n"
+          $text = $text.Replace($empty, $filled)
+          Set-Content -LiteralPath $file -Value $text -NoNewline
+
+          # 書けたことを読み直して確かめる。
+          $after = Get-Content -LiteralPath $file -Raw
+          if ($after -notmatch [regex]::Escape('Standalone: ${{ matrix.defineSymbols }}')) {
+              Write-Error 'failed to write the scripting define symbols'
+              exit 1
+          }
+          Write-Host '==> scripting define symbols: ${{ matrix.defineSymbols }}'
+
       # **pre-release を固定してある。** これだけが node20 を宣言する action
       # だった（GitHub は 2025-09 に node20 を非推奨にし、いまは node24 上で
       # 強制実行している —— 実測: ci-unity の annotation に
@@ -551,6 +687,317 @@ jobs:
         with:
           name: test-results-unity-${{ matrix.lane }}
           path: artifacts/unity-${{ matrix.lane }}
+          if-no-files-found: warn
+
+  # **測った数字を CI が publish する。**
+  #
+  # `dev.ps1 benchmark` は M7a から在るが、**どの workflow からも走って
+  # いなかった** —— しかも唯一 Unity を持つ開発機では、内部で呼ぶ
+  # `test-unity-player` が後始末でハングする既知の欠陥のせいで**完走しない**。
+  # 数字は「ハングしたプロセスを止めてから `run-benchmarks.ps1` を直接叩く」
+  # という手順でしか得られていなかった。
+  #
+  # **GPU に依る側が CI で走るようになって初めて、この job が成立した。**
+  # `GraphicsBenchmarkRunner` は `Graphics` レーンにしか居ないので、
+  # そのレーンが無い間はここで集められるのは半分だけだった。
+  #
+  # **時間そのものは判定しない**（設計 D1）。`run-benchmarks.ps1` が落ちるのは
+  # 「測れなかったとき」だけである —— XML ごとに 1 本も `OCVU_BENCH:` が
+  # 拾えなかったか、値が 0 だったとき。共有 runner の上で閾値を置くと
+  # フレークになるので、速い・遅いでは落とさない。
+  benchmarks:
+    name: Publish the benchmarks
+    runs-on: ubuntu-24.04
+    needs: unity
+    # **必須チェックへ昇格したので、`if: !cancelled()` を付けた。**
+    #
+    # 素の `needs:` だと、`unity` が落ちた瞬間にこの job は **skip** になる。
+    # **GitHub は skip を required check の合格として通す**ので、必須に
+    # したまま素の `needs:` を残すと、**依存が落ちているのに緑と同じ意味を
+    # 持つ**（`unity` job の長いコメントが同じことを書いている）。
+    #
+    # `!cancelled()` なら依存が落ちても走り、集める XML が無いので
+    # 「artifact が無い」で**赤くなる** —— skip ではなく赤である。
+    #
+    # **`always()` にしない。** この workflow は `cancel-in-progress: true` を
+    # 宣言しており、`always()` だと追い越された古い run が最後まで走る。
+    if: ${{ !cancelled() }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the Player results
+        uses: actions/download-artifact@v8
+        with:
+          name: test-results-unity-Standalone
+          path: bench-in/standalone
+
+      - name: Download the Graphics results
+        uses: actions/download-artifact@v8
+        with:
+          name: test-results-unity-Graphics
+          path: bench-in/graphics
+
+      # **これは `dev.ps1` の `Invoke-Benchmark` の 2 つ目の写しである。**
+      #
+      # 同じブランチの `tarball` job は「作り方を CI に書き写すと別物になる」
+      # という理由で `-PrepareOnly` を作ったのに、こちらは写している
+      # （レビュー指摘 M-4）。**写したまま残す判断の理由**: あちらが寄せたのは
+      # **出来る物**（使い捨てプロジェクト）で、こちらが持つのは
+      # **どのレーンの XML を集めるか**という配線だけである。
+      # `dev.ps1` 側はローカルのレーン名（`unity-player.xml` /
+      # `unity-graphics.xml`）を、CI 側は artifact 名を指すので、
+      # **同じ物を指す 1 つの表にはできない。** 集計と判定そのものは
+      # `run-benchmarks.ps1` に寄せてあり、そこは分かれていない。
+      # **3 本目の benchmark レーンを足すときは、両方を直すこと。**
+      #
+      # **2 つの XML を名指しで渡す。** `run-benchmarks.ps1` は
+      # **XML ごとに**「1 本も拾えなかったか」を見るので、片方のレーンの
+      # benchmark 本体が丸ごと消えても、もう片方の行に紛れて通ることはない。
+      - name: Collect the benchmark results
+        shell: pwsh
+        run: |
+          $paths = @()
+          foreach ($dir in @('bench-in/standalone', 'bench-in/graphics')) {
+              $xml = Get-ChildItem -Path $dir -Filter '*.xml' -Recurse -File |
+                     Select-Object -First 1
+              if (-not $xml) {
+                  Write-Error "no test result XML under $dir"
+                  exit 1
+              }
+              Write-Host "==> $dir -> $($xml.FullName)"
+              $paths += $xml.FullName
+          }
+          ./tools/run-benchmarks.ps1 -XmlPath ($paths -join ';') `
+                                     -OutPath artifacts/benchmarks/latest.json
+          Get-Content -LiteralPath artifacts/benchmarks/latest.json
+
+      - name: Upload the benchmarks
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmarks
+          path: artifacts/benchmarks
+          if-no-files-found: warn
+
+  # **配る tarball を、使い捨ての Unity プロジェクトに実際に導入する。**
+  #
+  # `dev.ps1 test-unity-tarball` は M3 から在るのに、**どの workflow からも
+  # 走っていなかった** —— roadmap は M4 の時点で「game-ci の action の外で
+  # Unity を起動する必要があり、CI に載せるのは別作業である」と書き、
+  # そのまま置かれていた。
+  #
+  # **走らないレーンは腐る、を 2 度実証した後で載せる。**
+  #   - M4 でモバイルを足したとき、期待する binary の数が `3` と直書きされて
+  #     いて iOS の `.a` を binary と認めなかった
+  #   - M7a で Graphics の除外が抜け、66 件中 6 件が落ちる状態になった
+  #   どちらも**無関係な作業の途中で 1 度手で回すまで誰も知らなかった。**
+  #
+  # **`unity` job に相乗りしない。** あちらは `tests/UnityProject` を直接
+  # 指すが、このレーンの本体は**使い捨てのプロジェクトを作るところ**にある
+  # （tarball から解決させ、ディレクトリ参照が 1 つも残っていないことまで
+  # 見る）。projectPath が違うので matrix には畳めない。
+  #
+  # プロジェクトの作り方は `dev.ps1 test-unity-tarball -PrepareOnly` に寄せて
+  # ある —— ここに書き写すと、**導入を確かめた tarball と実際に配る
+  # tarball が別物になる。**
+  tarball:
+    name: UPM tarball install (Linux)
+    runs-on: ubuntu-24.04
+    needs: plugin
+    # `unity` job と同じ理由（そちらの長いコメントを参照）。skip は必須
+    # チェックを通すので、材料が無いときは赤くなる形にする。
+    if: ${{ !cancelled() }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download the other platforms plugins
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unity-plugin-*
+          path: other-plugins
+
+      - name: Assemble every platform into one package
+        shell: pwsh
+        run: |
+          $sources = @('windows-x64', 'macos-arm64', 'android-arm64', 'ios-arm64', 'web-wasm') |
+                     ForEach-Object { "other-plugins/unity-plugin-$_" }
+          ./tools/assemble-plugins.ps1 -Source ($sources -join ';')
+
+      - name: Resolve the Unity version
+        id: unity
+        shell: pwsh
+        run: |
+          $file = 'tests/UnityProject/ProjectSettings/ProjectVersion.txt'
+          $m = Select-String -LiteralPath $file -Pattern '^m_EditorVersion:\s*(\S+)' |
+               Select-Object -First 1
+          if (-not $m) {
+              Write-Error "could not read m_EditorVersion from $file"
+              exit 1
+          }
+          $version = $m.Matches[0].Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "image=unityci/editor:ubuntu-$version-base-3" >> $env:GITHUB_OUTPUT
+
+      - name: Resolve OpenCV config hash
+        id: opencv-config
+        shell: pwsh
+        run: |
+          Import-Module ./tools/OpenCvConfig.psm1 -Force
+          $hash = Get-OpenCvConfigHash -Config (Get-OpenCvConfig)
+          "config-hash=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Cache OpenCV
+        uses: actions/cache@v6
+        with:
+          path: third_party/opencv/${{ steps.opencv-config.outputs.config-hash }}
+          key: opencv-${{ steps.opencv-config.outputs.config-hash }}
+
+      # `unity` job と同じ理由でコンテナの中でビルドする（runner の glibc で
+      # 作った .so は game-ci のコンテナでは読み込めない。v0.1.0 の欠陥）。
+      - name: Build the native plugin in the build container
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          image=$(grep -oP "Container\s*=\s*'\K[^']+" tools/opencv-config.psd1 | head -1)
+          echo "==> building in $image"
+          docker run --rm \
+            -v "$PWD:/w" -w /w \
+            -e GH_TOKEN \
+            "$image" \
+            bash -c 'bash ./tools/ci/setup-linux-container.sh \
+                     && pwsh -NoProfile -File ./tools/opencv.ps1 restore \
+                     && pwsh -NoProfile -File ./tools/dev.ps1 build'
+          sudo chown -R "$(id -u):$(id -g)" \
+            Packages/com.ayutaz.opencv-unity-native/Runtime/Plugins build third_party || true
+
+      - name: Verify the plugin's portability
+        shell: pwsh
+        run: ./tools/verify-plugin-portability.ps1
+
+      # **プロジェクトの作り方はローカルと同じ script を通す。**
+      #
+      # `-PrepareOnly` は Unity を起動せず、作ったプロジェクトのパスを
+      # 最後の 1 行に出す。`-WorkDir` はワークスペースの中でなければ
+      # ならない —— game-ci はコンテナにワークスペースを mount するので、
+      # その外に作ったプロジェクトはコンテナから見えない。
+      - name: Prepare a disposable Unity project from the tarball
+        id: prepare
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:GITHUB_WORKSPACE 'artifacts/tarball-lane'
+          # **$LASTEXITCODE と、出来た物の存在の両方を見る。**
+          #
+          # レビューは「`&` で .ps1 を呼んでも $LASTEXITCODE は設定されない
+          # ので見ても無駄」と指摘したが、**実測すると設定される** ——
+          # `exit 7` する .ps1 を `& child.ps1 | Select-Object -Last 1` で
+          # 呼ぶと $LASTEXITCODE は 7 になった（パイプ越しでも同じ）。
+          # `tools/dev.ps1` の失敗経路 `Write-DevFailure` は throw ではなく
+          # **`exit 1`** なので（そちらの docstring に理由がある）、ここを
+          # 見ないと**静かに次へ進む。**
+          #
+          # **指摘をそのまま適用しかけて、測って引き返した。** このリポジトリの
+          # 「仮説のまま直さない」がレビューの指摘にも同じだけ掛かる。
+          $project = & ./tools/dev.ps1 test-unity-tarball -PrepareOnly -WorkDir $work |
+                     Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "dev.ps1 test-unity-tarball -PrepareOnly failed (exit $LASTEXITCODE)"
+              exit 1
+          }
+          if (-not $project -or -not (Test-Path -LiteralPath $project)) {
+              Write-Error "the prepared project path does not exist: $project"
+              exit 1
+          }
+          $rel = [System.IO.Path]::GetRelativePath($env:GITHUB_WORKSPACE, $project).Replace([char]92, [char]47)
+          "project=$rel" >> $env:GITHUB_OUTPUT
+          Write-Host "==> prepared project: $rel"
+
+      # **合図を「書く」のではなく「届いたか」を見る。**
+      #
+      # `unity` job はここで合図を書くが、このレーンでは `dev.ps1` が
+      # **木から導出して**置く（Sync-AllPlatformsMarker。6 つ揃っていなければ
+      # 置かず、置き去りがあれば消す）。ここで書き直すと、導出が壊れていても
+      # 合図だけは在る状態を自分で作ってしまう。**導出の結果を要求するほうが
+      # 強い。**
+      - name: Check the all-platforms marker reached the prepared project
+        shell: pwsh
+        run: |
+          $marker = Join-Path '${{ steps.prepare.outputs.project }}' 'ocvu-expect-all-platforms'
+          if (-not (Test-Path -LiteralPath $marker)) {
+              Write-Error "the prepared project has no all-platforms marker at $marker"
+              exit 1
+          }
+          Write-Host "==> present: $marker"
+
+      - name: Run the EditMode tests in the prepared project
+        uses: game-ci/unity-test-runner@f7d28f891263d875d47ef34370e9e8dd6087e1ef # v5.0.0-beta.1
+        id: tests
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: ${{ steps.prepare.outputs.project }}
+          unityVersion: ${{ steps.unity.outputs.version }}
+          customImage: ${{ steps.unity.outputs.image }}
+          testMode: EditMode
+          artifactsPath: artifacts/unity-tarball
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Tarball results
+          customParameters: '-testCategory !Graphics'
+
+      - name: Assert the results
+        if: always()
+        shell: pwsh
+        run: |
+          $xml = Get-ChildItem -Path 'artifacts/unity-tarball' -Filter '*.xml' -Recurse -File |
+                 Select-Object -First 1
+          if (-not $xml) {
+              Write-Error 'no test result XML was produced under artifacts/unity-tarball'
+              exit 1
+          }
+          ./tools/assert-unity-results.ps1 `
+            -ResultsPath $xml.FullName `
+            -Lane 'tarball' `
+            -RequireTest 'PluginGatingTests.ExactlyOnePluginTargetsThisEditorOs;PluginGatingTests.EachPluginTargetsOnlyItsOwnEditorOs;PluginGatingTests.NoPluginIsEnabledForEveryPlatform;PluginGatingTests.EachPluginIsEnabledOnlyForItsOwnStandaloneTarget' `
+            -RequireOutput 'native plugins present: 6 [;OCVU_PROFILE_DNN is not defined'
+
+      # **テストが通ったことは、tarball で解決された証拠にならない。**
+      # テストはパッケージの外（プロジェクトの Assets/）に在るので、
+      # ディレクトリ参照で解決されても同じ数だけ通る。UPM が書き戻した
+      # packages-lock.json を読んで、参照が本当に .tgz だったかを見る。
+      # ローカルの `dev.ps1` はこれを自分でやっているが、こちらは Unity の
+      # 起動が game-ci なので、同じ判定をここに置く。
+      - name: Check that UPM resolved the package from the tarball
+        if: always()
+        shell: pwsh
+        run: |
+          $lock = Join-Path '${{ steps.prepare.outputs.project }}' 'Packages/packages-lock.json'
+          if (-not (Test-Path -LiteralPath $lock)) {
+              Write-Error "UPM did not write back $lock, so we cannot tell how the package resolved"
+              exit 1
+          }
+          $manifest = Get-Content -LiteralPath $lock -Raw | ConvertFrom-Json
+          $entry = $manifest.dependencies.'com.ayutaz.opencv-unity-native'
+          $resolved = if ($entry) { $entry.version } else { '(no entry)' }
+          if ($resolved -notlike '*.tgz') {
+              Write-Error "UPM resolved from a non-tarball reference: $resolved"
+              exit 1
+          }
+          Write-Host "==> resolved from $resolved"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-unity-tarball
+          path: artifacts/unity-tarball
           if-no-files-found: warn
 
   # **ブラウザで実際に動かす。** これが「動く」を主張できる唯一のレーンである

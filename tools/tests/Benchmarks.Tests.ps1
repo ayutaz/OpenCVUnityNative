@@ -11,6 +11,28 @@
 #>
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
+
+<#
+    **未処理の例外を「静かな合格」にしない。**
+
+    このファイルは $ErrorActionPreference = 'Continue' で走る（probe した
+    コマンドの非終了エラーで中断しないため）。その結果、**検査の途中で
+    終了エラーが出ると、残りの assertion が 1 つも走らないまま
+    `$failures` は 0 のままになり、末尾の判定を通って exit 0 になる。**
+
+    2026-09-11 に実測で踏んだ: Benchmarks.Tests.ps1 に無いプロパティを
+    読む assertion を書いたところ、PropertyNotFoundException が表示された
+    うえで `==> Benchmarks.Tests: OK` と出て exit 0 になった。**負の対照を
+    取ろうとして、対照そのものが素通りした。**
+
+    先例は tools/tests/PackageRelease.Tests.ps1 で、同じ形の trap を持つ。
+#>
+trap {
+    [Console]::Error.WriteLine("`n未処理の例外でテストが中断しました:")
+    [Console]::Error.WriteLine($_.ToString())
+    [Console]::Error.WriteLine($_.ScriptStackTrace)
+    exit 1
+}
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -51,8 +73,39 @@ try {
     & pwsh -NoProfile -File $script -XmlPath $good -OutPath $out 2>&1 | Out-Null
     Assert-That ($LASTEXITCODE -eq 0) 'a well-formed result XML is accepted'
     $written = if (Test-Path -LiteralPath $out) { Get-Content -LiteralPath $out -Raw | ConvertFrom-Json } else { $null }
-    Assert-That ($null -ne $written -and $written.results.copy_to_buffer -eq 42 -and $written.results.startup -eq 7) `
+    Assert-That ($null -ne $written -and $written.results.copy_to_buffer.value -eq 42 -and $written.results.startup.value -eq 7) `
         'the measured values reach the published payload'
+
+    <#
+        **単位は entry ごとに正しいこと（2026-09-11 のレビュー I-5 / I-2）。**
+
+        それまで payload は `unit = 'microseconds per call'` を全 entry 共通で
+        持っており、ナノ秒の項目（`first_pinvoke_ns`）が 1 つ入った時点で
+        **publish する成果物が嘘をついていた** —— CI の実測は
+        `first_pinvoke_ns = 400 us` と表示していた。
+
+        **混在させて見る。** 片方だけの入力だと、単位を常に片方へ倒す実装でも
+        通ってしまう（このリポジトリが繰り返し潰してきた「常に真になる述語」）。
+    #>
+    Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+    $mixed = New-ResultXml 'mixed.xml' @('OCVU_BENCH: copy_to_buffer=42', 'OCVU_BENCH: first_pinvoke_ns=400')
+    & pwsh -NoProfile -File $script -XmlPath $mixed -OutPath $out 2>&1 | Out-Null
+    Assert-That ($LASTEXITCODE -eq 0) 'a payload mixing microsecond and nanosecond keys is accepted'
+    $mixedJson = if (Test-Path -LiteralPath $out) { Get-Content -LiteralPath $out -Raw | ConvertFrom-Json } else { $null }
+    Assert-That ($null -ne $mixedJson) 'the mixed payload was written (読めなければ以下は空振りする)'
+    if ($null -ne $mixedJson) {
+        Assert-That ($mixedJson.results.first_pinvoke_ns.unit -eq 'nanoseconds per call') `
+            "a key ending in _ns is published as nanoseconds (saw '$($mixedJson.results.first_pinvoke_ns.unit)')"
+        Assert-That ($mixedJson.results.copy_to_buffer.unit -eq 'microseconds per call') `
+            "a key without _ns is published as microseconds (saw '$($mixedJson.results.copy_to_buffer.unit)')"
+        # **全 entry 共通の unit を持たないこと。** これが在ると、entry ごとの
+        # 単位より強い信号として読まれ、単位の違う項目が入った瞬間に嘘になる。
+        # **プロパティの有無で見る。** Set-StrictMode の下では、無い
+        # プロパティを読むと例外になる —— 「$null と等しい」では検査に
+        # ならず、走らせた側が落ちるだけである（実測）。
+        Assert-That (($mixedJson.PSObject.Properties.Name) -notcontains 'unit') `
+            'the payload has no single top-level unit (entry ごとの単位より強い信号を置かない)'
+    }
 
     # --- **key の書き方がずれると落ちること（レビュー I-2）。** ---
     # `OCVU_BENCH:` の行は在る（既存の 2 つの門はどちらも満たす）のに、
@@ -73,6 +126,28 @@ try {
         Assert-That (-not (Test-Path -LiteralPath $out)) `
             "nothing is published when no key=value could be parsed ($($shape.What))"
     }
+
+    <#
+        **扱えない単位の接尾辞は落ちること。**
+
+        規約（`_ns` ならナノ秒、それ以外はマイクロ秒）を守っているのは
+        publish する側だけで、`OCVU_BENCH:` を出す C# 側には強制が無い。
+        `*_ms` を足した日に、**1000 倍ずれた数字がマイクロ秒として世に出る。**
+    #>
+    foreach ($bad in @('copy_to_buffer_ms', 'startup_sec')) {
+        Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+        $xml = New-ResultXml ('unit-' + [guid]::NewGuid().ToString('N') + '.xml') @("OCVU_BENCH: $bad=42")
+        & pwsh -NoProfile -File $script -XmlPath $xml -OutPath $out 2>&1 | Out-Null
+        Assert-That ($LASTEXITCODE -ne 0) "a key with an unhandled unit suffix ($bad) is rejected"
+        Assert-That (-not (Test-Path -LiteralPath $out)) "nothing is published for $bad"
+    }
+
+    # **正当な key は落とさない。** 拒む形が広すぎると、実在の key
+    # （`texture2d_to_mat` は `_mat` で終わる）まで巻き込む。
+    Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+    $legit = New-ResultXml 'legit.xml' @('OCVU_BENCH: texture2d_to_mat=42', 'OCVU_BENCH: first_pinvoke_ns=7')
+    & pwsh -NoProfile -File $script -XmlPath $legit -OutPath $out 2>&1 | Out-Null
+    Assert-That ($LASTEXITCODE -eq 0) 'real keys are not caught by the unit-suffix guard'
 
     # --- 0 マイクロ秒は publish しない（既存の門） ---
     $zero = New-ResultXml 'zero.xml' @('OCVU_BENCH: copy_to_buffer=0')

@@ -101,8 +101,21 @@ public class BenchmarkRunner
 
         Assert.Greater(version, 0, "ABI version が取れていない");
 
-        long micros = sw.ElapsedTicks * 1_000_000L / Stopwatch.Frequency;
-        TestContext.WriteLine($"OCVU_BENCH: first_pinvoke={micros}");
+        // **ここだけナノ秒で出す。** マイクロ秒では CI の Linux Player で
+        // **実測 0 になった**（run 34612557397）。収集する側
+        // （tools/run-benchmarks.ps1）は 0 を「測定が効いていない」として
+        // 落とすので、そのままでは benchmark を CI で集められない。
+        //
+        // **0 が出たのは測定が壊れていたからではない。** 上の docstring が
+        // 書いているとおり、この assembly の別のテストが先に同じ P/Invoke を
+        // 呼んでいるので、ここで測っているのは**既に読み込まれた後の
+        // 1 回の呼び出し**であり、それは 1 マイクロ秒に満たない。
+        // **分解能が足りないだけで、値そのものは正しい。**
+        //
+        // 単位をキー名に書く —— 他の項目はマイクロ秒なので、
+        // 名前で区別できないと latest.json を読む人が桁を取り違える。
+        long nanos = sw.ElapsedTicks * 1_000_000_000L / Stopwatch.Frequency;
+        TestContext.WriteLine($"OCVU_BENCH: first_pinvoke_ns={nanos}");
         yield return null;
     }
 

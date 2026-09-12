@@ -3,8 +3,8 @@ using System.Reflection;
 using NUnit.Framework;
 
 /// <summary>
-/// [Category("Graphics")] が付いたテストの集合を、CI から見えないテストの
-/// 台帳として名指しで固定する（M7a Task 2 のレビュー指摘）。
+/// [Category("Graphics")] が付いたテストの集合を、**merge を止めないレーンに
+/// しか居ないテスト**の台帳として名指しで固定する（M7a Task 2 のレビュー指摘）。
 ///
 /// **`Graphics` と `!Graphics` は補集合なので、実行時の和集合は常に完全である。**
 /// `test-unity-editmode` と `test-unity-tarball` が `-testCategory '!Graphics'`、
@@ -12,16 +12,27 @@ using NUnit.Framework;
 /// 自体に穴は無い（`!Graphics` 側が 2 レーンに増えても、補集合の性質は
 /// 変わらない）。
 ///
-/// **本当の穴は「一方のレーン（graphics）が CI に配線されていない」ことである。**
-/// `test-unity-graphics` はローカル専用で、`ci-unity.yml` からは呼ばれない。
-/// つまり `[Category("Graphics")]` を付けた瞬間、そのテストは CI から
-/// 完全に見えなくなる —— 誰も赤くならない。
+/// **本当の穴は「一方のレーン（graphics）の側が弱いこと」である。**
 ///
-/// **この一覧は「CI で走らない EditMode のテスト」である。** ここに
-/// 載っているものは CI から見えない。**列挙そのものが契約である** ——
-/// 短いほうがよく、伸びたときに人が気づくべきものだから、あえて名前で持つ。
-/// graphics レーンを CI に配線できたら、この一覧は空にでき、そのとき
-/// この検査ごと消してよい。
+/// **2026-09-11 に穴は 1 段小さくなった。** それまで `test-unity-graphics` は
+/// ローカル専用で `ci-unity.yml` からは呼ばれず、`[Category("Graphics")]` を
+/// 付けた瞬間そのテストは **CI から完全に見えなくなっていた**。いまは
+/// `ci-unity.yml` に `Graphics` レーンが在るので、CI は見る。
+///
+/// **しかし `Unity Graphics (Linux)` は必須チェックではない。** したがって
+/// `[Category("Graphics")]` を付ける行為は、いまも **必須レーン
+/// （`Unity EditMode (Linux)`）から、赤くても merge を止めないレーンへ
+/// そのテストを無言で移す。** 「CI から消える」から「CI が止めなくなる」に
+/// 程度が下がっただけで、**性質は残っている** ——
+/// `CLAUDE.md` の「CI が『見ている』ことと『止める』ことは別である」。
+///
+/// **この一覧は「merge を止めないレーンにしか居ない EditMode のテスト」である。**
+/// **列挙そのものが契約である** —— 短いほうがよく、伸びたときに人が
+/// 気づくべきものだから、あえて名前で持つ。**`Unity Graphics (Linux)` を
+/// 必須チェックへ昇格できたら、この一覧は空にでき、そのときこの検査ごと
+/// 消してよい** —— 削除の条件は「CI に配線されること」ではなく
+/// **「merge を止めるようになること」**である（2026-09-11 に、配線だけを
+/// 根拠に 1 度消してレビューに差し戻された）。
 ///
 /// **走査するのはこの assembly（EditMode）だけである。** 他の test
 /// assembly に `[Category("Graphics")]` が付いても、ここは気づかない ——
@@ -40,7 +51,9 @@ public class CiVisibilityTests
 {
     private const string GraphicsCategoryName = "Graphics";
 
-    /// <summary>[Category("Graphics")] を持つ（= CI から見えない）テストの全量。</summary>
+    /// <summary>
+    /// [Category("Graphics")] を持つ（= merge を止めないレーンにしか居ない）テストの全量。
+    /// </summary>
     private static readonly string[] ExpectedGraphicsOnlyTests =
     {
         "GraphicsTests.AGraphicsDeviceIsPresent",
@@ -89,8 +102,8 @@ public class CiVisibilityTests
 
         Assert.IsEmpty(unexpectedlyGraphicsOnly,
             "一覧に無いものが増えた —— 新たに [Category(\"Graphics\")] が付き、" +
-            "CI から見えなくなったテスト: " + string.Join(", ", unexpectedlyGraphicsOnly) +
-            "。CI から消えてよいなら ExpectedGraphicsOnlyTests に追記すること。");
+            "必須レーンから外れたテスト: " + string.Join(", ", unexpectedlyGraphicsOnly) +
+            "。merge を止めないレーンへ移してよいなら ExpectedGraphicsOnlyTests に追記すること。");
 
         Assert.IsEmpty(noLongerGraphicsOnly,
             "一覧にあるものが消えた —— [Category(\"Graphics\")] が外れたか、" +

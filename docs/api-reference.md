@@ -957,9 +957,10 @@ CPU から読むには GPU → CPU の転送が要る。
 
 **`-nographics` では動かない。** `RenderTexture.Create()` は true を返すが、
 `ReadPixels` / readback が返す画素は描画結果ではなく `205,205,205` になる
-（実測。詳細は [性能](./performance.md)）。この経路を検証するローカル専用の
-`test-unity-graphics` レーンは `-nographics` を付けずに走り、**CI には
-配線していない。**
+（実測。詳細は [性能](./performance.md)）。この経路を検証するレーンは
+`-nographics` を付けずに走る —— ローカルの `test-unity-graphics` と、
+**2026-09-11 に足した CI の `Graphics` レーン**（`ci-unity.yml`）である。
+**ただし後者は必須チェックではないので、赤くても merge は止まらない。**
 
 ### 2.17 `CvUnity.Dnn.CvDnn` / `CvNet`（M7c で追加、`dnn` profile）
 
