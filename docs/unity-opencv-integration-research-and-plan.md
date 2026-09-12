@@ -172,7 +172,7 @@ Unity 6 の managed plug-in サポート表では、.NET Standard と .NET Frame
 2026-08-29 時点の対応範囲。**機能の総数で競わない**方針（§7）は変えないが、
 **何が無いかを数えずに「競わない」と言うのは、単に知らないのと区別がつかない。**
 
-| 種別 | OpenCV for Unity | 本案（**この表は M3.5 時点の記録である**。その後 v0.3.0（2026-09-04）まで公開し、M4 / M5 / M6 の成果は届いている。**最新の公開版は `docs/roadmap.md` の「配布」の節が正本**） |
+| 種別 | OpenCV for Unity | 本案（**この表は M3.5 時点の記録である**。その後 v0.4.0（2026-09-12）まで公開し、M4 以降 M7 までの成果はすべて届いている。**最新の公開版は `docs/roadmap.md` の「配布」の節が正本**） |
 | --- | --- | --- |
 | モジュール | **30 以上**（`dnn` / `photo` / `ml` / `video` / `videoio` / `tracking` / contrib 各種を含む） | **数も一覧もここに写さない** —— OpenCV としてビルドしている module の正本は `tools/opencv-config.psd1` の `Modules`、プラグインがリンクしている module の正本は `cmake/FindOpenCvUnityDeps.cmake` の `COMPONENTS` である（**写していた頃は実際に古くなった**: M7c が `dnn` を両方に足したのに、この行は「ビルド 6 / リンク 8」のままだった）。C ABI に出ているのはさらにその一部で、**本数を数える正本は [API 対応表](./api-map.md) の冒頭**である |
 | platform | Windows / macOS / Linux / Android / iOS / WebGL / UWP / ChromeOS / visionOS beta | **この行は M3.5 時点の記録**（Windows / macOS / Linux）。**その後 M4 で Android / iOS、M6 で Web が加わった** —— 現況は [ロードマップ](./roadmap.md) が持つ |
@@ -216,8 +216,7 @@ platform ごとの tarball のうち 1 つを選んで公開すれば、`openupm
 落ちるところを見られるようにするためである** —— 既定値のままでは現状の配布物が上限まで
 大きく余裕があり、この検査が働くところを誰も確かめられない。**検査は packer に置いた**
 （呼ぶ側が `release.yml` と `dev.ps1 test-unity-tarball` の 2 つあり、片方に置くと
-もう片方が素通しする）。**全部入りの tarball は 9.6 MB**（2026-08-30、CI 実測。内訳は下記）なので、
-**効いてくるのは DNN や contrib を含む profile を配る段階（M7）である。**
+もう片方が素通しする）。**全部入りの tarball は 9.6 MB**（2026-08-30、CI 実測。内訳は下記）だった。**その段階は M7 で来た** —— `dnn` を足した v0.4.0（2026-09-12 公開）の全部入りは約 74 MB である。**ただし実際に発火したのはこの 512 MB ではなく、`release.yml` が配る package に掛ける 100 MB のほうである**（PR #72。原因は `dnn` ではなく Android の `.so` に積もっていたデバッグ情報で、strip して解消した —— 実測は [ロードマップ](./roadmap.md) の「dnn の配布の形」）。
 
 **(2) 版番号を含まない安定した接頭辞の asset 名。** 全部入りの名前を
 `com.ayutaz.opencv-unity-native.tgz` にした（版番号なし）。platform ごとの tarball は

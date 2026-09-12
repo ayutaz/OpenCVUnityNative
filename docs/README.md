@@ -56,7 +56,7 @@
 
 ## Status
 
-M0〜M3.5 は完了しました（**M3.5 は完了条件 6 件すべてを 2026-08-30 に満たしました**。判定は roadmap の M3.5 節が正本）。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29）を公開しました**（**その後 v0.2.0 / v0.3.0 と重ね、現在の最新は v0.3.0（2026-09-04、6 platform）です**）。**M3.5 の成果は v0.2.0 で、M4 / M5 / M6 の成果は v0.3.0 で配りました。M7 の成果はまだ配っていません** —— 最新の公開版は v0.3.0 で、`dnn` を含む M7 の成果が利用者に届くのは次の版からです。
+M0〜M3.5 は完了しました（**M3.5 は完了条件 6 件すべてを 2026-08-30 に満たしました**。判定は roadmap の M3.5 節が正本）。M2（Windows vertical slice）は 8 件、M3（Desktop 3 platform と配布の再現性）は 6 件の完了条件をすべて実測で満たし、**v0.1.0（2026-08-28）と v0.1.1（2026-08-29）を公開しました**（**その後 v0.2.0 / v0.3.0 / v0.4.0 と重ね、現在の最新は v0.4.0（2026-09-12、6 platform）です**）。**M3.5 の成果は v0.2.0 で、M4 / M5 / M6 の成果は v0.3.0 で、M7（`dnn` の opt-in profile ほか）と 2026-09 の API 拡張の成果は v0.4.0 で配りました。**
 
 M2 の最後に残っていた条件 7（CI 上で L4/L5 を実行）は、game-ci でランナーへの Unity 導入とライセンスのアクティベーションを行い、Linux で走らせることで満たしました。**その過程で、公開済み v0.1.0 の Linux 版が古い環境で読み込めない欠陥が判明しました** —— ubuntu-24.04 でビルドした `.so` が GLIBC_2.38 を要求していたためで、Unity を CI で実際に動かすまで誰も気づけませんでした。Linux のビルドを `ubuntu:22.04` コンテナへ移し、要求を 2.34 に下げたうえで、ビルド時点で上限を検査するようにしています。
 
@@ -64,7 +64,7 @@ M3（Desktop 3 platform と配布の再現性）は、roadmap の完了条件 6 
 
 M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完了条件 **6 件すべてを満たしました**（2026-08-30）。**v0.2.0 を公開し、OpenUPM にも登録されています。****CI は green で main に入りました**（PR #34、`41cda19`、2026-08-29。チェックの内訳と Unity レーンの実測は roadmap の M3.5 節にあります）。
 
-**最後に閉じたのは条件 3 と、条件 4 の (c)（OpenUPM の登録申請）です。** 条件 3 について: M3.5 の時点では「満たすが未実証」で、**自動で走る唯一の場所（`ci-unity.yml`）に Linux の plugin 1 つしか無く、6 件が要素 1 個の集合を検査して緑になっていました**。PR #37 で `ci-unity` が windows / macOS の plugin も自分でビルドして重ねる形にし、**CI が 3 platform 同居の状態で `native plugins present: 3` と gating 4 件の個別 Passed を出しました**（run 33290375806）。条件 4 の (c) は **v0.2.0 を公開し、openupm/openupm へ提出して受理されました**（PR #6843。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が `0.2.0` を配信しています）。
+**最後に閉じたのは条件 3 と、条件 4 の (c)（OpenUPM の登録申請）です。** 条件 3 について: M3.5 の時点では「満たすが未実証」で、**自動で走る唯一の場所（`ci-unity.yml`）に Linux の plugin 1 つしか無く、6 件が要素 1 個の集合を検査して緑になっていました**。PR #37 で `ci-unity` が windows / macOS の plugin も自分でビルドして重ねる形にし、**CI が 3 platform 同居の状態で `native plugins present: 3` と gating 4 件の個別 Passed を出しました**（run 33290375806）。条件 4 の (c) は **v0.2.0 を公開し、openupm/openupm へ提出して受理されました**（PR #6843。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が**当時 `0.2.0` を配信していました**）。
 
 以下のローカルの数字はこのマシン（Windows）での 2026-08-30 の実測です。
 
@@ -76,7 +76,7 @@ M3.5（配布の形と、実用に必要な最小の穴）は、roadmap の完�
 
 `imgcodecs` は **M3.5 で初めてリンクされました**。それまで `cmake/FindOpenCvUnityDeps.cmake` は `COMPONENTS core imgproc` だけで、リポジトリ内の複数箇所にあった「モジュールはリンク済み」という記述は**誤り**でした。誤解の出どころも記録しておきます: `tools/opencv-config.psd1` の `Modules` には `imgcodecs` が入っているので **OpenCV 自体はそれを含めてビルドされており**、`ocvu_get_build_information()` も `To be built: … imgcodecs …` と報告します。**「OpenCV に入っている」と「このプラグインがリンクしている」は別です。** 気づいたのは CMake を読んだからではなく、実装を書いた時点で `cv::imencode` / `cv::imdecode` が未解決の外部シンボルになったからです。C ABI に `ocvu_imencode` / `ocvu_imdecode` が加わり、公開 ABI は 18 本から 20 本、allowlist は 9 本から 11 本になりました。**扱うのはメモリ上の byte 列だけで、ファイルパスは受けません**（理由は [所有権と versioning](./abi-ownership-and-versioning.md) §1.6）。
 
-検証する Unity は 6000.0 から **6000.3 LTS（6000.3.16f1）** へ載せ替えました（6000.0 の通常サポートが 2026-10 に終わるためです）。6.3 で EditMode と IL2CPP Player が通っています（**件数はここに書きません** —— 正本は `CLAUDE.md` のテストレーンの表で、写すと検査を 1 件足した日にこの行だけが嘘になります。実際 M3.5 / M4 / M5 / 2026-09 の API 拡張で 4 度動きました） —— **IL2CPP モジュールは Hub の CLI で先に入れる必要がありました**（入っていない状態では Player のビルドが「Currently selected scripting backend (IL2CPP) is not installed」で落ちます）。OpenUPM への登録は**提出し、受理されました**（openupm/openupm PR #6843、2026-08-30 に自動マージ。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が 0.2.0 を配信しています。詳細は [OpenUPM への登録](./openupm-registration.md)）。詳細は roadmap の M3.5 節にあります。
+検証する Unity は 6000.0 から **6000.3 LTS（6000.3.16f1）** へ載せ替えました（6000.0 の通常サポートが 2026-10 に終わるためです）。6.3 で EditMode と IL2CPP Player が通っています（**件数はここに書きません** —— 正本は `CLAUDE.md` のテストレーンの表で、写すと検査を 1 件足した日にこの行だけが嘘になります。実際 M3.5 / M4 / M5 / 2026-09 の API 拡張で 4 度動きました） —— **IL2CPP モジュールは Hub の CLI で先に入れる必要がありました**（入っていない状態では Player のビルドが「Currently selected scripting backend (IL2CPP) is not installed」で落ちます）。OpenUPM への登録は**提出し、受理されました**（openupm/openupm PR #6843、2026-08-30 に自動マージ。`https://package.openupm.com/com.ayutaz.opencv-unity-native` が**当時 0.2.0 を配信していました**。詳細は [OpenUPM への登録](./openupm-registration.md)）。詳細は roadmap の M3.5 節にあります。
 
 M5（binding specification と generator）は**完了条件 5 件すべてを満たしました**（2026-09-02。判定表は roadmap の M5 節が正本）。境界の宣言を手で書く経路が無くなり、`bindings/spec/*.json` の entry から **C ABI 宣言 / C# の P/Invoke / 全 entry point を呼ぶ到達性テスト / [API 対応表](./api-map.md)** が `./tools/dev.ps1 generate` で出るようになりました（**本数は上に書いたとおり対応表の冒頭が数えます**）。**手書きの `[DllImport]` は 0 個です。** 一致は `./tools/dev.ps1 verify-generated` が見て、これは `dev.ps1 test` に入っているので 3 platform の CI が走らせます。**条件 2（`geometry` / `calib` / `features` / `objdetect` の追加）は当初は次へ送りましたが、続く 3 つの計画で閉じました** —— `objdetect`（QR の符号化・復号）と `features`（ORB 検出）、`geometry`（射影変換の推定。**リンクは無料でした** —— 既に推移的に引かれていました）、カメラの歪み補正、そして **`calib` module と `cv::calibrateCamera`**（2026-09-02）。**最後の 1 つだけが高く**、構成ハッシュが変わって 5 platform 分の OpenCV を作り直しました。**これでカメラ校正の 3 段（格子点を見つける / 係数を解く / 係数で補正する）が揃っています。** 詳細は roadmap の M5 節。**M4（Mobile）は依然として完了していません**（9 件中 6 件。詳細は roadmap の M4 節）。
 
@@ -95,13 +95,15 @@ WebGL 支援が自前の libpng を同梱しているためです。他の 5 pla
 （**数はここに写しません** —— ABI が 1 本増えるたびに動くので、roadmap の
 M6 節が持ちます）。**ただし動かしているブラウザはそれ 1 つだけ**です。
 
-**利用者に届いているのは v0.3.0 です（2026-09-04 公開）。**
+**利用者に届いているのは v0.4.0 です（2026-09-12 公開）。** その 1 つ前が v0.3.0（2026-09-04 公開）で、
 **M4（5 platform）・M5（生成器と校正 API）・M6（Web）の成果が、これで初めて
 届きました** —— v0.2.0 以来です。**版番号は当初「v0.3.0 を飛ばして v0.4.0」と
 決めていましたが覆しました** —— v0.3.0 という名前で世に出た物が 1 つも無いことを
 実測したためで、2026-08-31 の下書き（生成物が 1 つも入っていない）と tag は
 破棄して打ち直しました。配布の記録は
-[ロードマップ](./roadmap.md) の「配布 その 5」にあります。
+[ロードマップ](./roadmap.md) の「配布 その 5」に、v0.4.0 のそれは「配布 その 6」にあります。
+
+**v0.4.0 で初めて届いたのは、M7（`dnn` の opt-in profile / `RenderTexture` の低コピー経路 / native と C# の module 分離）と 2026-09 の API 拡張です。** **退行が 1 つ入っています** —— PNG の encode / decode が Android・iOS・macOS arm64 で ARM 加速を失いました（上流 OpenCV 5.0.0 の vendoring の欠陥を避けるための取引で、JPEG と `core` / `imgproc` の SIMD には触れていません）。**実機で一度も動かしていないことは、この版でも変わりません。**
 
 M7（Optional profiles と性能）は**完了条件 5 件すべてを満たしました**（2026-09-10）。
 **M7 が最後のマイルストーンで、後続はありません** —— roadmap の `## M` 見出しは

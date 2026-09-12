@@ -4,7 +4,7 @@ OpenCV 5 for Unity through a project-owned C ABI, distributed as a reproducible 
 
 [日本語](README.ja.md)
 
-> **Status: v0.3.0 is the newest published release (2026-09-04), and the repository is now well ahead of it.** Everything below describes the repository, not that release. **v0.3.0 is tag `03a4557`, which predates both the September API expansion and all of M7** — so the gap is not a short list of features, it is everything merged since. The one number that is generated at both ends: `docs/api-map.md` lists **27 public C ABI functions at v0.3.0 and 57 here**. On the C# side `CvAruco`, `CvCoreOps`, `CvStereo`, `CvDnn` and `RenderTextureConverter` do not exist at that tag at all, so setting `OCVU_PROFILE_DNN` against v0.3.0 defines a symbol with nothing behind it. **What has actually shipped is recorded in the "配布" sections of the [roadmap](docs/roadmap.md)** — that, not this paragraph, is the source of truth for it. It is the first release with six platforms — Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS arm64 and Web/WebGL — the first with a generated binding layer, and the first with camera calibration. Every platform is built, tested and packaged by CI; Unity itself exercises the plugin on Mono (EditMode), a real IL2CPP player, and a headless browser. **Some honest limits.** **Android and iOS have never been run on a device** — CI cross-compiles them and inspects the artifacts, but no phone has loaded these binaries. **Web has no PNG**: `imgcodecs` there decodes and encodes JPEG only (see below), and the browser it was driven in is one headless Chromium on Linux. **Unity has never been run on macOS at all**, though its plugin settings are verified by asking Unity itself on other systems. The public C ABI is deliberately narrow, because the point was getting ownership, stride, error handling, IL2CPP and platform gating right rather than covering surface area. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
+> **Status: v0.4.0 is the newest published release (2026-09-12).** Everything below describes the repository, which matches that release apart from documentation edited after the tag was cut. **v0.4.0 is the first release to carry the September 2026 API expansion and all of M7.** The one number that is generated at both ends: `docs/api-map.md` counted **27 public C ABI functions at v0.3.0 and 57 at v0.4.0**. On the C# side `CvAruco`, `CvCoreOps`, `CvStereo`, `CvDnn` and `RenderTextureConverter` did not exist at v0.3.0 at all and are in the package you download now; if you are still on v0.3.0, setting `OCVU_PROFILE_DNN` there defines a symbol with nothing behind it. **What has actually shipped is recorded in the "配布" sections of the [roadmap](docs/roadmap.md)** — that, not this paragraph, is the source of truth for it. It carries six platforms — Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS arm64 and Web/WebGL — and is the first release with opt-in ONNX inference (`dnn`), ArUco markers, pose estimation, stereo disparity and the `RenderTexture` integration; six platforms, the generated binding layer and camera calibration first shipped in v0.3.0. Every platform is built, tested and packaged by CI; Unity itself exercises the plugin on Mono (EditMode), a real IL2CPP player, and a headless browser. **Some honest limits.** **Android and iOS have never been run on a device** — CI cross-compiles them and inspects the artifacts, but no phone has loaded these binaries. **Web has no PNG**: `imgcodecs` there decodes and encodes JPEG only (see below), and the browser it was driven in is one headless Chromium on Linux. **Unity has never been run on macOS at all**, though its plugin settings are verified by asking Unity itself on other systems. **`dnn` has never been run on a device either, and its inference speed has not been measured.** Two things changed for the worse in v0.4.0 and are worth knowing before you upgrade: **PNG lost its ARM acceleration on Android, iOS and macOS arm64** (see *Platforms*), and **the Android `.so` now ships stripped of its symbol table**, so a native crash on Android cannot be symbolicated — no debug package is published anywhere. The public C ABI is deliberately narrow, because the point was getting ownership, stride, error handling, IL2CPP and platform gating right rather than covering surface area. **If you are on Linux, take v0.1.1 or later:** the Linux plugin in v0.1.0 required glibc 2.38 and would not load on Ubuntu 22.04.
 
 ## What this is
 
@@ -40,7 +40,7 @@ gated rather than exercised.
 both, checks the Android `.so` for 16 KB page alignment against the real ELF program
 headers, and confirms the iOS `.a` actually bundles the OpenCV symbols this plugin
 references. **None of that is the same as running on a phone.** No Android or iOS device
-has ever loaded these binaries. **They are in v0.3.0, so they reach users today**;
+has ever loaded these binaries. **They have shipped since v0.3.0 and are in v0.4.0, so they reach users today**;
 treat them as unverified until someone runs
 [the device checklist](docs/m4-device-verification.md).
 
@@ -55,7 +55,7 @@ fail to link on undefined ones. Neither extreme works, so the Web build has PNG 
 off. Every other platform has both.
 
 **PNG decoding lost its ARM acceleration on Android, iOS and macOS** (not just Web).
-**This is not in v0.3.0; it takes effect from the next release.**
+**This shipped in v0.4.0; v0.3.0 and earlier are unaffected.**
 Working around an upstream OpenCV 5.0.0 defect required turning off `PNG_ARM_NEON` on
 those three arm64 platforms, which drops both the hand-written assembly kernel and the
 NEON intrinsics path — they share the same build switch. This affects every `CvCodecs`
@@ -68,10 +68,7 @@ Unity 6000.3 or newer throughout.
 
 Releases live at
 [github.com/ayutaz/OpenCVUnityNative/releases](https://github.com/ayutaz/OpenCVUnityNative/releases).
-**The published release (v0.3.0) carries all six platforms**: `Mat` lifecycle,
-`cvtColor` / `resize` / `GaussianBlur`, encoding/decoding images to and from byte
-arrays in memory, QR encode/decode, ORB keypoints, homography estimation, and the
-three stages of monocular camera calibration. The ABI takes no file paths at all —
+**The published release (v0.4.0) carries all six platforms**: `Mat` lifecycle, `cvtColor` / `resize` / `GaussianBlur` plus the wider `imgproc` set (thresholding, Canny, morphology, perspective transform and warp, template matching, contours, probabilistic Hough lines, sub-pixel corners), the core array operations, encoding/decoding images to and from byte arrays in memory, QR encode/decode, ArUco markers, ORB keypoints and descriptor matching, homography and pose estimation, the three stages of monocular camera calibration, stereo disparity, and — only when you set `OCVU_PROFILE_DNN` — ONNX inference. The ABI takes no file paths at all —
 only byte buffers. That is on purpose: a `StreamingAssets` file inside an Android APK
 has no path that can be opened, and a path crossing this boundary would drag Windows
 text encoding along with it.
@@ -189,8 +186,7 @@ every release, so they are not repeated here.
 
 ### Optional profiles: dnn
 
-**Not in v0.3.0 — this ships in the next release.** Setting `OCVU_PROFILE_DNN`
-against v0.3.0 defines a symbol with nothing behind it.
+**New in v0.4.0.** Against v0.3.0 or earlier, setting `OCVU_PROFILE_DNN` defines a symbol with nothing behind it.
 
 The native binary always contains OpenCV's `dnn` module (ONNX loading, blob
 conversion, and forward inference) — it is not split into a separate binary,
@@ -350,7 +346,7 @@ it"; the two are not the same thing.
 
 **The GPU half of the `RenderTexture` API is now exercised, in the Editor only.**
 `RenderTextureConverter.ToMat` and `RequestMat` are public API in the package
-(from the next release — see *Status*). Until 2026-09-11 the code path that
+(since v0.4.0 — see *Status*). Until 2026-09-11 the code path that
 actually moves pixels had never run in CI, on the assumption that it could not:
 every CI Unity lane was believed to run with `-nographics`, where `RenderTexture`
 creation succeeds but the pixels read back are not the ones you drew. **That

@@ -56,14 +56,26 @@ M3.5 で 2 つの前提が揃った。
 ```yaml
 name: com.ayutaz.opencv-unity-native
 displayName: OpenCV Unity Native
-description: OpenCV 5 for Unity through a project-owned C ABI. Apache-2.0.
+description: >-
+  OpenCV 5 for Unity through a project-owned C ABI. Ships prebuilt native
+  binaries for Windows x64, macOS arm64, Linux x64, Android arm64-v8a, iOS
+  arm64 and Web (WebGL) in a single package, so one dependency covers the
+  editor and the build target.
+
+
+  Not a wrapper around OpenCvSharp. The C ABI is versioned, IL2CPP-safe and
+  built reproducibly by CI; ownership, stride and error handling are contract
+  tested. Requires Unity 6000.3 or newer.
 repoUrl: 'https://github.com/ayutaz/OpenCVUnityNative'
 parentRepoUrl: null
 licenseSpdxId: Apache-2.0
 licenseName: Apache License 2.0
+# **この 2 つは提出前に差し替えてある。** `computer-vision` と `native` は
+# どちらも OpenUPM に存在しない slug で（正本は openupm/openupm の
+# `data/topics.yml`）、そのままでは Data validation に弾かれていた。
 topics:
-  - computer-vision
-  - native
+  - integration
+  - utilities
 hunter: ayutaz
 image: null
 gitTagPrefix: 'v'
