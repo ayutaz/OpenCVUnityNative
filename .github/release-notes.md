@@ -42,7 +42,13 @@ Git URL で参照しても `.meta` しか届かず、`DllImport` が実行時に
 
 **ONNX の推論は opt-in である。** 既定では C# の API が存在しない。使うには
 **Project Settings → Player → Other Settings → Scripting Define Symbols** に
-`OCVU_PROFILE_DNN` を足す。
+`OCVU_PROFILE_DNN` を足す。**Unity の define は build target ごとに持つので、
+対象にする platform すべてに足すこと** —— エディタの platform にだけ足すと、
+Editor では動くのに Android や iOS のビルドで `CvDnn` が見つからなくなる。
+
+`package.json` の `versionDefines` では自動化できない。あの仕組みは
+**別の package が在ること**を条件に define を立てるものだが、`dnn` は
+この package の中に在るので、条件にするものが無い。**利用者が自分で立てる。**
 
 **native の binary は既定で `dnn` を含んでいる** —— 切っているのは C# 側の
 assembly（`CvUnity.Interop.Dnn` / `CvUnity.Dnn`）だけである。したがって
@@ -129,14 +135,23 @@ package の**中身**を対象にしているので、展開後に使う。`SHA2
   反転を切る引数は無い** —— `Texture2D` へ戻すなど反転が不要な用途では、
   呼ぶ側で戻すことになる
 
-**Android の `.so` からデバッグ情報を落とした。** `llvm-strip --strip-unneeded`
-で **258,995,040 → 24,385,832 バイト**になり、全部入り tarball は
-**124,102,343 → 77,528,652 バイト**（v0.3.0 の実物は 69,565,901 バイト）。
-`.dynsym` は残るので動作には影響しないが、**`.symtab` / `.strtab` が無いので、
-実機で native crash が起きても関数名を復元できない** ——
-**symbolicate 用の debug package はどこにも発行していない。**
-**Android は実機で一度も動かしていない**ので、最初に crash を踏むのは
-利用者である可能性が高い。他の 5 platform は変えていない。
+**Android の `.so` からデバッグ情報を落とした。**
+**これは「dnn を足したら重くなったので削った」ではない** ——
+**v0.3.0 まで、Android の `.so` はデバッグ情報を積んだまま配られていた**
+（99,463,016 バイトのうち **82% が `.debug_*`**）。`dnn` はそれを配布上限の
+向こう側へ押し出しただけで、原因ではない。
+
+`llvm-strip --strip-unneeded` で **258,995,040 → 24,385,832 バイト**になり、
+全部入り tarball は **124,102,343 → 77,528,652 バイト（約 74 MB）**に収まった。
+**v0.3.0 の実物は 69,565,901 バイト（66 MB）**なので、`dnn` をまるごと足しても
+見かけの増加が 8 MB で済んでいるのは、この strip が相殺しているからである。
+
+**代償は明確である。** `.dynsym` は残るので動作と 16 KB page size への対応には
+影響しないが、**`.symtab` / `.strtab` が無いので、実機で native crash が起きても
+関数名を復元できない**（`ndk-stack` や Crashlytics の native シンボル化が効かない）。
+**symbolicate 用の debug package はどこにも発行していないので、利用者が自分で
+取り戻す経路も無い。** **Android は実機で一度も動かしていない**以上、最初に
+crash を踏むのは利用者である可能性が高い。他の 5 platform は変えていない。
 
 **性能の実測値をこの版から公開している** —— 境界のコピー、`Texture2D` /
 `RenderTexture` の経路、起動時間を、開発機と CI の 2 つの環境で測った数字が
@@ -168,7 +183,10 @@ x64 と Web には要らないので入れていない。上流が 5.1 で直せ
 ステレオの平行化（`stereoRectify`）、視差から 3D への復元（`reprojectImageTo3D`）、
 `knnMatch` / `radiusMatch`、FLANN ベースの照合、輪郭の階層、`connectedComponents`、
 `remap`、`equalizeHist`、`calcHist`、描画関数、Haar / HOG（OpenCV 5 で contrib へ移った）、
-動画入出力、GPU backend（CUDA / cuDNN は**同梱しないと決めてある**）。
+動画入出力、GPU backend。**CUDA / cuDNN は同梱しないと決めてあるが、
+決め手は大きさ 1 点である** —— 1 platform 分の cuDNN だけで配布上限を超えるので
+結論が出てしまい、**再配布条件（ライセンス）は読んでいない。**
+「確認して問題無かった」ではない。
 
 ## この版で確かめていないこと
 
@@ -188,7 +206,12 @@ N 個ある」は別の数え方で、混ぜると両方が信用できなくな
   推論の速さも測っていない。CI が確かめているのは、C ABI の契約（L1）、
   素の .NET から実物の binary を叩けること（L3）、Unity の中で
   `OCVU_PROFILE_DNN` を立てた assembly がコンパイルされ、**IL2CPP の
-  stripping を生き延びること**までである
+  stripping を生き延びること**までである。
+  **forward が返すメモリを複製している 1 行についても、それが必要だと示す
+  再現テストは無い**（外しても壊れなかったが、確定させる経路がこのリポジトリの
+  構成上無い —— 復元する OpenCV の木にヘッダと lib はあるが実装ソースが無い）。
+  **複製している側なので、返る handle が独立したメモリを持つという契約は
+  成立している** —— 確かめていないのは「その 1 行が無くても成立するか」である
 - **lifecycle（background / foreground）と memory pressure を検証していない**
 - **macOS 上で Unity を起動していない。** macOS の binary と `.meta` は
   全部入りに入って全利用者に届くが、Unity に読ませているのは Windows と Linux 上だけ
@@ -278,3 +301,12 @@ Web は `libpng` の 2 件を欠く（上の PNG の話と同じ理由で、そ�
 全部入りの asset 名に版番号を含めていないのは、OpenUPM の `githubReleaseAssetName` が
 **安定した接頭辞**で asset を選ぶためである。**登録済み**
 （`https://package.openupm.com/com.ayutaz.opencv-unity-native`）。
+
+**ただし Release のほうが先に出る。** OpenUPM は自前のビルドキューを持つので、
+新しい版がそこに現れるまで数時間かかる（前の版では約 4 時間だった）。
+**それまで `openupm add` で入るのは 1 つ前の版**であり、**この本文が説明して
+いる物ではない。** しかもエラーにはならないので、`package.json` を見に行かない
+限り気づかない —— **この版は前の版との差が大きい**（C ABI が 27 本から 57 本、
+`CvDnn` / `CvAruco` / `CvCoreOps` / `CvStereo` / `RenderTextureConverter` が
+まるごと無い）ので、「ここに書いてある `CvDnn` が見当たらない」という形で踏む。
+**出したばかりの版が要るなら、上の tarball を使うこと。**
