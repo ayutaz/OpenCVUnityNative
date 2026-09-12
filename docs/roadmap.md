@@ -72,7 +72,7 @@ public OSS リポジトリのため GitHub-hosted runner を無償で使える�
 | ~~`ci-desktop-matrix.yml`~~ | — | **作らなかった。** 3 platform は `ci-native.yml` の job 追加（`macos` / `linux`）と `ci-sanitizers.yml` の `linux-asan` job で実現した。別ファイルにすると同じ手順が 2 箇所に分かれるため | M3 |
 | ~~`ci-mobile.yml`~~ | —— | **作らなかった。** Android / iOS のクロスビルドは `ci-native.yml` の job として足し、実機 smoke test は CI では原理的に閉じないので `docs/m4-device-verification.md` の手順書に落とした | M4 |
 | ~~`ci-web.yml`~~ | — | ~~Unity 同梱 Emscripten での Wasm ビルドと browser E2E~~ | **作らなかった。** Wasm のクロスビルドは `ci-native.yml` のクロス job、browser E2E は `ci-unity.yml` の `web-e2e` job に置いた。**nightly でもない** —— pull request と push で走る。Player を建てる job を別にしたのは、**Unity Test Framework が WebGL の Player を batchmode から走らせられない**ためで、Unity のレーンとは起動の仕方が根本的に違う |
-| `release.yml` | tag / **pull request**（空撃ち） / `workflow_dispatch` | **全部入りの UPM tarball（配る正）** と platform ごとの tarball、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**staging した数を数え**、全部入りが名前で並んでいることも見る（**件数は platform が増えれば増えるので、実数は `CLAUDE.md` の workflow 表が持つ**）。**pull request でも走るようにしたのは M4 の後**で、tag でしか走らなかった間に欠陥が 3 件たまったためである（うち 1 件は「tag を打つと Release が 1 件も作られない」）。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した。** それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— job を `assemble`（条件なし）と `publish`（job 単位で tag に限る）に割って直した。**実績は 2 つ**: run 33286928144 は条件を最後の step に降ろしただけの形（レビューで取り消した）、run 33289128197 が**いまの 2 job 構成**である。どちらも Release は作られていない。**tag で 2 回実行済み**（v0.1.0 = 2026-08-28、v0.1.1 = 2026-08-29。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
+| `release.yml` | tag / **pull request**（空撃ち） / `workflow_dispatch` | **全部入りの UPM tarball（配る正）** と platform ごとの tarball、manifest / checksums / SBOM / third-party notices と `SHA256SUMS.txt` を GitHub Release へ。**staging した数を数え**、全部入りが名前で並んでいることも見る（**件数は platform が増えれば増えるので、実数は `CLAUDE.md` の workflow 表が持つ**）。**pull request でも走るようにしたのは M4 の後**で、tag でしか走らなかった間に欠陥が 3 件たまったためである（うち 1 件は「tag を打つと Release が 1 件も作られない」）。**全部入りには SBOM と build-manifest を付けない** —— どちらも復元済みの OpenCV artifact から作るので、束ねる job には元が無く、混ぜた版を捏造しない。**M3.5 が足した配線（全部入りの組み立て・17 件の staging・SHA256SUMS）は 2026-08-30 の空撃ちで初めて通した。** それまで空撃ちは publish job を丸ごと飛ばしており、**束ねる側は tag を打つまで 1 行も動かなかった** —— job を `assemble`（条件なし）と `publish`（job 単位で tag に限る）に割って直した。**実績は 2 つ**: run 33286928144 は条件を最後の step に降ろしただけの形（レビューで取り消した）、run 33289128197 が**いまの 2 job 構成**である。どちらも Release は作られていない。**tag で実行した実績がある**（v0.1.0 / v0.1.1 / v0.2.0 / v0.3.0 / v0.4.0。どちらも `--draft` で下書きを作り、人が点検してから公開した）。**M3 当時の空撃ち**（run 33156465235、3 platform とも success）は publish job ごと skip されていた —— **この形は 2026-08-30 に変えた**（上記）ので、いまの空撃ちは Release を作る job 以外を通る | M3 |
 | `ci-lint.yml` | push(main) / PR / 手動 | actionlint / shellcheck / PSScriptAnalyzer / 文書の相対リンク検査の 4 job。**静的に読めば分かる誤りを、CI を 1 周（10〜20 分）回して確かめていた**のを埋める | M3 後 |
 | `codeql.yml` | push(main) / PR / 週 1 / 手動 | C++ と C# の静的解析。sanitizer が「実際に踏んだ経路」を見るのに対し、CodeQL は経路を実行せずに探すので**重なっていない** | M3 後 |
 | `nightly.yml` | 毎日 04:00 UTC / 手動 | 誰も push していない間に壊れることを見つける。Linux 成果物の移植性 / Windows・macOS の速いレーン / OpenCV artifact の期限切れ確認の **3 job 定義**（速いレーンは `lanes` という 2 runner の matrix なので、**実行時は 4 件**になる）。**2026-08-29 から schedule で毎日走っている**（下記） | M3 後 |
@@ -744,7 +744,7 @@ M5 の module 拡張で `objdetect` / `features` / `geometry` / `calib`、そし
 | --- | --- | --- | --- |
 | 1 | ~~**1 つの package に 1 platform 分の binary しか入らない**~~ **M3.5 で解消** | Unity は同じ package ID を 1 つしか導入できない。「エディタは Windows、実機は Android」が表現できなかった | **M3.5 完了**。全部入り tarball（`com.ayutaz.opencv-unity-native.tgz`）が配る正になり、Desktop 3 platform が同居した状態で `test-unity-tarball` が 16 passed |
 | 2 | ~~画像を encode / decode できない~~ **M3.5 で解消** | 比較した競合はいずれも画像の入出力を持つ（そちらはファイル経路まで含む）。**ここに「モジュールはリンク済みで、足りないのは ABI 関数だけ」と書いていたのは誤りで、実際は `imgcodecs` をリンクしていなかった**（下記 M5 節） | **M3.5 完了**（M5 から前倒し）。component を足し、`ocvu_imencode` / `ocvu_imdecode` を出した |
-| 3 | ~~**OpenUPM に載っていない**~~ **解消済み（2026-08-30）** | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **(a) 版番号なしの asset 名・(b) 容量の検査・(c) 登録申請のすべてが済んだ。** openupm/openupm PR #6843 が自動マージされ、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信している（[登録の記録](./openupm-registration.md)）。**配信されている版は `0.3.0` である**（2026-09-04 に確認。下の「配布 その 5」）—— 登録と、新しい版が届くことは別で、`0.2.0` から `0.3.0` へ切り替わるのに公開の約 4 時間を要した |
+| 3 | ~~**OpenUPM に載っていない**~~ **解消済み（2026-08-30）** | OSS の Unity パッケージが探される場所。#1 に加えて asset 名と容量の条件がある | **(a) 版番号なしの asset 名・(b) 容量の検査・(c) 登録申請のすべてが済んだ。** openupm/openupm PR #6843 が自動マージされ、`https://package.openupm.com/com.ayutaz.opencv-unity-native` が配信している（[登録の記録](./openupm-registration.md)）。**配信されている版は、v0.4.0 を公開した直後はまだ `0.3.0` である**（v0.4.0 の公開は 2026-09-12。OpenUPM は自前のビルドキューを持つので反映まで数時間かかり、`0.2.0` から `0.3.0` へ切り替わったときは公開の約 4 時間後だった。**`0.4.0` に切り替わったのを確かめたら、この行をそう直すこと** —— 確かめ方は「配布 その 6」の step 9）—— 登録と、新しい版が届くことは別で、`0.2.0` から `0.3.0` へ切り替わるのに公開の約 4 時間を要した |
 | 4 | 検証している Unity が 1 版だけ | **M3.5 でその 1 版を 6000.0.82f1 → 6000.3.16f1 に載せ替えた**（6000.0 LTS の通常サポートが 2026-10 に終わるため。6.3 LTS は 2027-12 まで）。**版が 1 つしかないこと自体は変わっていない** | **M3.5 完了**（載せ替えのみ。複数版の検証は担当なし） |
 | 5 | ~~カメラ映像を受け取れない~~ **M4 で解消** | `WebCamTextureConverter`（3 overload）が `WebCamTexture` から `CvMat` を作る。**新しい C ABI 関数は 1 本も増えていない** —— 既存の上に立つ純 C# である | **解消済み（2026-08-30）** |
 | 6 | macOS で Unity に読み込ませたことがない | 「iOS のビルドに macOS runner が要るので M4 で自然に埋まる」と書いていたが、**埋まらなかった。** macOS runner は plugin をビルドするだけで Unity を起動しない | **未解消。2026-08-31 に 4 回試して「CI では閉じない」と確定した**（game-ci は macOS を支えず、Hub で直接入れる経路は Editor が 14 分で入るのにライセンスで止まる）。詳細は下の「担当が無かった制約」 |
@@ -1094,7 +1094,7 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
 ので**大きな後退**になる。(c) **明記すれば利用者が判断できる** —— v0.1.0 との違いは
 そこである。あのときは「動く」と暗黙に主張していた。
 
-**実機で動かないと分かったら v0.4.1 を出す。** このリポジトリは一度配ったものを
+**実機で動かないと分かったら v0.3.1 を出す。** このリポジトリは一度配ったものを
 黙って差し替えない（v0.1.1 がそうだった）。
 
 #### やること
@@ -1224,7 +1224,9 @@ linkage 検証も配布物生成も通ったのに、Linux の `.so` は古い�
    `docs/README.md`（Status）、`README.md` と `README.ja.md`（冒頭の Status と
    「導入」の節）、`docs/api-reference.md`（対象範囲）、
    `.github/release-notes.md`（次の版のために「前の版」を繰り上げる）、
-   `docs/openupm-registration.md`（「`0.2.0` を配信している」）、
+   `docs/openupm-registration.md`（**v0.4.0 の時点で版番号を書かない形に直した** ——
+   「配信している」とだけ書く。出すたびにその行だけが古くなるため。
+   **直っているので、次からはここを見る必要が無い**）、
    `docs/unity-opencv-integration-research-and-plan.md`（比較表の前書き。
    **ここは既に古い** —— M6 が抜けている）。
    **もう 1 つある: `docs/m4-device-verification.md`** ——
@@ -1388,6 +1390,126 @@ tag を打ち直した後に OpenUPM がそれを拾い直すかは、**確か�
 - **M4 の残り 4 件を閉じること**（実機 2 件は端末が要り、CI の 2 件は「CI では閉じない」と結論済み）
 - **v0.3.0 の下書きを再利用すること**（M5 前のものなので作り直す）
 
+### 配布 その 6 — v0.4.0（**2026-09-12 に公開した**）
+
+> **公開済み（2026-09-12T17:04:16Z）。** https://github.com/ayutaz/OpenCVUnityNative/releases/tag/v0.4.0
+>
+> **M7 の成果（`dnn` の opt-in profile・低コピー経路・module 分離）と、
+> 2026-09 の API 拡張が、これで初めて利用者に届いた** —— v0.3.0 以来である。
+> **公開している C ABI は 27 本から 57 本になった**（`OCVU_ABI_VERSION` は 1 のまま）。
+
+#### 実測
+
+| 確かめたこと | 結果 |
+| --- | --- |
+| asset | **33 件**（6 platform × 5 + 全部入りの 2 + `SHA256SUMS.txt`）。`sha256sum -c` で 32 件すべて OK |
+| 全部入りの大きさ | **77,530,189 バイト**（v0.3.0 は 69,565,901）。上限 104,857,600 に対して約 1.35 倍の余裕 |
+| 全部入りの中身 | 正本（`$AllPlatformBinaries`）から導いた **6 platform の binary と `.meta` がすべて在る**。`package.json` は `0.4.0`、生成物の `.g.cs` が 10 本（`NativeMethods.Dnn.g.cs` を含む） |
+| Linux の移植性 | `GLIBC<=2.34, GLIBCXX<=3.4.29`（上限 2.35 / 3.4.30） |
+| Android の 16 KB page size | `PT_LOAD 3 件、最小 p_align = 16384`。`.so` は **24,385,832 バイト**で、**strip が配る実物に効いている** |
+| iOS / WebGL の `.a` | どちらも `!<arch>`。**束ねは CI が検証済み**（`iOS arm64 (cross-build)` が 71 個の `cv::` シンボルの解決を確認し、束ねていない archive では 71 個とも未解決になる負の対照つき） |
+| **step 7（実際に導入）** | **`UPM tarball install: 59 passed`** / `resolved from file:../../upm/com.ayutaz.opencv-unity-native.tgz` / `native plugins present: 6 [` / exit 0 |
+| Latest バッジ | 公開直後に `releases/latest` が `v0.4.0` を返した ——**`--draft=false` は `make_latest` を送る**（それまで未検証だった） |
+
+#### この配布で新しく分かったこと
+
+**1. tag を打ち直すより、本文だけ差し替えるほうが強い場合がある。**
+
+step 6 の途中で、本文が「全部入りは 124,102,343 → 77,528,652 バイト」と書いた直後に
+「v0.3.0 の実物は 69,565,901 バイト」と並べているのを見つけた。**前者は strip の効果を
+別ビルドで再現した値、後者は実際に配った asset の値**で、**種類の違う数字を同じ比較の
+中で混ぜていた。** 実物は 77,530,189 だった。
+
+直して tag を打ち直そうとしたが、**監査がそれを覆した**:
+
+- 在る 33 件は**配りたいものそのもの**で、**step 6・7 を既に通してある**
+- 打ち直すと「この版の実物は…バイト」と「**この asset そのもの**で確かめた」が
+  **両方とも偽になる**
+- **native binary はバイト単位で再現しない**ので、測り直し → 本文修正 → 再 tag の
+  **無限ループ**が起こりうる
+- 代償は `blob/v0.4.0/.github/release-notes.md`（tag 側の写し）と公開本文が
+  食い違うことだけで、**本文はそのファイルへリンクしていない**
+
+**`gh release edit v0.4.0 --notes-file .github/release-notes.md` で足りた。**
+手順書の「tag を打ち直すときの順序」に、この判断の分岐を書いてある。
+
+**2. 手順のコマンドに版を直書きすると、無音で前の版を検証して緑になる。**
+
+step 7 のコマンドは `gh release download v0.3.0 ...` のままだった。**そのまま
+実行しても落ちない** —— 全部入りの asset 名には**版番号が入っていない**ので
+（OpenUPM が安定した接頭辞で選ぶため）、前の版の asset も同じ名前である。前の版は
+公開済みで現存し、中には全 platform が揃っているので `native plugins present: 6` まで
+通って **exit 0 になる。** `dev.ps1 test-unity-tarball` は package の version を
+照合しない。**完全に無音の偽合格である。**
+
+手順に `grep '"version"' <out>/package/package.json` を足した ——
+**「前の版を検証して合格した」と「この版を検証して合格した」を見分ける唯一の手段**である。
+
+**3. リリースノートの検証が、この作業で最も価値があった。CI は本文を 1 文字も検査しない。**
+
+ultracode で 10 agent の監査を回し、別セッションの調査 7 件と合わせて、
+**本文の誤りを 13 件直した。** うち利用者に直接効いたもの:
+
+- **PNG の ARM 加速喪失が 1 文字も書かれていなかった**（`-DPNG_ARM_NEON=off` は
+  M7c で arm64 3 platform に入り v0.3.0 には無い）。**`README` 自身が「`dnn` を
+  使うかどうかに関わらず `CvCodecs` を使う利用者全員に影響する」と書いていた**のに、
+  本文の PNG の話は「Web にだけ在る制限」だけで、**読者を「PNG の話は Web だけ」と
+  積極的に誤解させる形**だった
+- **存在しない API 名**（`CvGeometry.GetPerspectiveTransform`。実物は `CvOps`）
+- **`CvOps` の本数が 8 と 9 で自己矛盾**
+- **`checksums.txt` は展開先の root では 6 件とも失敗する**（各行が `package/` からの
+  相対パス。監査が実際に走らせて確かめた）
+- **OpenUPM は Release より数時間遅れ、それまで `openupm add` は 1 つ前の版を入れる**
+  （エラーにならない。**この版は差が大きいので「本文に書いてある `CvDnn` が
+  見当たらない」という形で踏む**）
+- **Scripting Define Symbols は build target ごと**（エディタの platform にだけ
+  足すと Android のビルドで消える）
+
+**4. `state=3` を「失敗」と読まない、の 2 例目。**
+
+公開直後に OpenUPM の pipeline を見ると `state=3` / `reason=904`（asset が無い）
+だったが、**最後の probe は 2026-09-12T15:50:02Z、公開は 17:04:16Z** で、
+**74 分前の記録**だった。v0.3.0 のときと同じ形である。
+
+#### 完了条件
+
+- [x] **tag から `release.yml` が 6 platform 分と全部入りを作り、draft で止まる**
+- [x] **draft の asset を実物で検証する**（上の表）
+- [x] **配る tarball を、実際に Unity へ導入して確かめる**（step 7。
+      **draft の asset そのものを落として材料にした** —— `test-unity-tarball` は
+      必ず固め直すので、確かめられたのは「同じ配線が作った同じ中身の tarball が
+      導入できる」ところまでである）
+- [x] **リリースノートに、この版で増えたものと、確かめていないことが書いてある**
+- [x] **PNG の退行を利用者向けに明記する**（arm64 3 platform。**`README` にしか
+      書かれておらず、リリースノートから落ちていた**）
+- [x] **公開する**（2026-09-12T17:04:16Z。Latest バッジも移った）
+- [x] **OpenUPM が `0.4.0` を配信する。2026-09-12T17:17:31Z に確認した:**
+      `dist-tags.latest = 0.4.0`、pipeline は `state=2`（公開済み）/ `reason=0` /
+      `commit=6713e51`。**公開（17:04:16Z）から 13 分である。**
+
+      **v0.3.0 のときは約 4 時間かかったので、待ち時間は版によって大きく違う。**
+      **「前の版が 4 時間だったから今回も」と見積もらないこと。**
+
+      **懸念が 1 つあり、実測で解けた。** v0.3.0 は**打ち直して commit が変わった**
+      ことで拾い直された経路だったが、今回は本文だけ差し替えたので
+      **`commit` は `6713e51` のまま**だった。**commit が変わらないまま拾い直すかは
+      確かめるまで分からなかったが、拾い直した** —— OpenUPM の probe は
+      commit ではなく **asset の有無**を見ている（`reason=904` は「asset が無い」で、
+      公開した瞬間にそれが解消した）。
+
+      **経過も残しておく。** 公開の 11 分後（17:15:05Z）に `state=3 → 1`（ビルド待ち）、
+      その 2 分後（17:17:31Z）に `state=2`。**`state=3` を見た時点で諦めなくてよい**
+      ——下の「`state=3` を『失敗』と読まない」を参照。
+- [x] 公開後に「最新の公開版」の記述を更新する（**やること 10 の一覧に
+      `docs/m4-device-verification.md` を足して 10 ファイルにした**）
+
+#### 非ゴール
+
+- **実機検証**（2026-09-01 に「やらない」と決めた。この配布でも覆していない ——
+  **`dnn` は実機で 1 度も動かさないまま配った**）
+- **M4 の残り 3 件を閉じること**
+- **Player 側の GPU 経路**（game-ci が `-nographics` を action の中で固定している）
+
 ### OpenUPM への登録（条件 4 (c)）
 
 **openupm/openupm PR #6843 として提出し、自動マージされた**（2026-08-30。`Data validation`
@@ -1550,7 +1672,7 @@ Android arm64-v8a と iOS arm64 で実機 smoke test が通る。
 - **実機は事実上すべて arm64-v8a である。** x86_64 が要るのはエミュレータでの
   開発中だけで、配る成果物の対象ではない
 - **含めると全部入りが大きくなる。** OpenCV を静的リンクした `.so` が 1 つ増える
-  ぶん、OpenUPM の 512 MB 上限に対する余裕が減る（**3 platform 時点の実測で 9.6 MB。その後 platform が増えたが測り直していない**。**モバイルを
+  ぶん、OpenUPM の 512 MB 上限に対する余裕が減る（**3 platform 時点の実測は 9.6 MB だった。その後 6 platform になってから測り直してあり、いまの値は「配布 その 6」の検証表が持つ**。**モバイルを
   足した後の実測は下の表に入れる**）
 - **エミュレータでの開発を止めるわけではない。** 利用者が自分でビルドする経路は
   残る —— `tools/opencv-config.psd1` の `Toolchains` に `android-x64` を足し、
@@ -1979,8 +2101,7 @@ Emscripten は既定で C++ 例外を無効にするので、`throw` は残る�
 **次にやることは配ることである**（「配布 その 5」）。
 
 → **2026-09-04 に v0.3.0 として配った**（「配布 その 5」）。M4 / M5 / M6 の成果は
-これで届き、この懸念は解消した。**同じ形は M7 で戻ってきている** —— **M7 の成果
-（`dnn` を含む）はまだどの公開版にも入っていない。**
+これで届き、この懸念は解消した。**同じ形が M7 で戻ってきていたが、2026-09-12 に v0.4.0 として配って解消した**（「配布 その 6」）—— M7 の成果（`dnn` を含む）と 2026-09 の API 拡張は、これで利用者に届いた。
 
 ---
 
@@ -2198,7 +2319,7 @@ M3.5 節を参照）、`ocvu_imencode` / `ocvu_imdecode` を出した。ここ�
    - **大きさ（ライセンスより先に効く）。** **実測（2026-08-30、PyPI の
      `nvidia-cudnn-cu12` 9.25.1.1）: 1 platform あたり 698〜772 MB**（win_amd64 698.4 /
      manylinux x86_64 716.4 / aarch64 772.1）。`tools/pack-upm-tarball.ps1` の上限は
-     **512 MB** で、全部入りは **69,565,901 バイト（66 MB。v0.3.0 の実物の release asset、
+     **512 MB** で、全部入りは **約 74 MB（v0.4.0 の実物の release asset、6 platform。**正確なバイト数は「配布 その 6」の検証表が持つ** —— ビルドごとに数十バイト動くので、ここには丸めた値だけを置く。v0.3.0 の同じ asset は 69,565,901 バイト = 66 MB だった）**である。**1 platform 分だけで既に上限を超える** ——
      6 platform、2026-09-06 に実測し直した ——「3 platform 時点の実測で 9.6 MB」は
      platform が増えて古くなっていた数字だった）**である。**1 platform 分だけで既に上限を超える** ——
      ライセンスが解決しても、いまの形では配れない。同梱するのか、利用者側での導入を
@@ -2940,15 +3061,20 @@ M0 ハーネス ──> M1 OpenCV ビルド ──> M2 Windows slice ──> M3 
                                                               v
                                                         M7 profiles
                      （5 件すべて達成。判定は M7a / M7b / CUDA / M7c の 4 節に分かれ、
-                      索引は「M7 の判定」。M7 が最後のマイルストーンで、後続は無い。
-                      成果はまだどの公開版にも入っていない）
+                      索引は「M7 の判定」。M7 が最後のマイルストーンで、後続は無い）
+                                                              |
+                                                              v
+                                                       配布 v0.4.0
+                     （2026-09 の API 拡張と M7 の成果を届けた。2026-09-12 に公開。
+                      「配布 その 6」を参照）
 ```
 
 **配布はマイルストーンではないが、マイルストーンの間に必ず挟まる。** M3 が v0.1.0 /
 v0.1.1、M3.5 が v0.2.0、そして **M4 / M5 / M6 の成果をまとめた v0.3.0 を
 2026-09-04 に公開した**（「配布 その 5」を参照。**その前に作った下書きは
 M5 が main に入る前のもので、破棄して打ち直した** ——「配布 その 4」）。
-**この段が計画のどこにも書かれていなかったので、上の図と「配布 その 5」の節に足した。**
+**その後、2026-09 の API 拡張と M7 の成果をまとめた v0.4.0 を 2026-09-12 に公開した**（「配布 その 6」を参照。**draft を作った後にリリースノートの数字を 1 件直したので、tag を打ち直してから公開している**）。
+**この段が計画のどこにも書かれていなかったので、上の図と「配布 その 5」「配布 その 6」の節に足した。**
 
 **API 拡張（A〜F）も同じ位置づけである** —— マイルストーンではないが、
 M6 と M7 の間に挟まる。**26 本を 4 つの計画に分けて出す**もので、

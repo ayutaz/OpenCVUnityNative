@@ -4,7 +4,7 @@ OpenCV 5 を、このプロジェクトが所有する C ABI 越しに Unity へ
 
 [English](README.md)
 
-> **現状: 公開済みの最新版は v0.3.0 です（2026-09-04）。リポジトリはその先へ大きく進んでいます。** 以下はその公開版ではなく、リポジトリの説明です。**v0.3.0 は tag `03a4557` で、2026-09 の API 拡張よりも M7 よりも前の版です** —— 差は「いくつかの機能」ではなく、それ以降に入った全部です。両端とも生成物から取れる唯一の数字を挙げると、`docs/api-map.md` は **v0.3.0 で公開 C ABI 27 本、ここでは 57 本**と書いています。C# 側では `CvAruco` / `CvCoreOps` / `CvStereo` / `CvDnn` / `RenderTextureConverter` がその tag には存在しないので、v0.3.0 に対して `OCVU_PROFILE_DNN` を立ててもその先には何もありません。**実際に配られたものの正本は[ロードマップ](docs/roadmap.md)の「配布」の節であって、この段落ではありません。** **6 platform を配る最初の版**であり（Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)）、**生成される binding 層とカメラ校正を含む最初の版**でもあります。どの platform も CI がビルド・テスト・パッケージ化し、Unity 自身が Mono（EditMode）・実物の IL2CPP Player・headless のブラウザでプラグインを動かしています。**正直な限界を先に書きます。** **Android と iOS は実機で一度も動かしていません** —— CI はクロスコンパイルして成果物を検査しますが、どの端末もこの binary を読み込んだことがありません。**Web には PNG がありません**（`imgcodecs` は JPEG のみ。下記）。動かしたブラウザも Linux の headless Chromium 1 つだけです。**macOS 上で Unity を起動したこともありません**（`.meta` の解釈は他の OS の Unity に問うて確認済みです）。**公開している C ABI は意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP・platform の振り分けを正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
+> **現状: 公開済みの最新版は v0.4.0 です（2026-09-12）。** 以下は、tag を打った後に直した文書を除けば、そのまま公開版の説明でもあります。**v0.4.0 は、2026-09 の API 拡張と M7 の成果を初めて配る版です。** 両端とも生成物から取れる唯一の数字を挙げると、`docs/api-map.md` は **v0.3.0 で公開 C ABI 27 本、v0.4.0 で 57 本**と数えています。C# 側の `CvAruco` / `CvCoreOps` / `CvStereo` / `CvDnn` / `RenderTextureConverter` は v0.3.0 には 1 つも存在せず、**いま落とせるパッケージに入っています**。まだ v0.3.0 を使っているなら、そこで `OCVU_PROFILE_DNN` を立ててもその先には何もありません。**実際に配られたものの正本は[ロードマップ](docs/roadmap.md)の「配布」の節であって、この段落ではありません。** **6 platform**（Windows x64 / macOS arm64 / Linux x64 / Android arm64-v8a / iOS arm64 / Web (WebGL)）を配り、**ONNX 推論（`dnn`、opt-in）・ArUco・姿勢推定・ステレオ視差・`RenderTexture` 連携を含む最初の版**です（6 platform・生成される binding 層・カメラ校正は v0.3.0 から入っています）。どの platform も CI がビルド・テスト・パッケージ化し、Unity 自身が Mono（EditMode）・実物の IL2CPP Player・headless のブラウザでプラグインを動かしています。**正直な限界を先に書きます。** **Android と iOS は実機で一度も動かしていません** —— CI はクロスコンパイルして成果物を検査しますが、どの端末もこの binary を読み込んだことがありません。**Web には PNG がありません**（`imgcodecs` は JPEG のみ。下記）。動かしたブラウザも Linux の headless Chromium 1 つだけです。**macOS 上で Unity を起動したこともありません**（`.meta` の解釈は他の OS の Unity に問うて確認済みです）。**`dnn` も実機で一度も動かしておらず、推論の速さも測っていません。** **v0.4.0 で悪くなった点が 2 つあるので、上げる前に知っておいてください**: **PNG が Android・iOS・macOS arm64 で ARM 加速を失ったこと**（下の「対応 platform」）と、**Android の `.so` からシンボル表を落として配るようになったこと** —— 後者のため、実機で native crash が起きても関数名を復元できません（symbolicate 用の debug package はどこにも出していません）。**公開している C ABI は意図的に狭くしてあります** —— 面積を覆うことではなく、所有権・stride・エラー処理・IL2CPP・platform の振り分けを正しくすることを目的にしているからです。**Linux では v0.1.1 以降を使ってください** —— v0.1.0 の Linux プラグインは glibc 2.38 を要求し、Ubuntu 22.04 では読み込めませんでした。
 
 ## これは何か
 
@@ -28,7 +28,7 @@ OpenCV のアルゴリズムを実装し直すこと。OpenCV の API 全面を�
 
 macOS のプラグインはパッケージに入っており、Unity 自身が Plugin Import Settings を読むところまでは確かめてあります —— EditMode のテストが、全 platform の binary を置いた状態で Unity の `PluginImporter` に「その `.meta` をどう解釈したか」を問います。**ただし macOS のライブラリは一度も読み込まれておらず、macOS 上で Unity を起動したこともありません。** あの platform は「ビルドされ、gating されている」であって「動かした」ではないと考えてください。
 
-**配っているが、実機で一度も動かしていないもの**: Android arm64-v8a と iOS arm64。CI は両方をクロスコンパイルし、Android の `.so` については**実物の ELF program header を読んで** 16 KB page 整列を確かめ、iOS の `.a` については**このプラグインが参照する OpenCV のシンボルを実際に束ねているか**を確かめます。**しかしそれは、電話機の上で動かすこととは別です。** Android / iOS のどの端末も、これらの binary を読み込んだことがありません。**v0.3.0 に入っているので、いま利用者に届いています。**[実機検証の手順](docs/m4-device-verification.md)を誰かが実施するまでは未検証として扱ってください。
+**配っているが、実機で一度も動かしていないもの**: Android arm64-v8a と iOS arm64。CI は両方をクロスコンパイルし、Android の `.so` については**実物の ELF program header を読んで** 16 KB page 整列を確かめ、iOS の `.a` については**このプラグインが参照する OpenCV のシンボルを実際に束ねているか**を確かめます。**しかしそれは、電話機の上で動かすこととは別です。** Android / iOS のどの端末も、これらの binary を読み込んだことがありません。**v0.3.0 から配っており、v0.4.0 にも入っているので、いま利用者に届いています。**[実機検証の手順](docs/m4-device-verification.md)を誰かが実施するまでは未検証として扱ってください。
 
 **Web / Wasm はリポジトリに入っており、実際にブラウザで動きます** —— headless の
 Chromium が本物の WebGL Player を読み込み、EditMode と IL2CPP Player が走らせるのと
@@ -41,7 +41,7 @@ encode / decode の検査が PNG ではなく JPEG を使うので、**画素の
 どちらの極端も通らないので、Web のビルドでは PNG を外してあります。
 **他の 5 platform は PNG / JPEG の両方を扱えます。**
 
-**PNG のデコードは Android・iOS・macOS でも ARM 加速を失っています**（Web だけではありません）。**これは v0.3.0 には入っておらず、次の版から効きます。** 上流の OpenCV 5.0.0 の欠陥を回避するため、この 3 つの arm64 platform で `PNG_ARM_NEON` を切る必要があり、これはアセンブリで書かれたカーネルと NEON intrinsics の経路を両方とも落とします —— 同じビルドスイッチを共有しているためです。`dnn` を使うかどうかに関わらず、これらの platform で `CvCodecs` を使う利用者全員に影響します。理由の詳細は[ロードマップ](docs/roadmap.md)にあります。
+**PNG のデコードは Android・iOS・macOS でも ARM 加速を失っています**（Web だけではありません）。**これは v0.4.0 から効きます**（v0.3.0 以前には入っていません）。 上流の OpenCV 5.0.0 の欠陥を回避するため、この 3 つの arm64 platform で `PNG_ARM_NEON` を切る必要があり、これはアセンブリで書かれたカーネルと NEON intrinsics の経路を両方とも落とします —— 同じビルドスイッチを共有しているためです。`dnn` を使うかどうかに関わらず、これらの platform で `CvCodecs` を使う利用者全員に影響します。理由の詳細は[ロードマップ](docs/roadmap.md)にあります。
 
 全体を通して Unity 6000.3 以降が必要です。
 
@@ -49,7 +49,7 @@ encode / decode の検査が PNG ではなく JPEG を使うので、**画素の
 
 リリースは [github.com/ayutaz/OpenCVUnityNative/releases](https://github.com/ayutaz/OpenCVUnityNative/releases) にあります。
 
-**公開済みの版（v0.3.0）は 6 platform 分を運びます**: `Mat` のライフサイクル、`cvtColor` / `resize` / `GaussianBlur`、メモリ上の byte 配列との画像 encode / decode、QR コードの符号化・復号、ORB の特徴点、射影変換の推定、そして単眼カメラ校正の 3 段です。**この ABI はファイルパスを一切受け取りません** —— byte buffer だけです。これは意図したもので、Android の APK に入った `StreamingAssets` のファイルには開けるパスが存在せず、境界を越えるパスは Windows の文字コードの問題を引きずり込むためです。
+**公開済みの版（v0.4.0）は 6 platform 分を運びます**: `Mat` のライフサイクル、`cvtColor` / `resize` / `GaussianBlur` と広がった画像処理（2 値化・Canny・モルフォロジー・射影変換とその適用・テンプレート照合・輪郭抽出・確率的 Hough 直線・コーナーの副画素精度化）、基本演算、メモリ上の byte 配列との画像 encode / decode、QR コードの符号化・復号、ArUco マーカー、ORB の特徴点と記述子の照合、射影変換の推定、姿勢推定、単眼カメラ校正の 3 段、ステレオの視差、そして `OCVU_PROFILE_DNN` を立てたときだけ現れる ONNX の推論です。**この ABI はファイルパスを一切受け取りません** —— byte buffer だけです。これは意図したもので、Android の APK に入った `StreamingAssets` のファイルには開けるパスが存在せず、境界を越えるパスは Windows の文字コードの問題を引きずり込むためです。
 
 全体像と**意図的に出していないもの**は [API リファレンス](docs/api-reference.md)に、本数そのものは [API 対応表](docs/api-map.md)の冒頭にあります。
 
@@ -120,8 +120,7 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 
 ### 追加 profile: dnn
 
-**v0.3.0 には入っていません。次の版から配られます。** v0.3.0 に対して
-`OCVU_PROFILE_DNN` を立てても、その先には何もありません。
+**v0.4.0 で入りました。** v0.3.0 以前に対して `OCVU_PROFILE_DNN` を立てても、その先には何もありません。
 
 native binary には OpenCV の `dnn` module（ONNX の読み込み、blob 化、forward 推論）が
 **常に**入っています —— profile ごとに別 binary へ分けてはいません。理由は、6 platform
@@ -242,7 +241,7 @@ CI は Unity のレーン以外、すべて同じ `tools/dev.ps1` を呼びま�
 
 **この 4 つのうち 3 つ（`Graphics` レーン・tarball 導入の job・benchmark の job）は必須ではありません。赤くなっても merge は止まりません。** 残る 1 つ `Web browser E2E` は**必須です** —— 2026-09-10 に昇格しました。この食い違いこそが、上の段落で「CI が走らせている」と「CI が止める」を分けて書いている理由です。
 
-**`RenderTexture` の公開 API のうち、GPU が要る側は Editor でだけ実行されるようになりました。** `RenderTextureConverter.ToMat` と `RequestMat` は、パッケージに入る公開 API です（**次の版から**。上の「現状」）。2026-09-11 までは、実際に画素を運ぶ経路は CI で 1 度も実行されていませんでした —— **できないと考えられていたから**です。CI の Unity レーンはどれも `-nographics` で走ると思われており、その下では `RenderTexture` の生成は成功するのに読み出した画素が塗った色になりません。**しかしその前提は 1 度も測られていませんでした。** GameCI の Linux エディタコンテナは Unity を `xvfb` の下で、**`-nographics` を付けずに**起動します。そこで `Graphics` レーンを足したところ、本物の経路が通りました —— `AsyncGPUReadback` の側も含めてです。**IL2CPP の Player は別で、いまも覆われていません**: GameCI は standalone Player を action の中から `-nographics` で起動しており、そこはこちらから変えられません。引数の検証はどのレーンでも通っています（`ToMat(null)` を拒むこと）。通っていないのは Player 側の GPU の経路です。**必須でない `Graphics` レーンにしか居ないテスト**の一覧は `tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が名指しで固定しているので、増えるときは意図して増やすことになります。
+**`RenderTexture` の公開 API のうち、GPU が要る側は Editor でだけ実行されるようになりました。** `RenderTextureConverter.ToMat` と `RequestMat` は、パッケージに入る公開 API です（**v0.4.0 から**。上の「現状」）。2026-09-11 までは、実際に画素を運ぶ経路は CI で 1 度も実行されていませんでした —— **できないと考えられていたから**です。CI の Unity レーンはどれも `-nographics` で走ると思われており、その下では `RenderTexture` の生成は成功するのに読み出した画素が塗った色になりません。**しかしその前提は 1 度も測られていませんでした。** GameCI の Linux エディタコンテナは Unity を `xvfb` の下で、**`-nographics` を付けずに**起動します。そこで `Graphics` レーンを足したところ、本物の経路が通りました —— `AsyncGPUReadback` の側も含めてです。**IL2CPP の Player は別で、いまも覆われていません**: GameCI は standalone Player を action の中から `-nographics` で起動しており、そこはこちらから変えられません。引数の検証はどのレーンでも通っています（`ToMat(null)` を拒むこと）。通っていないのは Player 側の GPU の経路です。**必須でない `Graphics` レーンにしか居ないテスト**の一覧は `tests/UnityProject/Assets/Tests/EditMode/CiVisibilityTests.cs` が名指しで固定しているので、増えるときは意図して増やすことになります。
 
 Unity のレーンは Linux で走り、Windows の IL2CPP Player はローカルのレーンだけが担います。**これはいまや推測ではなく実測に基づく結論です。** 以前ここに書いてあった理由は、実際には別の action と別のイメージ系統についての上流 issue を挙げていました。2026-08-31 に `windows-2022` で実際に試したところ、**EditMode は動いて 33 件通りました。Standalone は動きませんでした** —— IL2CPP は C++ を生成し、GameCI の Windows コンテナにはそれをコンパイルする MSVC が無いため、`ToolchainNotFoundException` でビルドが落ちます。**したがって Windows 固有の IL2CPP の欠陥は、見落としではなく設計上 CI に映りません。** macOS は同じ時期に 4 回試し、さらに手前で失敗します —— GameCI は darwin を支えず、エディタを直接入れる経路はライセンスが「entitlement 0 件」を返すところで止まります。ロードマップに両方の試行が記録されています。
 
