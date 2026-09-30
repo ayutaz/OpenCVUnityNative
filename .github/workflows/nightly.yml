@@ -220,7 +220,15 @@ jobs:
               $hash = Get-OpenCvConfigHash -Config $config
               $name = "opencv-$($config.Tag)-$platform-$hash"
 
-              $found = & gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts?per_page=100" `
+              # **名前で絞り込んで引く。** 以前は `?per_page=100` だけで
+              # リポジトリ全体の artifact 一覧の先頭 100 件（新しい順）を
+              # 見ていたので、test-results 等が 100 件を超えて積もると、
+              # expired=false の OpenCV artifact（保持 90 日）が 1 ページ目から
+              # 押し出され「gone or expired」と誤報していた（2026-09 に毎晩
+              # 赤くなっていた。6 件とも expires_at は 2026-12-11 だった）。
+              # `tools/opencv.ps1 restore` と同じ引き方にそろえる。
+              $encodedName = [uri]::EscapeDataString($name)
+              $found = & gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts?name=$encodedName&per_page=100" `
                           --jq ".artifacts[] | select(.name == `"$name`" and .expired == false) | .name" 2>$null |
                        Select-Object -First 1
               if ($found) {
